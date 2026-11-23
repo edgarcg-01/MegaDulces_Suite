@@ -9,6 +9,7 @@ import {
   deviceUsers,
   lastDateByCode,
   latestLocal,
+  limiteLocalFuturo,
   normalizePunches,
   normalizeSource,
 } from './ingest-batch';
@@ -44,6 +45,8 @@ export interface IngestResult {
   aceptadas: number;
   duplicadas: number;
   rechazadas: number;
+  /** `[RH.15.4]` De las rechazadas, las de más de un día en el futuro (reloj con la fecha mal puesta). */
+  futuras?: number;
   loteId: string | null;
   siguienteBackfillMin: number;
   mensaje?: string;
@@ -111,6 +114,20 @@ export class HrAttendanceIngestService {
 
   constructor(private readonly tk: TenantKnexService) {}
 
+  /**
+   * `[RH.15.4]` ¿Existe `hr.attendance_logs.clock_drift_seconds`? Se pregunta una vez por proceso. Sin la migración, las
+   * checadas entran SIN el desfase: un INSERT que nombra una columna inexistente tiraría la ingesta de los 12 relojes.
+   * Sólo se recuerda el «sí»: un «no» se vuelve a preguntar, para que la columna se use en cuanto se aplique.
+   */
+  private hayDesfase = false;
+  private async columnaDesfase(trx: Knex.Transaction): Promise<boolean> {
+    if (this.hayDesfase) return true;
+    const r = await trx.raw(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'hr'
+      AND table_name = 'attendance_logs' AND column_name = 'clock_drift_seconds') AS hay`);
+    this.hayDesfase = !!r.rows?.[0]?.hay;
+    return this.hayDesfase;
+  }
+
   private tenantId(): string {
     return tenantDeMaquina();
   }
@@ -169,11 +186,18 @@ export class HrAttendanceIngestService {
         mensaje: `El reloj ${serial} está en pausa: el lote se guardó pero no se aplicó.` };
     }
 
-    const { rows, rejected } = normalizePunches(incoming);
+    const { rows, rejected, futuras } = normalizePunches(incoming, { limiteLocal: limiteLocalFuturo(new Date(), device.timezone || 'America/Mexico_City') });
     base.rechazadas = rejected;
+    if (futuras) {
+      base.futuras = futuras;
+      this.logger.warn(`reloj ${serial}: ${futuras} checada(s) con más de un día en el futuro se rechazaron: revisa la fecha del reloj`);
+    }
+    // `[RH.15.4]` El desfase del reloj AL ENTREGAR este lote, guardado en cada checada. En un reproceso el lote es viejo y
+    // su hora ya no dice nada del reloj de ahora: se guarda null (no medido), no un número inventado.
+    const desfase = guardarLote ? clockDriftSeconds((batch.infoReloj || {}).horaReloj, new Date()) : null;
     await this.upsertEnrollments(trx, tenant, device.id, deviceUsers(batch.usuarios), rows);
     const reaparecidos = await this.flagReappearances(trx, tenant, device.id, rows);
-    const aceptadas = await this.insertPunches(trx, tenant, device, source, rows);
+    const aceptadas = await this.insertPunches(trx, tenant, device, source, rows, desfase);
     // En el reproceso el lote es VIEJO: no es señal de vida del reloj, así que no toca su latido.
     if (guardarLote) await this.touch(trx, tenant, device, batch, latestLocal(rows));
     const loteId = guardarLote
@@ -384,11 +408,13 @@ export class HrAttendanceIngestService {
    */
   private async insertPunches(
     trx: Knex.Transaction, tenant: string, device: DeviceRow, source: string, rows: NormalizedPunch[],
+    desfase: number | null = null,
   ): Promise<number> {
     const unknown = device.site_code
       ? await trx('hr.attendance_devices').where({ serial_number: `${PREFIJO_RELOJ_DESCONOCIDO}${device.site_code}` })
         .first<{ id: string; timezone: string } | undefined>('id', 'timezone')
       : undefined;
+    const conDesfase = await this.columnaDesfase(trx);
     let accepted = 0;
     for (let i = 0; i < rows.length; i += CHUNK) {
       const chunk = rows.slice(i, i + CHUNK).map((r) => ({ code: r.code, local: r.local, ptype: r.punchType, vmode: r.verifyMode }));
@@ -396,9 +422,9 @@ export class HrAttendanceIngestService {
       // que en el servidor es UTC: así se corrían seis horas en Mega Talento).
       const res = await trx.raw(
         `INSERT INTO hr.attendance_logs
-           (tenant_id, device_id, device_user_id, punched_at, punched_local, punch_type, verify_mode, source, user_id)
+           (tenant_id, device_id, device_user_id, punched_at, punched_local, punch_type, verify_mode, source, user_id${conDesfase ? ', clock_drift_seconds' : ''})
          SELECT ?::uuid, ?::uuid, v.code, (v.local::timestamp AT TIME ZONE ?), v.local::timestamp,
-                v.ptype::smallint, v.vmode::smallint, ?, e.user_id
+                v.ptype::smallint, v.vmode::smallint, ?, e.user_id${conDesfase ? ', ?::int' : ''}
            FROM jsonb_to_recordset(?::jsonb) AS v(code text, local text, ptype int, vmode int)
            LEFT JOIN hr.device_enrollments e
              ON e.tenant_id = ?::uuid AND e.device_id = ?::uuid AND e.device_user_id = v.code
@@ -409,7 +435,7 @@ export class HrAttendanceIngestService {
                AND h.punched_at = (v.local::timestamp AT TIME ZONE ?)
                AND h.punched_local = v.local::timestamp)
          ON CONFLICT (tenant_id, device_id, device_user_id, punched_at) DO NOTHING`,
-        [tenant, device.id, device.timezone, source, JSON.stringify(chunk), tenant, device.id,
+        [tenant, device.id, device.timezone, source, ...(conDesfase ? [desfase] : []), JSON.stringify(chunk), tenant, device.id,
           unknown?.id ?? null, tenant, unknown?.id ?? null, unknown?.timezone ?? device.timezone],
       );
       accepted += res.rowCount || 0;

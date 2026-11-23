@@ -88,7 +88,8 @@ class Enviador {
    *     El dato NO se perdió; falta que RH dé de alta el reloj. Reintentar solo
    *     duplicaría filas en esa tabla hasta llenarla.
    *   · 202 reloj en pausa → igual: aceptado, guardado, no aplicado a propósito.
-   *   · 401 token inválido → reintentar no lo arregla; hay que corregir config.
+   *   · 401/403 token inválido → SÍ se reintenta (`[RH.15.3]`): la API no guardó nada, y confirmarlo perdía
+   *     las checadas. Reintentar no arregla la llave, pero conserva el dato hasta que alguien la corrija.
    */
   async enviarLote(lote) {
     const cuerpo = { ...lote, agenteVersion: `agente ${VERSION}`, agenteHost: this.host };
@@ -107,9 +108,14 @@ class Enviador {
       throw new ErrorEnvio(json?.mensaje || `serie ${lote.serie} sin registrar en el padrón`,
         { status: 409, reintentable: false, cuerpo: json });
     }
+    // `[RH.15.3]` 401/403 SÍ se reintentan. Antes se marcaban «no reintentable» y `reloj.js` daba el lote por
+    // enviado, pero la API NUNCA lo recibió (la llave se revisa antes de guardar nada): esas checadas se perdían. Ahora
+    // se quedan en la cola, con la espera creciente (hasta 5 min), hasta que alguien corrija la llave. Sólo el 409
+    // se confirma, porque ahí la API sí archivó el lote crudo.
     if (res.status === 401 || res.status === 403) {
-      throw new ErrorEnvio('token de agente rechazado por la API — revisa HR_INGEST_KEY (el del secreto, igual al de la API)',
-        { status: res.status, reintentable: false });
+      throw new ErrorEnvio('token de agente rechazado por la API — revisa HR_INGEST_KEY (el del secreto, igual al de la API). ' +
+        'Las checadas siguen en la cola: se mandan solas cuando la llave sea la correcta.',
+        { status: res.status, reintentable: true });
     }
     throw new ErrorEnvio(`la API contestó ${res.status}: ${txt.slice(0, 200)}`, { status: res.status });
   }

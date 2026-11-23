@@ -40,7 +40,11 @@ export interface HrPersonaDirectorioDto {
 
 // ── Asistencia por persona ───────────────────────────────────────────────────────────────
 
-export const HR_ESTADOS_DIA = ['a_tiempo', 'absorbido', 'retardo', 'falta', 'descanso', 'marca_faltante', 'justificado'] as const;
+/**
+ * `[RH.15.2]` `sin_dato`: un día laborable sin checadas de NADIE de la plaza. No se distingue un reloj caído de una
+ * falta, así que no se cuenta como falta (LFT 805: un registro que inventa faltas pierde valor como prueba).
+ */
+export const HR_ESTADOS_DIA = ['a_tiempo', 'absorbido', 'retardo', 'falta', 'descanso', 'marca_faltante', 'justificado', 'sin_dato'] as const;
 export type HrEstadoDia = (typeof HR_ESTADOS_DIA)[number];
 
 export type HrTipoHorario = 'fijo' | 'rotativo' | 'sin_patron' | 'sin_datos';
@@ -123,6 +127,12 @@ export interface HrSemanaAsistencia {
   bolsaAgotada: boolean;
   dias: HrDiaAsistencia[];
   minutosTrabajados: number;
+  /**
+   * `[RH.15.10]` La semana contra la LEY (LFT 59/66/68 y transitorios del DOF 1-may-2026), no contra su horario:
+   * jornada máxima del año, tope de horas extra, cuánto se pasó y cuánto de eso se paga al triple. Opcional: una API
+   * anterior no lo manda.
+   */
+  legal?: { anio: number; jornadaMaxMin: number; extraMaxMin: number; excedenteMin: number; triplesMin: number };
 }
 
 /** Un horario de lunes a viernes: entrada, salida y comida. */
@@ -178,6 +188,8 @@ export interface HrPersonaAsistencia {
   diasEvaluados: number;
   faltas: number;
   faltasJustificadas: number;
+  /** `[RH.15.2]` Días laborables sin checadas de nadie de la plaza: no cuentan como falta. Opcional: una API anterior no lo manda. */
+  diasSinDato?: number;
   diasNoMedibles: number;
   diasAtipicos: number;
   horasTrabajadas: number;
@@ -234,6 +246,8 @@ export interface HrAsistenciaResponse {
     absorbidoMin: number;
     faltas: number;
     faltasJustificadas: number;
+    /** `[RH.15.2]` Ver `diasSinDato` de la persona. */
+    diasSinDato?: number;
     diasNoMedibles: number;
     horasTrabajadas: number;
     desayunoExcesoMin: number;
@@ -850,4 +864,247 @@ export interface HrPersonaBuscadaDto {
   nombre: string;
   status: string | null;
   warehouse_code: string | null;
+}
+
+// ── `[RH.15.5]` La firma de la semana (LFT 132-XXXIV: el registro hace prueba plena si se acredita el acuerdo) ──
+
+/** Una hoja firmada: un departamento, las personas que firmaron y el jefe de área. */
+export interface HrFirmaSemanaDto {
+  id: string;
+  department: string;
+  person_codes: string[];
+  jefe_nombre: string;
+  file_name: string | null;
+  file_type: string | null;
+  notes: string | null;
+  created_at: string;
+  created_by_name: string | null;
+  /** Firmó la versión de la semana que está cerrada hoy. `false` = la semana se reabrió y cambió: hay que volver a firmar. */
+  vigente: boolean;
+  voided_at: string | null;
+  void_reason: string | null;
+}
+
+/** `[RH.15.11]` Por dónde firmó una persona la versión vigente de su semana. */
+export type HrFirmaVia = 'papel' | 'celular';
+
+/** Un departamento de la semana cerrada: quiénes debían firmar y quiénes ya firmaron (en una hoja vigente). */
+export interface HrFirmaDepartamentoDto {
+  department: string;
+  personas: Array<{
+    codigo: string; nombre: string; firmo: boolean;
+    /** `[RH.15.11]` Por dónde firmó (`null` si no ha firmado). */
+    via?: HrFirmaVia | null;
+    /** `[RH.15.11]` Su firma del celular (para verla o anularla) y cuándo la hizo. */
+    firma_id?: string | null;
+    firmado_at?: string | null;
+    /** `[RH.15.11]` Tiene un QR vivo sin usar. */
+    liga?: boolean;
+  }>;
+  firmaron: number;
+  total: number;
+}
+
+/** `GET /hr/attendance/signoffs?site_code&period_start` — cómo va la firma de una semana. */
+export interface HrFirmasSemanaDto {
+  site_code: string;
+  period_start: string;
+  /** La semana tiene un cierre vigente. Sin cierre no se firma: se firma lo que quedó cerrado. */
+  cerrada: boolean;
+  closure_id: string | null;
+  departamentos: HrFirmaDepartamentoDto[];
+  hojas: HrFirmaSemanaDto[];
+  firmaron: number;
+  total: number;
+}
+
+/** `POST /hr/attendance/signoffs` — la hoja escaneada (PDF o foto) como data URI. */
+export interface HrRegistrarFirmaBody {
+  site_code: string;
+  period_start: string;
+  department: string;
+  person_codes: string[];
+  jefe_nombre: string;
+  file_data_uri: string;
+  file_name?: string;
+  notes?: string;
+}
+
+// ── `[RH.15.9]` El registro para la autoridad (LFT 132-XXXIV y 804-III) ──────────────────────────────────
+
+/** Una checada tal como la entregó el reloj. `desfase_s` null = no medido (anterior a RH.15.4). */
+export interface HrRegistroLegalFila {
+  fecha: string;
+  hora: string;
+  instante: string;
+  reloj: string;
+  metodo: string;
+  tipo: string;
+  origen: string;
+  desfase_s: number | null;
+}
+
+/** `GET /hr/attendance/registro?site_code&person_code&date_from&date_to` — el CSV y su huella sha256. */
+export interface HrRegistroLegalDto {
+  site_code: string;
+  person_code: string;
+  persona_nombre: string | null;
+  date_from: string;
+  date_to: string;
+  generado: string;
+  filas: number;
+  csv: string;
+  sha256: string;
+}
+
+// ── `[RH.15.0]` `[RH.15.7]` `[RH.15.8]` Cumplimiento de una plaza ──────────────────────────────
+
+/** `GET /hr/attendance/compliance?site_code` — lo que la ley pide y hoy no se veía. */
+export interface HrCumplimientoDto {
+  site_code: string;
+  hoy: string;
+  /** Dadas de baja que el reloj todavía tiene. `pendiente` = ya pasaron los días de gracia. */
+  huellasDeBajas: Array<{ codigo: string; nombre: string; baja: string; dias: number; pendiente: boolean }>;
+  /** Hasta cuándo se conservan las checadas de cada baja (la baja + 1 año). */
+  conservar: Array<{ codigo: string; nombre: string; baja: string; hasta: string }>;
+  /** Activas sin checar en una semana: no vinieron, o trabajan sin registrar su jornada. */
+  sinRegistro: Array<{ codigo: string; nombre: string; ultima: string | null }>;
+}
+
+// ── `[RH.15.11]` La firma desde el celular, con un QR personal: abrir, ver la semana y firmar ──────────────────
+
+/** `POST /hr/attendance/signoffs/digital/links` — genera los QR de un departamento (revoca los anteriores sin usar). */
+export interface HrGenerarLigasFirmaBody {
+  site_code: string;
+  period_start: string;
+  department: string;
+  /** Sólo estas personas. Sin esto: todas las del departamento que no han firmado. */
+  person_codes?: string[];
+}
+
+/** Una liga recién generada. ⚠️ El token viaja SÓLO en esta respuesta: la base guarda su huella, no el token. */
+export interface HrLigaFirmaDto {
+  person_code: string;
+  nombre: string;
+  url: string;
+  expires_at: string;
+}
+
+export interface HrLigasFirmaDto {
+  site_code: string;
+  period_start: string;
+  period_end: string;
+  department: string;
+  ligas: HrLigaFirmaDto[];
+  /** Quienes no llevan liga y por qué (ya firmó en papel, ya firmó en el celular). */
+  omitidas: Array<{ person_code: string; nombre: string; motivo: string }>;
+}
+
+/** Un día de la semana tal como quedó cerrado, en palabras para la persona. */
+export interface HrFirmaPublicaDia {
+  fecha: string;
+  estado: HrEstadoDia;
+  /** «Asistió», «Falta», «Descanso»… */
+  etiqueta: string;
+  entrada: string | null;
+  salida: string | null;
+  /** Horas trabajadas del día, «8:00». */
+  horas: string | null;
+  incidencias: string[];
+}
+
+/** `GET /hr/attendance/firma/:token` — su semana tal como quedó cerrada, para firmarla. */
+export interface HrFirmaPublicaDto {
+  /** Nombre completo: la página dice «si no eres Fulano, no firmes». */
+  nombre: string;
+  site_name: string;
+  period_start: string;
+  period_end: string;
+  expires_at: string;
+  dias: HrFirmaPublicaDia[];
+  /** Total trabajado en la semana, «48:30». */
+  horas_semana: string;
+  faltas: number;
+}
+
+export interface HrFirmaPublicaFirmarBody {
+  /** El trazo como `data:image/png;base64,…`. */
+  firma_png: string;
+}
+
+export interface HrFirmaPublicaResultadoDto {
+  ok: true;
+  signed_at: string;
+}
+
+/** `POST /hr/attendance/signoffs/digital/signatures/:id/void` — RH anula una firma del celular (p. ej. firmó alguien más). */
+export interface HrAnularFirmaDigitalBody {
+  motivo: string;
+}
+
+/** Una persona en la hoja de firmas: su semana y su firma, si la hay. */
+export interface HrHojaFirmaPersona {
+  codigo: string;
+  nombre: string;
+  department: string;
+  dias: HrFirmaPublicaDia[];
+  horas_semana: string;
+  faltas: number;
+  /** `null` = no ha firmado esta versión. */
+  firma: {
+    via: HrFirmaVia;
+    /** Hora de México, `YYYY-MM-DDTHH:mm:ss`. */
+    firmado_at: string;
+    /** El trazo (`data:image/png;base64,…`). Sólo en el celular; en papel, la hoja escaneada se abre aparte. */
+    png: string | null;
+    ip: string | null;
+    navegador: string | null;
+    /** Firma del celular o hoja de papel, para abrirla. */
+    id: string;
+    anulada: { at: string; motivo: string } | null;
+  } | null;
+}
+
+/**
+ * `GET /hr/attendance/signoffs/digital/sheet?site_code&period_start&department` — la hoja de un departamento con todas
+ * sus firmas (para el PDF). `GET …/digital/signatures/:id/receipt` — el comprobante de UNA firma, con la versión exacta
+ * que se firmó (aunque la semana se haya reabierto después). Mismo tipo: el comprobante trae una sola persona.
+ */
+export interface HrHojaFirmasDto {
+  site_code: string;
+  site_name: string;
+  period_start: string;
+  period_end: string;
+  department: string | null;
+  /** Huella de la foto del cierre que se firmó (los primeros 12 de su sha256). */
+  version: string;
+  /** `false` = la semana se reabrió después: esta versión ya no es la vigente. */
+  vigente: boolean;
+  personas: HrHojaFirmaPersona[];
+}
+
+/** Una semana en el expediente de firmas de una persona. */
+export interface HrExpedienteFirmaDto {
+  site_code: string;
+  period_start: string;
+  period_end: string;
+  department: string;
+  via: HrFirmaVia;
+  firmado_at: string;
+  /** La firma del celular (comprobante) o la hoja de papel (archivo). */
+  id: string;
+  /** Firmó la versión que está cerrada hoy. */
+  vigente: boolean;
+  anulada: { at: string; motivo: string } | null;
+}
+
+/**
+ * `GET /hr/attendance/signoffs/digital/person?user_id` (todas sus plazas) o `?site_code&person_code` (aún sin ligar a su
+ * persona) — todas las semanas que firmó, la más nueva primero.
+ */
+export interface HrExpedienteFirmasDto {
+  site_code: string | null;
+  person_code: string | null;
+  user_id?: string | null;
+  firmas: HrExpedienteFirmaDto[];
 }

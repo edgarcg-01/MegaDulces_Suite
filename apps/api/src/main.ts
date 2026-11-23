@@ -339,6 +339,10 @@ async function bootstrap() {
   app.use('/api/hr/talent/public/applications', json({ limit: '16mb' }));
   // `[RH.2.4]` El CV por liga: un PDF o dos fotos de hasta 10 MB → ~27 MB en base64 → 32mb, como la captura de gastos.
   app.use('/api/hr/talent/public/links', json({ limit: '32mb' }));
+  // `[RH.15.5]` La hoja de la semana firmada: foto o PDF de hasta 10 MB
+  // → ~14 MB en base64. Con el global de 2mb, una foto de celular daba 413. (El trazo del celular de RH.15.11 pesa
+  // decenas de KB y cabe en el global.)
+  app.use('/api/hr/attendance/signoffs', json({ limit: '16mb' }));
   // Conciliación bancaria (CB.2.1): el workbook Excel llega como base64 (~2-5MB).
   app.use('/api/finance/bank/import', json({ limit: '25mb' }));
   // WhatsApp (F.1): el webhook de Meta necesita el body CRUDO para validar la
