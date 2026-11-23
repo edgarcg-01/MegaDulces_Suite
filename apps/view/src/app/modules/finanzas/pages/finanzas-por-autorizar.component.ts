@@ -315,7 +315,7 @@ export function esperaDe(p: PedidoPorAutorizar): string {
                   <p class="pa-tenue">No tiene pagos registrados en la cartera.</p>
                 }
                 @if (compromiso(); as c) {
-                  <p class="pa-nota">Prometió pagar {{ dinero(c.monto) }} el {{ c.fecha }}{{ c.estado ? ' · ' + c.estado : '' }}.</p>
+                  <p class="pa-nota">Prometió pagar {{ dinero(c.monto_prometido) }} el {{ c.fecha_promesa }}{{ c.estado ? ' · ' + c.estado : '' }}.</p>
                 } @else {
                   <p class="pa-tenue">Sin promesa de pago registrada. Se registran en la ficha del cliente.</p>
                 }
