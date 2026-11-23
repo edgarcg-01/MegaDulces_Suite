@@ -13,6 +13,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { RhService, rhError } from '../rh.service';
 import { RhRelojesFranjaComponent } from '../components/rh-relojes-franja.component';
 import { RhSinPersonaComponent } from '../components/rh-sin-persona.component';
+import { RhCumplimientoComponent } from '../components/rh-cumplimiento.component';
 
 /**
  * Fase RH · `[RH.1.7]` — Relojes checadores (`/rh/relojes`). Antes: el semáforo, el padrón de relojes, los lotes
@@ -31,7 +32,7 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
 @Component({
   selector: 'app-rh-relojes',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, SidePeekComponent, RhRelojesFranjaComponent, RhMarcoComponent, RhSinPersonaComponent],
+  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, SidePeekComponent, RhRelojesFranjaComponent, RhMarcoComponent, RhSinPersonaComponent, RhCumplimientoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="rr-page" [class.emb]="embebido()">
@@ -56,6 +57,8 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
       </app-load-state>
 
       <app-rh-sin-persona [gestiona]="gestiona()" />
+      <!-- [RH.15.x] Lo que la ley pide de los relojes y sus personas, en la plaza elegida: avisos, huellas de bajas, registro. -->
+      <app-rh-cumplimiento />
 
       @if (lotes().length) {
         <section class="rr-card" aria-label="Lotes sin aplicar">

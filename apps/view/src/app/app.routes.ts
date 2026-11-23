@@ -131,6 +131,12 @@ export const routes: Routes = [
     path: 'empleo/liga/:token',
     loadComponent: () => import('./modules/rh/empleo/empleo-liga.component').then(m => m.EmpleoLigaComponent),
   },
+  // `[RH.15.11]` La persona firma SU semana desde su celular, con el QR que le entregó su jefe. PÚBLICA: la autoriza el
+  // token de la URL (la API, `/hr/attendance/firma/:token`). Mismo régimen que `empleo/liga`.
+  {
+    path: 'mi-semana/:token',
+    loadComponent: () => import('./modules/rh/firma/mi-semana.component').then(m => m.MiSemanaComponent),
+  },
   // Diagnostico de un cuelgue en un clic. Sin permiso propio a proposito: cuando algo se
   // traba hay que poder pedirselo a quien lo esta sufriendo, sea quien sea.
   {

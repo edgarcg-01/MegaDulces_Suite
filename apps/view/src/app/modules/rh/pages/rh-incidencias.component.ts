@@ -13,6 +13,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { RhMarcoComponent } from '../components/rh-marco.component';
+import { RhFirmasSemanaComponent } from '../components/rh-firmas-semana.component';
 import { RhAsistenciaEstado } from '../rh-asistencia.estado';
 import { firmaHoras, horasTexto } from '../reporte-formato';
 import {
@@ -69,7 +70,7 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
 @Component({
   selector: 'app-rh-incidencias',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, RhMarcoComponent],
+  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, RhMarcoComponent, RhFirmasSemanaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ri-page" [class.con-ficha]="!!sel()" [class.emb]="embebido()">
@@ -123,6 +124,11 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
           }
         }
       </section>
+
+      <!-- [RH.15.5] Con la semana cerrada, lo que sigue: que cada departamento y su jefe firmen la hoja (LFT 132-XXXIV). -->
+      @if (cierreVigente(); as c) {
+        @if (sitio(); as s) { <app-rh-firmas-semana [site]="s" [plaza]="nombreDe(s)" [semana]="jueves()" [cierre]="c.id" [puedeRegistrar]="puede.cerrar()" /> }
+      }
 
       @if (sinId(); as lista) {
         <section class="ri-sinid" role="alert" aria-label="Gente sin identificar en la semana">
@@ -385,6 +391,8 @@ export class RhIncidenciasComponent implements OnInit {
   readonly banderaLabel = BANDERA_LABEL;
 
   readonly sitios = signal<HrSiteDto[]>([]);
+  /** `[RH.15.11]` La plaza se NOMBRA (la hoja de QR que se imprime la lleva). Sin nombre conocido, el código tal cual. */
+  nombreDe(code: string): string { return this.sitios().find((x) => x.code === code)?.name || code; }
   readonly sitio = signal<string | null>(null);
   readonly jueves = signal(juevesDeLaSemana(hoyEnMexico()));
   readonly filtro = signal<FiltroEstado>('por_calificar');

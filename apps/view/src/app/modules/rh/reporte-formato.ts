@@ -13,7 +13,9 @@ import { sumarDias } from './rh.service';
  */
 
 export type TipoCelda =
-  | 'vacio' | 'descanso' | 'desc_aus' | 'inc' | 'just' | 'falta' | 'marca' | 'curso' | 'sin_checar_hoy' | 'dia';
+  | 'vacio' | 'descanso' | 'desc_aus' | 'inc' | 'just' | 'falta' | 'marca' | 'curso' | 'sin_checar_hoy' | 'dia'
+  // `[RH.15.2]` Nadie de la plaza checó ese día: no se sabe si faltó o si el reloj no entregó.
+  | 'sin_dato';
 
 export interface CeldaReporte {
   tipo: TipoCelda;
@@ -110,6 +112,10 @@ export function celdaDe(p: HrPersonaAsistencia, dias: Map<string, HrDiaAsistenci
     // En el papel, el día justificado se marca: en blanco no se distingue de un día sin dato, y en rojo sería una
     // falta que RH ya perdonó.
     return { ...VACIA, tipo: inc ? 'inc' : 'just', jornada: inc || 'JUST.', inc, titulo: incTitulo || d.justificacion || 'Justificado', usadasMin: d.horasExtraUsadasMin || 0 };
+  }
+  if (d.estado === 'sin_dato') {
+    if (inc) return { ...VACIA, tipo: 'inc', jornada: inc, inc, titulo: incTitulo };
+    return { ...VACIA, tipo: 'sin_dato', jornada: 'S/D', titulo: 'Sin dato: nadie de la plaza checó ese día (reloj sin entregar o día no laborable). No cuenta como falta; si sí faltó, captura la incidencia.' };
   }
   if (d.estado === 'falta') {
     if (esHoy) return { ...VACIA, tipo: 'sin_checar_hoy', jornada: '·', titulo: 'Todavía no checa hoy. El día no ha terminado: no es falta.' };
@@ -272,6 +278,17 @@ export function irregularidadesDe(p: HrPersonaAsistencia, o: { hoy: string; desa
     if ((d.desayunoExcesoMin || 0) >= o.desayunoAlertaMin) out.push({ ...base, nivel: 'alta', tipo: 'desayuno', texto: `Desayuno +${d.desayunoExcesoMin} min` });
     if (d.estado === 'marca_faltante') out.push({ ...base, nivel: 'baja', tipo: 'una_marca', texto: 'Sólo checó una vez' });
     if (d.atipico) out.push({ ...base, nivel: 'baja', tipo: 'atipico', texto: 'Fuera de su horario' });
+  }
+  // `[RH.15.10]` La semana contra la LEY (no contra su horario): lo que pasa de la jornada máxima del año es tiempo
+  // extra, y lo que pasa del tope de horas extra se paga al triple. ALTA si hay triples: es dinero y una multa posible.
+  for (const s of p.semanas) {
+    const l = s.legal;
+    if (!l || !l.excedenteMin) continue;
+    const triple = l.triplesMin ? `; ${horasTexto(l.triplesMin)} pasan del tope de ${l.extraMaxMin / 60} h extra y se pagan al triple` : '';
+    out.push({
+      fecha: s.inicio, nivel: l.triplesMin ? 'alta' : 'baja', tipo: 'jornada_legal',
+      texto: `Semana de ${horasTexto(s.minutosTrabajados)}: ${horasTexto(l.excedenteMin)} sobre la jornada legal de ${l.jornadaMaxMin / 60} h${triple}`,
+    });
   }
   return out;
 }

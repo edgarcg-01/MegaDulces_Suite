@@ -13,6 +13,36 @@ const HOY = '2026-10-08';
 const o = { hoy: HOY, mideRetardo: true };
 const una = (d = dia()) => { const p = persona({ semanas: [{ ...persona().semanas[0], dias: [d] }] }); return { p, m: diasPorFecha(p) }; };
 
+describe('[RH.15.10] la semana contra la ley, como irregularidad', () => {
+  const conSemana = (minutos: number, legal: { excedenteMin: number; triplesMin: number }) => persona({
+    semanas: [{ ...persona().semanas[0], inicio: '2026-11-12', minutosTrabajados: minutos, dias: [],
+      legal: { anio: 2026, jornadaMaxMin: 2880, extraMaxMin: 540, ...legal } }],
+  });
+  const o2 = { hoy: '2026-11-30', desayunoAlertaMin: 30 };
+  it('dentro de la jornada legal: nada', () => {
+    expect(irregularidadesDe(conSemana(2800, { excedenteMin: 0, triplesMin: 0 }), o2)).toEqual([]);
+  });
+  it('se pasó pero dentro del tope de extra: aviso BAJO, con las horas', () => {
+    const [i] = irregularidadesDe(conSemana(3300, { excedenteMin: 420, triplesMin: 0 }), o2);
+    expect([i.nivel, i.tipo, i.texto]).toEqual(['baja', 'jornada_legal', 'Semana de 55h 00m: 7h 00m sobre la jornada legal de 48 h']);
+  });
+  it('con horas al triple: ALTA, y lo dice', () => {
+    const [i] = irregularidadesDe(conSemana(3600, { excedenteMin: 720, triplesMin: 180 }), o2);
+    expect(i.nivel).toBe('alta');
+    expect(i.texto).toContain('3h 00m pasan del tope de 9 h extra y se pagan al triple');
+  });
+});
+
+describe('[RH.15.2] celdaDe — «Sin dato» no es falta', () => {
+  it('se pinta «S/D», no «0 - 0», y no cuenta como irregularidad', () => {
+    const { p, m } = una(dia({ fecha: '2026-10-05', estado: 'sin_dato', entrada: undefined, salida: undefined }));
+    const c = celdaDe(p, m, '2026-10-05', o);
+    expect([c.tipo, c.jornada]).toEqual(['sin_dato', 'S/D']);
+    expect(c.titulo).toContain('No cuenta como falta');
+    expect(irregularidadesDe(p, { hoy: '2026-10-09', desayunoAlertaMin: 30 })).toEqual([]);
+  });
+});
+
 describe('[RH.1.7c] celdaDe — un día en el papel', () => {
   it('un día normal: jornada, pausas y D/C', () => {
     const { p, m } = una(dia({ fecha: '2026-10-05', entrada: '07:56', salida: '17:04', comida: '11:02 – 11:24 · 14:01 – 15:00', desayunoMin: 22, comidaMin: 59 }));

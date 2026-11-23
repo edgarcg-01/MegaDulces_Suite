@@ -179,6 +179,8 @@ import {
     .rs-celda[data-t='falta'], .rs-celda[data-t='marca'] { box-shadow: inset 0 0 0 1px var(--bad-border); }
     .rs-celda[data-t='inc'] .j, .rs-celda[data-t='just'] .j { color: var(--info-soft-fg); font-weight: 700; }
     .rs-celda[data-t='descanso'] .j, .rs-celda[data-t='desc_aus'] .j, .rs-celda[data-t='vacio'] .j, .rs-celda[data-t='sin_checar_hoy'] .j { color: var(--text-faint); }
+    /* [RH.15.2] «S/D»: no es falta ni descanso; se ve atenuado y en cursiva para no leerse como un día normal. */
+    .rs-celda[data-t='sin_dato'] .j { color: var(--text-muted); font-style: italic; }
     .rs-ret { color: var(--bad-fg); font-weight: 700; }
     .na { color: var(--text-faint); }
     .menos { color: var(--warn-soft-fg); }

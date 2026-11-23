@@ -15,6 +15,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { RhMarcoComponent } from '../components/rh-marco.component';
 import { RhReporteSemanalComponent } from '../components/rh-reporte-semanal.component';
 import { RhPersonaDiasComponent } from '../components/rh-persona-dias.component';
+import { RhExpedienteFirmasComponent } from '../components/rh-expediente-firmas.component';
 import { RhFaltasComponent } from './rh-faltas.component';
 import { RhToleranciaComponent } from './rh-tolerancia.component';
 import { RhIncidenciasComponent } from './rh-incidencias.component';
@@ -47,7 +48,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
   standalone: true,
   imports: [
     NgTemplateOutlet, FormsModule, ButtonModule, InputTextModule, SelectModule, LoadStateComponent, SidePeekComponent,
-    RhMarcoComponent, RhReporteSemanalComponent, RhPersonaDiasComponent,
+    RhMarcoComponent, RhReporteSemanalComponent, RhPersonaDiasComponent, RhExpedienteFirmasComponent,
     RhFaltasComponent, RhToleranciaComponent, RhIncidenciasComponent, RhRelojesComponent, RhNombresPorConfirmarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -298,6 +299,12 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
               <p-button label="Ver solo a esta persona" severity="secondary" [outlined]="true" size="small" (onClick)="soloEsta(p)" />
               <p-button label="PDF para firmar" icon="pi pi-file-pdf" [text]="true" size="small" [loading]="exportando()" (onClick)="pdfPersona(p)" />
             </div>
+            <!-- [RH.15.11] Sus firmas de la semana (celular o papel). Ligado a su persona: las de todas sus plazas. -->
+            @if (p.userId) {
+              <app-rh-expediente-firmas [userId]="p.userId" />
+            } @else if (est.sitio(); as site) {
+              <app-rh-expediente-firmas [site]="site" [persona]="p.codigo" />
+            }
           </div>
         }
       </app-side-peek>

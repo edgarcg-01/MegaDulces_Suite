@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import type { HrDiaAsistencia, HrPersonaAsistencia } from '@megadulces/contracts';
 import { ESTADO_DIA_LABEL } from '../rh.service';
+import { RhRegistroLegalComponent } from './rh-registro-legal.component';
 import { type ColumnaDia, diasPorFecha, difHorario, firmaHoras, horasTexto, incidenciasEnDescanso, pausasDelDia } from '../reporte-formato';
 
 /**
@@ -23,6 +24,7 @@ interface RenglonDia {
 @Component({
   selector: 'app-rh-persona-dias',
   standalone: true,
+  imports: [RhRegistroLegalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="pd-scroll dt-scope">
@@ -73,6 +75,8 @@ interface RenglonDia {
         </tfoot>
       </table>
     </div>
+    <!-- [RH.15.9] Lo que la autoridad puede pedir: sus checadas tal como las entregó el reloj, con su huella. -->
+    <app-rh-registro-legal [codigo]="persona().codigo" [hoy]="hoy()" />
   `,
   styles: [`
     .pd-acc { text-align: right; white-space: nowrap; }
@@ -139,6 +143,8 @@ export class RhPersonaDiasComponent {
       }
       switch (d.estado) {
         case 'falta': return { ...base, etiqueta: inc ? `Falta · ${inc}` : 'Falta', tono: 'bad' } as RenglonDia;
+        // `[RH.15.2]` Nadie de la plaza checó: no se afirma una falta que no se puede probar.
+        case 'sin_dato': return { ...base, etiqueta: inc || 'Sin dato: nadie de la plaza checó ese día (no cuenta como falta)', tono: inc ? 'info' : 'mute' } as RenglonDia;
         case 'marca_faltante': return { ...base, etiqueta: `Una sola checada (${d.hora || d.entrada || '?'}): no se sabe si fue entrada o salida`, tono: 'bad' } as RenglonDia;
         case 'descanso': {
           // `[RH.6.2]` Unas vacaciones que cruzan su descanso no lo vuelven vacaciones: se dice el descanso capturado
