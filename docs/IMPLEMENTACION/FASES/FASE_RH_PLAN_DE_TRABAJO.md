@@ -9,6 +9,11 @@
 > **Quién hace qué.** Claude programa, prueba y documenta · David opera (aprueba, aplica migraciones en
 > prod, corre los cortes, despliega Mega Talento) · Edgar revisa y aprueba (ADR, merges) · RH valida
 > mapeos y prueba.
+>
+> ⭐ **Frente NE — la nómina sale del Access** (abierto 2026-11-23):
+> [`FASE_RH_FRENTE_NE_NOMINA.md`](FASE_RH_FRENTE_NE_NOMINA.md). Cuelga de esta fase porque comparte
+> el padrón, el reloj y `hr.*`. Lo que RH le debe: **`hr.employees` sigue en 0 filas** — sin la carga
+> de personas (`[RH.1.4]`, 🧪) el frente no puede ponerle llave a nadie.
 
 ---
 
