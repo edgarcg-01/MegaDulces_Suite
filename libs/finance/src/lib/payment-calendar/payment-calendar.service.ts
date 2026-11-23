@@ -29,6 +29,10 @@ import { cajaDeSalidaTexto, ESTADOS_DIA_AUTORIZADO } from '@megadulces/contracts
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
 import { SALDADA_EN_KEPLER, conLlaveDeKepler, sqlDebeKeplerDeCapturada, sqlDisponibleDeCapturada, type LlaveDeCapturada } from './capturada-kepler.sql';
+import {
+  DIAS_ANTES, EVENTO_AUNQUE_SALIO, SQL_SALIDA_QUE_LO_PAGO, motivoAunqueSalioValido, motivoParaNoCambiar,
+  type AccionSobreElPago, type SalidaQueLoPago,
+} from './salio-antes-de-cambiar';
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
 import type { CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts';
 import type { PagoParaCheque } from '@megadulces/contracts';
@@ -2439,7 +2443,7 @@ export class PaymentCalendarService {
           detail: JSON.stringify({
             regla: 'PGP.121', hoy,
             planeado: { dia: p.dia, importe: Number(p.importe), metodo: p.metodo, cuenta: p.cuenta_planeada },
-            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe },
+            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe, ...(d.grupo ? { grupo: d.grupo } : {}) },
           }),
         });
         await this.aplicarRenglonesPagados(trx, tenantId, p.id, autor);
@@ -2542,7 +2546,7 @@ export class PaymentCalendarService {
           tenant_id: tenantId, allocation_id: p.id, event: EVENTO_CONFIRMADO_POR_EL_BANCO, status_from: 'executed', status_to: 'executed',
           created_by: autor,
           detail: JSON.stringify({ regla: 'PGP.130b', hoy, comprobante: { dia: p.dia, importe: Number(p.importe) },
-            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe } }),
+            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe, ...(d.grupo ? { grupo: d.grupo } : {}) } }),
         });
         return true;
       });
@@ -2949,6 +2953,7 @@ export class PaymentCalendarService {
    */
   async reprogram(
     allocationId: string, newDate: string, reason: ReprogramReason, reasonDetail: string | undefined, username: string, hoy: string = todayMx(),
+    aunqueSalio?: string,
   ): Promise<AllocationRowLite & PaymentCalendarReprogramado> {
     this.assertDate(newDate);
     if (!REPROGRAM_REASONS.includes(reason)) throw new BadRequestException(`reason inválido — debe ser uno de: ${REPROGRAM_REASONS.join(', ')}`);
@@ -2958,6 +2963,8 @@ export class PaymentCalendarService {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (!['pending', 'failed'].includes(allocation.status)) throw new BadRequestException('Solo se puede reprogramar un pago pendiente o fallido');
+      // `[PGP.199]` Un pago fallido ya rebotó (su salida se devolvió y no cuenta): la guarda sólo encuentra dinero que sí salió.
+      await this.assertNoSalio(trx, tenantId, allocation, 'reprogramar', username, aunqueSalio, hoy);
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });
       await trx('finance.payment_allocations').where({ id: allocationId }).update({
         status: 'cancelled', notes: `${allocation.notes ?? ''}\n[reprogramado a ${newDate}]`.trim(),
@@ -3649,12 +3656,44 @@ export class PaymentCalendarService {
     });
   }
 
-  async fail(allocationId: string, reason: string | undefined, username: string) {
+  /**
+   * `[PGP.199]` **Antes de cancelar, marcar fallido o reprogramar: ¿ya salió el dinero?** Si el banco (sin devueltas, sin
+   * las salidas de otros pagos, o varias con la misma referencia) o Kepler (todas sus facturas pagadas con dinero) lo
+   * prueban, se niega con lo que se vio; una persona sigue sólo diciendo por qué esa salida no es de este pago
+   * (`aunqueSalio`), y queda en la bitácora con la evidencia. La regla es pura (`motivoParaNoCambiar`).
+   */
+  private async assertNoSalio(
+    trx: Knex.Transaction, tenantId: string, allocation: { id: string; lot_id: string; amount_assigned: string | number; created_at: Date | string },
+    accion: AccionSobreElPago, username: string, aunqueSalio?: string, hoy: string = todayMx(),
+  ): Promise<void> {
+    const lot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id })
+      .first(trx.raw("to_char(lot_date, 'YYYY-MM-DD') AS dia")) as { dia: string } | undefined;
+    if (!lot) return;
+    const desde = new Date(Date.parse(`${lot.dia}T12:00:00Z`) - DIAS_ANTES * 86_400_000).toISOString().slice(0, 10);
+    const salida = desde <= hoy
+      ? ((await trx.raw(SQL_SALIDA_QUE_LO_PAGO, [tenantId, Number(allocation.amount_assigned), lot.dia, hoy, allocation.id])).rows as SalidaQueLoPago[])[0] ?? null
+      : null;
+    const items = (await trx('finance.payment_allocation_items').where({ tenant_id: tenantId, allocation_id: allocation.id })
+      .select('allocation_id', 'obligation_source', 'obligation_id')) as ItemParaCierre[];
+    const alta = new Date(allocation.created_at).toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    const cierre = items.length ? (await this.cierresKepler(trx, [{ id: allocation.id, lotDate: lot.dia, alta }], items)).get(allocation.id) : null;
+    const motivo = motivoParaNoCambiar(accion, salida, cierre);
+    if (!motivo) return;
+    if (!motivoAunqueSalioValido(aunqueSalio)) throw new ConflictException(motivo);
+    await trx('finance.payment_allocation_history').insert({
+      tenant_id: tenantId, allocation_id: allocation.id, event: EVENTO_AUNQUE_SALIO, created_by: username,
+      detail: JSON.stringify({ regla: 'PGP.199', accion, motivo_de_la_persona: aunqueSalio!.trim(), lo_que_se_vio: motivo, banco: salida ?? null,
+        kepler: cierre ? { estado: cierre.estado, pagos: cierre.pagos.map((p) => `${p.doc_prefix}-${p.folio}`) } : null }),
+    });
+  }
+
+  async fail(allocationId: string, reason: string | undefined, username: string, aunqueSalio?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se marca como fallido un pago pendiente (uno ejecutado no se revierte acá)');
+      await this.assertNoSalio(trx, tenantId, allocation, 'marcar como fallido', username, aunqueSalio);
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId })
         .update({ status: 'failed', failure_reason: reason ?? null, updated_by: username, updated_at: trx.fn.now() }).returning('*');
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });
@@ -3663,12 +3702,13 @@ export class PaymentCalendarService {
     });
   }
 
-  async cancelAllocation(allocationId: string, reason: string | undefined, username: string) {
+  async cancelAllocation(allocationId: string, reason: string | undefined, username: string, aunqueSalio?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se puede cancelar un pago pendiente');
+      await this.assertNoSalio(trx, tenantId, allocation, 'cancelar', username, aunqueSalio);
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId }).update({
         status: 'cancelled', notes: reason ? `${allocation.notes ?? ''}\n[cancelado] ${reason}`.trim() : allocation.notes,
         updated_by: username, updated_at: trx.fn.now(),

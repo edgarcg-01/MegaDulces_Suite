@@ -43,11 +43,50 @@ export interface SalidaBanco {
   cuenta_id: string;
   fecha: string;
   importe: number;
+  /** `[PGP.201]` El concepto del banco; de él sale la referencia que comparten las partes de un pago partido. */
+  concepto?: string | null;
 }
 
 export type DecisionBanco =
-  | { estado: 'probado'; movimiento_id: string; cuenta_id: string; fecha: string; importe: number }
+  | {
+    estado: 'probado'; movimiento_id: string; cuenta_id: string; fecha: string; importe: number;
+    /** `[PGP.201]` Pago partido en varias transferencias: TODAS sus salidas (`movimiento_id` es la mayor). */
+    grupo?: string[];
+  }
   | { estado: 'sin_salida' | 'varias_cuentas' | 'disputada' | 'excluido'; motivo: string };
+
+/**
+ * `[PGP.201]` **La referencia que comparten las transferencias de un mismo pago.** El banco escribe al final del concepto
+ * la referencia numérica que capturó Tesorería («SPEI ENVIADO CITI MEXICO/0036039880 124 018112610087»): las partes de
+ * un pago partido la repiten. Sólo cuenta una de 6 dígitos o más que no sea puros ceros. Pura.
+ */
+export function referenciaDeSalida(concepto: string | null | undefined): string | null {
+  const m = /([0-9]{6,})\s*$/.exec(String(concepto ?? '').trim());
+  if (!m || /^0+$/.test(m[1])) return null;
+  return m[1];
+}
+
+/**
+ * `[PGP.201]` Las salidas que juntas pagan UN pago: misma cuenta, mismo día, misma referencia, dos o más, y su suma da el
+ * importe (±$1) dentro de la ventana del pago. Caso que lo pidió (2026-11-23): Effem (CE012), 18-nov, dos SPEI desde la
+ * misma cuenta con la referencia `018112610087`; el carril buscaba una sola salida por el importe completo, no la
+ * encontraba y el pago seguía «pendiente» — listo para pagarse otra vez. Medido en prod: de 103 grupos de octubre y
+ * noviembre, casan 3 pagos (el de Effem, su original cancelado y uno de CP007 ya pagado); control +$100: 0.
+ */
+export function gruposQueCasan(p: PagoPendiente, libres: readonly SalidaBanco[]): SalidaBanco[][] {
+  const grupos = new Map<string, SalidaBanco[]>();
+  for (const s of libres) {
+    const ref = referenciaDeSalida(s.concepto);
+    if (!ref) continue;
+    const k = `${s.cuenta_id}|${s.fecha}|${ref}`;
+    const g = grupos.get(k) ?? [];
+    g.push(s);
+    grupos.set(k, g);
+  }
+  return [...grupos.values()].filter((g) => g.length >= 2
+    && Math.abs(g.reduce((t, s) => t + s.importe, 0) - p.importe) <= TOLERANCIA_BANCO
+    && Math.abs(dias(p.dia, g[0].fecha)) <= VENTANA_BANCO_DIAS);
+}
 
 /** Quién firma en la bitácora y en `updated_by` lo que hizo el banco. */
 export const AUTOR_PAGO_POR_EL_BANCO = 'sistema:banco';
@@ -92,6 +131,8 @@ export function decidirPagosPorElBanco(
   // Cuántos pagos reclaman cada salida: el uno a uno se mide con TODOS los pendientes, no sólo con el de al lado.
   const reclamos = new Map<string, number>();
   for (const c of candidatas.values()) for (const s of c) reclamos.set(s.id, (reclamos.get(s.id) ?? 0) + 1);
+  // `[PGP.201]` Las salidas que ya tomó un pago partido en esta misma pasada: un grupo no explica dos pagos.
+  const reclamadasPorGrupo = new Set<string>();
 
   for (const p of vigentes) {
     if (p.metodo && NO_TRANSFERENCIA.has(p.metodo)) {
@@ -102,6 +143,21 @@ export function decidirPagosPorElBanco(
     }
     const c = candidatas.get(p.id) ?? [];
     if (!c.length) {
+      // `[PGP.201]` Sin una salida por el importe completo: ¿lo pagaron varias con la misma referencia?
+      const gs = gruposQueCasan(p, libres);
+      if (gs.length === 1 && !gs[0].some((s) => reclamos.has(s.id) || reclamadasPorGrupo.has(s.id))) {
+        const g = [...gs[0]].sort((a, b) => b.importe - a.importe || a.id.localeCompare(b.id));
+        for (const s of g) reclamadasPorGrupo.add(s.id);
+        out.set(p.id, { estado: 'probado', movimiento_id: g[0].id, cuenta_id: g[0].cuenta_id, fecha: g[0].fecha,
+          importe: Math.round(g.reduce((t, s) => t + s.importe, 0) * 100) / 100, grupo: g.map((s) => s.id) });
+        continue;
+      }
+      if (gs.length) {
+        out.set(p.id, { estado: 'disputada', motivo: gs.length > 1
+          ? `Hay ${gs.length} grupos de transferencias que suman el importe: no se sabe cuál es el de este pago`
+          : 'Las transferencias que suman el importe también casan con otro pago: no se sabe de cuál son' });
+        continue;
+      }
       out.set(p.id, { estado: 'sin_salida', motivo: `El banco no tiene una salida de $${p.importe.toFixed(2)} (±$${TOLERANCIA_BANCO}) entre ${VENTANA_BANCO_DIAS} días antes y después del ${p.dia}` });
       continue;
     }

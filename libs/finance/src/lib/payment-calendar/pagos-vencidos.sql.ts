@@ -5,6 +5,7 @@
  */
 import { DIAS_ANTES_BANCO, DIAS_PARA_LIBERAR, TOLERANCIA_BANCO } from '@megadulces/contracts';
 import type { Knex } from 'knex';
+import { sqlDescargaNoDevuelta, sqlLibroNoDevuelta } from './pago-por-el-banco.sql';
 
 /**
  * `[PGP.173]` **Qué es un cheque emitido**, mientras la chequera no viva en la Suite (`[PGP.167]`): un pago con
@@ -59,12 +60,25 @@ export const SQL_SALIDA_DE_BANCO = `
             WHERE b.tenant_id = ? AND b.deleted_at IS NULL
               AND abs(coalesce(b.amount_out, 0) - p.monto) < ${TOLERANCIA_BANCO}
               AND b.movement_date BETWEEN p.dia - ${DIAS_ANTES_BANCO} AND ?::date
+              AND ${sqlLibroNoDevuelta('b')}
          ) OR EXISTS (
            SELECT 1 FROM finance.bank_statement_lines s
              JOIN finance.bank_accounts ba ON ba.id = s.bank_account_id AND ba.kind = 'bank'
             WHERE s.tenant_id = ?
               AND abs(coalesce(s.amount_out, 0) - p.monto) < ${TOLERANCIA_BANCO}
               AND s.movement_date BETWEEN p.dia - ${DIAS_ANTES_BANCO} AND ?::date
+              AND ${sqlDescargaNoDevuelta('s')}
+         ) OR EXISTS (
+           -- [PGP.201] El pago partido: varias salidas de la misma cuenta y día con la misma referencia que suman el importe.
+           SELECT 1 FROM (
+             SELECT g.bank_account_id, g.movement_date, substring(btrim(g.concept) FROM '([0-9]{6,})\\s*$') AS ref,
+                    sum(g.amount_out) AS total, count(*) AS n
+               FROM finance.bank_movements g
+              WHERE g.tenant_id = ? AND g.deleted_at IS NULL AND g.amount_out > 0
+                AND g.movement_date BETWEEN p.dia - ${DIAS_ANTES_BANCO} AND ?::date
+                AND ${sqlLibroNoDevuelta('g')}
+              GROUP BY 1, 2, 3) z
+            WHERE z.ref IS NOT NULL AND z.ref !~ '^0+$' AND z.n >= 2 AND abs(z.total - p.monto) < ${TOLERANCIA_BANCO}
          ) AS salio,
          NOT EXISTS (
            SELECT 1 FROM cobertura c
@@ -75,7 +89,8 @@ export const SQL_SALIDA_DE_BANCO = `
 
 /** Los parámetros de `SQL_SALIDA_DE_BANCO`, en su orden (para que el servicio y la medición no se equivoquen). */
 export function paramsSalidaDeBanco(tenantId: string, hoy: string, pagos: readonly { id: string; monto: number; lot_date: string; cuenta: string | null }[]): Knex.RawBinding[] {
-  return [tenantId, tenantId, hoy, tenantId, hoy, hoy,
+  // cobertura · libro · descarga · `[PGP.201]` pago partido · cubierto · los pagos
+  return [tenantId, tenantId, hoy, tenantId, hoy, tenantId, hoy, hoy,
     pagos.map((p) => p.id), pagos.map((p) => p.monto), pagos.map((p) => p.lot_date),
     // pg recibe el arreglo con sus null (uuid[]); el tipo de knex no contempla null dentro de un arreglo.
     pagos.map((p) => p.cuenta) as unknown as string[]];
@@ -131,12 +146,14 @@ export const SQL_LIBERADOS_QUE_SALIERON = `
          WHERE b.tenant_id = a.tenant_id AND b.deleted_at IS NULL
            AND abs(coalesce(b.amount_out, 0) - a.amount_assigned) < ${TOLERANCIA_BANCO}
            AND b.movement_date BETWEEN l.lot_date - ${DIAS_ANTES_BANCO} AND (h.liberado_at AT TIME ZONE 'America/Mexico_City')::date
+           AND ${sqlLibroNoDevuelta('b')}
         UNION ALL
         SELECT s.movement_date, coalesce(nullif(btrim(ba.alias), ''), ba.bank || ' ' || ba.account_label), s.amount_out::float8
           FROM finance.bank_statement_lines s JOIN finance.bank_accounts ba ON ba.id = s.bank_account_id AND ba.kind = 'bank'
          WHERE s.tenant_id = a.tenant_id
            AND abs(coalesce(s.amount_out, 0) - a.amount_assigned) < ${TOLERANCIA_BANCO}
            AND s.movement_date BETWEEN l.lot_date - ${DIAS_ANTES_BANCO} AND (h.liberado_at AT TIME ZONE 'America/Mexico_City')::date
+           AND ${sqlDescargaNoDevuelta('s')}
       ) m ORDER BY m.movement_date LIMIT 1
     ) x ON true
    WHERE a.tenant_id = ? AND a.status = 'cancelled'

@@ -34,8 +34,9 @@ describe('[PGP.149] el testigo del banco de la liberación', () => {
   it('los parámetros van en el orden y la cantidad de los «?» de la consulta', () => {
     const p = paramsSalidaDeBanco('t', '2026-11-18', [{ id: 'a', monto: 1, lot_date: '2026-11-10', cuenta: null }]);
     expect(p).toHaveLength((SQL_SALIDA_DE_BANCO.match(/\?/g) ?? []).length);
-    expect(p.slice(0, 6)).toEqual(['t', 't', '2026-11-18', 't', '2026-11-18', '2026-11-18']);
-    expect(p.slice(6)).toEqual([['a'], [1], ['2026-11-10'], [null]]);
+    // cobertura · libro · descarga · [PGP.201] pago partido · cubierto
+    expect(p.slice(0, 8)).toEqual(['t', 't', '2026-11-18', 't', '2026-11-18', 't', '2026-11-18', '2026-11-18']);
+    expect(p.slice(8)).toEqual([['a'], [1], ['2026-11-10'], [null]]);
     expect((SQL_LIBERADOS_QUE_SALIERON.match(/\?/g) ?? []).length).toBe(1);
   });
 

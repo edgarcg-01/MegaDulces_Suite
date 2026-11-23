@@ -280,8 +280,9 @@ export class PaymentCalendarController {
   @Post('allocations/:id/reprogramar')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Mueve el pago a otro día (pendiente o fallido) — actualiza la capacidad consumida de ambas fechas. Exige motivo (TP.10). [PGP.184] El pago nuevo baja a lo que su factura debe hoy en Kepler si una nota o devolución ya lo bajó (ajuste_al_saldo).' })
-  reprogram(@Param('id') id: string, @Body() body: { date: string; reason: ReprogramReason; reason_detail?: string }, @Req() req: AuthedRequest): Promise<PaymentCalendarReprogramado> {
-    return this.svc.reprogram(id, body.date, body.reason, body.reason_detail, req.user?.username || 'sistema');
+  reprogram(@Param('id') id: string, @Body() body: { date: string; reason: ReprogramReason; reason_detail?: string; aunque_salio?: string }, @Req() req: AuthedRequest): Promise<PaymentCalendarReprogramado> {
+    // `[PGP.199]` Si el dinero ya salió, se niega (409) salvo que la persona diga por qué esa salida no es de este pago.
+    return this.svc.reprogram(id, body.date, body.reason, body.reason_detail, req.user?.username || 'sistema', undefined, body.aunque_salio);
   }
 
   @Post('allocations/:id/orden')
@@ -389,14 +390,14 @@ export class PaymentCalendarController {
   @Post('allocations/:id/fallo')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Marca el pago como fallido — NO liquida la obligación, su saldo regresa a revisión.' })
-  fail(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: AuthedRequest) {
-    return this.svc.fail(id, body?.reason, req.user?.username || 'sistema');
+  fail(@Param('id') id: string, @Body() body: { reason?: string; aunque_salio?: string }, @Req() req: AuthedRequest) {
+    return this.svc.fail(id, body?.reason, req.user?.username || 'sistema', body?.aunque_salio);
   }
 
   @Post('allocations/:id/cancelar')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
-  cancelAllocation(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: AuthedRequest) {
-    return this.svc.cancelAllocation(id, body?.reason, req.user?.username || 'sistema');
+  cancelAllocation(@Param('id') id: string, @Body() body: { reason?: string; aunque_salio?: string }, @Req() req: AuthedRequest) {
+    return this.svc.cancelAllocation(id, body?.reason, req.user?.username || 'sistema', body?.aunque_salio);
   }
 
   /**
