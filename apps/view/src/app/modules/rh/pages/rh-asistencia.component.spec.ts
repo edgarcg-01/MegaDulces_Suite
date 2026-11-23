@@ -266,13 +266,21 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     expect(boton('Asignarle horario')).toBeUndefined();
   });
 
-  it('con CAPTURAR, «Capturar incidencia» abre el panel de Incidencias AQUÍ, con la persona y la semana puestas', async () => {
+  it('⭐ [RH.18.1] con CAPTURAR, «Capturar incidencia» abre la captura EN la ficha, con la persona y hoy puestos (no se va al panel)', async () => {
     await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
-    fix.componentInstance.capturar(fix.componentInstance.todas()[0]);
-    expect(navigate).toHaveBeenCalledWith([], expect.objectContaining({
-      queryParamsHandling: 'merge',
-      queryParams: { panel: 'incidencias', nueva: 1, site: 'PH', persona: '104', desde: '2026-10-01' },
-    }));
+    Object.assign(api, { tiposIncidencia: vi.fn(() => of([{ tipo: 'vacaciones', etiqueta: 'Vacaciones', codigo: 'VAC', excusaFalta: true }, { tipo: 'permiso_con_goce', etiqueta: 'Permiso con goce de sueldo', codigo: 'PCG', excusaFalta: true }, { tipo: 'horario_distinto', etiqueta: 'Horario distinto', codigo: 'HD', excusaFalta: false }])) });
+    const c = fix.componentInstance;
+    const p = c.todas()[0];
+    c.abrir(p);
+    await ciclo();
+    c.capturar(p);
+    await ciclo();
+    // ⛔ NEGATIVA: ya no cierra la ficha ni navega al panel de Incidencias.
+    expect(navigate).not.toHaveBeenCalledWith([], expect.objectContaining({ queryParams: expect.objectContaining({ panel: 'incidencias' }) }));
+    expect(c.sel()?.codigo).toBe('104');
+    // Sin día elegido: hoy (miércoles 7), que está en la semana.
+    expect([c.capturaForm()?.person_code, c.capturaForm()?.date_from]).toEqual(['104', '2026-10-07']);
+    expect(document.querySelector('app-rh-captura-incidencia form')).not.toBeNull();
   });
 
   describe('[RH.13.5] una sola pantalla', () => {
@@ -323,17 +331,56 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
       expect(document.querySelector('app-rh-relojes app-rh-marco')).toBeNull();
     });
 
-    it('⭐ en la ficha, «+ Incidencia» de un día abre la captura con ESE día y esa persona (no el inicio de la semana)', async () => {
+    it('⭐ [RH.18.1] en la ficha, «+ Incidencia» de un día abre la captura DEBAJO de ese día: su nombre, ESE día y, por su falta, un permiso ya elegido', async () => {
       await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
-      const dos = fix.componentInstance.todas().find((p) => p.codigo === '118')!;
-      fix.componentInstance.abrir(dos);
+      Object.assign(api, { tiposIncidencia: vi.fn(() => of([{ tipo: 'vacaciones', etiqueta: 'Vacaciones', codigo: 'VAC', excusaFalta: true }, { tipo: 'permiso_con_goce', etiqueta: 'Permiso con goce de sueldo', codigo: 'PCG', excusaFalta: true }, { tipo: 'horario_distinto', etiqueta: 'Horario distinto', codigo: 'HD', excusaFalta: false }])) });
+      const c = fix.componentInstance;
+      const dos = c.todas().find((p) => p.codigo === '118')!;
+      c.abrir(dos);
       await ciclo();
-      const del6 = Array.from(document.querySelectorAll('button.pd-inc')).find((b) => b.getAttribute('aria-label')?.includes(' 6')) as HTMLButtonElement;
-      expect(del6).toBeDefined();
-      del6.click();
-      expect(navigate).toHaveBeenCalledWith([], expect.objectContaining({
-        queryParams: expect.objectContaining({ panel: 'incidencias', persona: '118', desde: '2026-10-06' }),
-      }));
+      const del6 = () => Array.from(document.querySelectorAll('button.pd-inc')).find((b) => b.getAttribute('aria-label')?.includes(' 6')) as HTMLButtonElement;
+      expect(del6()).toBeDefined();
+      del6().click();
+      await ciclo();
+      expect(navigate).not.toHaveBeenCalledWith([], expect.objectContaining({ queryParams: expect.objectContaining({ panel: 'incidencias' }) }));
+      expect([c.capturaForm()?.person_code, c.capturaForm()?.date_from, c.capturaForm()?.incident_type]).toEqual(['118', '2026-10-06', 'permiso_con_goce']);
+      // El formulario está en el renglón que sigue al del día 6, y dice de quién es (no pide su número).
+      const abierto = document.querySelector('tr.pd-captura');
+      expect(abierto?.previousElementSibling?.textContent).toContain('6');
+      expect(abierto?.textContent).toContain('Prueba Dos Ejemplo');
+      expect(abierto?.querySelector('input[name="persona"]')).toBeNull();
+      expect(del6().getAttribute('aria-expanded')).toBe('true');
+      // Tocar el mismo día otra vez la cierra.
+      del6().click();
+      await ciclo();
+      expect(document.querySelector('tr.pd-captura')).toBeNull();
+      expect(c.capturaForm()).toBeNull();
+    });
+
+    it('⭐ [RH.18.1] al guardar desde el día: se dice si ya cuenta, se cierra la captura y se recalcula la semana', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
+      Object.assign(api, { tiposIncidencia: vi.fn(() => of([{ tipo: 'vacaciones', etiqueta: 'Vacaciones', codigo: 'VAC', excusaFalta: true }, { tipo: 'permiso_con_goce', etiqueta: 'Permiso con goce de sueldo', codigo: 'PCG', excusaFalta: true }, { tipo: 'horario_distinto', etiqueta: 'Horario distinto', codigo: 'HD', excusaFalta: false }])), capturar: vi.fn(() => of({ id: 'i-1', status: 'capturada' })) });
+      const c = fix.componentInstance;
+      const dos = c.todas().find((p) => p.codigo === '118')!;
+      c.abrir(dos);
+      await ciclo();
+      c.capturar(dos, '2026-10-06');
+      await ciclo();
+      const antes = (api['asistencia'] as ReturnType<typeof vi.fn>).mock.calls.length;
+      (document.querySelector('app-rh-captura-incidencia form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+      await ciclo();
+      expect(api['capturar']).toHaveBeenCalledWith(expect.objectContaining({ site_code: 'PH', person_code: '118', date_from: '2026-10-06', incident_type: 'permiso_con_goce' }));
+      expect(c.capturaForm()).toBeNull();
+      expect(c.aviso()?.texto).toContain('Cuenta cuando otra persona la califique');
+      expect((api['asistencia'] as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(antes);
+    });
+
+    it('⭐ [RH.18.1] en «solo esta persona» también hay «+ Incidencia» por día', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
+      fix.componentInstance.est.verSolo('118');
+      await ciclo();
+      expect(fix.componentInstance.unica()?.codigo).toBe('118');
+      expect(el().querySelectorAll('.ra-una button.pd-inc').length).toBeGreaterThan(0);
     });
 
     it('⛔ NEGATIVA — sin permiso de capturar, la ficha no ofrece «+ Incidencia»', async () => {
@@ -490,6 +537,40 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     g.nombre = 'Otro Nombre Cualquiera'; g.departamento = 'sis'; g.seccion = 'almacen';
     c.guardarFicha(p);
     expect(api['editarFicha']).toHaveBeenLastCalledWith({ site_code: 'PH', person_code: '104', nombre: 'Otro Nombre Cualquiera', seccion: 'almacen' });
+  });
+
+  it('⭐ [RH.18.2] con acceso a la Suite, la ficha DICE por qué no ofrece departamento, puesto y sucursal (y a dónde ir)', async () => {
+    const abrirCon = async (claves: string[], conAcceso: boolean) => {
+      await render({ claves });
+      api['fichaPersona'].mockReturnValue(of({
+        site_code: 'PH', person_code: '104', user_id: 'u-104', nombre: 'Prueba Uno Ejemplo', con_acceso: conAcceso, status: 'active',
+        activa_en_plaza: true, seccion: 'SISTEMAS', promotora: false, departamento_code: null, puesto_code: null, sucursal_code: null, zona_nombre: null,
+        relojes: [], nombre_para_reloj: 'Prueba Uno Ejemplo', nombre_por_confirmar: null, plazas_activas: 1,
+      }));
+      api['catalogosFicha'].mockReturnValue(of({ departamentos: [{ code: 'sis', name: 'Sistemas' }], puestos: [], sucursales: [] }));
+      const c = fix.componentInstance;
+      const p = c.todas().find((x) => x.codigo === '104')!;
+      c.abrir(p);
+      await ciclo();
+      c.abrirFicha(p);
+      await ciclo();
+      return document.querySelector('form[aria-label="Editar la ficha en esta plaza"]') as HTMLElement;
+    };
+    const base = [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR];
+    let form = await abrirCon([...base, Permission.USUARIOS_VER], true);
+    expect(form.textContent).toContain('los cambia Sistemas en Administración › Personas');
+    expect(form.querySelector('[aria-label="Departamento"]')).toBeNull();
+    expect(form.querySelector('a.ra-ir')?.getAttribute('href')).toBe('/admin/users');
+    TestBed.resetTestingModule();
+    // ⛔ NEGATIVA — sin permiso de ver Personas, se explica igual pero sin una liga que rebotaría.
+    form = await abrirCon(base, true);
+    expect(form.textContent).toContain('los cambia Sistemas');
+    expect(form.querySelector('a.ra-ir')).toBeNull();
+    TestBed.resetTestingModule();
+    // ⛔ NEGATIVA — sin acceso, no hay aviso: los tres campos están y se editan aquí.
+    form = await abrirCon(base, false);
+    expect(form.textContent).not.toContain('los cambia Sistemas');
+    expect(form.querySelector('.ra-bloqueado')).toBeNull();
   });
 
   it('[RH.6.3] con dos horarios manda la lista; el primero va también suelto, y no pasa de 4', async () => {

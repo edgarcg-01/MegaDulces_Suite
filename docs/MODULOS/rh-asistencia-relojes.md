@@ -1,5 +1,44 @@
 # Recursos Humanos › Asistencia — relojes y personas
 
+## RH.18.1 · La incidencia se levanta desde el día · RH.18.2 · Por qué un campo está bloqueado (2026-11-23)
+
+**El problema.** RH extrañaba de Mega Talento tres cosas (lo dijeron a David, 2026-11-23): levantar la incidencia
+**desde el día** del calendario, más variedad de tipos a la mano, y poder cambiar todo de una persona. En la Suite,
+«+ Incidencia» en el renglón de un día **cerraba la ficha** y abría otro panel, que arrancaba en «Vacaciones» y pedía el
+número de la persona; la hora de «Horario distinto» se tecleaba entera; en «solo esta persona» no había botón por día.
+Y en la ficha, a quien tiene acceso a la Suite le **desaparecían** departamento, puesto y sucursal sin decir por qué.
+
+**La solución.**
+
+| Item | Antes | Ahora |
+|---|---|---|
+| `RH.18.1` | Ficha → se cierra → panel de Incidencias → elegir tipo (empieza en Vacaciones) → teclear número y horas | «+ Incidencia» abre el formulario **debajo de ese día**, en la misma ficha: su nombre (no su número), ese día, y arriba «Para este día» con el tipo más probable ya elegido (falta → permiso; llegó tarde → horario distinto; se pasó de la comida → comida distinta; día que no ha llegado → vacaciones). «Horario distinto» llega con la entrada, salida y comida que **checó**, para corregir en vez de teclear. También en «solo esta persona». Guardar dice si ya cuenta y recalcula la semana |
+| `RH.18.2` | Con acceso: los tres campos no aparecían | «Tiene acceso a la Suite: su departamento, puesto y sucursal deciden lo que ve, por eso los cambia Sistemas en Administración › Personas», con liga a Personas sólo para quien la puede abrir (`USUARIOS_VER`) |
+
+**Cómo se implementó.** La captura vivía dentro del panel de Incidencias; salió a `incidencia-captura.ts` (el formulario,
+lo que se manda y qué se propone por día) y a la pieza `app-rh-captura-incidencia`, que usan **el panel y la ficha**: una
+sola regla de qué pide cada tipo, no dos copias (ADR-056). El renglón del día (`app-rh-persona-dias`) abre debajo lo que
+le ponga quien lo usa. Sin cambios en la API, en la base ni en permisos: el mismo `POST` de captura y la misma
+calificación (lo capturado cuenta cuando lo califica otra persona).
+
+**Por qué así.**
+- **Proponer no es decidir.** El tipo de arriba es un orden de opciones; los 19 siguen a un clic y el servidor valida igual.
+  Las reglas de qué se propone son una propuesta de desarrollo para probar con RH. ⚠️ La equivalencia con los nombres de
+  Mega Talento («Tráfico», «Cita médica», «Personal», «No registrada») sigue pendiente con RH (D1).
+- **No adivinar.** Con una sola checada no se sabe si fue entrada o salida: «Horario distinto» llega vacío. Y un tipo que
+  el catálogo no trae no se elige.
+- **Dar la razón, no sólo el bloqueo.** El servidor ya rechazaba el cambio con esa frase (D2 de Edgar); ahora la pantalla
+  la dice antes de que alguien lo intente.
+- **E3 (alta automática)** no entra: espera la D3 de Edgar.
+
+**Cómo se probó.** Vista RH **330/330** (`incidencia-captura.spec.ts` 8 nuevas; la ficha: captura debajo del día, cerrar con
+el mismo día, guardar y recalcular, «solo esta persona», el aviso de bloqueo con y sin `USUARIOS_VER` y sin acceso). Panel
+de Incidencias 21/21 sin tocar sus pruebas (la extracción no cambió lo que manda). Mutantes: con una sola checada
+adivinar la hora → rojo; volver a irse al panel → 3 rojos; la liga sin permiso → rojo. `tsc` y `ngc` 0 errores en RH.
+`check:pantalla -- rh`: 0 fallas nuevas por este cambio; el formulario de captura queda con Q.1/§2/§9 como deuda
+declarada (es un formulario: no abre con cifras, no carga datos ni tiene dato que envejezca). **Sin validación visual**
+(ni en escritorio ni a 390 px: el formulario dentro del renglón apilado del celular está sin ver). Falta probarlo con RH.
+
 ## RH.17.1 · El nombre del checador llega al momento · RH.17.2 · Horario distinto con el horario del día (2026-11-19)
 
 **El problema.** En `/rh/asistencia`, quien no está ligado a una persona de la Suite salía como «Empleado 109». El

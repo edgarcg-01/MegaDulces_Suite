@@ -56,12 +56,16 @@ interface RenglonDia {
               } @else {
                 <td role="cell" data-label="Qué pasó" [attr.colspan]="persona().horarioAsignado ? 7 : 6"><span class="pill" [attr.data-t]="r.tono">{{ r.etiqueta }}</span></td>
               }
-              <!-- [RH.13.5] La incidencia se captura con ESE día ya puesto (antes: el inicio de la semana y a buscar el día). -->
+              <!-- [RH.13.5] La incidencia se captura con ESE día ya puesto. [RH.18.1] Y se abre aquí mismo, debajo del día. -->
               @if (capturable()) {
                 <td class="pd-acc" role="cell"><button type="button" class="pd-inc" (click)="capturar.emit(r.col.fecha)"
-                  [attr.aria-label]="'Capturar una incidencia del ' + r.col.dow + ' ' + r.col.dia">+ Incidencia</button></td>
+                  [attr.aria-expanded]="abierto() === r.col.fecha"
+                  [attr.aria-label]="(abierto() === r.col.fecha ? 'Cerrar la incidencia del ' : 'Capturar una incidencia del ') + r.col.dow + ' ' + r.col.dia">{{ abierto() === r.col.fecha ? 'Cerrar' : '+ Incidencia' }}</button></td>
               }
             </tr>
+            @if (capturable() && abierto() === r.col.fecha) {
+              <tr class="pd-captura"><td role="cell" [attr.colspan]="columnasTotales()"><ng-content /></td></tr>
+            }
           }
         </tbody>
         <tfoot>
@@ -80,6 +84,8 @@ interface RenglonDia {
   `,
   styles: [`
     .pd-acc { text-align: right; white-space: nowrap; }
+    /* [RH.18.1] El formulario del día, a todo lo ancho debajo de su renglón. */
+    .pd-tabla tr.pd-captura td { white-space: normal; padding: var(--sp-2); background: var(--surface-2); }
     .pd-inc { border: 0; background: none; padding: 2px var(--sp-1); font: inherit; font-size: var(--fs-xs); color: var(--text-muted); cursor: pointer; border-radius: var(--r-sm); }
     .pd-inc:hover { color: var(--text-main); background: var(--surface-hover-bg); }
     .pd-inc:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
@@ -124,6 +130,10 @@ export class RhPersonaDiasComponent {
   /** `[RH.13.5]` Con un «+ Incidencia» por día (quien captura). */
   readonly capturable = input(false);
   readonly capturar = output<string>();
+  /** `[RH.18.1]` El día abierto: debajo de su renglón va lo que se proyecte (la captura de la incidencia). */
+  readonly abierto = input<string | null>(null);
+  /** Las columnas de la tabla, para que el renglón abierto ocupe todo el ancho. */
+  readonly columnasTotales = computed(() => 7 + (this.persona().horarioAsignado ? 1 : 0) + (this.capturable() ? 1 : 0));
 
   readonly horas = horasTexto;
   readonly firma = firmaHoras;
