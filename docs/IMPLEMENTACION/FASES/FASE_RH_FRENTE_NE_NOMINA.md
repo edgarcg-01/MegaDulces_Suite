@@ -44,9 +44,16 @@ mudarlo. Medido el 2026-11-20 y el 2026-11-23 (detalle y cifras en el anexo priv
 4. **Nadie registra que la persona recibió su dinero.** El sobre se arma hasta el billete y cuadra,
    pero no hay acuse en ningún sistema. En el libro de efectivo de la Suite, la firma está llena en
    **1 de 76** renglones.
-5. **La asistencia no alimenta el cálculo.** Los días y las horas se teclean recibo por recibo
-   (~250 por semana), mientras la Suite ya guarda **246,664 checadas** y resuelve la persona en
-   **99.8 %** de ellas. Es el empate que convierte ~250 capturas semanales en cero.
+5. **La asistencia y la nómina nunca se tocan.** ⚠️ *Corregido el 2026-11-23: una versión anterior
+   de este documento decía que los días y las horas se teclean recibo por recibo. **Es falso** y se
+   midió: en la última semana cerrada, `HorasTrabajadas` vale 0 en **los 254 recibos** y los días
+   están vacíos en 235. El sistema no usa días ni horas.* Lo que sí pasa: **82.7 % de los recibos
+   son el catálogo tal cual**, sin un solo ajuste; sólo el 17.3 % lleva algo a mano (una cantidad
+   de más, una de menos, horas extra). Y el **bono de asistencia lo cobran 154 de 155** personas que
+   sí usan el reloj —o sea, en los hechos no es variable, es parte del sueldo—, mientras la Suite
+   guarda **246,664 checadas** y resuelve la persona en el **99.8 %**. Cruzando ambos por primera
+   vez aparecen **6 casos** que cobraron el bono con tres días de checada o menos. El hallazgo no son
+   los 6: es que **nadie lo mira nunca**, porque los dos sistemas no se conocen.
 6. **Una sola cuenta de usuario cierra todas las nóminas** desde septiembre de 2026.
 7. **El respaldo es manual**: 36 copias desde 2016, pero la última dentro de la carpeta de respaldos
    es de **marzo de 2025**. No hay tarea programada. El riesgo no es que falte respaldo: es que la
@@ -115,7 +122,7 @@ estaría uniendo personas por su nombre escrito.
 | NE.1.1 | La aritmética del recibo como regla en `libs/`: lo que recibe la persona = lo que va por banco + lo que va en efectivo, con sus ajustes y su motivo | ⬜ | contra una semana real del Access, recibo por recibo, 0 diferencias |
 | NE.1.2 | **El cuadre que hoy no existe**: lo que el Access supone que va por banco contra lo que el banco dispersó, por persona y semana; la diferencia se nombra, no se absorbe | ⬜ | una semana real; toda diferencia declarada, ninguna redondeada |
 | NE.1.3 | El sobre al billete (denominaciones) como regla, con su cuadre contra lo exigible | ⬜ | contra las semanas ya armadas en el Access |
-| NE.1.4 | Días y horas **derivados de la asistencia**, no tecleados; lo que no se puede derivar se declara | ⬜ | contra lo capturado a mano en el Access, semana a semana |
+| NE.1.4 | **El cruce que hoy no existe: nómina contra reloj.** No es «derivar los días» —el Access no los usa—: es que por primera vez alguien compare lo que se pagó con lo que el reloj registró, y que las excepciones tengan dueño y respuesta | ⬜ | medido una vez (semana 46): 6 de 155 cobraron el bono de asistencia con ≤3 días de checada. ⛔ Quien no checa (Dirección, rutas, promotoría) queda fuera del universo, no «en falta» |
 
 ### C2 · API
 
@@ -145,7 +152,7 @@ no se publica en ninguna pantalla general.
 |---|---|---|---|
 | D1 | **Acceso a ContPAQi Nóminas**: qué rol y qué columnas. Sin esto, NE.0.3 no se puede medir y todo C1 queda sobre una hipótesis | — | ⬜ PM |
 | D2 | **Cuál es la llave de la persona** en la Suite: `employee_code` propio, el código de ContPAQi, o el número del Access | — | ⬜ |
-| D3 | **Calcular o sólo entregar.** Si la Suite calcula la nómina, hereda 15 años de reglas; si sólo entrega y acusa, el cálculo se queda donde está y el alcance baja mucho. **Recomendación: empezar por entregar y acusar** | — | ⬜ PM |
+| D3 | **Calcular o sólo entregar.** **Recomendación reforzada por la medición: sólo entregar y acusar.** El Access casi no calcula — **82.7 % de los recibos son el catálogo tal cual**, sin un solo ajuste, y no usa días ni horas. Lo que de verdad hace es *registrar un pago y repartirlo en banco y efectivo*. Reproducir eso es chico; reproducir un motor de nómina es otra cosa, y ya existe en ContPAQi | — | ⬜ PM |
 | D4 | **Qué es un acuse** aceptable para Dirección: firma en pantalla, huella del mismo reloj, o testigo | — | ⬜ PM |
 | D5 | **Qué pasa con el archivo de dispersión** expuesto en la unidad compartida (decisión de hoy, independiente del proyecto) | — | ⬜ |
 | D6 | **Qué es ContPAQi Nóminas respecto del Access**: quién manda cuando no coinciden | — | ⬜ |
@@ -185,3 +192,4 @@ no se publica en ninguna pantalla general.
 | 2026-11-23 | Medido el padrón: universo de la nómina semanal, cobertura de RFC/CURP/NSS, y confirmado que los dos padrones **no comparten llave**. Frente abierto como parte de RH (cupo: 9 🔨 contra 4) | Claude |
 | 2026-11-23 | Empate rehecho y **métrica corregida de 69.9 % a 73.7 %**: el primer número contaba como acierto a quien coincidía con más de un usuario. La ambigüedad eran registros duplicados e inactivos, no homónimos; preferir el activo la lleva a 0 %. Quedan **65 sin candidato** y **3 con usuario inactivo** como lista de trabajo de RH | Claude |
 | 2026-11-23 | Medido el catálogo de centros: **17 de 34 son sitios físicos, 17 son áreas**. Conclusión de diseño: la columna se parte en dos al migrar, no se copia | Claude |
+| 2026-11-23 | ⚠️ **Corregida una afirmación falsa de este documento**: no es cierto que los días y las horas se tecleen recibo por recibo — `HorasTrabajadas` vale 0 en los 254 recibos de la semana y los días están vacíos en 235. Medido en su lugar: **82.7 % de los recibos son el catálogo tal cual** y el bono de asistencia lo cobran **154 de 155**. Refuerza D3: lo que el Access hace es registrar y repartir un pago, no calcularlo | Claude |
