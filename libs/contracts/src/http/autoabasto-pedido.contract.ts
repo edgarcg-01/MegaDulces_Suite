@@ -765,6 +765,20 @@ export interface AutoabastoEnviarRequest {
   nota?: string | null;
 }
 
+/**
+ * `[PQ.138]` · ADR-127 — **Qué pasó con este pedido en el ERP.** Lo que la sucursal necesita saber
+ * es si su pedido llegó a la sucursal que le surte, y eso sólo es verdad cuando existe el documento
+ * de Kepler. Por eso el resultado viaja con el folio o con el **motivo**, nunca en silencio: un
+ * pedido que se guardó en la Suite y no salió del edificio no es un pedido hecho (regla 11).
+ */
+export type AutoabastoEnvioKepler =
+  /** Se escribió el pedido `U-D-40` en el Kepler de la sucursal que surte. */
+  | { estado: 'entregada'; sucursal: string | null; folio: string }
+  /** Ya tenía documento de antes: no se escribió uno nuevo (la idempotencia la hace `pushToKepler`). */
+  | { estado: 'ya_estaba'; sucursal: string | null; folio: string }
+  /** Quedó guardado en la Suite pero NO llegó al ERP, y acá está por qué. El reintento lo recoge. */
+  | { estado: 'no_salio'; motivo: string };
+
 /** `[AB.29]` Una requisición creada: una por origen (su matriz, o cada proveedor). */
 export interface AutoabastoRequisicionCreada {
   id: string;
@@ -773,6 +787,11 @@ export interface AutoabastoRequisicionCreada {
   renglones: number;
   /** Suma en cajas de la mesa. */
   total_cajas: number;
+  /**
+   * `[PQ.138]` Sólo en los pedidos a OTRA SUCURSAL, que salen al ERP en el acto. **Ausente** en la
+   * compra a proveedor: esa sí pasa por la bandeja de Compras y su documento nace al aprobarla.
+   */
+  kepler?: AutoabastoEnvioKepler;
 }
 
 export interface AutoabastoEnviarResponse {

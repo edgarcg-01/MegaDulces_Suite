@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, MX_TZ, toMxDateKey, branchKeySql } from '@megadulces/platform-core';
 import {
   armarRenglon,
   surteDe,
+  type AutoabastoEnvioKepler,
   estatusVigenteSql,
   WAREHOUSE_ORDER_ABIERTOS_SQL,
   coberturaAutoabasto,
@@ -254,6 +255,8 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
  */
 @Injectable()
 export class AutoabastoPedidoService {
+  private readonly logger = new Logger(AutoabastoPedidoService.name);
+
   constructor(
     private readonly motor: CommercialReplenishmentService,
     private readonly tk: TenantKnexService,
@@ -641,13 +644,60 @@ export class AutoabastoPedidoService {
 
     const { creadas, ya_pedidos } = await this.motor.crearRequisicionesDeSucursal(almacen.id, dtos);
     for (const id of ya_pedidos) omitidos.push({ product_id: id, motivo: 'Ya lo pediste a Compras' });
-    return {
-      requisiciones: creadas.map((c) => ({
+
+    // `[PQ.138]` · ADR-127 — **El pedido a otra SUCURSAL no espera a Compras: sale al ERP acá
+    // mismo.** La compra a proveedor sigue su camino de siempre (bandeja, aprobación, y su
+    // `X-A-30` al aprobarla): compromete dinero con un tercero. El traspaso mueve mercancía propia
+    // y hoy lo decide el almacenista capturándolo él mismo en Kepler.
+    //
+    // ⛔ Va DESPUÉS de que la requisición esté commiteada y FUERA de toda transacción: el ERP no
+    // participa de nuestro rollback. Y no lanza — si el ERP no contesta, el pedido queda guardado
+    // con su motivo y el reintento automático lo recoge.
+    const aSucursal = creadas.filter((c) => surtes[c.indice]?.tipo === 'matriz').map((c) => c.id);
+    const kepler = aSucursal.length
+      ? await this.motor.soltarPedidoDeSucursal(aSucursal)
+      : new Map<string, AutoabastoEnvioKepler>();
+
+    const requisiciones = creadas.map((c) => {
+      const k = kepler.get(c.id);
+      return {
         id: c.id, folio: c.folio, surte: surtes[c.indice], renglones: c.renglones, total_cajas: r1(c.total_units),
-      })),
-      omitidos,
-      le_llega_a: leLlegaA,
-    };
+        ...(k ? { kepler: k } : {}),
+      };
+    });
+
+    // La huella del envío. `enviar` ya estaba en el CHECK de `evento` desde `[AB.18]`, esperando a
+    // que alguien la escribiera: hasta hoy nadie lo hacía, porque este camino nunca corrió en prod
+    // (medido 2026-11-22: cero requisiciones con `requested_by_branch`).
+    //
+    // ⚠️ **El borrador NO se cierra acá**, aunque `autoabasto_pedidos` tenga el estado `enviado`
+    // para eso. El pedido se manda **parcial y varias veces al día** (`[DT8]`, medido: mediana de 7
+    // renglones contra un sugerido de 1,244), así que cerrarlo en el primer envío borraría los
+    // ajustes de todo lo que la persona todavía no mandó. El borrador es el escritorio del
+    // almacén, no el documento.
+    await this.tk.run(async (trx: Knex.Transaction) => {
+      const pedidoId = await this.borradorDe(trx, tenantId, almacen.id);
+      await this.huella(trx, {
+        tenant_id: tenantId, warehouse_id: almacen.id, pedido_id: pedidoId, evento: 'enviar',
+        datos: JSON.stringify({
+          productos: ids.length,
+          omitidos: omitidos.length,
+          requisiciones: requisiciones.map((r) => ({
+            folio: r.folio,
+            surte: `${r.surte.tipo}:${r.surte.clave ?? ''}`,
+            renglones: r.renglones,
+            kepler: r.kepler?.estado ?? null,
+            kepler_folio: r.kepler && 'folio' in r.kepler ? r.kepler.folio : null,
+            kepler_motivo: r.kepler && 'motivo' in r.kepler ? r.kepler.motivo : null,
+          })),
+        }),
+      });
+    }).catch((e: unknown) => {
+      // La huella no decide si el pedido salió: si falla, se dice y se sigue.
+      this.logger.warn(`[PQ.138] Pedido de ${almacen.code} enviado pero sin huella: ${(e as Error)?.message}`);
+    });
+
+    return { requisiciones, omitidos, le_llega_a: leLlegaA };
   }
 
   /**

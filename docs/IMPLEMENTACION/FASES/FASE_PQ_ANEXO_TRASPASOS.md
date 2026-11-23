@@ -183,6 +183,7 @@ contra piezas, así que «hecho» puede estar subcontado.
 | 2026-11-09 | **PQ.115 en código**: migración `20261109140626_pq115_v_traspasos_ciclo.js` (`analytics.v_traspasos_ciclo`) y prueba `test-newdb-pq115-traspasos-ciclo.js` (escenario sintético con ROLLBACK, control negativo sin origen en la llave). El SQL exacto de la migración, como vista temporal en prod: 3,767 filas = 3,767 pedidos de Kepler, 0 duplicados, 0 sin tenant, 140–240 ms. Dos lecciones: (1) con `LEFT JOIN` el planificador estimaba ~1 fila por pieza y tardaba 6.2 s (> 2 min sin `MATERIALIZED`; esa consulta se canceló en prod); apilar y agrupar por llave es lineal. (2) La recepción se liga por origen (`c10`). **NO MEDIDO:** la prueba no corrió en local (sin Docker); corre en `pruebas-db` del CI. **Falta:** aplicar la migración (lo hace el carril de despliegue) y, ya aplicada, que Autoabasto lea la vista (corrige AB.45) |
 | 2026-11-22 | **Edgar: «el bloqueo funcional es que el informe no tiene a dónde llegar»**. Decisiones D1–D4 y **ADR-127** (deroga las decisiones 1 y 2 de ADR-100): el pedido de sucursal lo decide la sucursal y la Suite lo escribe como `U-D-40` en el Kepler del origen; el de proveedor sigue como requisición. Medición de la operación real (4,213 pedidos a mano en 90 días, red, cadencia, ventana horaria) y de las piezas: el sink de traspaso **ya existe y está en prod**, apagado en 9 de 9. Items **PQ.134–PQ.142** en §7.4. ⚠️ D1 (`CREADO`) queda abierta otra vez: 0 de 5,621 pedidos de sucursal de 365 días nacieron así, y donde el estado existe se pudre (§7.2) |
 | 2026-11-22 | **PQ.135, PQ.136 y PQ.137 en código.** PQ.136/137: «Lo que te va a llegar» dejaba de pintar un pedido **cancelado** —de 170 documentos a 61 en las 9 sucursales, 109 eran cancelados; Morelia Madero 111 → 29— y `CREADO` entra en la lista de abiertos; la regla vive en `libs/contracts` y las tres consultas la comparten (ADR-056). PQ.135: el renglón del traspaso se escribe completo (`c51`, `c28`) y el estado inicial pasa a ser un parámetro validado (`[DT5]`). De paso, el ensayo contra el Kepler vivo estaba roto desde PQ.19 (mandaba las líneas sin factor de caja) y se saltaba en silencio por falta de plantilla. Nueve mutantes muertos |
+| 2026-11-22 | **[PQ.138] el pedido de sucursal sale al ERP al enviarlo**, no al aprobarlo: `soltarPedidoDeSucursal` aprueba y empuja, en serie, fuera de transacción y sin lanzar; cada pedido vuelve con su folio de Kepler o con el motivo. La compra a proveedor NO se suelta (4 mutantes muertos). ⭐ Al medirlo apareció **por qué nunca llegó nada**: las 360 requisiciones de traspaso aprobadas fallaron TODAS en el interruptor, apagado desde el 28-oct por una razón ya resuelta (§8.8) — no por la plantilla ni por el código. Y el item se corrigió en dos puntos: **no hace falta migración** (las columnas `kepler_*` y la idempotencia ya existen en `purchase_requisitions`; duplicarlas violaría ADR-056) y **el borrador no se cierra** (contradice a `[DT8]`: el pedido se manda parcial varias veces al día) |
 | 2026-11-22 | **D1 cerrada por Edgar: `AUTORIZADO`** — *«seguimos el modelo de Kepler»*. El documento nace donde caen los 4,182 capturados a mano y la revisión del origen se muda al **borrador de la Suite**. En el código: `estadosIniciales` pasa de dos opciones a **una puerta** (`CREADO` entre los rechazados, 5 mutantes muertos); `WAREHOUSE_ORDER_ABIERTOS` conserva `CREADO` pero **por tolerancia de lectura**, declarado en cero; caen la condición de PQ.136 (nombrar quién autoriza) y el «cierra D1» de PQ.140. Los dos hallazgos de §8.4 quedan **anotados, no abiertos** (§8.7) — y el del sugerido trae su razón: *«nunca se hizo la configuración del sugerido, y es donde nace la necesidad del módulo de Autoabasto»* |
 | 2026-11-22 | **El PM recorrió el carril entero a mano**, con un faltante deliberado, y lo cerró con un `U-D-90`. **§8**. Confirma `c10`, `c24` y `limpiar`; **corrige** dos cifras propias (`c28` **no** sigue al encabezado: guarda el estado de nacimiento, 81,482 renglones lo prueban; `c51` está en la **presentación**, no en unidad base) y **cierra D1** con evidencia: 0 de 4,182 pedidos de sucursal nacen `CREADO`, el estado es del carril de telemarketing y el menú del pedido de sucursal no tiene paso de autorización. Destapa dos cosas nuevas: el faltante **en tránsito** no lo ve nadie (35 embarques de 90 días llevan más de 11 días sin recepción) y Kepler **ya tiene una columna «Cant. Sug»** vacía donde cabría el sugerido de Autoabasto |
 
@@ -411,6 +412,34 @@ medida sabe mover, y no se pierde la revisión que D1 quería.
 impide escribir un `c11` que el carril no usa. Escribirlo no falla —por eso hacía falta la
 puerta—, deja el documento fuera de todos los filtros del ERP y de la Suite. Probado con **5
 mutantes muertos**: al devolver `CREADO` a la lista, cinco pruebas se ponen rojas.
+
+### 8.8 ⭐ El camino al ERP ya estaba completo: lo frenaba el interruptor
+
+Al construir `[PQ.138]` se midió por qué ninguna requisición de traspaso llegó nunca a Kepler. La
+respuesta no estaba en el código:
+
+| | |
+|---|---|
+| Requisiciones de traspaso **aprobadas** que intentaron salir | 360 |
+| De ellas, con documento en Kepler | **0** |
+| Motivo, en las 360 | *«la escritura a Kepler de la sucursal NN (traspaso) está apagada desde la Suite»* |
+| Reparto | 174 de la 00 · 93 de la 01 · **72 de la 08** · 21 de la 06 |
+| Requisiciones de traspaso canceladas | 1,891 |
+| Pedidos creados desde Autoabasto (`requested_by_branch`) | **0** — `enviar()` nunca corrió en prod |
+
+El interruptor está apagado desde el 28-oct con la nota *«hasta desplegar PQ.19 (unidad base)»*, y
+PQ.19 está desplegado. **No falló la plantilla, ni las unidades, ni el código: falló una palanca que
+quedó abajo por una razón ya resuelta.**
+
+⚠️ **Y por eso el camino no se ha visto pasar completo:** el interruptor frena **antes** que la
+plantilla, así que encenderlo sin `[PQ.134]` cambiaría un error por otro. El orden es plantilla →
+ensayo con `ROLLBACK` → interruptor.
+
+**Lo que esto le ahorró a PQ.138:** la escritura, su idempotencia, sus frenos y su reintento **ya
+existen** (`pushToKepler`, columnas `kepler_*` de `purchase_requisitions`, mig `20261013140000`).
+Lo que faltaba era el **disparador**: hoy sólo se empuja al *aprobar*, y el pedido de la sucursal no
+pasa por esa bandeja. El item pedía una migración y cerrar el borrador; **ninguna de las dos hacía
+falta** y la segunda contradecía a `[DT8]` — ver su fila en el tracker.
 
 ### 8.7 Anotado, no abierto (decisión del PM, 2026-11-22)
 

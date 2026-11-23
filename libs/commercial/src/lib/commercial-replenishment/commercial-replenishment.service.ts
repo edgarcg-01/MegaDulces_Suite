@@ -5,6 +5,7 @@ import {
   WorkbookSkuSignals,
   validarSeguimiento, coberturaAutoabastoSql, coberturaAutoabasto,
   KEPLER_REQUISITION_SINK_PORT, type KeplerRequisitionSinkPort, type KeplerLineaResuelta,
+  type AutoabastoEnvioKepler,
 } from '@megadulces/contracts';
 
 /**
@@ -4561,6 +4562,72 @@ export class CommercialReplenishmentService {
       }
       return { creadas, ya_pedidos: [...vivos] };
     });
+  }
+
+  /**
+   * `[PQ.138]` · ADR-127 — **El pedido que arma la sucursal SALE AL ERP en el acto**, sin pasar por
+   * la bandeja de Compras.
+   *
+   * ── Por qué no espera aprobación, al revés que la compra ────────────────────────────────────
+   *
+   * ADR-127: *el pedido de sucursal lo decide la sucursal*. La compra a proveedor compromete dinero
+   * con un tercero y por eso la mira Compras; el traspaso mueve mercancía propia de una bodega a
+   * otra, y hoy lo decide el almacenista **capturándolo él mismo en Kepler** — 4,182 pedidos en 90
+   * días. Meter una aprobación en medio no agrega control: agrega una bandeja.
+   *
+   * ⭐ Y el testigo de que esa bandeja no funciona está medido (2026-11-22): de las requisiciones de
+   * traspaso que la Suite lleva creadas, **ninguna llegó nunca a Kepler**; 1,891 terminaron
+   * canceladas y las 360 que alguien sí aprobó murieron todas en el interruptor. El pedido no
+   * «tenía a dónde llegar»: ese es el bloqueo que esta fase quita.
+   *
+   * ── El orden, que no es arbitrario ──────────────────────────────────────────────────────────
+   *
+   * ⛔ **En SERIE.** Dos documentos a la vez en la misma sucursal pelean por el contador de folios
+   * de Kepler. Es la misma razón por la que `empujarLoteAKepler` no usa `Promise.all`.
+   *
+   * ⛔ **Nunca lanza.** Cuando esto corre, la requisición **ya está escrita y commiteada**. Si el
+   * empuje fallara hacia arriba, la sucursal vería un error sobre algo que sí se guardó, y un ERP
+   * lento o caído dejaría a las nueve sucursales sin poder pedir. El motivo queda en
+   * `kepler_error` —lo escribe `pushToKepler` antes de tirar— y lo recoge el reintento automático.
+   *
+   * ⛔ **El empuje va FUERA de toda transacción nuestra**, porque el ERP no participa de nuestro
+   * rollback: un documento escrito allá no se deshace acá. Lo garantiza `pushToKepler`, que lee,
+   * cierra y recién entonces habla.
+   *
+   * ⚠️ Lo que este método **no** decide: si el documento sale o no. Eso lo deciden el interruptor
+   * (`kepler_push_switch`, por sucursal y tipo) y los frenos de `pushToKepler`. Acá sólo se abre la
+   * puerta y se **cuenta la verdad** de lo que pasó al otro lado.
+   */
+  async soltarPedidoDeSucursal(ids: string[]): Promise<Map<string, AutoabastoEnvioKepler>> {
+    const salida = new Map<string, AutoabastoEnvioKepler>();
+    const porque = (e: unknown) => String((e as { message?: string })?.message || 'no se pudo').slice(0, 400);
+    for (const id of ids) {
+      // 1. Aprobar. `setEstado` exige venir de `pending_approval`, así que un doble clic que
+      //    llegara hasta acá con la requisición ya aprobada se frena solo.
+      try {
+        await this.setEstado(id, 'pending_approval', 'approved');
+      } catch (e: unknown) {
+        salida.set(id, { estado: 'no_salio', motivo: `Se guardó el pedido pero no se pudo aprobar: ${porque(e)}` });
+        continue;
+      }
+      // 2. Empujar. Sin binding del sink el pedido queda guardado y se dice: no se simula que salió.
+      if (!this.keplerSink) {
+        salida.set(id, { estado: 'no_salio', motivo: 'La escritura a Kepler no está habilitada en este despliegue.' });
+        continue;
+      }
+      try {
+        const r = await this.pushToKepler(id);
+        const folio = r.kepler?.folio;
+        salida.set(id, folio
+          ? { estado: r.ya_estaba ? 'ya_estaba' : 'entregada', sucursal: r.kepler?.sucursal ?? null, folio }
+          : { estado: 'no_salio', motivo: 'El ERP aceptó la escritura pero no devolvió folio.' });
+      } catch (e: unknown) {
+        const motivo = porque(e);
+        this.logger.warn(`[PQ.138] Pedido de sucursal ${id} guardado pero NO salió a Kepler: ${motivo}`);
+        salida.set(id, { estado: 'no_salio', motivo });
+      }
+    }
+    return salida;
   }
 
   /**
