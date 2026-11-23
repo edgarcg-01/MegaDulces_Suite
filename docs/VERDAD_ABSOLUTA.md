@@ -6154,3 +6154,79 @@ armarlo hay que cruzar dos bases a mano, por nombre.
 
 ⚠️ **NO MEDIDO:** las 15 personas que reciben **de más** que el campo; por qué 44 de 201 no coinciden
 al peso entre el pago por banco del sistema viejo y la percepción bruta.
+
+### 40.7 ⭐⭐ El espejo de 9 semanas: toda diferencia tiene nombre, y dos de ellas son físicas (NE.1.6, 2026-11-23)
+
+**Universo:** las 9 semanas de nómina cerradas entre el 2026-09-18 y el 2026-11-13, **2,222 recibos**,
+leídos en sólo lectura del sistema actual. Las cuatro del gate de la Etapa 1 son 10-23, 10-30, 11-06
+y 11-13 (1,002 recibos). ⛔ El viernes 2026-11-20 **todavía no existe** en la base al 23-nov.
+
+**Lo que el sistema actual hace bien, y queda como prueba de no-regresión:** en los **1,153** sobres
+con efectivo, las denominaciones capturadas suman **exactamente** el total declarado del sobre —
+**0 discrepancias en 9 semanas**. Quien cuenta el sobre no se equivoca nunca.
+
+#### 40.7.1 ⛔ El efectivo sin concepto son HORAS — y la columna que existe para eso está vacía
+
+De los 2,222 recibos, **23 no cuadran**: entregan efectivo por encima de lo que explican sus
+conceptos. **Los 23 son un múltiplo exacto de media hora a la tarifa `CostoXHora` del propio
+renglón** (⭐ el testigo es un dato de la misma fila, no una cifra traída de afuera): dos tarifas en
+juego, 21 casos a una y 2 a la otra; **106 horas** en 9 semanas.
+
+⭐ **Control negativo, obligatorio para un cruce por importe:** la misma prueba con siete tarifas
+inventadas ($17, $25, $30, $38, $40, $45, $50 por hora) encaja en **0 de 23**. El ajuste no es un
+artefacto de divisibilidad.
+
+⛔ **`HorasExtras` vale 0.00 en los 23.** La columna que el sistema tiene para registrar horas está
+vacía justo donde se están pagando horas. El texto libre lo confirma: un motivo dice literalmente
+*«4 HORAS EN 78.80»* — 78.80 ÷ 4 = la mitad de la tarifa horaria. **El dato existe, el campo existe,
+y aun así el pago entra como efectivo sin concepto.**
+
+#### 40.7.2 ⛔⛔ No hay política de redondeo: el mismo residuo se resuelve hacia los dos lados
+
+El efectivo se calcula al centavo y la moneda más chica es de 50 centavos. Con el residuo más
+frecuente —46 centavos, **408 casos**— el sistema redondeó **200 veces hacia abajo y 203 hacia
+arriba**. No es un error de captura: **es que la decisión no está en ningún lado**. Tampoco es una
+política por centro: la proporción de «hacia arriba» va del 8 % al 50 % según el centro, sin ninguno
+en 0 % ni en 100 %. En 9 semanas el redondeo mueve **$159.27 de menos** y **$13.78 de más**.
+
+→ Por eso `libs/hr/.../entrega.ts` **toma la decisión y la nombra** (default `a_favor`, con el
+redondeo como concepto del recibo). Lo que no se puede es dejarla sin tomar.
+
+#### 40.7.3 ⭐⭐ Cuatro semanas sin monedas de 50 centavos, y nadie lo supo
+
+Las 88 diferencias de sobre que no encajaban en ninguna regla resultaron ser **todas exactamente
+−(residuo + 50 centavos)**: un escalón de más hacia abajo. La causa es física y se ve de un vistazo:
+
+| semana | sobres con efectivo | sobres con moneda de 50c |
+|---|---:|---:|
+| 2026-09-18 | 134 | 57 % |
+| 2026-09-25 | 92 | 47 % |
+| **2026-10-02** | 130 | **2 %** |
+| **2026-10-09** | 134 | **0 %** |
+| **2026-10-16** | 138 | **0 %** |
+| **2026-10-23** | 131 | **0 %** |
+| 2026-10-30 | 95 | 46 % |
+| 2026-11-06 | 162 | 56 % |
+| 2026-11-13 | 137 | 58 % |
+
+**Se quedaron sin moneda de 50 centavos durante cuatro semanas.** En esa ventana **422 de 533**
+sobres salieron cortos (79 %) contra **227 de 620** (37 %) en las otras cinco, y redondear hacia
+arriba prácticamente desapareció ($2.95 en total contra $12.92). El faltante acumulado de la sequía
+es **$184.00**.
+
+⛔ **El dinero es chico; el hallazgo no.** Un desabasto de monedas cambió durante un mes lo que
+recibió la gente, **ningún sistema lo registró, nadie lo repuso y nadie se enteró** — se descubrió
+nueve semanas después, midiendo. Es el caso canónico de *el acto físico no deja rastro*.
+
+#### 40.7.4 Las dos que siguen SIN explicación
+
+El gate de la Etapa 1 dice que una diferencia sin explicación **no se redondea: detiene la etapa**.
+Quedan dos, y necesitan una persona, no una consulta:
+
+| semana | centro | qué pasó |
+|---|---|---|
+| 2026-10-30 | Canindo Staff | el recibo exigía **$93.46** en efectivo y el sobre salió **vacío** |
+| 2026-11-06 | Morelia Abastos | el sobre llevó **$455.04 MÁS** de lo exigido |
+
+⚠️ **NO MEDIDO:** si esas dos se corrigieron en la semana siguiente (el sistema no guarda bitácora,
+patrón B3); por qué dos personas tienen una tarifa horaria distinta al resto.

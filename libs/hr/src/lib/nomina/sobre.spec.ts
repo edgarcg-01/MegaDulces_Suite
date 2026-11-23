@@ -112,6 +112,38 @@ describe('verificar un sobre ya armado (el espejo)', () => {
     expect([c.diferenciaCentavos > 0, c.esSoloResiduo]).toEqual([true, false]);
   });
 
+  it('⭐⭐ nombra la resolución: el mismo residuo se resuelve hacia los DOS lados', () => {
+    // Medido el 2026-11-23 sobre 1,153 sobres reales: con residuo 46 el sistema actual bajó 200
+    // veces y subió 203. No es error de captura: es que no hay política. Las dos son estructurales.
+    const abajo = verificaSobre({ b1000: 3, b50: 1, b20: 2, m2: 1, m1: 1 }, 309346); // 309300
+    expect([abajo.resolucion, abajo.diferenciaCentavos]).toEqual(['residuo_no_entregado', -46]);
+
+    const arriba = verificaSobre({ b1000: 3, b50: 1, b20: 2, m2: 1, m1: 1, m50c: 1 }, 309346); // 309350
+    expect([arriba.resolucion, arriba.diferenciaCentavos]).toEqual(['redondeado_a_favor', 4]);
+
+    // ⛔ y redondear hacia arriba NO es «sólo el residuo»: la persona recibe de más, no de menos.
+    expect([abajo.esSoloResiduo, arriba.esSoloResiduo]).toEqual([true, false]);
+  });
+
+  it('exacto cuando el importe ya era pagable', () => {
+    expect(verificaSobre({ b1000: 2, b100: 1 }, 210_000).resolucion).toBe('exacto');
+  });
+
+  it('⛔ lo que no cae en ninguno de los tres NO se redondea: se declara sin explicar', () => {
+    // Dos escalones abajo del piso: 309346 → piso 309300 → se entregaron 309250.
+    const dosEscalones = verificaSobre({ b1000: 3, b50: 1, b20: 2, m2: 1, m50c: 1 }, 309346);
+    expect([dosEscalones.diferenciaCentavos, dosEscalones.resolucion]).toEqual([-96, 'sin_explicar']);
+
+    // Caso real medido: lo exigible era 9,346 centavos y el sobre llegó vacío.
+    expect(verificaSobre({}, 9346).resolucion).toBe('sin_explicar');
+  });
+
+  it('un residuo de cero no puede resolverse por redondeo', () => {
+    // Si el importe YA era pagable, cualquier diferencia es sin explicar — no hay residuo que culpar.
+    const c = verificaSobre({ b1000: 2 }, 210_000);
+    expect([c.diferenciaCentavos, c.resolucion]).toEqual([-10_000, 'sin_explicar']);
+  });
+
   it('rechaza una denominación que no existe', () => {
     expect(() => sumaDelSobre({ b1000: 1, m10c: 3 })).toThrow(/denominación desconocida/);
   });

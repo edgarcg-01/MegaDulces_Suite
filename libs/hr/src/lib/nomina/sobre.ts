@@ -120,29 +120,61 @@ export function armaSobre(exigibleCentavos: Centavos): Sobre {
   };
 }
 
+/**
+ * ⭐ Cómo quedó resuelto el residuo. Nombrarlo es el punto: `sin_explicar` **no se redondea**.
+ *
+ * ⚠️ Corregido el 2026-11-23 por el espejo de 9 semanas (`[NE.1.6]`). La primera versión de este
+ * módulo asumía que el sistema actual **siempre trunca hacia abajo**, y por eso marcaba como «hay
+ * que explicar» a todo sobre redondeado hacia arriba. Medido sobre 1,153 sobres reales: trunca
+ * hacia abajo 564 veces (48.9 %) y hacia arriba 264 (22.9 %) — **con el mismo residuo**. No es un
+ * error de captura: es que **no hay política**, y eso es un hallazgo, no ruido.
+ */
+export type ResolucionDelSobre =
+  /** El importe era pagable en monedas y el sobre lo contiene exacto. */
+  | 'exacto'
+  /** Se entregó el múltiplo de abajo: la persona recibe hasta 49 centavos **de menos**. */
+  | 'residuo_no_entregado'
+  /** Se entregó el múltiplo de arriba: la persona recibe hasta 49 centavos **de más**. */
+  | 'redondeado_a_favor'
+  /** ⛔ Ni una cosa ni la otra. Exige una explicación con nombre; detiene el espejo. */
+  | 'sin_explicar';
+
 export interface CuadreDelSobre {
   readonly cuadra: boolean;
   readonly entregadoCentavos: Centavos;
   readonly exigibleCentavos: Centavos;
   /** entregado − exigible. Negativo = se entregó de menos. */
   readonly diferenciaCentavos: Centavos;
-  /** Si la diferencia se explica sola por no existir moneda chica. */
+  /** Si la diferencia se explica sola por no existir moneda chica, **y fue hacia abajo**. */
   readonly esSoloResiduo: boolean;
+  /** ⭐ La diferencia, con nombre. Lo que el espejo cuenta. */
+  readonly resolucion: ResolucionDelSobre;
 }
 
 /**
  * Mide un sobre ya armado contra lo exigible, sin lanzar. Es la puerta del espejo: separa la
- * diferencia **estructural** (no hay moneda de menos de 50 centavos) de la que hay que explicar.
+ * diferencia **estructural** (no hay moneda de menos de 50 centavos, se resuelva hacia arriba o
+ * hacia abajo) de la que hay que explicar.
  */
 export function verificaSobre(piezas: PiezasDelSobre, exigibleCentavos: Centavos): CuadreDelSobre {
   exigeEnteroNoNegativo(exigibleCentavos, 'verificaSobre');
   const entregadoCentavos = sumaDelSobre(piezas);
   const diferenciaCentavos = entregadoCentavos - exigibleCentavos;
+  const residuo = residuoNoPagable(exigibleCentavos);
+  const piso = exigibleCentavos - residuo;
+
+  let resolucion: ResolucionDelSobre;
+  if (diferenciaCentavos === 0) resolucion = 'exacto';
+  else if (residuo > 0 && entregadoCentavos === piso) resolucion = 'residuo_no_entregado';
+  else if (residuo > 0 && entregadoCentavos === piso + MONEDA_MINIMA_CENTAVOS) resolucion = 'redondeado_a_favor';
+  else resolucion = 'sin_explicar';
+
   return {
     cuadra: diferenciaCentavos === 0,
     entregadoCentavos,
     exigibleCentavos,
     diferenciaCentavos,
-    esSoloResiduo: diferenciaCentavos === -residuoNoPagable(exigibleCentavos) && diferenciaCentavos !== 0,
+    esSoloResiduo: resolucion === 'residuo_no_entregado',
+    resolucion,
   };
 }
