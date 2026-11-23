@@ -104,6 +104,14 @@ export class CustomerLedgerController {
     return this.svc.tendencia({ sucursal, dias: dias ? Number(dias) : undefined });
   }
 
+  /** `[CXC.52]` Lo facturado por cada vendedor en un periodo (por defecto, los últimos 30 días). */
+  @Get('venta-vendedor')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Venta facturada en Kepler por (sucursal, vendedor) entre date_from y date_to (AAAA-MM-DD, hasta 366 días).' })
+  ventaVendedor(@Query('date_from') dateFrom?: string, @Query('date_to') dateTo?: string) {
+    return this.svc.ventaVendedor({ date_from: dateFrom, date_to: dateTo });
+  }
+
   /**
    * `[CXC.20]` Corre por el MISMO camino que el cron (`scanAll`), no por `snapshotTenant` suelto.
    *

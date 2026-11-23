@@ -77,14 +77,18 @@ export interface CarteraResumen {
   pago: { n: number; promedio: number; mediana: number; tarde_30d: number } | null;
   concentracion: { top10_pct: number; top10: { cliente_code: string; saldo: number }[] };
   proyeccion: { vencido: number; d0_7: number; d8_15: number; d16_30: number; d30_plus: number; sin_fecha: number };
-  /** `venta` (`[CXC.52]`): lo facturado con esa clave en los últimos `venta_vendedor.dias` días; `null` = sin venta con ella. */
-  por_vendedor: { sucursal: string; vendedor: string; vendedor_nombre: string | null; saldo: number; vencido: number; n_clientes: number; venta?: number | null }[];
-  /** `medida: false` = la lectura de la venta falló: la columna dice «no medido», no cero. Opcional: la API vieja no la manda. */
-  venta_vendedor?: { medida: boolean; dias: number };
+  por_vendedor: { sucursal: string; vendedor: string; vendedor_nombre: string | null; saldo: number; vencido: number; n_clientes: number }[];
   por_zona: { zona: string; saldo: number; vencido: number }[];
   /** Los dos rollups reparten por DOCUMENTO: suman `saldo_total − sin_documento`, no `saldo_total`. */
   base_rollups: 'documento';
   sin_documento: SinDocumento;
+}
+/** `[CXC.52]` La venta por vendedor de un periodo (`GET /finance/receivables/venta-vendedor`). */
+export interface VentaVendedorResp {
+  date_from: string; date_to: string; hoy: string;
+  /** Sólo las claves que vendieron: la que no está, no vendió con esa clave en el periodo (no es cero). */
+  filas: { sucursal: string; vendedor: string; venta: number }[];
+  total: number;
 }
 export interface CarteraTendencia { fecha: string; saldo_total: number; vencido_total: number; n_clientes: number; pct_vencido: number }
 export interface CarteraResp {
@@ -330,6 +334,14 @@ export class CarteraService {
     if (q.dias) p.set('dias', String(q.dias));
     const qs = p.toString();
     return this.http.get<CarteraTendencia[]>(`${this.base}/tendencia${qs ? '?' + qs : ''}`);
+  }
+  /** `[CXC.52]` Lo facturado en Kepler por (sucursal, vendedor) en el periodo; sin fechas, los últimos 30 días. */
+  ventaVendedor(q: { date_from?: string; date_to?: string } = {}): Observable<VentaVendedorResp> {
+    const p = new URLSearchParams();
+    if (q.date_from) p.set('date_from', q.date_from);
+    if (q.date_to) p.set('date_to', q.date_to);
+    const qs = p.toString();
+    return this.http.get<VentaVendedorResp>(`${this.base}/venta-vendedor${qs ? '?' + qs : ''}`);
   }
   detalle(sucursal: string, cliente: string): Observable<CarteraDetalle> {
     return this.http.get<CarteraDetalle>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}`);

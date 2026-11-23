@@ -32,13 +32,18 @@ const fechaMx = (iso: string): string =>
 /** Minúsculas y sin acentos: «Peña» se encuentra escribiendo «pena». */
 const normalizar = (s: string | null | undefined): string =>
   (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, TelefonosCuenta, CarteraFiltros, CarteraQuery, CanalContacto, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto, CuentaKind } from '../cartera.service';
+import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, TelefonosCuenta, CarteraFiltros, CarteraQuery, CanalContacto, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto, CuentaKind, VentaVendedorResp } from '../cartera.service';
+/** `[CXC.52]` El periodo de la venta por vendedor. */
+type PeriodoVenta = '30d' | 'mes' | 'mes_ant' | '3m' | 'rango';
+/** Una fecha del calendario (hora local del navegador) como AAAA-MM-DD, sin pasar por UTC. */
+const isoLocal = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CarteraSegmentsComponent } from '../cartera-segments.component';
 import { mensajeEstadoCuenta, mensajeVendedor, pdfPublicoDelEnlace, type PeriodoMensaje } from '../estado-cuenta-mensaje';
-import { MESES_ESTADO_CUENTA_POR_DEFECTO, PERIODOS_ESTADO_CUENTA, dateFromDelPeriodo, masNuevaPrimero, pagadaEnPeriodo, proximoVencimiento, resumenPeriodo, type PeriodoEstadoCuenta } from '@megadulces/contracts';
+import { MESES_ESTADO_CUENTA_POR_DEFECTO, PERIODOS_ESTADO_CUENTA, dateFromDelPeriodo, masNuevaPrimero, pagadaEnPeriodo, proximoVencimiento, restarMeses, resumenPeriodo, type PeriodoEstadoCuenta } from '@megadulces/contracts';
 import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarPdf } from '../../../shared/util/abrir-pdf';
 import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 
@@ -218,21 +223,33 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 
             <div class="ct-rs-grid">
               <div>
-                <h4 class="ct-rs-h4">Cartera por vendedor</h4>
+                <div class="ct-rs-vend-head">
+                  <h4 class="ct-rs-h4">Cartera por vendedor</h4>
+                  <!-- [CXC.52] Edgar, 2026-11-23: «un selector de tiempo, por mes, tres meses o un rango». Cambiarlo pide
+                       SÓLO la venta (su propio endpoint), no recarga la cartera. -->
+                  <p-select [options]="periodosVenta" [ngModel]="periodoVenta()" (ngModelChange)="cambiarPeriodoVenta($event)"
+                            optionLabel="etiqueta" optionValue="clave" ariaLabel="Periodo de la venta por vendedor"
+                            styleClass="ct-sel" data-testid="periodo-venta" />
+                  @if (periodoVenta() === 'rango') {
+                    <p-datepicker [ngModel]="rangoVenta" (ngModelChange)="cambiarRangoVenta($event)" selectionMode="range"
+                                  dateFormat="yy-mm-dd" [maxDate]="hoyFecha()" [showIcon]="true" appendTo="body"
+                                  placeholder="Desde – hasta" ariaLabel="Rango de la venta por vendedor" data-testid="rango-venta" />
+                  }
+                </div>
                 <!-- [CXC.20] Con NOMBRE, y la fila es (sucursal, código). Antes listaba «1», «2»,
                      «10001»: el join a kduv existía en el ODS y nadie lo hacía. Y agrupar por el
                      código pelado habría fundido dos carteras — 11 de 81 códigos nombran a
                      personas distintas según la plaza. -->
                 <!-- [CXC.52] Edgar, 2026-11-23: «el total de venta de cada vendedor». Lo facturado en Kepler con esa
-                     clave (contado + crédito, con impuestos) en los últimos 30 días, junto a lo que le deben. «—» = sin
+                     clave (contado + crédito, con impuestos) en el periodo elegido, junto a lo que le deben. «—» = sin
                      venta con esa clave, no cero; si la lectura falló, «no medido». -->
-                <table class="ct-rs-table" data-testid="cartera-por-vendedor"><thead><tr><th>Vendedor</th><th>Suc</th><th class="ta-r">Clientes</th><th class="ta-r">Venta {{ rs.venta_vendedor?.dias || 30 }} d</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th></tr></thead>
+                <table class="ct-rs-table" data-testid="cartera-por-vendedor"><thead><tr><th>Vendedor</th><th>Suc</th><th class="ta-r">Clientes</th><th class="ta-r">Venta</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th></tr></thead>
                   <tbody>@for (v of rs.por_vendedor.slice(0, 10); track v.sucursal + '|' + v.vendedor) {
                     <tr>
                       <td>{{ v.vendedor_nombre || v.vendedor }} @if (v.vendedor_nombre) { <span class="muted ct-mono">{{ v.vendedor }}</span> }</td>
                       <td>{{ v.sucursal | sucursal }}</td>
                       <td class="ta-r">{{ v.n_clientes }}</td>
-                      <td class="ta-r" data-testid="venta-vendedor">@if (!rs.venta_vendedor?.medida) { <span class="muted">no medido</span> } @else if (v.venta != null) { {{ v.venta | number:'1.0-0' }} } @else { <span class="muted">—</span> }</td>
+                      <td class="ta-r" data-testid="venta-vendedor">@if (ventaCargando()) { <span class="muted">…</span> } @else if (!venta()) { <span class="muted">no medido</span> } @else if (ventaDe(v) != null) { {{ ventaDe(v) | number:'1.0-0' }} } @else { <span class="muted">—</span> }</td>
                       <td class="ta-r" [class.ct-venc-num]="v.vencido > 0">{{ v.vencido | number:'1.0-0' }}</td>
                       <td class="ta-r"><b>{{ v.saldo | number:'1.0-0' }}</b></td>
                     </tr>
@@ -244,13 +261,15 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                       <td colspan="2">Total · {{ t.n }} vendedores</td>
                       <!-- Sin clientes: el que compra con dos vendedores se contaría dos veces. -->
                       <td></td>
-                      <td class="ta-r">@if (!rs.venta_vendedor?.medida) { <span class="muted">no medido</span> } @else { {{ t.venta | number:'1.0-0' }} }</td>
+                      <td class="ta-r">@if (ventaCargando()) { <span class="muted">…</span> } @else if (!venta()) { <span class="muted">no medido</span> } @else { {{ t.venta | number:'1.0-0' }} }</td>
                       <td class="ta-r" [class.ct-venc-num]="t.vencido > 0">{{ t.vencido | number:'1.0-0' }}</td>
                       <td class="ta-r">{{ t.saldo | number:'1.0-0' }}</td>
                     </tr>
                   }</tbody></table>
-                @if (rs.venta_vendedor?.medida) {
-                  <p class="ct-rs-nota muted" data-testid="venta-vendedor-nota">Venta: lo facturado con esa clave en {{ rs.venta_vendedor?.dias }} días, contado y crédito. «—»: sin venta con esa clave; la sucursal Oficinas dejó de facturar el 1-oct y sus vendedores venden con la clave de su sucursal.</p>
+                @if (ventaError(); as err) {
+                  <p class="ct-rs-nota ct-pdf-err" role="status" data-testid="venta-vendedor-error"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudo leer la venta: {{ err }}</p>
+                } @else if (venta(); as vv) {
+                  <p class="ct-rs-nota muted" data-testid="venta-vendedor-nota">Venta del {{ vv.date_from }} al {{ vv.date_to }}: lo facturado con esa clave, contado y crédito. «—»: sin venta con esa clave; la sucursal Oficinas dejó de facturar el 1-oct y sus vendedores venden con la clave de su sucursal.</p>
                 }
               </div>
               <div>
@@ -840,6 +859,8 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-resumen { flex-basis: 100%; margin: .25rem 0 0; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
     .ct-resumen-dif { color: var(--warn-soft-fg); }
     .ct-rs-total td { font-weight: 700; border-top: 1px solid var(--border); }
+    .ct-rs-vend-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .ct-rs-vend-head .ct-rs-h4 { margin-right: auto; }
     .ct-det-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
     .ct-det-table th, .ct-det-table td { padding: .4rem .6rem; text-align: left; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
     .ct-det-table th { color: var(--text-muted); font-weight: 600; }
@@ -1033,10 +1054,80 @@ export class FinanzasCarteraComponent implements OnInit {
     const r = (n: number) => Math.round(n * 100) / 100;
     return {
       n: vs.length,
-      venta: r(vs.reduce((s, v) => s + (v.venta ?? 0), 0)),
+      venta: r(vs.reduce((s, v) => s + (this.ventaDe(v) ?? 0), 0)),
       vencido: r(vs.reduce((s, v) => s + v.vencido, 0)),
       saldo: r(vs.reduce((s, v) => s + v.saldo, 0)),
     };
+  }
+
+  // ── `[CXC.52]` La venta por vendedor, con su periodo (Edgar: «por mes, tres meses o un rango») ─────────────────────
+  readonly periodosVenta: { clave: PeriodoVenta; etiqueta: string }[] = [
+    { clave: '30d', etiqueta: 'Últimos 30 días' }, { clave: 'mes', etiqueta: 'Este mes' },
+    { clave: 'mes_ant', etiqueta: 'Mes anterior' }, { clave: '3m', etiqueta: 'Últimos 3 meses' },
+    { clave: 'rango', etiqueta: 'Rango…' },
+  ];
+  readonly periodoVenta = signal<PeriodoVenta>('30d');
+  /** El rango del calendario (`[desde, hasta]`); se pide hasta que tiene las dos fechas. */
+  rangoVenta: (Date | null)[] | null = null;
+  readonly venta = signal<VentaVendedorResp | null>(null);
+  readonly ventaCargando = signal(false);
+  readonly ventaError = signal<string | null>(null);
+  private ventaSub?: Subscription;
+  private readonly ventaMapa = computed(() =>
+    new Map((this.venta()?.filas || []).map((f) => [`${f.sucursal}||${f.vendedor}`, f.venta] as const)));
+  /** Hoy según el servidor (la cartera trae su `hoy`), para topar el calendario. */
+  readonly hoyFecha = computed(() => {
+    const h = this.data()?.hoy;
+    return h ? new Date(`${h}T12:00:00`) : new Date();
+  });
+
+  /** La venta de la fila; `null` = sin venta con esa clave en el periodo (no es cero). */
+  ventaDe(v: { sucursal: string; vendedor: string }): number | null {
+    return this.ventaMapa().get(`${v.sucursal}||${v.vendedor}`) ?? null;
+  }
+
+  cambiarPeriodoVenta(p: PeriodoVenta) {
+    this.periodoVenta.set(p);
+    if (p !== 'rango') this.cargarVenta();
+  }
+  cambiarRangoVenta(r: (Date | null)[] | null) {
+    this.rangoVenta = r;
+    if (r?.[0] && r?.[1]) this.cargarVenta();
+  }
+
+  /** Las fechas que viajan para el periodo elegido; `null` = el rango todavía no está completo. */
+  fechasVenta(): { date_from?: string; date_to?: string } | null {
+    const hoy = this.data()?.hoy;
+    const p = this.periodoVenta();
+    if (p === '30d' || !hoy) return {};
+    if (p === 'rango') {
+      const [a, b] = this.rangoVenta || [];
+      return a && b ? { date_from: isoLocal(a), date_to: isoLocal(b) } : null;
+    }
+    const [y, m] = hoy.split('-').map(Number);
+    if (p === 'mes') return { date_from: `${hoy.slice(0, 7)}-01`, date_to: hoy };
+    if (p === 'mes_ant') {
+      const ini = new Date(Date.UTC(y, m - 2, 1));
+      const fin = new Date(Date.UTC(y, m - 1, 0));
+      return { date_from: ini.toISOString().slice(0, 10), date_to: fin.toISOString().slice(0, 10) };
+    }
+    return { date_from: restarMeses(hoy, 3), date_to: hoy }; // '3m'
+  }
+
+  cargarVenta() {
+    const q = this.fechasVenta();
+    if (!q) return;
+    this.ventaSub?.unsubscribe();
+    this.ventaCargando.set(true);
+    this.ventaError.set(null);
+    this.ventaSub = this.svc.ventaVendedor(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.venta.set(r); this.ventaCargando.set(false); },
+      error: (e) => {
+        this.venta.set(null);
+        this.ventaError.set(e?.error?.message || 'el servidor no respondió');
+        this.ventaCargando.set(false);
+      },
+    });
   }
   /** El periodo elegido, para los mensajes: su nombre y la liga pública al PDF de ESE periodo. */
   readonly periodoMensaje = computed<PeriodoMensaje | null>(() => {
@@ -1256,6 +1347,8 @@ export class FinanzasCarteraComponent implements OnInit {
     // El resumen ya está en `data()`; lo único que falta pedir es la tendencia, que sale de otra
     // tabla (los snapshots diarios) y no de la pirámide.
     if (next && !this.tendenciaCargada()) this.loadTendencia();
+    // `[CXC.52]` La venta por vendedor también se pide al abrir: va en su propio endpoint.
+    if (next && !this.venta() && !this.ventaCargando()) this.cargarVenta();
   }
   private loadTendencia() {
     this.tendSub?.unsubscribe();

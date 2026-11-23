@@ -11,9 +11,7 @@ function servicio(clientes: Fila[]) {
   const s = Object.create(CustomerLedgerService.prototype) as CustomerLedgerService;
   const fake = s as unknown as Record<string, unknown>;
   fake['tenantCtx'] = { requireTenantId: () => 't' };
-  // `raw` para los SAVEPOINT de las lecturas de mejor esfuerzo (`[CXC.52]` la venta por vendedor).
-  fake['tk'] = { run: (fn: (trx: unknown) => unknown) => fn({ raw: async () => ({ rows: [] }) }) };
-  fake['ventaPorVendedor'] = async () => new Map();
+  fake['tk'] = { run: (fn: (trx: unknown) => unknown) => fn({}) };
   fake['fuenteCartera'] = async () => ({ rel: 'x' });
   fake['freshness'] = async () => ({ status: 'unknown' });
   fake['ultimosContactos'] = async () => null;
