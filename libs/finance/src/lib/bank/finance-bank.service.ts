@@ -6,6 +6,7 @@ import { TenantKnexService, TenantContextService, applySmartSearch, todayMx } fr
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimFueraDeAlcance, claimVerdict, type ClaimRow } from './recon-claim-key';
+import { elegirEnLaSemana } from './recon-pase-semana';
 import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
 import { aplicarMotorDeCategoria } from './estado-de-cuenta/motor-de-categoria.aplicar';
 import { coberturaDeCategoria, type FilaDeCobertura } from './estado-de-cuenta/cobertura-de-categoria';
@@ -2037,16 +2038,15 @@ export class FinanceBankService {
       };
 
       // Pase 1: monto exacto (o ±$1) + fecha ±7d, greedy, por (cuenta,dirección).
+      // [BFU.7.5] La elección vive en `recon-pase-semana.ts`: con un exacto LEJOS ya no se pierde el documento del
+      // mismo día que difiere por redondeo (≤ 5 centavos, ≤ 1 día). Fuera de ese caso, la misma regla de siempre.
       for (const mv of bankMovs) {
         const e = pool.get(`${mv.label}|${mv.dir}`); if (!e) continue;
         const tc = cents(mv.amount);
-        let cands = (e.byAmt.get(tc) || []).filter((p) => !p.used);
-        const exact = cands.length > 0;
-        if (!exact) cands = candsInTol(e.byAmt, tc);
-        if (!cands.length) continue;
-        let best: any = null, bestD = 8;
-        for (const p of cands) { const d = p.fecha ? days(mv.date, p.fecha) : 99; if (d < bestD) { best = p; bestD = d; } }
-        if (best) emit(mv, best, exact ? (bestD === 0 ? 0.95 : 0.8) : 0.7, exact ? 'motor-tes' : 'motor-tes-tol');
+        const exactos = (e.byAmt.get(tc) || []).filter((p) => !p.used);
+        const tolerancia = candsInTol(e.byAmt, tc).filter((p) => cents(p.importe) !== tc);
+        const r = elegirEnLaSemana(exactos, tolerancia, (p) => (p.fecha ? days(mv.date, p.fecha) : 99), mv.amount);
+        if (r) emit(mv, r.elegido, r.exacto ? (r.dias === 0 ? 0.95 : 0.8) : 0.7, r.exacto ? 'motor-tes' : 'motor-tes-tol');
       }
       // Pase 2: materiales ≥$5k sin casar, exacto/±$1 SIN tope de fecha.
       let p2 = 0;
