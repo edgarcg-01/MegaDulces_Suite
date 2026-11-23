@@ -452,7 +452,7 @@ accesibilidad se gana. Queda anotado para que lo arbitre el PM.
 | Capa | Veredicto | Por qué |
 |---|---|---|
 | **Veracidad** | ✓ | el rótulo falso corregido; las cifras del encabezado se pueden recorrer (la lista no tiene tope, trae todo); lo no medido se declara |
-| **Alcance** | 🟠 | todo total se abre a su detalle en el panel y la lista larga se pagina sin esconder, **pero** a la bandeja se llega sólo si la persona se acuerda de entrar: **«Mi trabajo» no avisa que hay pedidos esperando** y el buscador de la portada no la encuentra (§3.6e) |
+| **Alcance** | ✗ 🔴 | **corregido el 2026-11-23** (antes decía ✓, y era falso): las cuatro cifras del panel **no se abren a nada** y las facturas que explican el saldo no se pueden ver (§3.6f) · a la bandeja se llega sólo si la persona se acuerda: «Mi trabajo» no avisa (§3.6e) |
 | **Comprensión** | ✓ | diccionario versionado; cada frase dice lo que pasa en Kepler y lo que no |
 | **Sencillez** | 🟡 | una sola acción primaria, las condiciones plegadas; el panel sigue en ~6 controles y ~8 cifras visibles |
 | **Respeto** | ✓ | estado sucio, un clic = una escritura, edad del dato a la vista, y el error conserva lo tecleado. **INP NO MEDIDO** |
@@ -510,6 +510,65 @@ decisión de `tokens.css`, no un parche de esta pantalla. **Queda para el PM.**
 
 **NO MEDIDO todavía:** lector de pantalla real (NVDA/JAWS), e **INP** — el número que salió (446 ms) incluye una
 espera del propio guion, así que no se puede citar.
+
+#### 3.6f La pantalla no le da valor a Crédito — diagnóstico medido (2026-11-23, Edgar)
+
+> *«La interfaz es muy pobre, no tiene filtros, no contiene la información necesaria para crédito, no tiene
+> accesibilidad a ver las facturas o más información que se pueda desglosar. No le estamos dando valor.»*
+> — Edgar, con una captura de la pantalla **en producción, con datos reales**.
+
+**Tiene razón, y hay una corrección que hacer antes de nada:** la auditoría de §3.6c puso la capa **Alcance
+en ✓** diciendo *«todo total se abre a su detalle en el panel»*. **Es falso.** El panel ES el detalle del
+pedido, pero sus cuatro cifras no se abren a nada: son un callejón. Alcance queda en ✗ hasta que se cierre
+esto (regla Q.4: todo número que evidencia algo es navegable a su lugar).
+
+**Lo que el panel calla hoy, medido en prod (sólo lectura) sobre los pedidos que esperan en las tres
+sucursales de telemarketing:**
+
+| Lo que dice el panel | Lo que hay detrás, y no se ve |
+|---|---|
+| «Por cobrar en Kepler $83,552.80» | **66 facturas vivas** entre los 12 clientes que esperan. **11 de 12 tienen vencido** y **9 de 12 lo tienen TODO vencido**; el atraso más viejo es de **111 días**. Ni el monto vencido, ni desde cuándo, ni cuáles facturas |
+| «Otros pedidos sin facturar $32,356.73» | cuáles son, de qué día y por cuánto — ya **viajan** en la respuesta (`abiertos` de `leerBandeja`), sólo no se pintan |
+| «Pagó 50 facturas; suele pagar a 28 días» | sus abonos: cuándo pagó, cuánto y con qué. Ya los trae el detalle de Cartera |
+| (nada) | **el estado de cuenta en PDF**, que ya existe: `GET /finance/receivables/:sucursal/:cliente/estado-de-cuenta.pdf` |
+| «No está marcado NO TOCAR ✔» | ⭐ **mentía**: el cliente de la captura se llama «NO USARRRRRRRR…» en Kepler. 63 filas así, 40 claves, 3 con límite vivo. **Corregido el 2026-11-23** (la regla lee ahora dos marcas) |
+| «Límite $15,000.00» | ⭐ **el cliente tiene TRES claves en la misma sucursal** (`00035` marcada, `C1021` con límite $2,000 y `CR1021` con $15,000) y debe **$114,823.94** entre las dos vivas, **todo vencido**. El panel evalúa una sola clave y muestra $83,552.80. **12 de los 135 clientes de la bandeja tienen otra clave con el mismo nombre** (14 claves extra) |
+
+⭐ **El hallazgo que ordena el trabajo: casi nada de esto hay que construirlo.** `GET /finance/receivables/:sucursal/:cliente`
+ya devuelve *«partidas vivas con saldo por documento + aging + abonos + compromisos»*, con folio, folio digital,
+fecha, vencimiento, días de pago, RFC, teléfono, zona y las aplicaciones de Kepler; el servicio ya reparte el
+aging en 0-30 / 31-60 / 61-90 / 90+; el PDF del estado de cuenta ya existe; y `GET /finance/receivables/filtros`
+ya alimenta los filtros de la otra pestaña de Cartera. **El panel no usa nada de eso.** No es un problema de
+datos: es que la pantalla se quedó en la mitad del camino.
+
+**El mapa de desglose** (`diseno` §0a paso 6) — cada cifra, dónde se abre, con qué endpoint **que ya existe**:
+
+| Cifra | Nivel 1 (en el panel) | Nivel 2 | Endpoint |
+|---|---|---|---|
+| Por cobrar en Kepler | **el vencido y su antigüedad** en una línea («$83,552.80, todo vencido, lo más viejo hace 111 días») | la lista de facturas: folio · fecha · vence · saldo · días | `GET /:sucursal/:cliente` (existe) |
+| Vencido por antigüedad | 0-30 / 31-60 / 61-90 / 90+ | las facturas de ese tramo | el mismo (existe) |
+| Otros pedidos sin facturar | cuántos y de cuándo | folio, fecha e importe de cada uno | ya viaja en la bandeja |
+| Cómo paga | lo que ya dice | sus últimos abonos, con fecha y monto | el mismo (existe) |
+| El cliente | **aviso si tiene otra clave** con su saldo | las dos fichas, lado a lado | `kdud` por nombre + cartera (por medir) |
+| El documento | **«Ver estado de cuenta»** | el PDF, como lo ve el cliente | `…/estado-de-cuenta.pdf` (existe) |
+
+**Filtros que faltan** (hoy ninguno): sucursal · motivo (excede / sin límite / vencido / bloqueado) · «sólo los
+que pasarían solos» · importe. Con 8 pedidos se vive sin ellos; con los **64** que la bandeja llegó a tener en
+un día, no.
+
+**El orden que propongo** (dinero × esfuerzo, regla del PM):
+
+| # | Qué | Por qué primero | Esfuerzo |
+|---|---|---|---|
+| 1 | **El vencido y su antigüedad en el panel**, y la lista de facturas abajo | es LA pregunta de crédito y 9 de 12 clientes tienen todo vencido. Endpoint hecho | S |
+| 2 | **Aviso de otra clave del mismo cliente** | el panel hoy enseña la mitad de lo que debe (−$31,271 en el caso medido) | S |
+| 3 | **«Ver estado de cuenta»** (el PDF que ya existe) | §7 del protocolo: el documento se ve desde donde se decide | XS |
+| 4 | **Los otros pedidos, con folio** | ya viajan; es pintar | XS |
+| 5 | **Filtros** | duele con 64, no con 8 | S/M |
+| 6 | Los últimos abonos | cierra «cómo paga» | S |
+
+⛔ Lo que **no** se hace: inventar un indicador nuevo de riesgo, ni traer buró (D-A8 sigue siendo de Edgar), ni
+una pantalla aparte: todo esto entra en el panel que ya está, que para eso se hizo.
 
 #### 3.6e ¿Se llega sin escribir la dirección? (2026-11-23, pedido de Edgar)
 
@@ -666,6 +725,7 @@ construirla pasa GP a 🔨. Si se abre, **reemplaza a E2 como siguiente etapa**.
 | 2026-11-23 | ⭐ **Hallazgo: rechazar no servía de nada.** La bandeja leía sólo el ODS, y rechazar **no cambia nada en Kepler**, así que el pedido rechazado volvía al día siguiente idéntico, como si nadie lo hubiera visto — y «N pedidos esperan tu decisión» habría contado decisiones ya tomadas (ley 0 del estándar). Lo encontró leer el camino completo antes de encender los botones, no una compuerta. **GP.A.4b** lo cierra | Claude |
 | 2026-11-23 | **GP.A.4b 🧪 y GP.A.5 🔨: el panel decide y la bandeja sabe lo decidido.** Motivo obligatorio, Autorizar y Rechazar conectados al `POST`, el doble clic no decide dos veces, y Autorizar apagado **con el nombre de la sucursal** mientras la escritura esté apagada. El tope del día deja de ser un cero dibujado. 22 ✔ contra Postgres real (SQL leído del servicio, con la migración aplicada en la base local), 28 de motor y pantalla, **4 mutantes en rojo**. `ngc --noEmit` encontró un `[maxlength]` que `check:pantalla` no ve (NG8002): corregido. ⚠️ Sin validación visual. **Falta para encender: el permiso GP.A.0d (lo corre el PM), el ensayo con ROLLBACK, la bandera y el interruptor de una sucursal piloto** | Claude |
 | 2026-11-23 | **Auditoría de la pantalla, pedida por Edgar antes de encender** (§3.6c, con `auditoria-diseno` y `modern-web-guidance`). Nueve defectos **de lo que yo mismo había escrito ese día**, ninguno visto por una compuerta: el campo de motivo **ilegible en oscuro** (1.04:1, por un token inventado), **«Ya decidiste» contando lo que autorizó la regla**, **se perdía lo tecleado** (el panel ya traía `[sucio]` sin usar), el aviso del resultado **inerte** para un lector dentro de un `aria-modal`, los botones apagados sin explicar, `aria-invalid` en `true` desde que abre, el foco saltando a otro pedido, ~800 filas pintadas de una vez y sin entrada en el diccionario. Todo corregido; `check:pantalla` pasa a **«cumple las 10 reglas»**. Veredicto: **🟠 pasa con deuda** (borde del campo a 1.27:1, deuda de la suite). ⚠️ **Dos instrumentos fallaron:** `check:tokens` dio verde sobre el archivo **sin commitear**, y `ngc` volvió a cazar acentos graves dentro del `template`. Nueva contradicción nº 13 en `VALORES.md` (botón deshabilitado contra botón vivo), resuelta con el híbrido | Claude |
+| 2026-11-23 | ⭐⭐ **«No le estamos dando valor a esta interfaz»** (Edgar, con una captura de prod). Tiene razón, y la auditoría del día **había afirmado lo contrario**: puso Alcance en ✓ («todo total se abre a su detalle») cuando las cuatro cifras del panel no se abren a nada. **Alcance pasa a ✗ 🔴.** Medido detrás de esas cifras: **66 facturas vivas** entre los 12 clientes que esperan, **11 con vencido**, **9 con TODO vencido** y un atraso de **111 días** — nada de eso se ve. Dos defectos de veracidad en el mismo caso de la captura: la marca **«NO USAR»** que la regla no veía (63 filas; **ya corregido**) y que el cliente tiene **tres claves** en Padre Hidalgo y debe **$114,823.94** entre dos, mientras el panel muestra $83,552.80 (**12 de 135 clientes** de la bandeja tienen clave duplicada). ⭐ Y lo que ordena el trabajo: **casi nada hay que construirlo** — `GET /:sucursal/:cliente` ya da partidas, aging, abonos y compromisos, el PDF del estado de cuenta existe y los filtros de Cartera también; el panel no los usa. Plan de 6 pasos y mapa de desglose en §3.6f | Claude |
 | 2026-11-23 | **¿Se llega sin escribir la dirección?** (§3.6e, pedido de Edgar). Medido en vivo con los **78 permisos reales** del rol: **sí, en 3 clics** —Finanzas → el icono «Crédito» → «Por autorizar»—, pero ⭐ **«Mi trabajo» no avisa que hay pedidos esperando**: el registro de la portada tiene 24 colas, dos apuntan a Cartera (vencido y sobre su línea) y **ninguna es ésta**, así que los 15 pedidos de hoy ($216,750.96) sólo los ve quien se acuerde de entrar. Además, el clic en «Finanzas» aterriza en «Egresos contables», el menú lateral son iconos sin rótulo (64 px), el módulo se llama «Crédito» ahí y «Crédito de clientes» en la pantalla, y el buscador de la portada **no encuentra** «autorizar». La capa **Alcance** baja a 🟠. Propuesta de la cola, con sus dos condiciones (presupuesto de la portada y que el conteo cuadre con la pantalla), en §3.6e: **la decide el PM** | Claude |
 | 2026-11-19 | Nace el anexo. Auditoría en prod (sólo lectura): qué es autorizar, la pantalla de Kepler columna por columna, telemarketing de 60 días, los 782 pedidos de Zamora Centro, lo que la Suite ya tiene | Claude, a pedido de Edgar |
 | 2026-11-19 | Edgar decide D-A3 (automático dentro del límite, siempre avisando) y pide la ficha de crédito. Medido: el «Monto por Cobrar» de Kepler sigue a los pedidos abiertos, no al saldo; la regla simulada autoriza 19.8 % (control: 185 con el límite a la mitad); 70 % del importe se autorizó excedido; 37 buenos pagadores concentran $5.66 M de excedidos; $3.1 M vencido a más de 45 días. Nuevos GP.A.3 a GP.A.8 y D-A6, D-A7 | Claude |
