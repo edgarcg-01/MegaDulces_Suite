@@ -77,7 +77,10 @@ export interface CarteraResumen {
   pago: { n: number; promedio: number; mediana: number; tarde_30d: number } | null;
   concentracion: { top10_pct: number; top10: { cliente_code: string; saldo: number }[] };
   proyeccion: { vencido: number; d0_7: number; d8_15: number; d16_30: number; d30_plus: number; sin_fecha: number };
-  por_vendedor: { sucursal: string; vendedor: string; vendedor_nombre: string | null; saldo: number; vencido: number; n_clientes: number }[];
+  /** `venta` (`[CXC.52]`): lo facturado con esa clave en los últimos `venta_vendedor.dias` días; `null` = sin venta con ella. */
+  por_vendedor: { sucursal: string; vendedor: string; vendedor_nombre: string | null; saldo: number; vencido: number; n_clientes: number; venta?: number | null }[];
+  /** `medida: false` = la lectura de la venta falló: la columna dice «no medido», no cero. Opcional: la API vieja no la manda. */
+  venta_vendedor?: { medida: boolean; dias: number };
   por_zona: { zona: string; saldo: number; vencido: number }[];
   /** Los dos rollups reparten por DOCUMENTO: suman `saldo_total − sin_documento`, no `saldo_total`. */
   base_rollups: 'documento';

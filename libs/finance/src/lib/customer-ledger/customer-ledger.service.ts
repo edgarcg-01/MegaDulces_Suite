@@ -126,6 +126,9 @@ export interface FuenteCartera { rel: string; porEvento: boolean; alDia: string 
  * abortada y todo lo que sigue falla; un `try/catch` solo NO alcanza. Aquí va en su SAVEPOINT: si falla, se vuelve
  * a él y devuelve `null` (no se pudo saber), y el resto de la respuesta sigue funcionando.
  */
+/** `[CXC.52]` La ventana de la venta por vendedor en Cartera: 30 días, el ciclo con el que se mira la cobranza. */
+export const VENTA_VENDEDOR_DIAS = 30;
+
 async function intentar<T>(trx: Knex.Transaction, nombre: string, fn: () => Promise<T>): Promise<T | null> {
   await trx.raw(`SAVEPOINT ${nombre}`);
   try {
@@ -634,6 +637,8 @@ export class CustomerLedgerService {
       const freshness = await this.freshness(trx, fuente);
       const contactos = await this.ultimosContactos(trx, tenantId);
       const hoy: string = a.hoy;
+      // `[CXC.52]` La venta de cada vendedor. Si la lectura falla, `null` = «no medido», nunca cero.
+      const ventaVend = await intentar(trx, 'cxc_venta_vendedor', () => this.ventaPorVendedor(trx, hoy));
 
       const clientes: any[] = [];
       const kpi = {
@@ -768,8 +773,11 @@ export class CustomerLedgerService {
           .map((v) => ({
             sucursal: v.sucursal, vendedor: v.code, vendedor_nombre: v.nombre || null,
             saldo: M2(v.saldo), vencido: M2(v.vencido), n_clientes: Number(v.n_clientes) || 0,
+            // `null` = sin venta con esa clave en la ventana (no es cero: puede vender con otra clave).
+            venta: ventaVend ? (ventaVend.get(`${v.sucursal}||${v.code}`) ?? null) : null,
           }))
           .sort((x, y) => y.saldo - x.saldo),
+        venta_vendedor: { medida: ventaVend != null, dias: VENTA_VENDEDOR_DIAS },
         por_zona: (a.por_zona as any[])
           .map((z) => ({ zona: z.zona, saldo: M2(z.saldo), vencido: M2(z.vencido) }))
           .sort((x, y) => y.saldo - x.saldo),
@@ -879,6 +887,42 @@ export class CustomerLedgerService {
    *
    * El endpoint sigue vivo para quien ya lo consuma; la pantalla dejó de llamarlo.
    */
+  /**
+   * `[CXC.52]` La venta de cada vendedor en los últimos `VENTA_VENDEDOR_DIAS` días, por (sucursal, clave) — el mismo
+   * grano que la fila de cartera (la clave sola no basta: el mismo código nombra a otra persona según la plaza).
+   *
+   * Qué cuenta: lo facturado en Kepler, contado y crédito, documentos de venta `U-D` 8/10/12 de la propia sucursal,
+   * no cancelados (`c43 <> 'C'`), por su total con impuestos y después del descuento de documento (`kdm1.c16`:
+   * Σ`kdm2.c13` = `c16` en el 99.84 % de los tickets, ERP_KEPLER). Los mismos filtros que `v_kepler_seller_lines`,
+   * a nivel de cabecera: medido el 2026-11-23, 30 días dan $63.78 M por cabecera contra $64.10 M por renglón (0.5 %,
+   * el descuento de documento), en ~300 ms contra 12.6 s.
+   *
+   * El cutover (`v_branch_erp_cutover`) se aplica aquí y no en el SQL: unirlo a `kdm1` llevaba la consulta de 0.3 a
+   * 1.5 s. Por eso se agrupa también por día (≈1,400 filas) y se descarta lo anterior al cutover de su sucursal.
+   */
+  private async ventaPorVendedor(trx: Knex.Transaction, hoy: string): Promise<Map<string, number>> {
+    const cortes = new Map<string, string>(
+      ((await trx.raw(`SELECT kepler_code, cutover_date::text AS d FROM analytics.v_branch_erp_cutover`)).rows as { kepler_code: string; d: string }[])
+        .map((r) => [r.kepler_code, r.d]));
+    const rows = (await trx.raw(
+      `SELECT btrim(h.sucursal) AS suc, COALESCE(btrim(h.c12), '') AS vend, h.c9::date::text AS f, sum(h.c16::numeric) AS total
+         FROM kepler_ods.kdm1 h
+        WHERE h.c2 = 'U' AND h.c3 = 'D'
+          AND h.c9::date BETWEEN ?::date - ?::int AND ?::date
+          AND h.c4::int IN (8, 10, 12) AND btrim(h.c1) = btrim(h.sucursal)
+          AND COALESCE(NULLIF(btrim(h.c43), ''), '') <> 'C'
+        GROUP BY 1, 2, 3`, [hoy, VENTA_VENDEDOR_DIAS - 1, hoy])).rows as { suc: string; vend: string; f: string; total: string }[];
+    const out = new Map<string, number>();
+    for (const r of rows) {
+      const corte = cortes.get(r.suc);
+      // Sin fila de cutover = no hay fecha desde la que Kepler sea la verdad de esa sucursal: no se cuenta.
+      if (corte == null || (corte !== '-infinity' && r.f < corte)) continue;
+      const k = `${r.suc}||${r.vend}`;
+      out.set(k, r2((out.get(k) ?? 0) + M2(r.total)));
+    }
+    return out;
+  }
+
   async resumen(q: { sucursal?: string; grupo?: string; zona?: string; vendedor?: string; cuenta?: string; search?: string } = {}) {
     const { resumen } = await this.cartera({ ...q, limit: 1 });
     return resumen;

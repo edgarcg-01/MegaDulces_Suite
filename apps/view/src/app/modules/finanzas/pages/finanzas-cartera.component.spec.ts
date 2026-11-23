@@ -462,6 +462,40 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(document.body.textContent).toContain('eliges a quién');
   });
 
+  it('23 · [CXC.52] la venta de cada vendedor: cifra, «—» sin venta con esa clave, y «no medido» si la lectura falló', () => {
+    const conVenta = (medida: boolean) => {
+      const r = resp([cli('C1', 'Abarrotes Uno', 100, 100)]);
+      (r.resumen as unknown as Record<string, unknown>)['por_vendedor'] = [
+        { sucursal: '06', vendedor: '30003', vendedor_nombre: 'DANIEL FRANCO', saldo: 900, vencido: 100, n_clientes: 3, venta: 4277123.4 },
+        { sucursal: '00', vendedor: '10002', vendedor_nombre: 'SERGIO MENDOZA', saldo: 800, vencido: 800, n_clientes: 2, venta: null },
+      ];
+      (r.resumen as unknown as Record<string, unknown>)['venta_vendedor'] = { medida, dias: 30 };
+      return r;
+    };
+    const celdas = (f: { componentInstance: FinanzasCarteraComponent; detectChanges: () => void }) => {
+      f.componentInstance.toggleResumen();
+      f.detectChanges();
+      const tabla = document.body.querySelector('[data-testid="cartera-por-vendedor"]')!;
+      return { head: tabla.querySelector('thead')!.textContent!, celdas: [...tabla.querySelectorAll('[data-testid="venta-vendedor"]')].map((td) => td.textContent!.trim()) };
+    };
+    cartera = vi.fn(() => of(conVenta(true)));
+    configurar();
+    let f = TestBed.createComponent(FinanzasCarteraComponent);
+    f.detectChanges();
+    const medida = celdas(f);
+    expect(medida.head).toContain('Venta 30 d');
+    expect(medida.celdas).toEqual(['4,277,123', '—']);
+    expect(document.body.querySelector('[data-testid="venta-vendedor-nota"]')?.textContent).toContain('Oficinas dejó de facturar el 1-oct');
+    f.destroy();
+    TestBed.resetTestingModule();
+    // NEGATIVA — la lectura falló: no se dibuja como cero ni como «—».
+    cartera = vi.fn(() => of(conVenta(false)));
+    configurar();
+    f = TestBed.createComponent(FinanzasCarteraComponent);
+    f.detectChanges();
+    expect(celdas(f).celdas).toEqual(['no medido', 'no medido']);
+  });
+
   describe('21 · [CXC.47] periodo, pagadas y envío al vendedor', () => {
     const PART = (folio: string, over: Record<string, unknown>) => ({
       doc_tipo: 'U-D-13', doc_label: 'Venta crédito', doc_code: 'UD1301', folio, folio_digital: folio, fecha: '2026-11-01',

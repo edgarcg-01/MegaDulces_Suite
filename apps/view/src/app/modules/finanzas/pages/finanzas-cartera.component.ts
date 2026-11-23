@@ -223,16 +223,23 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                      «10001»: el join a kduv existía en el ODS y nadie lo hacía. Y agrupar por el
                      código pelado habría fundido dos carteras — 11 de 81 códigos nombran a
                      personas distintas según la plaza. -->
-                <table class="ct-rs-table"><thead><tr><th>Vendedor</th><th>Suc</th><th class="ta-r">Clientes</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th></tr></thead>
+                <!-- [CXC.52] Edgar, 2026-11-23: «el total de venta de cada vendedor». Lo facturado en Kepler con esa
+                     clave (contado + crédito, con impuestos) en los últimos 30 días, junto a lo que le deben. «—» = sin
+                     venta con esa clave, no cero; si la lectura falló, «no medido». -->
+                <table class="ct-rs-table" data-testid="cartera-por-vendedor"><thead><tr><th>Vendedor</th><th>Suc</th><th class="ta-r">Clientes</th><th class="ta-r">Venta {{ rs.venta_vendedor?.dias || 30 }} d</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th></tr></thead>
                   <tbody>@for (v of rs.por_vendedor.slice(0, 10); track v.sucursal + '|' + v.vendedor) {
                     <tr>
                       <td>{{ v.vendedor_nombre || v.vendedor }} @if (v.vendedor_nombre) { <span class="muted ct-mono">{{ v.vendedor }}</span> }</td>
                       <td>{{ v.sucursal | sucursal }}</td>
                       <td class="ta-r">{{ v.n_clientes }}</td>
+                      <td class="ta-r" data-testid="venta-vendedor">@if (!rs.venta_vendedor?.medida) { <span class="muted">no medido</span> } @else if (v.venta != null) { {{ v.venta | number:'1.0-0' }} } @else { <span class="muted">—</span> }</td>
                       <td class="ta-r" [class.ct-venc-num]="v.vencido > 0">{{ v.vencido | number:'1.0-0' }}</td>
                       <td class="ta-r"><b>{{ v.saldo | number:'1.0-0' }}</b></td>
                     </tr>
                   }</tbody></table>
+                @if (rs.venta_vendedor?.medida) {
+                  <p class="ct-rs-nota muted" data-testid="venta-vendedor-nota">Venta: lo facturado con esa clave en {{ rs.venta_vendedor?.dias }} días, contado y crédito. «—»: sin venta con esa clave; la sucursal Oficinas dejó de facturar el 1-oct y sus vendedores venden con la clave de su sucursal.</p>
+                }
               </div>
               <div>
                 <h4 class="ct-rs-h4">Cartera por zona</h4>
