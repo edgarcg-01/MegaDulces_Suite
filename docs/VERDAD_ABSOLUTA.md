@@ -6034,3 +6034,84 @@ el mismo límite del estado de cuenta impreso del banco, y se declara en pantall
 
 **Medición reproducible:** `cadena-testigo.js` y consultas de sólo lectura en el scratchpad de la sesión del
 2026-11-19.
+
+---
+
+## 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23)
+
+> Explica la brecha de **−22.6 %** que §21 dejó abierta para nómina. No era dinero faltante: era
+> **qué documento se estaba sumando**.
+
+### 40.1 Quién arbitra qué
+
+| La pregunta | El árbitro | Cómo se verifica | Veredicto |
+|---|---|---|---|
+| **¿Cuánto se entregó de nómina?** | el sistema de nómina (Access, `6 T Nomina`): una fila por persona y semana, con lo que va por banco y lo que va en efectivo | contra la provisión de Kepler del mismo periodo | ✅ **$28,779,009** en 2026 (46 semanas, al 13-nov) |
+| **¿Cuánto registró el ERP?** | `kepler_ods.kdm1`, proveedor `GN001` / `c32='NOMINA'`, **doctype `X-A-15`** | contra el Access, mismo periodo | ✅ **$28,181,424** — razón **0.979** |
+| **¿Cuánto se pagó?** | **`X-D-26` + `X-D-25`** del mismo proveedor | contra el Access | ✅ $23,065,902 + $4,430,027 = **$27,495,929** — razón **0.955** |
+| **¿Cuánto fue en efectivo?** | el Access (`EfectivoAPagar`) | contra la etiqueta `EFECTIVO` de Kepler | ⚠️ Access **$5,561,917 (19.3 %)**; Kepler etiquetado EFECTIVO **$3,298,150** — razón **0.593**: *cuatro de cada diez pesos en efectivo no llevan la etiqueta* |
+| **¿De qué semana es cada peso?** | — | — | ⛔ **NO SE PUEDE**. Ver §40.3 |
+| **¿Quién cobra?** | **haber recibido un recibo**, no la bandera del catálogo | contra el padrón | ⛔ el catálogo es ~90 % ficción. Ver §40.4 |
+
+### 40.2 ⛔ La trampa: sumar por proveedor cuenta cada peso TRES veces
+
+Sumar todo lo del proveedor `GN001` en 2026 da **$83,150,266.90** para una nómina de **$28.8 M**.
+No hay dinero de más: **el mismo hecho está registrado en cuatro doctypes**, y tres de ellos son
+vistas del mismo peso.
+
+- `X-A-15` (**604 docs, $28,181,424**) — la provisión. **Es el que cuadra con el Access (0.979).**
+- `X-A-10` (555 docs, $27,418,385) — ⭐ **su espejo**: comparado etiqueta por etiqueta contra
+  `X-A-15`, da **el mismo importe en 317 de 340 etiquetas (93.2 %)**. Sumar los dos duplica.
+- `X-D-26` (2,149 docs, $23,065,902) — el pago.
+- `X-D-25` (520 docs, $4,430,027) — cheque/finiquito. `X-D-26` + `X-D-25` ≈ el Access (0.955).
+
+⛔ **Para «cuánto cuesta la nómina» se usa `X-A-15` y sólo ése. Para «cuánto se pagó», `X-D-26` +
+`X-D-25`. Nunca se suman las dos familias, y nunca `X-A-10` junto a `X-A-15`.**
+
+### 40.3 ⛔ La semana es texto libre: no reconcilia
+
+La semana vive en `c11`, escrita a mano. En el centro `009` hay **555 escrituras distintas**, y entre
+las provisiones de 2026 hay **225 etiquetas que no caen en ningún patrón, por $5,651,582**.
+Reconciliar por etiqueta falla: la razón Kepler/Access por semana va de **0.006 a 1.414** (mediana
+0.698), con **semanas enteras —25, 40, 42, 43— donde la etiqueta `NOM-nn` casi no aparece**.
+
+→ **El total anual cuadra al 2 %; la semana no se puede reconstruir desde Kepler.** Quien necesite el
+dato semanal lo toma del sistema de nómina, no del ERP.
+
+### 40.4 ⛔ «Activo» en el padrón no significa nada
+
+De **2,613** personas en el catálogo del sistema de nómina, **2,587 figuran como activas** (sólo 13
+eliminadas y **16** con marca de salida). Contra los recibos reales:
+
+| Última vez que cobró | personas | |
+|---|---:|---:|
+| en las últimas 2 semanas | 260 | 10.1 % |
+| 3 a 8 semanas | 12 | 0.5 % |
+| 2 a 12 meses | 119 | 4.6 % |
+| **1 a 5 años** | **686** | **26.5 %** |
+| **más de 5 años** | **1,300** | **50.3 %** |
+| **nunca tuvo un recibo** | **210** | **8.1 %** |
+
+→ **La verdad es haber cobrado, no estar marcado.** Cobran de verdad **272** personas (recibo en las
+últimas 8 semanas). La bandera «nómina» del catálogo marca 259: **9 marcados que no cobran y 22 que
+cobran sin estar marcados**. ⛔ Ni «activo» ni la bandera sirven como universo: el universo es el
+recibo.
+
+### 40.5 La aritmética del recibo, verificada
+
+En la última semana cerrada (254 recibos):
+
+- **`banco + efectivo = sueldo + horas extra + cantidad de más − cantidad de menos`** en **252 de 254
+  (99.2 %)**. Los 2 que no: efectivo entregado **de más**, sin concepto que lo explique.
+- **Puntualidad == Asistencia al peso en los 254** (100 %): son dos bonos del mismo importe, y ese
+  importe es **un día de sueldo** (1/5 en 132 recibos, 1/6 en 67, cero en 20).
+- La **despensa es un monto fijo**, no un porcentaje: su razón contra el sueldo va de 14.5 % a 342 %
+  según lo que la persona haya ganado esa semana.
+- ⛔ El sistema **no usa días ni horas**: `HorasTrabajadas` vale 0 en los 254 y los días están vacíos
+  en 235. **82.7 % de los recibos son el catálogo tal cual**, sin un solo ajuste.
+
+**Medición reproducible:** consultas de sólo lectura a `pg-prod` (`system_identifier`
+7688376744939610156) y lectura del sistema de nómina con `database/importers/lib/access-read.ps1`
+(Jet 32-bit, `Mode=Read`), en el scratchpad de la sesión del 2026-11-23. El detalle por persona y los
+importes individuales **no se publican acá**: viven en el anexo privado del frente NE
+([`FASE_RH_FRENTE_NE_NOMINA.md`](IMPLEMENTACION/FASES/FASE_RH_FRENTE_NE_NOMINA.md)).
