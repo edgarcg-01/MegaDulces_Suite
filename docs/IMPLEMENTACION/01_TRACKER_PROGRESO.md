@@ -1962,6 +1962,15 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       aviso, y `ngc` no lo ve (un atributo fijo no es un enlace). Pasan a `<span class="p-button-label">`. Lo trajo CXC.41
       (17-nov) y frenaba `check-primeng-api` en el pre-push de todo el equipo (24 contra el techo de 21; ahora 19). Prueba
       7b: ningún `pButton` de la ficha sin texto; el mutante (`label=` de vuelta) la pone roja.
+- [ ] **[CXC.50]** 🧪 (en código, sin soltar) **El estado de cuenta del cliente, con la calidad del de un banco** (Edgar,
+      2026-11-23: «debería ver sus facturas nuevas, como el estado de cuenta de un banco»). (1) Abiertas y pagadas, de la
+      más NUEVA a la más vieja. (2) «Resumen del periodo» como el bancario: saldo al inicio + facturado − cobros − notas/
+      devoluciones/ajustes = saldo de las facturas al corte (± lo no asignado = saldo total), DERIVADO de las facturas y sus
+      aplicaciones `kdm5` (`resumenPeriodo`). Medido en prod: 21,574/21,575 facturas cumplen saldo = importe − aplicaciones;
+      con 3 meses cuadran 1,607/1,609 clientes: uno de la sucursal 02 con abonos fechados 14-dic-2026 (renglón propio
+      «con fecha posterior al corte») y uno de la 00 con una factura de $0 y $17,100 aplicados («Diferencia sin
+      explicar», impresa). (3) «Próximo vencimiento: fecha · monto» en la tarjeta «Por vencer». Pruebas 24/24; dos mutantes
+      (orden ascendente; no restar los abonos previos) en rojo. Sin validación visual del PDF.
 - [ ] **[CC.21.1]** 🧪 **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
 - [x] **[CC.21.1]** ✅ (en prod el 2026-11-18, `bbd1d0131`) **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
       · **Aviso en vivo al llegar el banco, sin migración:** Bancos ya emite `pg_notify('bancos_movimientos')` al cargar el
