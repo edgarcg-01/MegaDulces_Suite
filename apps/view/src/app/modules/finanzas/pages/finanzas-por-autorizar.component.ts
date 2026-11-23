@@ -22,7 +22,7 @@ export const CONDICIONES = [
   'Tiene límite en Kepler',
   'Lo que debe, sus otros pedidos y éste caben en el límite',
   'Nada vencido fuera de la gracia (los centavos no cuentan)',
-  'No está marcado NO TOCAR',
+  'No está marcado «NO TOCAR» ni «NO USAR» en Kepler',
   'Los datos son recientes',
   'La autorización automática está encendida en la sucursal',
   'El pedido no es viejo',
@@ -44,7 +44,7 @@ export function etiquetaDe(p: PedidoPorAutorizar): { texto: string; tono: Tono }
   if (p.es_contado) return { texto: 'Contado', tono: 'secondary' };
   if (p.ruta_vecinal) return { texto: 'Ruta vecinal', tono: 'secondary' };
   const c = motivosDelCliente(p)[0]?.condicion;
-  if (c === 4) return { texto: 'NO TOCAR', tono: 'contrast' };
+  if (c === 4) return { texto: 'Bloqueado', tono: 'contrast' };
   if (c === 2) return { texto: 'Excede', tono: 'danger' };
   if (c === 3) return { texto: 'Vencido', tono: 'danger' };
   if (c === 1) return { texto: 'Sin límite', tono: 'secondary' };

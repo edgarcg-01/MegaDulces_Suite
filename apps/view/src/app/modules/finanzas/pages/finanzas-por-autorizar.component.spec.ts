@@ -251,7 +251,10 @@ describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
 
 describe('[GP.A.4] las frases de cada caso', () => {
   it('cada condición tiene su palabra; con sólo condiciones del sistema dice «Pasaría solo»', () => {
-    expect(etiquetaDe(ped('1', 'x', [{ condicion: 4, texto: 'NO TOCAR' }])).texto).toBe('NO TOCAR');
+    // La etiqueta dice «Bloqueado» y no una marca concreta: Kepler escribe «NO TOCAR» y también
+    // «NO USAR» (63 filas medidas el 2026-11-23), y nombrar sólo una dejaba la otra sin etiqueta.
+    expect(etiquetaDe(ped('1', 'x', [{ condicion: 4, texto: 'el cliente está marcado «NO USAR» en Kepler' }])).texto).toBe('Bloqueado');
+    expect(etiquetaDe(ped('1', 'x', [{ condicion: 4, texto: 'el cliente está marcado «NO TOCAR» en Kepler' }])).texto).toBe('Bloqueado');
     expect(etiquetaDe(ped('1', 'x', [{ condicion: 3, texto: 'vencido' }])).texto).toBe('Vencido');
     expect(etiquetaDe(ped('1', 'x', [apagado])).texto).toBe('Pasaría solo');
     expect(fraseDe(ped('1', 'x', [apagado]))).toContain('se autorizaría solo');

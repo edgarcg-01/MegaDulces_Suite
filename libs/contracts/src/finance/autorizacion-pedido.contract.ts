@@ -78,8 +78,20 @@ export const POR_COBRAR_KEPLER_SQL = `
     FROM kepler_ods.kdue x
    WHERE x.sucursal = $1 AND x.c1 = $1 AND x.c2 = $2`;
 
-/** El cliente está bloqueado si su nombre en el `kdud` de la sucursal del pedido EMPIEZA con esto (GP.A.0c). */
-export const MARCA_BLOQUEO = 'NO TOCAR';
+/**
+ * Las marcas de bloqueo que Kepler escribe al INICIO del nombre del cliente (`kdud.c3`), por sucursal.
+ *
+ * `[GP.A.0c]` midió «NO TOCAR»: 235 filas, 158 claves, 145 de ellas con límite vivo. **Pero la medición buscó
+ * ocho palabras y «NO USAR» no estaba entre ellas.** Encontrada el 2026-11-23 en un caso real de la bandeja
+ * («NO USARRRRRRRRMA. LOURDES ENCINO ALEMAN», Padre Hidalgo): **63 filas más, 40 claves, 3 con límite vivo**
+ * que la regla no veía — y el panel decía «No está marcado NO TOCAR ✔» con el nombre gritando lo contrario.
+ *
+ * ⛔ Van al INICIO y se comparan así: «contiene» daría falsos positivos (el `BAJA` de GP.A.0c, 10 filas, todas
+ * de «trabajadores»). Si aparece otra forma, se agrega aquí y se mide cuántas filas trae.
+ */
+export const MARCAS_BLOQUEO = ['NO TOCAR', 'NO USAR'] as const;
+/** @deprecated Se conserva para no romper a quien la importe; la regla usa `MARCAS_BLOQUEO`. */
+export const MARCA_BLOQUEO = MARCAS_BLOQUEO[0];
 
 /** Una factura viva del cliente, de la cartera CXC. Fechas `YYYY-MM-DD`. */
 export interface FacturaDelCliente {
@@ -175,9 +187,16 @@ function dias(desde: string, hasta: string): number | null {
   return Number.isFinite(d) ? d : null;
 }
 
-/** El nombre del cliente lleva la marca de bloqueo de Kepler (al inicio, sin importar mayúsculas). */
+/** El nombre del cliente lleva alguna marca de bloqueo de Kepler (al inicio, sin importar mayúsculas). */
 export function clienteBloqueado(nombre: string): boolean {
-  return nombre.trim().toUpperCase().startsWith(MARCA_BLOQUEO);
+  const n = nombre.trim().toUpperCase();
+  return MARCAS_BLOQUEO.some((m) => n.startsWith(m));
+}
+
+/** Cuál de las marcas trae, para decirlo tal cual en la pantalla en vez de nombrar sólo una. */
+export function marcaDeBloqueo(nombre: string): string | null {
+  const n = nombre.trim().toUpperCase();
+  return MARCAS_BLOQUEO.find((m) => n.startsWith(m)) ?? null;
 }
 
 export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutorizacion): ResultadoAutorizacion {
@@ -235,7 +254,7 @@ export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutoriz
   // 4 · no está bloqueado
   let bloqueado = false;
   if (e.cliente.nombre == null) falla(4, 'no pude leer el cliente en Kepler');
-  else if (clienteBloqueado(e.cliente.nombre)) { bloqueado = true; falla(4, 'el cliente está marcado «NO TOCAR» en Kepler'); }
+  else if (clienteBloqueado(e.cliente.nombre)) { bloqueado = true; falla(4, `el cliente está marcado «${marcaDeBloqueo(e.cliente.nombre)}» en Kepler`); }
 
   // 5 · datos frescos
   if (e.edad_datos_min == null) falla(5, 'no pude verificar el saldo: no sé de cuándo es la lectura');

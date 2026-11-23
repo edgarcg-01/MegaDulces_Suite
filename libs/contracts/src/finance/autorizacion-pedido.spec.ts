@@ -2,6 +2,7 @@ import {
   PARAMETROS_PROPUESTOS,
   clienteBloqueado,
   decidirAutorizacion,
+  marcaDeBloqueo,
   type EntradaAutorizacion,
 } from './autorizacion-pedido.contract';
 
@@ -108,6 +109,28 @@ describe('[GP.A.1] decidirAutorizacion', () => {
   it('4 · negativo: «no tocar» en medio del nombre o «BAJA» en «TRABAJADORES» no bloquean', () => {
     expect(clienteBloqueado('SINDICATO DE TRABAJADORES')).toBe(false);
     expect(clienteBloqueado('ABARROTES NO TOCAR')).toBe(false);
+  });
+
+  /**
+   * `[GP.A.5]` El caso real que lo destapó (Padre Hidalgo, 2026-11-23): «NO USARRRRRRRRMA. LOURDES ENCINO
+   * ALEMAN». GP.A.0c midió «NO TOCAR» y buscó otras ocho palabras, pero **«NO USAR» no estaba entre ellas**:
+   * 63 filas más, 40 claves, 3 con límite vivo, que la regla dejaba pasar mientras el panel decía
+   * «No está marcado NO TOCAR ✔».
+   */
+  it('4 · ⭐ «NO USAR» al inicio también bloquea, y el motivo dice CUÁL marca trae', () => {
+    expect(clienteBloqueado('NO USARRRRRRRRMA. LOURDES ENCINO ALEMAN')).toBe(true);
+    expect(clienteBloqueado('no usar - cliente moroso')).toBe(true);
+    const r = decidirAutorizacion(base({ cliente: { nombre: 'NO USARRRRRRRRMA. LOURDES ENCINO ALEMAN', limite: 15_000 } }), P);
+    expect(r.bloqueado).toBe(true);
+    expect(r.motivos.find((m) => m.condicion === 4)?.texto).toContain('NO USAR');
+    expect(marcaDeBloqueo('NO USARRRRRRRR X')).toBe('NO USAR');
+    expect(marcaDeBloqueo('NO TOCAR X')).toBe('NO TOCAR');
+  });
+
+  it('⛔ negativo: la marca va al INICIO; en medio del nombre no bloquea (el caso «BAJA»/«trabajadores» de GP.A.0c)', () => {
+    expect(clienteBloqueado('ABARROTES NO USAR')).toBe(false);
+    expect(clienteBloqueado('DULCERIA LA USAR')).toBe(false);
+    expect(marcaDeBloqueo('ABARROTES EL SOL')).toBeNull();
     expect(decidirAutorizacion(base({ cliente: { nombre: 'SINDICATO DE TRABAJADORES', limite: 10_000 } }), P).decision).toBe('autorizar');
   });
 
