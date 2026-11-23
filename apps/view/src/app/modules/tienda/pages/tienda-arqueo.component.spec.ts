@@ -52,6 +52,8 @@ class ArqueoStub {
   submitRuta(dto: any) { this.enviado = dto; return of({ tipo: dto.tipo, total_contado: 1000, route_code: dto.route_code, route_label: '', medible: false, motivo_no_medible: 'sin_esperado' }); }
   validar() { return of({}); }
   porCajera() { return of({ cajeras: [], totales: { cajeras: 0, cortes: 0, sin_arqueo: 0 } }); }
+  /** [SM.48] «Sucursales y sus cajas», que monta quien valida. */
+  cajas(fecha: string) { return of({ fecha, umbral: 50, sucursales: [] }); }
 }
 
 describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () => {
@@ -904,7 +906,7 @@ describe('TiendaArqueoComponent · [SM.51] la caja la elige la cajera', () => {
   const el = (): HTMLElement => fix.nativeElement as HTMLElement;
   const tick = async (): Promise<void> => { await fix.whenStable(); await new Promise((r) => setTimeout(r, 0)); fix.detectChanges(); };
 
-  const montar = async (resp: TurnosResp = { turnos: [], aviso: null }) => {
+  const montar = async (resp: TurnosResp = { turnos: [], aviso: null }, extraPerms: Record<string, boolean> = {}) => {
     svc = new ArqueoStub();
     svc.resp = resp;
     await TestBed.configureTestingModule({
@@ -912,7 +914,7 @@ describe('TiendaArqueoComponent · [SM.51] la caja la elige la cajera', () => {
       providers: [
         provideRouter([]), provideHttpClient(), provideHttpClientTesting(), MessageService,
         { provide: ArqueoService, useValue: svc },
-        { provide: AuthService, useValue: { user: () => ({ username: '10c02', warehouse_code: '01', role_name: 'cajero', permissions: { STORE_ARQUEO_CAPTURAR: true, STORE_ARQUEO_VER: true } }), token: () => null } },
+        { provide: AuthService, useValue: { user: () => ({ username: '10c02', warehouse_code: '01', role_name: 'cajero', permissions: { STORE_ARQUEO_CAPTURAR: true, STORE_ARQUEO_VER: true, ...extraPerms } }), token: () => null } },
         { provide: PermissionsService, useValue: { isAdmin: () => false, has: () => false } },
         { provide: DataScopeService, useValue: { warehouses: () => of([{ value: '01', label: 'PADRE HIDALGO' }]) } },
       ],
@@ -972,14 +974,79 @@ describe('TiendaArqueoComponent · [SM.51] la caja la elige la cajera', () => {
     expect(cmp.turnoSel()).toBeNull();
   });
 
-  it('⭐ la cajera NO tiene historial (ni «Tus cortes de hoy» ni buscador)', async () => {
+  it('la cajera sigue sin buscador ni el historial viejo («Tus cortes de hoy»)', async () => {
     await montar();
-    cmp.rows.set([{ id: 'a', tipo: 'cierre', warehouse_code: '01', caja: '2', business_date: '2026-11-05', turno: null,
-      cajero_code: '10C02', cajero_entrante: null, cajero_nombre: null, total_contado: 500, captured_by: '10c02',
-      captured_at: '2026-11-05T15:00:00.000Z', nota: null, incidencia_tipo: null } as ArqueoRow]);
+    cmp.rows.set([filaHoy({})]);
     await tick();
     expect(el().textContent).not.toContain('Tus cortes de hoy');
     expect(el().querySelector('.arq-hist-bar')).toBeNull();
-    expect(el().querySelector('p-table')).toBeNull();
+  });
+
+  // ── [SM.54] «Tus arqueos de hoy»: la cajera reimprime el ticket de un arqueo del día ────
+  // El recorte «sólo los suyos, sólo hoy» lo hace el servidor (SM.33): aquí se prueba que la
+  // pantalla pinta lo que llega, sin el esperado, y que cada renglón se reimprime.
+  const filaHoy = (over: Partial<ArqueoRow>): ArqueoRow => ({
+    id: 'a', tipo: 'cierre', warehouse_code: '01', caja: '2', business_date: '2026-11-23', turno: null,
+    cajero_code: '10C02', cajero_entrante: null, cajero_nombre: null, total_contado: 500, captured_by: '10c02',
+    captured_at: '2026-11-23T15:00:00.000Z', nota: null, incidencia_tipo: null,
+    ...over,
+  } as ArqueoRow);
+  const renglonesHoy = (): HTMLTableRowElement[] =>
+    Array.from(el().querySelectorAll<HTMLTableRowElement>('.arq-hoy tbody tr'));
+
+  it('⭐ [SM.54] la cajera ve sus arqueos de hoy, cada uno con su botón Reimprimir que manda ESE arqueo', async () => {
+    await montar();
+    const retiro = filaHoy({ id: 'r2', tipo: 'retiro', secuencia: 2, caja: '3', total_contado: '1250.5' as unknown as number });
+    const cierre = filaHoy({ id: 'c1', tipo: 'cierre' });
+    cmp.rows.set([retiro, cierre]);
+    await tick();
+    expect(el().querySelector('.arq-hoy h3')?.textContent).toContain('Tus arqueos de hoy');
+    const filas = renglonesHoy();
+    expect(filas.length).toBe(2);
+    expect(filas[0].textContent).toContain('Retiro 2');
+    expect(filas[0].textContent).toContain('$1,250.50');
+    expect(filas[1].textContent).toContain('Cierre de día');
+    // Ciego: ni esperado ni diferencia en la lista de la cajera.
+    const t = el().querySelector('.arq-hoy')?.textContent ?? '';
+    expect(t).not.toContain('Esperado');
+    expect(t).not.toContain('Diferencia');
+
+    const reimpresos: ArqueoRow[] = [];
+    cmp.reimprimir = (b: ArqueoRow) => { reimpresos.push(b); };
+    filas[0].querySelector<HTMLButtonElement>('button')!.click();
+    expect(reimpresos.map((b) => b.id)).toEqual(['r2']);
+  });
+
+  it('[SM.54] sin arqueos hoy no se dibuja la sección (ni una tabla vacía)', async () => {
+    await montar();
+    cmp.rows.set([]);
+    await tick();
+    expect(el().textContent).not.toContain('Tus arqueos de hoy');
+    expect(el().querySelector('.arq-hoy')).toBeNull();
+  });
+
+  it('[SM.54] NEGATIVA: si la lista no carga se dice y se reintenta; no se lee como «no tienes arqueos»', async () => {
+    await montar();
+    (svc as unknown as { list: () => unknown }).list = () => throwError(() => new Error('red caída'));
+    cmp.recargarHoy();
+    await tick();
+    expect(el().textContent).toContain('No se pudieron cargar tus arqueos de hoy');
+    expect(renglonesHoy().length).toBe(0);
+
+    (svc as unknown as { list: () => unknown }).list = () => of([filaHoy({})]);
+    const boton = Array.from(el().querySelectorAll<HTMLButtonElement>('.arq-hoy button'))
+      .find((b) => b.textContent?.includes('Reintentar'))!;
+    boton.click();
+    await tick();
+    expect(el().textContent).not.toContain('No se pudieron cargar');
+    expect(renglonesHoy().length).toBe(1);
+  });
+
+  it('[SM.54] quien valida (RECONCILIATION_VER) NO ve «Tus arqueos de hoy»: sigue con Sucursales y sus cajas', async () => {
+    await montar({ turnos: [], aviso: null }, { RECONCILIATION_VER: true });
+    cmp.rows.set([filaHoy({})]);
+    await tick();
+    expect(el().textContent).not.toContain('Tus arqueos de hoy');
+    expect(el().querySelector('app-arqueo-cajas')).not.toBeNull();
   });
 });

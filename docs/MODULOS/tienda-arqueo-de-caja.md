@@ -1,3 +1,37 @@
+# Tienda › Arqueo de caja — la cajera reimprime el ticket de sus arqueos de hoy (SM.54)
+
+## Problema
+
+Desde SM.51 (#489, 2026-11-05) la cajera no tenía historial: el ticket se imprimía solo al guardar. Si no salía, se
+atoraba o se perdía, no había de dónde sacarlo otra vez. Lo pidió la jefa de zona (2026-11-23): que cada cajera
+pueda reimprimir, pero solo lo del día en que está cobrando.
+
+## Solución
+
+- Debajo del conteo, para quien no valida, sale **«Tus arqueos de hoy»**: hora · tipo · caja · contado · **Reimprimir**.
+- Solo los suyos y solo de hoy. Días pasados no aparecen.
+- Sin esperado ni diferencia (el arqueo sigue ciego) y sin buscador (son pocos al día).
+- Sin arqueos hoy no se dibuja nada. Si la lista no carga, lo dice y ofrece «Reintentar» (no se confunde con «no tienes arqueos»).
+- Quien valida no cambia: sigue con «Sucursales y sus cajas».
+
+## Cómo se implementó
+
+- Solo pantalla: `apps/view/src/app/modules/tienda/pages/tienda-arqueo.component.ts`. Reusa lo que SM.51 dejó sin
+  dibujar: `rows()` (que ya pedía `GET /store/arqueo`) y `reimprimir()` (ticket con lo guardado y marcado REIMPRESIÓN).
+- El recorte «suyos + hoy» **no** está en la pantalla: lo hace el servidor desde SM.33
+  (`store-arqueo.controller.ts`, `cajero_code` = el usuario y `solo_hoy`; `blind-count.service.ts`, la fecha de la base
+  en hora de México, y el turno que cierra pasada la medianoche sigue en la lista). Editar la URL no da más.
+- Nuevo: `histError` (error de carga distinto de lista vacía), `recargarHoy()` y `tipoHoy()` (el retiro lleva su número).
+- En el teléfono la lista se apila con `.dt-stack` (en un `.dt-scope` propio: en el mismo div que `.arq-panel` el nombre de contenedor chocaba). Sin eso, la tabla base daba 120 px por columna y escondía «Contado» detrás de un scroll.
+- Pruebas en `tienda-arqueo.component.spec.ts`: ve sus 2 arqueos y Reimprimir manda ESE arqueo; sin arqueos no hay
+  sección; error → aviso y reintento (negativa); quien valida no la ve. Rotas a propósito: 2 rojas.
+
+## Por qué así
+
+- El filtro en el servidor es la seguridad; la lista solo pinta. Ver los de las compañeras revelaría cuánto entregó cada una (D1, decidido por David).
+- Sin buscador ni detalle: la cajera viene a una sola cosa, reimprimir, de pie y con fila.
+
+---
 # Tienda › Arqueo de caja — «Sucursales y sus cajas»: Ruta Directa, Ruta Vecinal y Conteos de efectivo por separado (SM.53)
 
 ## Problema
