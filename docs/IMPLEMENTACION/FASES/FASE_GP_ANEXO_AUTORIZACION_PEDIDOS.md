@@ -383,6 +383,32 @@ Esto corrige lo que decía GP.A.4.
 Carga medida en la maqueta (nivel C, sin validación visual): la bandeja pasó de ~22 controles y ~68 cifras a
 ~12 y ~28; el panel, de ~70 cifras visibles a ~14.
 
+#### 3.6b La decisión en el panel — lo que cambió al encenderla (2026-11-23, GP.A.4b y GP.A.5)
+
+Las cinco preguntas, otra vez, **sólo para lo que se agregó** (el resto de la pantalla es el aprobado el 20-nov):
+
+1. **Qué ve y en qué orden:** nada nuevo al entrar. Dentro del panel, al final y en este orden: lo que ya se
+   decidió de ese pedido (si lo hay) → **motivo** → **Autorizar** (la única primaria) y **Rechazar** → una
+   línea que dice qué va a pasar. En la tira de cifras aparece **«Ya decidiste»** sólo cuando hay algo
+   decidido: una cifra en cero no es trabajo, es ruido.
+2. **Qué no ve:** **«Pasar a Dirección General» no está** — su bandeja es GP.A.6b y no existe todavía; un
+   botón que no lleva a ningún lado afirma lo que no es. Tampoco hay botones por fila (la decisión pide leer
+   el panel) ni un diálogo de confirmación: el motivo obligatorio ya es la fricción.
+3. **Accesibilidad:** el motivo es un campo de texto con su etiqueta visible, no un `placeholder`; los dos
+   botones se alcanzan con teclado; el resultado llega como aviso del sistema y **se lee**, no sólo se ve; al
+   decidir, el panel pasa al siguiente pedido para trabajar la cola de corrido.
+4. **Ligas:** la decisión queda ligada al pedido (sucursal, serie, folio) en `finance.order_authorizations`, y
+   la fila ya decidida dice **quién, cuándo y por qué**. Lo que Kepler contestó se guarda con ella.
+5. **¿Le toca a esta pantalla?** Sí. Encender el interruptor por sucursal y correr el permiso **no**: eso es
+   operación (ops), no pantalla.
+
+**Lo que la interfaz NO puede resolver** (se dice primero, §0a paso 12): sin el permiso GP.A.0d en Kepler y sin
+la bandera `KEPLER_AUTORIZACION_PEDIDOS`, Autorizar queda apagado por diseño y lo dice con el nombre de la
+sucursal; rechazar sí funciona desde el primer día, porque no toca Kepler.
+
+**Rechazar no cancela.** El pedido sigue `CREADO` en Kepler: lo que cambia es que la Suite sabe que ya se
+decidió y deja de pedirlo. Cancelarlo en Kepler está fuera de este anexo (§5).
+
 **Qué revisa Crédito y cobranza al autorizar a mano** (lo que el panel pone en «Para decidir», según el caso):
 
 | Siempre | Excede | Sin límite | Vencido | NO TOCAR | Viejo (aparte) |
@@ -419,13 +445,35 @@ de E4.
 | **GP.A.2** 🔨 | **Hecho el 2026-11-20:** la regla y la sentencia (`autorizacion-kepler.ts`: sólo `c11`, con el estatus leído en el `WHERE`, idempotente), el adaptador `KeplerAutorizacionPedidoAdapter` (apagado de inicio, `FOR UPDATE`, 1 fila o ROLLBACK, nunca lanza; 13 pruebas, 2 mutantes rojos) y el ensayo con ROLLBACK (`ops/prod/ensayo-autorizacion-kepler`). **Y la decisión (2026-11-20):** migración `20261120145451` (bitácora `finance.order_authorizations` con RLS, una escritura en curso por pedido, motivo obligatorio; tipo `autorizacion` apagado y sin tope, D-A14; llave `FINANCE_PEDIDOS_AUTORIZAR` a `credito_cobranza`), `AutorizacionDecisionService` + `POST /api/finance/autorizacion-pedidos/:sucursal/:serie/:folio` ({ accion, motivo }: autorizar, regresar, rechazar, escalar), 21 pruebas (2 mutantes rojos), la prueba contra Postgres real (19 de 19) y la **simulación contra prod con ROLLBACK** (`ops/prod/simulacion-bitacora-autorizacion`: 19 de 19, prod igual). **Falta:** aplicar la migración (después de empujar), el permiso GP.A.0d (PM), correr el ensayo y encender los botones del panel (GP.A.4). Definición: | **Escribir la autorización**: `c11 = 'AUTORIZADO'` con `WHERE c11 = 'CREADO'`, desde `md`, interruptor por sucursal apagado al nacer, tope diario, idempotente. Guarda en una tabla propia (con `tenant_id` y auditoría) **quién o qué la autorizó**, cuándo, la regla y los números que vio, y el motivo si se autorizó excedida. Rechazar **no cancela en Kepler**: deja el pedido `CREADO` con el motivo en la Suite | C2 | GP.A.1 · GP.A.0d | ⛔ sí: prueba contra un Kepler de pruebas y contra base real con el payload de la pantalla |
 | **GP.A.3** | **Automático**, por evento y sin cron, con **dos disparos**: (1) al ver un pedido TELEMARK `CREADO` nuevo y (2) **cuando cambia la cartera del cliente** (un cobro, una nota, un ajuste: el evento de la cartera por evento, `receivables_dirty_accounts`), que re-evalúa sus pedidos que esperan. Sin el segundo, un pedido detenido por deuda no pasaría nunca aunque el cliente pague (Edgar, 2026-11-20: «cuando se deposite… el pedido pasará a automático»). Corre la regla y, si pasa, autoriza con GP.A.2. **Una notificación a Crédito y cobranza por cada pedido autorizado solo** (Edgar, 2026-11-20), con la liga para regresarlo. **Antes de cada empuje que toque la autorización**, la lista de los que pasarían solos se le manda a Crédito y cobranza: `ops/prod/reporte-autorizacion-automatica` (mismas consultas y misma regla que la bandeja, sólo lectura) | C2 | GP.A.2 | ⛔ sí |
 | **GP.A.4** 🔨 | **Servidor hecho el 2026-11-20** (`GET /api/finance/receivables/autorizacion-pedidos`, sólo lectura, ~200 ms medidos en prod: la consulta principal tardaba 245 s hasta materializar el «por cobrar» y dejar fuera CONTADO). **Pantalla hecha el 2026-11-20, sólo lectura** (`/finanzas/cartera/por-autorizar`, tercer segmento de Cartera; Autorizar y Rechazar apagados y dicen dónde se hace hoy; sin validación visual). **Bandeja «Por autorizar» en Cartera** (`/finanzas/cartera`, segundo segmento), **no en el Tablero** (§3.6, aprobada por Edgar el 2026-11-20): «N pedidos esperan tu decisión», enlaces a los autorizados solos y a los viejos; por fila, cliente y sucursal · por qué no pasó solo (etiqueta + frase; segunda línea sólo si cambia la decisión) · importe · espera; la fila abre el panel. Los bloqueados no se autorizan. Pide la llave nueva de `credito_cobranza`, repartida en la misma migración (regla 20) | C3 | GP.A.2 | — |
-| **GP.A.5** | **Panel del pedido** (`app-side-peek`, §3.6): veredicto en una línea, los 3 números con la fórmula de Kepler, «lo que Kepler no dice» si aplica, «Para decidir» con los 2–3 hechos del caso, motivo obligatorio y la decisión, la sugerencia en una línea, el resto plegado. Lee del ODS y de la cartera, cada cifra con su fecha; no copia tablas | C2/C3 | GP.A.4 | — |
+| **GP.A.4b** 🧪 | **Hecho el 2026-11-23: la bandeja sabe lo que ya se decidió.** Sin esto, rechazar no servía de nada: rechazar **no cambia nada en Kepler** (el pedido sigue `CREADO`), así que el mismo pedido volvía a la lista del día cada día como si nadie lo hubiera visto. Ahora `leerBandeja` trae la **última decisión en pie** de cada pedido (`DECISIONES_VIGENTES_SQL`: `DISTINCT ON` por pedido, sólo `escrito`/`ya_estaba`/`registrado`) y `armarBandeja` la saca de las tres listas de trabajo a una cuarta, **«Ya decidiste»**, con quién, cuándo y su motivo; desde ahí se puede volver a decidir (el pedido sigue `CREADO`). **Lo regresado (D-A7) vuelve a esperar**, y una autorización que Kepler **no aceptó** (`apagado`, `rechazado`) deja el pedido esperando. Y el **tope del día** deja de ser un cero dibujado (regla 11): `AUTOMATICAS_HOY_SQL` cuenta las que la Suite autorizó **sola** hoy por sucursal y ésa es la que ve la condición 6. 28 pruebas (21 del motor + 7 nuevas) y **22 ✔ contra Postgres real** con el SQL leído del servicio; 4 mutantes en rojo (la decisión vigente no filtra, el botón sin candado, el doble clic, la decisión más vieja gana). ⚠️ El costo contra prod no cambió: el reporte completo sigue en ~26 s | C2 | GP.A.2 | no |
+| **GP.A.5** 🔨 | **Hecho el 2026-11-23: el panel decide.** Motivo obligatorio (se escribe antes de que los botones se enciendan), **Autorizar** y **Rechazar** conectados al `POST` de GP.A.2, el resultado como aviso del sistema y la cola se sigue de corrido (al decidir, pasa al siguiente sin cerrar el panel). Autorizar queda apagado mientras la sucursal tenga la escritura apagada **y lo dice con el nombre de la sucursal**; Rechazar no depende de Kepler. El doble clic no decide dos veces. Sin la llave, no hay botones y se dice dónde se hace. ⛔ **«Pasar a Dirección General» NO se puso**: su bandeja es GP.A.6b y no existe — un botón que no lleva a ningún lado afirma lo que no es. ⚠️ **Sin validación visual** (no se vio con datos en pantalla). Lo que falta de §3.6: la sugerencia de límite (GP.A.6) | C3 | GP.A.2 · GP.A.4 | ⛔ sí |
+| **GP.A.5b** | **Panel del pedido, el resto** (`app-side-peek`, §3.6): veredicto en una línea, los 3 números con la fórmula de Kepler, «lo que Kepler no dice» si aplica, «Para decidir» con los 2–3 hechos del caso, motivo obligatorio y la decisión, la sugerencia en una línea, el resto plegado. Lee del ODS y de la cartera, cada cifra con su fecha; no copia tablas | C2/C3 | GP.A.4 | — |
 | **GP.A.6** | **Sugerencia de límite** (§3.3) y lista «revisar» (clientes con vencido viejo que siguen comprando). Crédito y cobranza la acepta o la descarta; aceptarla le recuerda cambiarla en Kepler y queda registrado. Se mide la cobertura de notas de crédito por cliente antes de mostrarlas | C1/C3 | GP.A.5 | sí (aceptar/descartar) |
 | **GP.A.6b** | **Escalamiento a Dirección General**: lo que Crédito y cobranza no autoriza sube a la bandeja de `direccion` con su motivo y la ficha; Dirección General autoriza o rechaza. **Regresar** un autorizado solo (D-A7): `c11 = 'CREADO'` con `WHERE c11 = 'AUTORIZADO'`, sólo `credito_cobranza`. Llaves nuevas repartidas en la misma migración (regla 20) | C2/C3 | GP.A.4 | ⛔ sí |
 | **GP.A.6c** | **Aviso de renovar o subir** (§3.4), por evento al entrar un pedido; un aviso por cliente; atenderlo registra la revisión del crédito; la Suite detecta en `kdud.c15` cuándo se aplicó en Kepler | C1/C2/C3 | GP.A.6 | sí (registro de la revisión) |
 | **GP.A.6d** | **Listas del SAT en la ficha** (§3.5): reusar `fiscal.sat_list_rfcs` con el RFC de `kdud.c10`, **excluyendo los RFC genéricos** (prueba negativa: un cliente con `XAXX010101000` no debe salir «en lista»). Sin RFC propio, la ficha dice «sin RFC: no se puede revisar», no «limpio» | C1/C3 | GP.A.5 | — |
 | **GP.A.7** | El seguimiento de la cotización dice «Autorizado solo», «Esperando a Crédito y cobranza desde las 12:31» o «Rechazado: motivo» | C3 | GP.A.2 | — |
 | **GP.A.8** | Dos semanas de piloto: % automático, motivos de los excedidos, sugerencias aceptadas, y cuántos autorizados solos terminaron con vencido de más de 45 días (control de la regla) | C0 | GP.A.3 en prod | no |
+
+### 5b. Encender el Paso 1 — los candados, en orden (medido el 2026-11-23)
+
+> ⛔ **«Construido» y «encendido» no son lo mismo**, y aquí hay seis candados distintos. Esta tabla es el estado
+> real, medido en prod en sólo lectura. Cada renglón dice **quién lo abre**.
+
+| # | Candado | Estado hoy | Quién lo abre |
+|---|---|---|---|
+| 1 | El código, en prod | ✅ desplegado en `e80e10be4` (regla, bitácora, `POST`, bandeja, pantalla) | — |
+| 2 | Migración `20261120145451` | ✅ aplicada el 2026-11-20 19:44; `finance.order_authorizations` existe, **0 filas** | — |
+| 3 | Llave `FINANCE_PEDIDOS_AUTORIZAR` | ✅ repartida: `credito_cobranza` + `superadmin` (regla 20) | — |
+| 4 | **Permiso en Kepler (GP.A.0d)** | ⬜ **no corrido**, ni GP.A.0d ni GP.12.0e | ⭐ **el PM**: `node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/gpa0d_kdm1_update_c11.sql --aplicar` (pide la contraseña de superusuario) |
+| 5 | Ensayo con ROLLBACK en el Kepler vivo | ⬜ sin correr (depende del 4) | Claude, apenas exista el 4 (`ops/prod/ensayo-autorizacion-kepler`) |
+| 6 | `KEPLER_AUTORIZACION_PEDIDOS=encendida` | ⬜ **la bandera no existe** en los secretos de k3s (`prod-env`/`kepler-push`) | el PM, con `kubectl patch` sobre el secreto (⛔ nunca `--from-env-file`) |
+| 7 | Interruptor por sucursal (`kepler_push_switch`, tipo `autorizacion`) | ⬜ **9 de 9 apagados, sin tope** | el PM decide la sucursal piloto; encender = se puede **a mano**. El automático pide además un **tope del día** (D-A14) |
+
+**Qué pasa hoy, con 4–7 cerrados:** Crédito y cobranza ya puede **rechazar** con motivo (no toca Kepler) y lo
+rechazado sale de su lista (GP.A.4b); **Autorizar** está apagado y la pantalla dice en qué sucursal y dónde se
+hace mientras tanto. Al abrir 4–7 en una sucursal, autorizar a mano empieza a escribir `kdm1.c11`. El automático
+es lo último, y pide GP.A.3 (el disparo por evento), que **no está construido**.
 
 **Fuera de este anexo:** cancelar pedidos en Kepler desde la Suite, escribir el límite en Kepler (ALC D1-b),
 y limpiar la 05 (D-A4).
@@ -474,6 +522,9 @@ construirla pasa GP a 🔨. Si se abre, **reemplaza a E2 como siguiente etapa**.
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-23 | **Medido el estado real del «construido, no encendido», candado por candado** (prod, sólo lectura): el código **sí está desplegado** (`e80e10be4`), la migración `20261120145451` **aplicada** el 20-nov 19:44, la llave **repartida** a `credito_cobranza` (regla 20 ✔). Lo que sigue cerrado: el interruptor (**9 de 9 apagados, sin tope**), la bandera `KEPLER_AUTORIZACION_PEDIDOS` (**no existe** en los secretos de k3s) y **el permiso GP.A.0d, que nadie ha corrido** (tampoco GP.12.0e). La bitácora tiene **0 filas**: nadie ha decidido nada todavía desde la Suite. Hoy hay **808 pedidos TELEMARK en CREADO**, 782 de ellos los muertos de Zamora Centro; telemarketing de verdad, 14 capturados hoy | Claude |
+| 2026-11-23 | ⭐ **Hallazgo: rechazar no servía de nada.** La bandeja leía sólo el ODS, y rechazar **no cambia nada en Kepler**, así que el pedido rechazado volvía al día siguiente idéntico, como si nadie lo hubiera visto — y «N pedidos esperan tu decisión» habría contado decisiones ya tomadas (ley 0 del estándar). Lo encontró leer el camino completo antes de encender los botones, no una compuerta. **GP.A.4b** lo cierra | Claude |
+| 2026-11-23 | **GP.A.4b 🧪 y GP.A.5 🔨: el panel decide y la bandeja sabe lo decidido.** Motivo obligatorio, Autorizar y Rechazar conectados al `POST`, el doble clic no decide dos veces, y Autorizar apagado **con el nombre de la sucursal** mientras la escritura esté apagada. El tope del día deja de ser un cero dibujado. 22 ✔ contra Postgres real (SQL leído del servicio, con la migración aplicada en la base local), 28 de motor y pantalla, **4 mutantes en rojo**. `ngc --noEmit` encontró un `[maxlength]` que `check:pantalla` no ve (NG8002): corregido. ⚠️ Sin validación visual. **Falta para encender: el permiso GP.A.0d (lo corre el PM), el ensayo con ROLLBACK, la bandera y el interruptor de una sucursal piloto** | Claude |
 | 2026-11-19 | Nace el anexo. Auditoría en prod (sólo lectura): qué es autorizar, la pantalla de Kepler columna por columna, telemarketing de 60 días, los 782 pedidos de Zamora Centro, lo que la Suite ya tiene | Claude, a pedido de Edgar |
 | 2026-11-19 | Edgar decide D-A3 (automático dentro del límite, siempre avisando) y pide la ficha de crédito. Medido: el «Monto por Cobrar» de Kepler sigue a los pedidos abiertos, no al saldo; la regla simulada autoriza 19.8 % (control: 185 con el límite a la mitad); 70 % del importe se autorizó excedido; 37 buenos pagadores concentran $5.66 M de excedidos; $3.1 M vencido a más de 45 días. Nuevos GP.A.3 a GP.A.8 y D-A6, D-A7 | Claude |
 | 2026-11-19 | Edgar decide D-A2 (Crédito y cobranza; si no, Dirección General), D-A4 (evitar los pedidos viejos) y D-A7 (Crédito y cobranza puede regresar un autorizado solo), y pide el aviso de renovar o subir el crédito y un análisis externo. Medido: 73 de 366 clientes con RFC propio, 0 en listas del SAT; el RFC genérico aparece en la lista 69 (falso positivo controlado). Nuevos §3.4, §3.5, GP.A.6b a GP.A.6d y D-A8 a D-A10 | Claude |

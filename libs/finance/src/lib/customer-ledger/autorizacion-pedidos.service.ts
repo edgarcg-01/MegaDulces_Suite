@@ -9,7 +9,10 @@ import {
   warehouseName,
 } from '@megadulces/contracts';
 import type {
+  AccionDecisionPedido,
   BandejaAutorizacion,
+  DecisionVigente,
+  EstadoDecisionPedido,
   FacturaDelCliente,
   Freshness,
   PagoDelCliente,
@@ -45,6 +48,13 @@ export interface LecturaBandeja {
   facturas: Array<{ sucursal: string; cliente: string; saldo: number; importe: number; vencimiento: string | null; dias_pago: number | null }>;
   /** El interruptor por sucursal (tipo `autorizacion`). Sin renglón = apagado. */
   carril: Array<{ sucursal: string; encendida: boolean; tope_dia: number | null }>;
+  /** `[GP.A.4b]` La decisión vigente de la Suite por pedido (de `finance.order_authorizations`). */
+  decisiones: Array<{
+    sucursal: string; serie: number; folio: string; accion: AccionDecisionPedido; estado: EstadoDecisionPedido;
+    motivo: string | null; automatica: boolean; quien: string | null; cuando: string;
+  }>;
+  /** `[GP.A.2]` Cuántas autorizó sola la Suite hoy, por sucursal (el tope del día, condición 6). */
+  automaticas_hoy: Array<{ sucursal: string; n: number }>;
   freshness: Freshness;
   /** Ahora, para calcular la edad de los datos. */
   ahora: Date;
@@ -79,6 +89,43 @@ export function pagoDelCliente(facturas: LecturaBandeja['facturas'], plazo: numb
   };
 }
 
+/**
+ * `[GP.A.4b]` La última decisión en pie de cada pedido de la lista. Texto aquí y no en el query builder: la prueba
+ * contra Postgres real (`database/tests/test-newdb-autorizacion-pedidos.js`) corre ESTE SQL, no una copia.
+ *
+ * `DISTINCT ON` + `ORDER BY created_at DESC` = la más nueva de cada pedido. Las que Kepler no aceptó (`apagado`,
+ * `rechazado`) quedan fuera: ésas no decidieron nada, el pedido sigue esperando.
+ */
+export const DECISIONES_VIGENTES_SQL = `SELECT DISTINCT ON (a.sucursal, a.serie, a.folio)
+             a.sucursal, a.serie, btrim(a.folio) AS folio, a.accion, a.estado, a.motivo, a.automatica,
+             a.created_by AS quien, a.created_at::text AS cuando
+        FROM finance.order_authorizations a
+        JOIN unnest(?::text[], ?::int[], ?::text[]) AS q(sucursal, serie, folio)
+          ON q.sucursal = a.sucursal AND q.serie = a.serie AND q.folio = btrim(a.folio)
+       WHERE a.tenant_id = ? AND a.estado IN ('escrito', 'ya_estaba', 'registrado')
+       ORDER BY a.sucursal, a.serie, a.folio, a.created_at DESC`;
+
+/** `[GP.A.2]` Lo que la Suite autorizó SOLA hoy, por sucursal: el contador del tope del día (condición 6). */
+export const AUTOMATICAS_HOY_SQL = `SELECT sucursal, count(*)::int AS n
+        FROM finance.order_authorizations
+       WHERE tenant_id = ? AND automatica AND estado = 'escrito'
+         AND (created_at AT TIME ZONE 'America/Mexico_City')::date = (now() AT TIME ZONE 'America/Mexico_City')::date
+       GROUP BY 1`;
+
+/**
+ * `[GP.A.4b]` Si la decisión vigente saca al pedido de la lista del día. Puro.
+ *
+ * `rechazar` y `escalar` no cambian nada en Kepler (el pedido sigue `CREADO`), así que sin esto volverían mañana
+ * como si nadie los hubiera visto. `autorizar` sí cambió Kepler: el ODS tarda unos minutos en mostrarlo.
+ * `regresar` es lo contrario (D-A7): el pedido volvió a `CREADO` a propósito y **vuelve a esperar decisión**.
+ */
+export function decididoFuera(d: DecisionVigente | null): boolean {
+  if (!d) return false;
+  if (d.accion === 'regresar') return false;
+  if (d.accion === 'rechazar' || d.accion === 'escalar') return d.estado === 'registrado';
+  return d.estado === 'escrito' || d.estado === 'ya_estaba';
+}
+
 /** El armado, puro: de lo leído a la bandeja. */
 export function armarBandeja(l: LecturaBandeja, p: ParametrosAutorizacion): BandejaAutorizacion {
   const abiertosPor = new Map<string, LecturaBandeja['abiertos']>();
@@ -93,6 +140,11 @@ export function armarBandeja(l: LecturaBandeja, p: ParametrosAutorizacion): Band
   }
   const carril = new Map(l.carril.map((c) => [c.sucursal, c]));
   const edad = l.freshness.data_as_of ? (l.ahora.getTime() - Date.parse(l.freshness.data_as_of)) / 60_000 : null;
+  // `[GP.A.4b]` La decisión vigente por pedido y las automáticas de hoy: ya no es el cero dibujado de GP.A.4 (regla 11).
+  const decisionPor = new Map(l.decisiones.map((d) => [`${d.sucursal}|${d.serie}|${d.folio.trim()}`, {
+    accion: d.accion, estado: d.estado, motivo: d.motivo, automatica: d.automatica, quien: d.quien, cuando: d.cuando,
+  } satisfies DecisionVigente]));
+  const automaticasPor = new Map(l.automaticas_hoy.map((a) => [a.sucursal, a.n]));
 
   const todos: PedidoPorAutorizar[] = l.pedidos.map((x) => {
     const k = llave(x.sucursal, x.cliente);
@@ -115,8 +167,8 @@ export function armarBandeja(l: LecturaBandeja, p: ParametrosAutorizacion): Band
       pedidos_abiertos: Math.round(otros * 100) / 100,
       facturas: vivas,
       edad_datos_min: edad,
-      // NO MEDIDO hasta GP.A.2: la Suite todavía no registra cuántas autorizó hoy.
-      carril: { encendido: c?.encendida ?? false, autorizados_hoy: 0, tope_dia: c?.tope_dia ?? null },
+      // `[GP.A.4b]` Lo que la Suite autorizó sola hoy en esa sucursal, de la bitácora (antes era un 0 dibujado).
+      carril: { encendido: c?.encendida ?? false, autorizados_hoy: automaticasPor.get(x.sucursal) ?? 0, tope_dia: c?.tope_dia ?? null },
     }, p);
     return {
       sucursal: x.sucursal,
@@ -137,20 +189,26 @@ export function armarBandeja(l: LecturaBandeja, p: ParametrosAutorizacion): Band
       saldo_cartera: Math.round(vivas.reduce((s, f) => s + f.saldo, 0) * 100) / 100,
       otros_pedidos: Math.round(otros * 100) / 100,
       pago: pagoDelCliente(suyas, x.plazo),
+      decision: decisionPor.get(`${x.sucursal}|${x.serie}|${x.folio.trim()}`) ?? null,
     };
   });
 
   const porFecha = (a: PedidoPorAutorizar, b: PedidoPorAutorizar) => a.fecha.localeCompare(b.fecha) || a.folio.localeCompare(b.folio);
+  // `[GP.A.4b]` Lo ya decidido sale de las tres listas de trabajo: rechazar no cambia nada en Kepler, así que sin
+  // esto el mismo pedido volvería mañana como si nadie lo hubiera visto.
+  const decididos = todos.filter((t) => decididoFuera(t.decision));
+  const abiertos = todos.filter((t) => !decididoFuera(t.decision));
   return {
     hoy: l.hoy,
     freshness: l.freshness,
     parametros: { ...p, origen: 'propuesta' },
     // [D-A12] CONTADO no le toca a Crédito y cobranza: va en su propia lista (con el automático encendido, pasa solo).
-    pendientes: todos.filter((t) => t.resultado.decision !== 'aparte' && !t.es_contado).sort(porFecha),
-    aparte: todos.filter((t) => t.resultado.decision === 'aparte').sort(porFecha),
-    contado: todos.filter((t) => t.resultado.decision !== 'aparte' && t.es_contado).sort(porFecha),
+    pendientes: abiertos.filter((t) => t.resultado.decision !== 'aparte' && !t.es_contado).sort(porFecha),
+    aparte: abiertos.filter((t) => t.resultado.decision === 'aparte').sort(porFecha),
+    contado: abiertos.filter((t) => t.resultado.decision !== 'aparte' && t.es_contado).sort(porFecha),
+    decididos: decididos.sort(porFecha),
     sucursales_encendidas: l.carril.filter((c) => c.encendida).map((c) => c.sucursal).sort(),
-    autorizados_hoy: null,
+    autorizados_hoy: l.automaticas_hoy.reduce((s, a) => s + a.n, 0),
   };
 }
 
@@ -237,6 +295,16 @@ export async function leerBandeja(trx: Knex.Transaction, tenantId: string, rel: 
     const carril = (await trx.raw(`
       SELECT sucursal, encendida, tope_dia FROM commercial.kepler_push_switch WHERE tenant_id = ? AND tipo = 'autorizacion'`, [tenantId])).rows;
 
+    // `[GP.A.4b]` Lo que la Suite ya decidió de ESTOS pedidos: la última decisión en pie de cada uno. La tabla puede
+    // no existir todavía (base sin la migración de GP.A.2): entonces no hay decisiones, no es un error.
+    const hayBitacora = (await trx.raw(`SELECT to_regclass('finance.order_authorizations') IS NOT NULL AS ok`)).rows[0]?.ok === true;
+    const todasSucs = filas.map((r) => String(r['sucursal']));
+    const todasSeries = filas.map((r) => Number(r['serie']));
+    const todosFolios = filas.map((r) => String(r['folio']).trim());
+    const decisiones = hayBitacora && filas.length
+      ? (await trx.raw(DECISIONES_VIGENTES_SQL, [todasSucs, todasSeries, todosFolios, tenantId])).rows : [];
+    const automaticas = hayBitacora ? (await trx.raw(AUTOMATICAS_HOY_SQL, [tenantId])).rows : [];
+
     return {
       hoy,
       pedidos: filas.map((r) => ({
@@ -256,6 +324,17 @@ export async function leerBandeja(trx: Knex.Transaction, tenantId: string, rel: 
       })),
       carril: (carril as Array<Record<string, unknown>>).map((r) => ({
         sucursal: String(r['sucursal']), encendida: r['encendida'] === true, tope_dia: num(r['tope_dia']),
+      })),
+      decisiones: (decisiones as Array<Record<string, unknown>>).map((r) => ({
+        sucursal: String(r['sucursal']), serie: Number(r['serie']), folio: String(r['folio']).trim(),
+        accion: String(r['accion']) as AccionDecisionPedido, estado: String(r['estado']) as EstadoDecisionPedido,
+        motivo: r['motivo'] == null ? null : String(r['motivo']),
+        automatica: r['automatica'] === true,
+        quien: r['quien'] == null ? null : String(r['quien']),
+        cuando: String(r['cuando']),
+      })),
+      automaticas_hoy: (automaticas as Array<Record<string, unknown>>).map((r) => ({
+        sucursal: String(r['sucursal']), n: Number(r['n']),
       })),
       freshness,
       ahora: new Date(),

@@ -1,8 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { provideZonelessChangeDetection } from '@angular/core';
-import { of } from 'rxjs';
-import type { BandejaAutorizacion, PedidoPorAutorizar, ResultadoAutorizacion } from '@megadulces/contracts';
+import { computed, provideZonelessChangeDetection } from '@angular/core';
+import { Observable, of, throwError } from 'rxjs';
+import type { BandejaAutorizacion, DecisionVigente, PedidoPorAutorizar, ResultadoAutorizacion, ResultadoDecisionPedido } from '@megadulces/contracts';
 import { FinanzasPorAutorizarComponent, datoDe, etiquetaDe, fraseDe, hechosDe } from './finanzas-por-autorizar.component';
 import { AutorizacionPedidosService } from '../autorizacion-pedidos.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -20,32 +20,46 @@ const ped = (folio: string, nombre: string, motivos: ResultadoAutorizacion['moti
   cliente: 'C' + folio, cliente_nombre: nombre, es_contado: false, ruta_vecinal: false, importe: 18_420.5, resultado: res(motivos),
   limite: 25_000, plazo_dias: 15, por_cobrar_kepler: 12_760.9, saldo_cartera: 12_760.9, otros_pedidos: 0,
   pago: { facturas_pagadas: 23, mediana_dias: 14, a_tiempo: 20, peor_atraso: 16 },
+  decision: null,
   ...o,
 });
 const apagado = { condicion: 6 as const, texto: 'la autorización automática está apagada en esta sucursal' };
-const bandeja = (pendientes: PedidoPorAutorizar[], aparte: PedidoPorAutorizar[] = []): BandejaAutorizacion => ({
+const bandeja = (pendientes: PedidoPorAutorizar[], aparte: PedidoPorAutorizar[] = [], o: Partial<BandejaAutorizacion> = {}): BandejaAutorizacion => ({
   hoy: '2026-11-20',
   freshness: { data_as_of: '2026-11-20T18:00:00Z', status: 'fresh', stale: false, age_human: '2 min', inputs: [] },
   parametros: { graciaDias: 15, pedidoViejoDias: 2, abiertosHorizonteDias: 30, frescuraMaxMin: 15, origen: 'propuesta' },
-  pendientes, aparte, contado: [], sucursales_encendidas: [], autorizados_hoy: null,
+  pendientes, aparte, contado: [], decididos: [], sucursales_encendidas: [], autorizados_hoy: 0,
+  ...o,
 });
 
 describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
-  function crear(b: BandejaAutorizacion) {
+  /** Lo que mandó el panel al servidor, para probar la decisión sin base. */
+  let enviado: Array<{ sucursal: string; serie: number; folio: string; accion: string; motivo: string }>;
+  function crear(b: BandejaAutorizacion, opts: { puede?: boolean; resultado?: ResultadoDecisionPedido } = {}) {
+    enviado = [];
+    const api = {
+      bandeja: () => of(b),
+      decidir: (p: PedidoPorAutorizar, accion: string, motivo: string) => {
+        enviado.push({ sucursal: p.sucursal, serie: p.serie, folio: p.folio, accion, motivo });
+        return of(opts.resultado ?? { id: 'x', accion, estado: 'escrito', mensaje: 'Autorizado en Kepler.', reintentable: false } as ResultadoDecisionPedido);
+      },
+    };
     TestBed.configureTestingModule({
       imports: [FinanzasPorAutorizarComponent],
       providers: [
         provideZonelessChangeDetection(),
         provideRouter([]),
-        { provide: AutorizacionPedidosService, useValue: { bandeja: () => of(b) } },
+        { provide: AutorizacionPedidosService, useValue: api },
         { provide: AuthService, useValue: { user: () => ({ permissions: {} }) } },
-        { provide: PermissionsService, useValue: { isAdmin: () => true } },
+        { provide: PermissionsService, useValue: { isAdmin: () => true, has$: () => computed(() => opts.puede ?? true) } },
       ],
     });
     const f = TestBed.createComponent(FinanzasPorAutorizarComponent);
     f.detectChanges();
     return f;
   }
+  const boton = (f: { nativeElement: HTMLElement }, texto: string) =>
+    Array.from((f.nativeElement as HTMLElement).querySelectorAll('button')).find((b) => b.textContent?.includes(texto)) as HTMLButtonElement;
   afterEach(() => TestBed.resetTestingModule());
   const el = (f: { nativeElement: HTMLElement }) => f.nativeElement as HTMLElement;
 
@@ -66,28 +80,110 @@ describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
     expect(t.match(/está apagada en esta sucursal/g)).toBeNull();
   });
 
-  it('tocar un pedido abre el panel con el veredicto y los 3 números; Autorizar está apagado y dice dónde se hace hoy', () => {
+  it('tocar un pedido abre el panel con el veredicto y los 3 números; con la escritura apagada, Autorizar dice dónde se hace hoy', () => {
     const f = crear(bandeja([ped('0001842', 'Abarrotes El Sol', [{ condicion: 2, texto: 'excede $6,181.40 su límite' }, apagado])]));
     f.componentInstance.abrir(f.componentInstance.lista()[0]);
+    f.componentInstance.motivo.set('Lo revisé con el cliente');
     f.detectChanges();
     const t = el(f).textContent ?? '';
     expect(t).toContain('Excede $6,181.40 su límite');
     expect(t).toContain('Por cobrar en Kepler');
     expect(t).toContain('$12,760.90');
+    expect(t).toContain('está apagado en Morelia Abastos');
     expect(t).toContain('en Kepler › Autorización de Pedidos');
-    const autorizar = Array.from(el(f).querySelectorAll('button')).find((b) => b.textContent?.includes('Autorizar')) as HTMLButtonElement;
-    expect(autorizar.disabled).toBe(true);
+    expect(boton(f, 'Autorizar').disabled).toBe(true);
+    // ⭐ Rechazar NO depende de Kepler: no lo toca, sólo deja dicho por qué.
+    expect(boton(f, 'Rechazar').disabled).toBe(false);
   });
 
   it('la cifra «Viejos, aparte» cambia a la lista de los viejos, y regresa', () => {
     const f = crear(bandeja([ped('1', 'A', [apagado])], [ped('2', 'Viejo', [{ condicion: 7, texto: 'lleva 58 días sin movimiento' }])]));
-    f.componentInstance.verAparte.set(true);
+    f.componentInstance.vista.set('aparte');
     f.detectChanges();
     expect(el(f).textContent).toContain('no se autorizan solos');
     expect(f.componentInstance.lista().map((p) => p.folio)).toEqual(['2']);
-    f.componentInstance.verAparte.set(false);
+    f.componentInstance.vista.set('pendientes');
     f.detectChanges();
     expect(f.componentInstance.lista().map((p) => p.folio)).toEqual(['1']);
+  });
+
+  // ── `[GP.A.5]` La decisión ───────────────────────────────────────────────────────────────────
+  it('⭐ con la sucursal encendida y un motivo, Autorizar manda la acción, el motivo y el pedido', () => {
+    const f = crear(bandeja([ped('0001842', 'Abarrotes El Sol', [{ condicion: 2, texto: 'excede $6,181.40 su límite' }])], [], { sucursales_encendidas: ['08'] }));
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
+    c.motivo.set('Habló el cliente, deposita mañana');
+    f.detectChanges();
+    expect(boton(f, 'Autorizar').disabled).toBe(false);
+    boton(f, 'Autorizar').click();
+    expect(enviado).toEqual([{ sucursal: '08', serie: 1, folio: '0001842', accion: 'autorizar', motivo: 'Habló el cliente, deposita mañana' }]);
+  });
+
+  it('⛔ sin motivo no se puede decidir: los dos botones apagados y lo dice', () => {
+    const f = crear(bandeja([ped('1', 'A', [])], [], { sucursales_encendidas: ['08'] }));
+    f.componentInstance.abrir(f.componentInstance.lista()[0]);
+    f.detectChanges();
+    expect(boton(f, 'Autorizar').disabled).toBe(true);
+    expect(boton(f, 'Rechazar').disabled).toBe(true);
+    expect(el(f).textContent).toContain('Escribe el motivo para decidir');
+    boton(f, 'Rechazar').click();
+    expect(enviado).toEqual([]);
+  });
+
+  it('⛔ el doble clic del pánico no decide dos veces', () => {
+    // El resultado nunca llega: el segundo clic cae con la primera en vuelo.
+    const f = crear(bandeja([ped('1', 'A', [])], [], { sucursales_encendidas: ['08'] }));
+    const c = f.componentInstance;
+    TestBed.inject(AutorizacionPedidosService).decidir = ((p: PedidoPorAutorizar, accion: string, motivo: string) => {
+      enviado.push({ sucursal: p.sucursal, serie: p.serie, folio: p.folio, accion, motivo });
+      return new Observable<ResultadoDecisionPedido>(() => undefined);
+    }) as never;
+    c.abrir(c.lista()[0]);
+    c.motivo.set('va');
+    c.decidir(c.lista()[0], 'autorizar');
+    c.decidir(c.lista()[0], 'autorizar');
+    expect(enviado).toHaveLength(1);
+    expect(c.enviando()).toBe('autorizar');
+  });
+
+  it('un error del servidor se dice con su mensaje y no deja el botón trabado', () => {
+    const f = crear(bandeja([ped('1', 'A', [])], [], { sucursales_encendidas: ['08'] }));
+    const c = f.componentInstance;
+    TestBed.inject(AutorizacionPedidosService).decidir = (() =>
+      throwError(() => ({ error: { message: 'Autorizar desde la Suite está apagado en esta sucursal.' } }))) as never;
+    c.abrir(c.lista()[0]);
+    c.motivo.set('va');
+    c.decidir(c.lista()[0], 'autorizar');
+    expect(c.enviando()).toBeNull();
+    expect(c.motivo()).toBe('va');
+  });
+
+  it('⭐ lo ya decidido no se vuelve a pedir: sale en su propia cifra, con quién y por qué', () => {
+    const dec: DecisionVigente = { accion: 'rechazar', estado: 'registrado', motivo: 'Debe de agosto', automatica: false, quien: 'ggarcia', cuando: '2026-11-23T16:00:00Z' };
+    const f = crear(bandeja([], [], { decididos: [ped('0001842', 'Abarrotes El Sol', [], { decision: dec })] }));
+    const c = f.componentInstance;
+    expect(c.cifras().map((x) => x.label)).toContain('Ya decidiste');
+    c.vista.set('decididos');
+    f.detectChanges();
+    c.abrir(c.lista()[0]);
+    f.detectChanges();
+    const t = el(f).textContent ?? '';
+    expect(t).toContain('ggarcia lo rechazó');
+    expect(t).toContain('Debe de agosto');
+  });
+
+  it('negativo: sin la cifra en cero — si nadie decidió nada, no aparece la lista', () => {
+    const f = crear(bandeja([ped('1', 'A', [])]));
+    expect(f.componentInstance.cifras().map((x) => x.label)).not.toContain('Ya decidiste');
+  });
+
+  it('⛔ sin el permiso no hay botones de decisión, y se dice dónde se hace', () => {
+    const f = crear(bandeja([ped('1', 'A', [])], [], { sucursales_encendidas: ['08'] }), { puede: false });
+    f.componentInstance.abrir(f.componentInstance.lista()[0]);
+    f.detectChanges();
+    expect(boton(f, 'Autorizar')).toBeUndefined();
+    expect(boton(f, 'Rechazar')).toBeUndefined();
+    expect(el(f).textContent).toContain('No tienes el permiso para autorizar pedidos');
   });
 
   it('«Siguiente pedido» recorre la lista sin cerrar el panel', () => {

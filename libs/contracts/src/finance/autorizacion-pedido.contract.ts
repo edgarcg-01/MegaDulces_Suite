@@ -309,6 +309,24 @@ export interface PedidoPorAutorizar {
   saldo_cartera: number | null;
   otros_pedidos: number | null;
   pago: PagoDelCliente;
+  /**
+   * `[GP.A.4b]` La última decisión de la Suite sobre ESTE pedido que sigue en pie. `null` = nadie decidió aquí
+   * todavía. Sin esto, un pedido rechazado (que no cambia nada en Kepler: sigue `CREADO`) volvería a la bandeja
+   * cada día como si nadie lo hubiera visto.
+   */
+  decision: DecisionVigente | null;
+}
+
+/** `[GP.A.4b]` Lo que la Suite ya decidió sobre un pedido, para que la bandeja no lo vuelva a pedir. */
+export interface DecisionVigente {
+  accion: AccionDecisionPedido;
+  estado: EstadoDecisionPedido;
+  /** Lo que escribió quien decidió. Vacío en las automáticas (las decide la regla, no una persona). */
+  motivo: string | null;
+  automatica: boolean;
+  /** Quién decidió. `null` = la regla (automática). */
+  quien: string | null;
+  cuando: string;
 }
 
 export interface BandejaAutorizacion {
@@ -322,10 +340,16 @@ export interface BandejaAutorizacion {
   aparte: PedidoPorAutorizar[];
   /** `[D-A12]` Pedidos de CONTADO: no usan crédito, no le tocan a Crédito y cobranza. Con el automático encendido pasan solos. */
   contado: PedidoPorAutorizar[];
+  /**
+   * `[GP.A.4b]` Lo que la Suite YA decidió y Kepler todavía muestra `CREADO`: lo rechazado (que nunca cambia en
+   * Kepler) y lo autorizado que el ODS aún no refleja. No espera a nadie, pero se ve: si se decidió mal, desde aquí
+   * se vuelve a decidir.
+   */
+  decididos: PedidoPorAutorizar[];
   /** Sucursales con la autorización automática encendida (`kepler_push_switch`, tipo `autorizacion`). */
   sucursales_encendidas: string[];
-  /** NO MEDIDO hasta GP.A.2: la Suite todavía no registra autorizaciones. */
-  autorizados_hoy: null;
+  /** `[GP.A.4b]` Cuántas autorizó SOLA la Suite hoy (bitácora `finance.order_authorizations`). Las de una persona no cuentan: el tope del día es del automático. */
+  autorizados_hoy: number;
 }
 
 /**

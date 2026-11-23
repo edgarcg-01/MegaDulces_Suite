@@ -140,7 +140,8 @@ export class AutorizacionDecisionService {
     const fuente = await this.cartera.fuenteCartera(trx);
     const freshness = await this.cartera.freshness(trx, fuente);
     const b = armarBandeja(await leerBandeja(trx, tenantId, fuente.rel, d.sucursal, freshness, PARAMETROS_PROPUESTOS), PARAMETROS_PROPUESTOS);
-    const p = [...b.pendientes, ...b.aparte, ...b.contado].find((x) => x.serie === d.serie && x.folio.trim() === d.folio);
+    // `decididos` incluido a propósito: un pedido rechazado se puede volver a decidir (sigue CREADO en Kepler).
+    const p = [...b.pendientes, ...b.aparte, ...b.contado, ...b.decididos].find((x) => x.serie === d.serie && x.folio.trim() === d.folio);
     return p ? { p, data_as_of: freshness.data_as_of ?? null } : null;
   }
 

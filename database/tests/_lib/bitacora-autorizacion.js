@@ -15,6 +15,8 @@ const fs = require('fs');
 const path = require('path');
 
 const SRC = path.join(__dirname, '..', '..', '..', 'libs', 'finance', 'src', 'lib', 'customer-ledger', 'autorizacion-decision.service.ts');
+/** `[GP.A.4b]` Lo que LEE la bandeja (otro archivo, el mismo criterio: el SQL se toma del código, no se copia). */
+const SRC_BANDEJA = path.join(__dirname, '..', '..', '..', 'libs', 'finance', 'src', 'lib', 'customer-ledger', 'autorizacion-pedidos.service.ts');
 const TIPOS_PREVIOS = ['cancela_oc', 'cancela_requisicion', 'cancela_solicitud_gasto', 'cliente', 'compra',
   'comprobacion_gasto', 'solicitud_gasto', 'telemarketing', 'traspaso', 'telefono_cliente'];
 
@@ -119,6 +121,27 @@ async function verificarBitacora(c, { P, F, NM }, { tenant, otro, usuario }) {
     await c.query('ROLLBACK TO SAVEPOINT d');
     if (del === '42501') P('app_runtime no puede borrar la bitácora'); else F(`app_runtime borró o falló distinto: ${del}`);
   } else NM(`el DELETE de app_runtime (la sesión es ${usuario})`);
+
+  // 9. `[GP.A.4b]` Lo que LEE la bandeja para no volver a pedir lo ya decidido, con el SQL del servicio.
+  const srcBandeja = fs.readFileSync(SRC_BANDEJA, 'utf8');
+  const VIGENTES = delServicio(srcBandeja, 'DECISIONES_VIGENTES_SQL');
+  const HOY = delServicio(srcBandeja, 'AUTOMATICAS_HOY_SQL');
+  const vig = (await c.query(VIGENTES, [['97', '97'], [1, 1], ['T-0000001', 'T-0000003'], tenant])).rows;
+  const porFolio = Object.fromEntries(vig.map((x) => [x.folio, x.accion]));
+  // T-0000001: autorizada y luego REGRESADA (paso 5) → la vigente es el regreso, que vuelve a esperar decisión.
+  // T-0000003: rechazada → la vigente es el rechazo.
+  if (vig.length === 2 && porFolio['T-0000001'] === 'regresar' && porFolio['T-0000003'] === 'rechazar') {
+    P('la bandeja lee UNA decisión por pedido: la más nueva (el regreso gana a la autorización)');
+  } else F(`decisiones vigentes: ${JSON.stringify(vig.map((x) => [x.folio, x.accion, x.estado]))}`);
+  const fuera = (await c.query(VIGENTES, [['97'], [1], ['T-0000004'], tenant])).rows;
+  if (fuera.length === 0) P('negativo: un pedido sin decisión no trae ninguna'); else F(`T-0000004 trajo ${fuera.length}`);
+  const deOtroT = (await c.query(VIGENTES, [['97'], [1], ['T-0000001'], otro])).rows;
+  if (deOtroT.length === 0) P('negativo: la decisión de otro tenant no se lee'); else F(`otro tenant leyó ${deOtroT.length}`);
+  // El contador del tope del día: la automática del paso 6 se revirtió, así que hoy no hay ninguna escrita.
+  const autoHoy = (await c.query(HOY, [tenant])).rows;
+  const hoy97 = autoHoy.find((x) => x.sucursal === '97');
+  if (!hoy97) P('negativo: el tope del día no cuenta automáticas que Kepler no aceptó ni las de otro día');
+  else F(`el contador del día trajo ${hoy97.n} para la sucursal de prueba`);
 
   // 8. RLS
   await c.query(`SELECT set_config('app.tenant_id', $1, true)`, [otro]);

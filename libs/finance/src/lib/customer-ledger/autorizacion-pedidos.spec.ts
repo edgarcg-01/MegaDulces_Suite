@@ -22,9 +22,16 @@ const lectura = (o: Partial<LecturaBandeja> = {}): LecturaBandeja => ({
   abiertos: [],
   facturas: [],
   carril: [{ sucursal: '08', encendida: true, tope_dia: 50 }],
+  decisiones: [],
+  automaticas_hoy: [],
   freshness: fresca(2),
   ahora: new Date('2026-11-20T18:00:00Z'),
   ...o,
+});
+/** Una decisión vigente del pedido de `lectura()`. */
+const decidido = (o: Partial<LecturaBandeja['decisiones'][number]> = {}): LecturaBandeja['decisiones'][number] => ({
+  sucursal: '08', serie: 1, folio: '0001842', accion: 'rechazar', estado: 'registrado',
+  motivo: 'Debe de agosto y no contesta', automatica: false, quien: 'ggarcia', cuando: '2026-11-20T17:00:00Z', ...o,
 });
 
 describe('[GP.A.4] armarBandeja', () => {
@@ -34,7 +41,50 @@ describe('[GP.A.4] armarBandeja', () => {
     expect(b.pendientes[0].resultado.decision).toBe('autorizar');
     expect(b.pendientes[0].sucursal_nombre).toBe('Morelia Abastos');
     expect(b.parametros.origen).toBe('propuesta');
-    expect(b.autorizados_hoy).toBeNull();
+    expect(b.autorizados_hoy).toBe(0);
+    expect(b.pendientes[0].decision).toBeNull();
+    expect(b.decididos).toEqual([]);
+  });
+
+  // `[GP.A.4b]` Sin esto, rechazar no sirve de nada: el pedido sigue CREADO en Kepler y vuelve mañana igual.
+  it('⭐ un pedido ya RECHAZADO sale de la lista del día y queda en «decididos», con quién y por qué', () => {
+    const b = armarBandeja(lectura({ decisiones: [decidido()] }), P);
+    expect(b.pendientes).toEqual([]);
+    expect(b.decididos).toHaveLength(1);
+    expect(b.decididos[0].decision).toMatchObject({ accion: 'rechazar', quien: 'ggarcia', motivo: 'Debe de agosto y no contesta' });
+  });
+
+  it('lo que la Suite AUTORIZÓ no se vuelve a pedir mientras el ODS no lo refleje', () => {
+    const b = armarBandeja(lectura({ decisiones: [decidido({ accion: 'autorizar', estado: 'escrito' })] }), P);
+    expect(b.pendientes).toEqual([]);
+    expect(b.decididos[0].decision?.accion).toBe('autorizar');
+  });
+
+  it('negativo: lo REGRESADO (D-A7) vuelve a esperar decisión, no se queda tapado', () => {
+    const b = armarBandeja(lectura({ decisiones: [decidido({ accion: 'regresar', estado: 'escrito' })] }), P);
+    expect(b.pendientes).toHaveLength(1);
+    expect(b.decididos).toEqual([]);
+  });
+
+  it('negativo: una autorización que Kepler NO aceptó deja el pedido esperando', () => {
+    for (const estado of ['apagado', 'rechazado'] as const) {
+      const b = armarBandeja(lectura({ decisiones: [decidido({ accion: 'autorizar', estado })] }), P);
+      expect(b.pendientes).toHaveLength(1);
+      expect(b.decididos).toEqual([]);
+    }
+  });
+
+  it('negativo: la decisión de OTRO pedido no tapa a éste', () => {
+    const b = armarBandeja(lectura({ decisiones: [decidido({ folio: '0001843' })] }), P);
+    expect(b.pendientes).toHaveLength(1);
+    expect(b.pendientes[0].decision).toBeNull();
+  });
+
+  it('⭐ el tope del día cuenta lo que la Suite autorizó SOLA hoy, no un cero dibujado', () => {
+    const b = armarBandeja(lectura({ carril: [{ sucursal: '08', encendida: true, tope_dia: 2 }], automaticas_hoy: [{ sucursal: '08', n: 2 }] }), P);
+    expect(b.autorizados_hoy).toBe(2);
+    expect(b.pendientes[0].resultado.decision).toBe('bandeja');
+    expect(b.pendientes[0].resultado.motivos.map((m) => m.condicion)).toEqual([6]);
   });
 
   it('⛔ el carril apagado (sin renglón) manda a la bandeja y lo dice: condición 6', () => {

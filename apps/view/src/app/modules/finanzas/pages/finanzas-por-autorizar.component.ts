@@ -3,7 +3,11 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
-import type { BandejaAutorizacion, PedidoPorAutorizar } from '@megadulces/contracts';
+import { ToastModule } from 'primeng/toast';
+import { MessageService } from 'primeng/api';
+import { MOTIVO_MAX, type AccionDecisionPedido, type BandejaAutorizacion, type DecisionVigente, type PedidoPorAutorizar } from '@megadulces/contracts';
+import { Permission } from '../../../core/constants/permissions';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -113,8 +117,10 @@ export function esperaDe(p: PedidoPorAutorizar): string {
   selector: 'app-finanzas-por-autorizar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonModule, TableModule, TagModule, FreshnessPillComponent, LoadStateComponent, MetricStripComponent, SidePeekComponent, CarteraSegmentsComponent],
+  imports: [ButtonModule, TableModule, TagModule, ToastModule, FreshnessPillComponent, LoadStateComponent, MetricStripComponent, SidePeekComponent, CarteraSegmentsComponent],
+  providers: [MessageService],
   template: `
+    <p-toast position="bottom-right" />
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -128,18 +134,19 @@ export function esperaDe(p: PedidoPorAutorizar): string {
       <app-cartera-segments />
 
       <app-load-state [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && !lista().length"
-                      emptyIcon="pi-check-circle" [emptyTitle]="verAparte() ? 'No hay pedidos viejos' : 'Ningún pedido espera tu decisión'"
+                      emptyIcon="pi-check-circle" [emptyTitle]="tituloVacio()"
                       (retry)="cargar()">
         @if (data(); as d) {
           <div class="pa-respuesta">
             <!-- Las dos cifras se abren: tocar una cambia la lista. Sin conteo animado (instant): una cifra que
                  anima publica valores que no existen. -->
-            <app-metric-strip [items]="cifras()" [instant]="true" [selected]="verAparte() ? 'aparte' : 'pendientes'"
-                              ariaLabel="Pedidos por autorizar" (drill)="verAparte.set($event === 'aparte')" />
+            <app-metric-strip [items]="cifras()" [instant]="true" [selected]="vista()"
+                              ariaLabel="Pedidos por autorizar" (drill)="verLista($event)" />
             <p class="pa-sub">
-              @if (verAparte()) { Más de {{ d.parametros.pedidoViejoDias }} días sin movimiento o de la ruta vecinal: no se autorizan solos ni ocupan la lista del día. }
+              @if (vista() === 'aparte') { Más de {{ d.parametros.pedidoViejoDias }} días sin movimiento o de la ruta vecinal: no se autorizan solos ni ocupan la lista del día. }
+              @else if (vista() === 'decididos') { Ya los decidiste tú o la regla: Kepler todavía los muestra sin autorizar. Si hay que reconsiderar uno, se decide de nuevo desde aquí. }
               @else if (!d.sucursales_encendidas.length) { La autorización automática está apagada: todos esperan aquí. }
-              @if (!verAparte() && d.contado.length) { {{ d.contado.length }} de contado no necesitan tu autorización. }
+              @if (vista() === 'pendientes' && d.contado.length) { {{ d.contado.length }} de contado no necesitan tu autorización. }
             </p>
           </div>
         }
@@ -214,11 +221,35 @@ export function esperaDe(p: PedidoPorAutorizar): string {
           </details>
 
           <section class="pa-bloque">
-            <div class="pa-acciones">
-              <button pButton type="button" [disabled]="true"><span class="p-button-label">Autorizar</span></button>
-              <button pButton type="button" class="p-button-outlined" [disabled]="true"><span class="p-button-label">Rechazar</span></button>
-            </div>
-            <p class="pa-tenue">Autorizar desde la Suite llega pronto. Por ahora, en Kepler › Autorización de Pedidos.</p>
+            @if (p.decision; as dec) {
+              <p class="pa-nota">{{ loQueSeDecidio(dec) }}</p>
+            }
+            @if (puedeDecidir()) {
+              <label class="pa-motivo-campo">
+                <span class="pa-h3">Motivo <span class="pa-req" aria-hidden="true">·</span> queda con tu nombre</span>
+                <textarea class="pa-motivo-input" rows="2" [attr.maxlength]="motivoMax"
+                          [value]="motivo()" (input)="motivo.set($any($event.target).value)"
+                          [disabled]="enviando()" [attr.aria-invalid]="motivo().trim() ? null : 'true'"
+                          placeholder="Por qué lo autorizas o lo rechazas"></textarea>
+              </label>
+              <div class="pa-acciones">
+                <button pButton type="button" [disabled]="!motivo().trim() || enviando() || !escrituraEncendida(p)"
+                        (click)="decidir(p, 'autorizar')">
+                  <span class="p-button-label">{{ enviando() === 'autorizar' ? 'Autorizando…' : 'Autorizar' }}</span>
+                </button>
+                <button pButton type="button" class="p-button-outlined pa-rechazar" [disabled]="!motivo().trim() || enviando()"
+                        (click)="decidir(p, 'rechazar')">
+                  <span class="p-button-label">{{ enviando() === 'rechazar' ? 'Rechazando…' : 'Rechazar' }}</span>
+                </button>
+              </div>
+              <p class="pa-tenue">
+                @if (!escrituraEncendida(p)) { Autorizar desde la Suite está apagado en {{ p.sucursal_nombre }}: por ahora, en Kepler › Autorización de Pedidos. }
+                @else if (!motivo().trim()) { Escribe el motivo para decidir. }
+                @else { Autorizar lo pasa a AUTORIZADO en Kepler. Rechazar no cambia Kepler: lo saca de esta lista con tu motivo. }
+              </p>
+            } @else {
+              <p class="pa-tenue">No tienes el permiso para autorizar pedidos. Se hace en Kepler › Autorización de Pedidos.</p>
+            }
           </section>
 
           <div class="pa-siguiente">
@@ -252,34 +283,61 @@ export function esperaDe(p: PedidoPorAutorizar): string {
     .pa-conds { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
     .pa-ok { color: var(--ok-soft-fg); font-weight: 700; }
     .pa-mal { color: var(--bad-soft-fg); font-weight: 700; }
-    .pa-acciones { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+    .pa-motivo-campo { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .pa-motivo-input {
+      width: 100%; resize: vertical; font: inherit; font-size: var(--fs-sm); color: var(--text-main);
+      background: var(--surface-1); border: 1px solid var(--border-color); border-radius: var(--r-sm);
+      padding: var(--sp-2) var(--sp-3);
+    }
+    .pa-motivo-input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+    .pa-motivo-input:disabled { opacity: .6; }
+    .pa-req { color: var(--text-faint); }
+    /* La negativa no lleva el color de acción (Von Restorff): se distingue, no compite. */
+    .pa-rechazar { --p-button-outlined-primary-color: var(--bad-soft-fg); }
+    .pa-acciones { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
     .pa-siguiente { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: var(--sp-3); }
   `],
 })
 export class FinanzasPorAutorizarComponent implements OnInit {
   private readonly api = inject(AutorizacionPedidosService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly toast = inject(MessageService);
+  private readonly permisos = inject(PermissionsService);
 
   readonly data = signal<BandejaAutorizacion | null>(null);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
-  readonly verAparte = signal(false);
+  /** Qué lista se está viendo. `decididos` sólo aparece cuando hay algo decidido hoy. */
+  readonly vista = signal<'pendientes' | 'aparte' | 'decididos'>('pendientes');
   readonly sel = signal<PedidoPorAutorizar | null>(null);
   readonly peekOpen = signal(false);
+  /** `[GP.A.5]` El motivo que se está escribiendo y la acción en vuelo (deshabilita los dos botones al primer clic). */
+  readonly motivo = signal('');
+  readonly enviando = signal<AccionDecisionPedido | null>(null);
+  readonly motivoMax = MOTIVO_MAX;
+  readonly puedeDecidir = this.permisos.has$(Permission.FINANCE_PEDIDOS_AUTORIZAR);
+
+  /** Se conserva para la plantilla y las pruebas que ya existían. */
+  readonly verAparte = computed(() => this.vista() === 'aparte');
 
   readonly lista = computed(() => {
     const d = this.data();
     if (!d) return [];
-    return this.verAparte() ? d.aparte : d.pendientes;
+    if (this.vista() === 'aparte') return d.aparte;
+    if (this.vista() === 'decididos') return d.decididos;
+    return d.pendientes;
   });
 
   readonly cifras = computed<MetricStripItem[]>(() => {
     const d = this.data();
     if (!d) return [];
-    return [
+    const c: MetricStripItem[] = [
       { label: 'Esperan tu decisión', value: d.pendientes.length, format: 'number', drill: 'pendientes' },
       { label: 'Viejos, aparte', value: d.aparte.length, format: 'number', drill: 'aparte' },
     ];
+    // Sólo cuando hay: una cifra en cero no es trabajo, es ruido.
+    if (d.decididos.length) c.push({ label: 'Ya decidiste', value: d.decididos.length, format: 'number', drill: 'decididos' });
+    return c;
   });
 
   private readonly indice = computed(() => {
@@ -310,13 +368,61 @@ export class FinanzasPorAutorizarComponent implements OnInit {
 
   abrir(p: PedidoPorAutorizar): void {
     this.sel.set(p);
+    this.motivo.set('');
     this.peekOpen.set(true);
   }
 
   siguiente(): void {
     const i = this.indice();
     const n = this.lista()[i + 1];
-    if (n) this.sel.set(n);
+    if (n) { this.sel.set(n); this.motivo.set(''); }
+  }
+
+  verLista(cual: string): void {
+    this.vista.set(cual === 'aparte' || cual === 'decididos' ? cual : 'pendientes');
+  }
+
+  tituloVacio(): string {
+    if (this.vista() === 'aparte') return 'No hay pedidos viejos';
+    if (this.vista() === 'decididos') return 'Todavía no has decidido ninguno';
+    return 'Ningún pedido espera tu decisión';
+  }
+
+  /** `[GP.A.2]` La sucursal del pedido tiene encendida la escritura en Kepler (`kepler_push_switch`, tipo autorizacion). */
+  escrituraEncendida(p: PedidoPorAutorizar): boolean {
+    return this.data()?.sucursales_encendidas.includes(p.sucursal) ?? false;
+  }
+
+  /** Lo que ya se decidió de este pedido, en una frase. */
+  loQueSeDecidio(d: DecisionVigente): string {
+    const quien = d.automatica ? 'la regla, sola,' : (d.quien ?? 'alguien');
+    const cuando = new Date(d.cuando).toLocaleString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const hecho = d.accion === 'autorizar' ? 'lo autorizó' : d.accion === 'rechazar' ? 'lo rechazó' : d.accion === 'escalar' ? 'lo pasó a Dirección General' : 'lo regresó a CREADO';
+    const nota = d.accion === 'autorizar' && d.estado !== 'ya_estaba' ? ' Kepler ya lo tiene AUTORIZADO; el ERP tarda unos minutos en reflejarlo aquí.' : '';
+    return `${quien} ${hecho} el ${cuando}.${d.motivo ? ` Motivo: «${d.motivo}».` : ''}${nota}`;
+  }
+
+  /** `[GP.A.5]` Autorizar o rechazar, con el motivo. Un clic deshabilita los dos botones hasta que conteste el servidor. */
+  decidir(p: PedidoPorAutorizar, accion: AccionDecisionPedido): void {
+    const motivo = this.motivo().trim();
+    if (!motivo || this.enviando()) return;
+    this.enviando.set(accion);
+    this.api.decidir(p, accion, motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.enviando.set(null);
+        this.motivo.set('');
+        const llego = r.estado === 'escrito' || r.estado === 'ya_estaba' || r.estado === 'registrado';
+        this.toast.add({ severity: llego ? 'success' : 'warn', summary: llego ? 'Listo' : 'No se pudo', detail: r.mensaje, life: 6000 });
+        const siguiente = this.lista()[this.indice() + 1] ?? null;
+        this.cargar();
+        // Seguir con el próximo pedido sin cerrar el panel: la cola se trabaja de corrido.
+        if (siguiente) this.sel.set(siguiente); else this.peekOpen.set(false);
+      },
+      error: (e: { error?: { message?: string } }) => {
+        this.enviando.set(null);
+        this.toast.add({ severity: 'error', summary: 'No se pudo', detail: e?.error?.message ?? 'No se pudo registrar la decisión.', life: 8000 });
+      },
+    });
   }
 
   subtitulo(p: PedidoPorAutorizar): string {
