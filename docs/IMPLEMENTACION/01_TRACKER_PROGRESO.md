@@ -1962,7 +1962,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       aviso, y `ngc` no lo ve (un atributo fijo no es un enlace). Pasan a `<span class="p-button-label">`. Lo trajo CXC.41
       (17-nov) y frenaba `check-primeng-api` en el pre-push de todo el equipo (24 contra el techo de 21; ahora 19). Prueba
       7b: ningún `pButton` de la ficha sin texto; el mutante (`label=` de vuelta) la pone roja.
-- [ ] **[CXC.50]** 🧪 (en código, sin soltar) **El estado de cuenta del cliente, con la calidad del de un banco** (Edgar,
+- [x] **[CXC.50]** ✅ (en prod el 2026-11-23, `bcbbebbd3`; /api/health lo sirve) **El estado de cuenta del cliente, con la calidad del de un banco** (Edgar,
       2026-11-23: «debería ver sus facturas nuevas, como el estado de cuenta de un banco»). (1) Abiertas y pagadas, de la
       más NUEVA a la más vieja. (2) «Resumen del periodo» como el bancario: saldo al inicio + facturado − cobros − notas/
       devoluciones/ajustes = saldo de las facturas al corte (± lo no asignado = saldo total), DERIVADO de las facturas y sus

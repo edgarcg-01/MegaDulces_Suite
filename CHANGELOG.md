@@ -12,7 +12,7 @@
 ### Fixed — Conciliación bancaria: un pareo viejo ya no aparta documentos que su corrida no podía ver (BFU.7.5 · 2026-11-23)
 - Tras el corte del 1 de octubre cada sucursal reinició sus folios, y pareos de enero guardados sin sucursal dejaban sin conciliar documentos de octubre y noviembre con el mismo folio — los cheques de nómina entre ellos, que además salían como «Kepler no lo tiene».
 - Ahora un pareo de otro mes sólo aparta los documentos que su corrida alcanzaba (el mes ±45 días); lo que se libera queda declarado en el resultado de la conciliación.
-### Changed — El estado de cuenta del cliente se lee como el de un banco (CXC.50 · 2026-11-23 · en código, sin soltar)
+### Changed — El estado de cuenta del cliente se lee como el de un banco (CXC.50 · 2026-11-23 · en producción)
 - Las facturas, abiertas y pagadas, van de la más reciente a la más antigua. Lo vencido sigue arriba, en la tarjeta «Vencido» y la antigüedad del saldo.
 - Nuevo «Resumen del periodo», como el de un estado de cuenta bancario: saldo al inicio + facturas del periodo − pagos recibidos − notas de crédito, devoluciones y ajustes = saldo de sus facturas al corte, y de ahí el saldo total. Sale de las mismas facturas y abonos, sin otra fuente; lo que no cuadra se imprime como «Diferencia sin explicar» y los abonos fechados después del corte van en su propio renglón.
 - La tarjeta «Por vencer» dice el próximo vencimiento y cuánto vence ese día, como la fecha límite de pago de una tarjeta.
