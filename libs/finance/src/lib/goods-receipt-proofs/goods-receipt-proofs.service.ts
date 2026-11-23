@@ -9,8 +9,9 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 import { GoodsReceiptExpedienteService, enPares } from './goods-receipt-expediente.service';
 import { REGLA_EXPEDIENTE } from './expediente-verdict';
 import { fechaDeCalendario } from './fecha-de-calendario';
-import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, MismaFactura } from '@megadulces/contracts';
+import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, FacturaCompartidaLiga, LigaCompartidaCreada, LigaCompartidaDeshecha, MismaFactura } from '@megadulces/contracts';
 import { armarMismaFactura, citaFactura } from './misma-factura';
+import { MOTIVO_LIGA_MIN, hayLigaCompartida, tieneLigaCompartidaSql } from './liga-compartida';
 import { cuadraDentroDeTolerancia, evidenciaCuadra, sqlEvidenciaCuadra, paqueteSoloHojaKepler, MENSAJE_SOLO_HOJA_KEPLER } from '@megadulces/contracts';
 import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
@@ -347,6 +348,8 @@ type FilaComprobanteCruda = {
   folio: string;
   /** Cuántos comprobantes tiene el renglón. `0` = todavía sin documento. */
   deposits: number;
+  /** `[RE.86]` Ligada con motivo a una factura compartida: su documento es la factura de otra entrada. */
+  factura_compartida?: boolean;
   monto: string | number;
   dias: string | number;
   dias_espera: string | number | null;
@@ -685,6 +688,10 @@ export class GoodsReceiptProofsService {
       const conFolioCols = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'folio_interno');
       const hayPares = await this.hayPares(trx);
       const hayDesc = await this.hayDescartes(trx);
+      // `[RE.86]` «Tiene papel» = un comprobante subido O una factura compartida ligada (con motivo): su documento
+      // ES la factura original. La misma expresión en el filtro, la fila y los conteos.
+      const ligaComp = tieneLigaCompartidaSql(await hayLigaCompartida(trx));
+      const conPapel = `(d.n IS NOT NULL OR ${ligaComp})`;
       // [PQ.81] las entradas cuya ORDEN DE ENTRADA termina en esos dígitos (ver entradasPorOrden)
       const terminoFolio = (q.search || '').trim();
       const porOrden = /^\d{1,4}$/.test(terminoFolio) ? await this.entradasPorOrden(trx, terminoFolio.padStart(4, '0')) : [];
@@ -915,10 +922,11 @@ export class GoodsReceiptProofsService {
         } else if (q.estado === 'descartada') {
           b.whereRaw('false'); // sin la migración no hay descartadas que mostrar
         }
-        if (q.estado === 'pendiente') b.whereRaw('d.n IS NULL');
-        else if (q.estado === 'con_comprobante') b.whereRaw('d.n > 0');
+        if (q.estado === 'pendiente') b.whereRaw(`NOT ${conPapel}`);
+        else if (q.estado === 'con_comprobante') b.whereRaw(conPapel);
         else if (q.estado === 'por_validar') b.whereRaw(`d.last_status = 'recibido'`);
-        else if (q.estado === 'validado') b.whereRaw(`d.last_status = 'validado'`);
+        // `[RE.86]` Ligarla a una factura compartida (con motivo) ES la decisión de quien valida.
+        else if (q.estado === 'validado') b.whereRaw(`(d.last_status = 'validado' OR ${ligaComp})`);
         else if (q.estado === 'rechazado') b.whereRaw(`d.last_status = 'rechazado'`);
         // `[RE.25]` El cuadre es un eje APARTE del estado del comprobante: `validado` habla del
         // trámite (alguien decidió), `cuadra` habla del documento (los números concuerdan). Una
@@ -966,6 +974,7 @@ export class GoodsReceiptProofsService {
           'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', trx.raw('c.monto::numeric AS monto'),
           trx.raw(`${ORDEN_ENTRADA_SQL} AS orden_entrada_folio`), // [PQ.81]
           trx.raw('COALESCE(d.n, 0)::int AS deposits'),
+          trx.raw(`${ligaComp} AS factura_compartida`), // [RE.86]
           trx.raw('d.last_id AS deposit_id'),
           trx.raw('d.last_status AS deposit_status'),
           trx.raw('COALESCE(d.any_match, false) AS monto_match'),
@@ -1083,11 +1092,13 @@ export class GoodsReceiptProofsService {
         dias_espera: r.dias_espera == null ? null : Number(r.dias_espera),
         // `[RE.35.5]` El veredicto de la fila (el mismo cálculo que el panel lateral).
         // Sólo los que esperan decisión tienen veredicto; validados y devueltos ya se decidieron.
-        expediente: r.deposits > 0
+        // `[RE.86]` Ligada a una factura compartida: ya se decidió (como validada), sin veredicto pendiente.
+        expediente: r.deposits > 0 || r.factura_compartida
           ? (resumen?.filas.get(`${r.sucursal}/${r.folio}`) ?? null)
           : { cubo: 'sin_documento', hallazgos: [], motivo: null },
         // Un solo lugar decide "atrasada": el reloj que aplica según tenga o no evidencia.
-        atrasada: r.deposits > 0
+        atrasada: r.factura_compartida ? false
+          : r.deposits > 0
           ? (r.dias_espera != null && Number(r.dias_espera) > cfg.sla_review_days)
           : Number(r.dias) > cfg.sla_capture_days,
         // RE.20.1 — `numeric` de Postgres llega como STRING por el driver; sin esto la tabla
@@ -1129,8 +1140,8 @@ export class GoodsReceiptProofsService {
       };
       const [k] = await kpiBase().select(
         trx.raw('COUNT(*)::int AS entradas'),
-        trx.raw('COUNT(d.n)::int AS con_comprobante'),
-        trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validado')::int AS validados`),
+        trx.raw(`COUNT(*) FILTER (WHERE ${conPapel})::int AS con_comprobante`),
+        trx.raw(`COUNT(*) FILTER (WHERE d.last_status='validado' OR ${ligaComp})::int AS validados`),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='recibido')::int AS por_validar`),
         trx.raw(`COUNT(*) FILTER (WHERE d.last_status='rechazado')::int AS rechazados`),
         // `[RE.25]` El reparto del cuadre. `cuadran` es lo que NO necesita ojo humano, y por eso
@@ -1146,9 +1157,9 @@ export class GoodsReceiptProofsService {
         // Cuántos paquetes NO traen nuestra hoja interna, de los que se pudo saber. Informativo:
         // no entra al cuadre (ver `receipt-match.ts`), pero es lo que empuja a mejorar la captura.
         trx.raw(`COUNT(*) FILTER (WHERE d.paquete_ok IS FALSE)::int AS sin_hoja_interna`),
-        trx.raw('COALESCE(SUM(c.monto::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente'),
+        trx.raw(`COALESCE(SUM(c.monto::numeric) FILTER (WHERE NOT ${conPapel}), 0)::numeric AS monto_pendiente`),
         trx.raw(
-          `COUNT(*) FILTER (WHERE d.n IS NULL AND (current_date - LEAST(c.receipt_date, current_date)) > ?)::int AS atrasadas`,
+          `COUNT(*) FILTER (WHERE NOT ${conPapel} AND (current_date - LEAST(c.receipt_date, current_date)) > ?)::int AS atrasadas`,
           [cfg.sla_capture_days],
         ),
         // El SLA del REVISOR: evidencia esperando decisión más de lo permitido. Es el número
@@ -1436,6 +1447,9 @@ export class GoodsReceiptProofsService {
       }
       if (q.from) { filtro += ` AND c.receipt_date >= ?`; filtroParams.push(q.from); }
       if (q.to) { filtro += ` AND c.receipt_date <= ?`; filtroParams.push(q.to); }
+      // `[RE.86]` La factura compartida (con motivo) cuenta como evidencia, igual que en la lista. Sin `?`: no corre
+      // el orden de los parámetros posicionales.
+      const sinPapel = `(d.n IS NULL AND NOT ${tieneLigaCompartidaSql(await hayLigaCompartida(trx))})`;
 
       const r = await trx.raw(`
         WITH d AS (
@@ -1449,24 +1463,24 @@ export class GoodsReceiptProofsService {
         )
         SELECT c.sucursal,
                COUNT(*)::int                                                     AS entradas,
-               COUNT(d.n)::int                                                   AS con_evidencia,
+               COUNT(*) FILTER (WHERE NOT ${sinPapel})::int                     AS con_evidencia,
                COUNT(*) FILTER (WHERE d.last_status = 'validado')::int            AS validadas,
                COUNT(*) FILTER (WHERE d.last_status = 'recibido')::int            AS por_validar,
                COUNT(*) FILTER (WHERE d.last_status = 'rechazado')::int           AS rechazadas,
                COALESCE(SUM(c.monto::numeric), 0)::numeric                        AS monto,
-               COALESCE(SUM(c.monto::numeric) FILTER (WHERE d.n IS NULL), 0)::numeric AS monto_pendiente,
+               COALESCE(SUM(c.monto::numeric) FILTER (WHERE ${sinPapel}), 0)::numeric AS monto_pendiente,
                COUNT(*) FILTER (
-                 WHERE d.n IS NULL
+                 WHERE ${sinPapel}
                    AND (current_date - LEAST(c.receipt_date, current_date)) > ?
                )::int                                                            AS atrasadas,
                -- p50/p90 de la ANTIGÜEDAD de lo que falta subir. El promedio esconde la cola
                -- larga, que es exactamente lo que hay que perseguir.
                COALESCE(percentile_disc(0.5) WITHIN GROUP (
                  ORDER BY (current_date - LEAST(c.receipt_date, current_date))
-               ) FILTER (WHERE d.n IS NULL), 0)::int                              AS dias_p50,
+               ) FILTER (WHERE ${sinPapel}), 0)::int                              AS dias_p50,
                COALESCE(percentile_disc(0.9) WITHIN GROUP (
                  ORDER BY (current_date - LEAST(c.receipt_date, current_date))
-               ) FILTER (WHERE d.n IS NULL), 0)::int                              AS dias_p90,
+               ) FILTER (WHERE ${sinPapel}), 0)::int                              AS dias_p90,
                -- [RE.28.2] El plazo del REVISOR. La columna atrasadas (arriba) ya era el SLA de
                -- CAPTURA; el de revisión no estaba en ninguna pantalla: por_validar es el conteo
                -- total, sin plazo, así que una cola de 27 días se veía igual que una de ayer.
@@ -2235,9 +2249,18 @@ export class GoodsReceiptProofsService {
         : [];
       // `[RE.85]` La misma factura citada por otras entradas del proveedor: la cadena, con el motivo de cada movimiento.
       const misma_factura = await this.mismaFactura(trx, tenantId, entrada);
+      // `[RE.86]` Si esta entrada está ligada (con motivo) a una factura compartida: cuál, por qué y quién.
+      const factura_compartida: FacturaCompartidaLiga | null = (await hayLigaCompartida(trx))
+        ? ((await trx('fiscal.cfdi_assignments as a')
+            .join('fiscal.cfdis as f', function () { this.on('f.id', '=', 'a.cfdi_id').andOn('f.tenant_id', '=', 'a.tenant_id'); })
+            .where({ 'a.tenant_id': tenantId, 'a.sucursal': sucursal, 'a.doc_folio': folio, 'a.status': 'confirmed' })
+            .whereNotNull('a.shared_reason')
+            .first('f.uuid as cfdi_uuid', 'f.serie', 'f.folio', 'a.shared_reason as motivo', 'a.created_by_username as por',
+              trx.raw(`to_char(a.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS fecha`))) as FacturaCompartidaLiga | undefined) ?? null
+        : null;
       return {
         entrada: { ...entrada, monto: Number(entrada.monto), origen: sucursal === '00' ? 'oficinas' : 'sucursal' },
-        lineas, deposits: depSigned, cedis_twins, history, redirigido_de, misma_factura,
+        lineas, deposits: depSigned, cedis_twins, history, redirigido_de, misma_factura, factura_compartida,
       };
     });
   }
@@ -2870,6 +2893,75 @@ export class GoodsReceiptProofsService {
    * Lo decide `_VALIDAR` y no `_GESTIONAR`: si el que tiene que subir la factura pudiera
    * declarar que no hace falta, el indicador de cobertura se vuelve autoevaluación.
    */
+  /**
+   * `[RE.86]` Liga esta entrada a una factura (CFDI) que ya cita otra entrada del mismo proveedor — la mercancía
+   * llegó en dos partes, o lo que faltó llegó después — **sólo con motivo** (Edgar, 2026-11-23). La base lo hace
+   * cumplir: una liga con `shared_reason` queda fuera del índice único por CFDI, y el CHECK exige ≥ 10 caracteres.
+   * Lo decide `_VALIDAR` (como descartar): quien sube no declara por sí mismo que no hace falta su papel.
+   */
+  async ligarFacturaCompartida(sucursal: string, folio: string, body: { cfdi_uuid?: string; motivo?: string }, actor?: string): Promise<LigaCompartidaCreada> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const suc = (sucursal || '').trim();
+    const fol = (folio || '').trim();
+    const uuid = String(body?.cfdi_uuid || '').trim().toUpperCase();
+    const motivo = String(body?.motivo || '').trim();
+    if (!suc || !fol) throw new BadRequestException('faltan sucursal y folio');
+    if (!/^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(uuid)) throw new BadRequestException('falta el UUID de la factura');
+    if (motivo.length < MOTIVO_LIGA_MIN) throw new BadRequestException(`escribe por qué esta entrada es parte de esa factura (al menos ${MOTIVO_LIGA_MIN} caracteres)`);
+    await this.exigirAlcance(suc);
+    return this.tk.run(async (trx: Knex.Transaction) => {
+      if (!(await hayLigaCompartida(trx))) throw new BadRequestException('falta la migración de facturas compartidas (RE.86) en esta base');
+      const entrada = (await trx('analytics.erp_goods_receipts')
+        .where({ tenant_id: tenantId, sucursal: suc, folio: fol }).whereNull('dup_of_folio')
+        .first('proveedor_rfc', trx.raw('monto::float8 AS monto'))) as { proveedor_rfc: string | null; monto: number } | undefined;
+      if (!entrada) throw new BadRequestException(`no existe la entrada ${suc}/${fol}`);
+      const cfdi = (await trx('fiscal.cfdis')
+        .where({ tenant_id: tenantId, uuid, rol: 'recibidas', tipo_comprobante: 'I' })
+        .whereRaw(`COALESCE(estatus_sat, '') NOT ILIKE 'cancel%'`)
+        .first('id', 'uuid', 'emisor_rfc', trx.raw('total::float8 AS total'))) as { id: string; uuid: string; emisor_rfc: string; total: number } | undefined;
+      if (!cfdi) throw new BadRequestException('esa factura no está en ContPAQi como recibida vigente');
+      const rfcEntrada = String(entrada.proveedor_rfc || '').trim().toUpperCase();
+      if (!rfcEntrada || rfcEntrada !== String(cfdi.emisor_rfc || '').trim().toUpperCase()) {
+        throw new BadRequestException(`la factura es de ${cfdi.emisor_rfc} y la entrada es de ${rfcEntrada || 'un proveedor sin RFC en Kepler'}`);
+      }
+      const viva = (await trx('fiscal.cfdi_assignments')
+        .where({ tenant_id: tenantId, sucursal: suc, doc_folio: fol }).whereIn('status', ['confirmed', 'auto'])
+        .first('cfdi_id')) as { cfdi_id: string } | undefined;
+      if (viva) throw new BadRequestException(viva.cfdi_id === cfdi.id ? 'esta entrada ya está ligada a esa factura' : 'esta entrada ya tiene otra factura ligada');
+      const ctx = this.tenantCtx.get();
+      const [fila] = await trx('fiscal.cfdi_assignments').insert({
+        tenant_id: tenantId, cfdi_id: cfdi.id, cfdi_uuid: cfdi.uuid, rfc: rfcEntrada,
+        sucursal: suc, doc_tipo: 'XA2001', doc_folio: fol,
+        importe_cfdi: cfdi.total, importe_operacion: entrada.monto, diff_importe: Math.abs(cfdi.total - entrada.monto),
+        status: 'confirmed', match_source: 'compartida', shared_reason: motivo, note: motivo,
+        created_by: ctx?.userId ?? null, created_by_username: actor || ctx?.username || null, updated_at: trx.fn.now(),
+      }).returning(['id', 'cfdi_uuid', 'shared_reason', 'created_by_username']);
+      return { id: fila.id as string, cfdi_uuid: fila.cfdi_uuid as string, motivo: fila.shared_reason as string, por: (fila.created_by_username as string | null) ?? null };
+    });
+  }
+
+  /**
+   * `[RE.86]` Deshace la liga compartida de esta entrada, también con motivo. No se borra: pasa a `rejected` con
+   * el porqué en `note` — la decisión de ligarla y la de deshacerla quedan las dos.
+   */
+  async desligarFacturaCompartida(sucursal: string, folio: string, motivo: string, actor?: string): Promise<LigaCompartidaDeshecha> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const suc = (sucursal || '').trim();
+    const fol = (folio || '').trim();
+    const texto = String(motivo || '').trim();
+    if (!suc || !fol) throw new BadRequestException('faltan sucursal y folio');
+    if (texto.length < MOTIVO_LIGA_MIN) throw new BadRequestException(`escribe por qué se deshace la liga (al menos ${MOTIVO_LIGA_MIN} caracteres)`);
+    await this.exigirAlcance(suc);
+    return this.tk.run(async (trx: Knex.Transaction) => {
+      if (!(await hayLigaCompartida(trx))) throw new BadRequestException('falta la migración de facturas compartidas (RE.86) en esta base');
+      const n = await trx('fiscal.cfdi_assignments')
+        .where({ tenant_id: tenantId, sucursal: suc, doc_folio: fol, status: 'confirmed' }).whereNotNull('shared_reason')
+        .update({ status: 'rejected', note: `Desligada por ${actor || this.tenantCtx.get()?.username || 'alguien'}: ${texto}`, updated_at: trx.fn.now() });
+      if (!n) throw new BadRequestException('esta entrada no tiene una factura compartida ligada');
+      return { desligadas: n };
+    });
+  }
+
   async descartar(sucursal: string, folio: string, motivoCodigo: string, motivo?: string, actor?: string) {
     this.tenantCtx.requireTenantId();
     const suc = (sucursal || '').trim();

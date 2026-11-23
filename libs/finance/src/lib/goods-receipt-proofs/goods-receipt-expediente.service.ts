@@ -3,7 +3,7 @@ import type { Knex } from 'knex';
 import { ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import type {
   EntradasSinOcFila, EntradasSinOcResumen, ExpedienteConteos, ExpedienteCubo, ExpedienteDocTipo, ExpedienteHallazgo,
-  ExpedienteLectura, ExpedienteLiga, ExpedienteResumenFila, IdentificacionCandidata, IdentificacionEntrada,
+  ExpedienteLectura, ExpedienteLiga, ExpedienteResumenFila, FacturaCompartidaExpediente, IdentificacionCandidata, IdentificacionEntrada,
   IdentificarLectura, ReceiptExpediente,
 } from '@megadulces/contracts';
 import { EXPEDIENTE_HALLAZGOS } from '@megadulces/contracts';
@@ -16,6 +16,7 @@ import {
 } from './expediente-verdict';
 import { parecidoNombre, rfcBienFormado, rfcComparable } from './receipt-match';
 import { AJUSTES_KEPLER_SQL, type AjusteKeplerFila } from './ajustes-kepler';
+import { hayLigaCompartida } from './liga-compartida';
 import { EntradaParaIdentificar, clasificarIdentificacion } from './identificar-entrada';
 // `[RE.43.1]` El mismo criterio que `matchByOcr`: el folio del proveedor va contra `referencia`.
 import { folioNucleo } from './documento-duplicado';
@@ -79,6 +80,8 @@ export interface ExpedienteCalculado {
   /** `[RE.63]` Dónde está la rebaja: Kepler, CFDI, los dos o ninguno. */
   lados: NotasLados;
   hallazgos: ExpedienteHallazgo[];
+  /** `[RE.86]` La factura es compartida (liga con motivo): con quién se compara en grupo. */
+  compartida: FacturaCompartidaExpediente | null;
 }
 
 export interface LlaveEntrada { sucursal: string; folio: string }
@@ -177,6 +180,7 @@ export class GoodsReceiptExpedienteService {
           diferencia: x.lados.diferencia, compartida: x.lados.compartida,
           neto_kepler: x.lados.netoKepler, neto_cfdi: x.lados.netoCfdi, dif_neta: x.lados.difNeta, netos_cuadran: x.lados.netosCuadran,
         },
+        factura_compartida: x.compartida,
         regla: REGLA_EXPEDIENTE,
         tolerancia: { pct: TOLERANCIA_PCT, abs: TOLERANCIA_ABS },
       };
@@ -266,6 +270,32 @@ export class GoodsReceiptExpedienteService {
         .select('sucursal', 'doc_folio', 'cfdi_id');
       for (const r of rows as { sucursal: string; doc_folio: string; cfdi_id: string }[]) asignados.set(llave(r.sucursal, r.doc_folio), r.cfdi_id);
     }
+    // `[RE.86]` Las ligas COMPARTIDAS (con motivo): esa entrada es parte de una factura que comparte con otras. Su
+    // papel ES la factura original (deja de pedir remisión) y se compara EN GRUPO: todas las entradas ligadas al
+    // CFDI contra su total, con todas sus notas y devoluciones de Kepler.
+    const compartidas = new Map<string, string>(); // llave de la entrada → motivo
+    const grupos = new Map<string, string[]>();    // cfdi_id → llaves de TODAS sus entradas ligadas
+    const montoDe = new Map<string, number>();     // llave → monto (también de las del grupo que no están en el lote)
+    if (asignados.size && (await hayLigaCompartida(trx))) {
+      const sh = await enPares(trx('fiscal.cfdi_assignments')
+        .where({ tenant_id: tenantId, status: 'confirmed' }).whereNotNull('shared_reason'), 'sucursal', 'doc_folio', pares)
+        .select('sucursal', 'doc_folio', 'cfdi_id', 'shared_reason') as Array<{ sucursal: string; doc_folio: string; cfdi_id: string; shared_reason: string }>;
+      for (const r of sh) compartidas.set(llave(r.sucursal, r.doc_folio), r.shared_reason);
+      const ids = [...new Set(sh.map((r) => r.cfdi_id))];
+      if (ids.length) {
+        const miembros = await trx('fiscal.cfdi_assignments')
+          .where({ tenant_id: tenantId, status: 'confirmed' }).whereIn('cfdi_id', ids)
+          .orderBy('created_at', 'asc').select('cfdi_id', 'sucursal', 'doc_folio') as Array<{ cfdi_id: string; sucursal: string; doc_folio: string }>;
+        for (const m of miembros) (grupos.get(m.cfdi_id) ?? grupos.set(m.cfdi_id, []).get(m.cfdi_id)!).push(llave(m.sucursal, m.doc_folio));
+        const fuera = miembros.filter((m) => !entradas.some((e) => llave(e.sucursal, e.folio) === llave(m.sucursal, m.doc_folio)));
+        if (fuera.length) {
+          const filas = await enPares(trx('analytics.erp_goods_receipts').where({ tenant_id: tenantId }), 'sucursal', 'folio',
+            fuera.map((m) => [m.sucursal, m.doc_folio])).select('sucursal', 'folio', trx.raw('monto::float8 AS monto')) as Array<{ sucursal: string; folio: string; monto: number }>;
+          for (const f of filas) montoDe.set(llave(f.sucursal, f.folio), Number(f.monto));
+        }
+      }
+    }
+    for (const e of entradas) montoDe.set(llave(e.sucursal, e.folio), Number(e.monto));
 
     // Prepara cada entrada: tipo de documento y lectura del papel
     interface Prep { e: EntradaFila; k: string; docTipo: ExpedienteDocTipo; lectura: ExpedienteLectura | null; interno: boolean; pivote: string | null }
@@ -279,7 +309,8 @@ export class GoodsReceiptExpedienteService {
         for (const f of files) if (f?.role) roles.add(String(f.role));
       }
       // Sólo cuentan los documentos DEL PROVEEDOR: una orden de entrada o un vale son hojas nuestras.
-      const docTipo: ExpedienteDocTipo = roles.has('factura') ? 'factura' : roles.has('remision') ? 'remision' : 'ninguno';
+      // `[RE.86]` Con liga compartida su documento ES la factura original, aunque no haya papel subido.
+      const docTipo: ExpedienteDocTipo = roles.has('factura') || compartidas.has(k) ? 'factura' : roles.has('remision') ? 'remision' : 'ninguno';
       // `[RE.35.7]` Sello y firma viven en la lectura cruda (ocr_raw); las anteriores a RE.35.7 no los traen.
       const crudo = proof ? lecturaCruda(proof.ocr_raw) : null;
       const lectura = proof ? {
@@ -443,7 +474,8 @@ export class GoodsReceiptExpedienteService {
     //     (operativo = entrega incompleta · comercial = descuento/apoyo), para el lado Kepler de RE.63 y para la
     //     columna Ajuste/Neto de la lista: si leyeran fuentes distintas, el panel y la columna contarían distinto.
     //     (Antes: `analytics.erp_purchase_adjustments`, ligado por c39, vacío en el 100 % de las X-D-55.)
-    const enLote = new Set(preps.map((p) => p.k));
+    // `[RE.86]` También las entradas de un grupo de factura compartida que no están en el lote: sus notas cuentan.
+    const enLote = new Set([...preps.map((p) => p.k), ...[...grupos.values()].flat()]);
     const ajustes = new Map<string, { operativo: number; comercial: number }>();
     const notasKepler = new Map<string, NotaKepler[]>();
     const filasKepler = (await trx.raw(AJUSTES_KEPLER_SQL)).rows as AjusteKeplerFila[];
@@ -471,17 +503,23 @@ export class GoodsReceiptExpedienteService {
     for (const p of preps) {
       const l = ligas.get(p.k);
       const cfdi = l?.cfdi ?? null;
+      // `[RE.86]` Factura compartida: el grupo (todas las entradas ligadas al CFDI y sus notas de Kepler) es lo que
+      // se compara contra el total. Una entrada sola contra la factura entera diría «no cuadra» por definición.
+      const grupo = cfdi && compartidas.has(p.k) ? (grupos.get(cfdi.id) ?? []) : [];
+      const enGrupo = grupo.length > 1;
+      const montoCmp = enGrupo ? grupo.reduce((s, k) => s + (montoDe.get(k) ?? 0), 0) : Number(p.e.monto);
+      const notasKeplerCmp = enGrupo ? grupo.flatMap((k) => notasKepler.get(k) ?? []) : (notasKepler.get(p.k) ?? []);
       let notasRelacionadas: NotaRelacionada[] = [];
       let notaSugerida: NotaCredito | null = null;
       let historial: HistorialEmisor | null = null;
       if (cfdi) {
-        const dif = cfdi.total - Number(p.e.monto);
+        const dif = cfdi.total - montoCmp;
         // `[RE.62]` La llave primero (las notas cuyo CFDI relaciona ESTA factura); el importe sólo sugiere (y sólo
         // con factura mayor: `notaQueExplica` no sugiere nada con diferencia ≤ 0). `[RE.65]` Para TODA factura
         // ligada, no sólo la mayor: el cuadre en netos (R-v4) también mira la factura que cuadra en bruto.
-        const sel = notasParaFactura(cfdi, dif, Number(p.e.monto), notas);
+        const sel = notasParaFactura(cfdi, dif, montoCmp, notas);
         notasRelacionadas = sel.relacionadas;
-        notaSugerida = dif > 0 && !cuadra(dif, Number(p.e.monto)) ? sel.sugerida : null;
+        notaSugerida = dif > 0 && !cuadra(dif, montoCmp) ? sel.sugerida : null;
         historial = { regimenes: {}, metodos: {}, nombres: {} };
         for (const h of historia) {
           if (h.emisor_rfc.toUpperCase() !== cfdi.emisor_rfc.toUpperCase() || h.id === cfdi.id) continue;
@@ -494,7 +532,7 @@ export class GoodsReceiptExpedienteService {
       const v = veredictoExpediente({
         docTipo: p.docTipo,
         entrada: {
-          monto: Number(p.e.monto), oc_folio: p.e.oc_folio ?? null,
+          monto: montoCmp, oc_folio: p.e.oc_folio ?? null,
           fecha_recepcion: p.e.fecha_recepcion ?? null, fecha_recepcion_usuario: p.e.fecha_recepcion_usuario ?? null,
           receipt_date: p.e.receipt_date ?? null, proveedor_nombre: p.e.proveedor_nombre ?? null, interno: p.interno,
         },
@@ -508,16 +546,19 @@ export class GoodsReceiptExpedienteService {
         },
         notasRelacionadas,
         notaSugerida,
-        notasKepler: notasKepler.get(p.k) ?? [],
+        notasKepler: notasKeplerCmp,
         proveedorEnContpaqi: l?.enContpaqi,
         sello: p.lectura?.sello ?? null, firma: p.lectura?.firma ?? null, selloEvidencia: p.lectura?.sello_evidencia ?? null,
         hoy,
       });
       // `[RE.63]` Sin factura CFDI ligada el lado del SAT no se mide (`null`), no es «sin notas».
-      const lados = notasLados(notasKepler.get(p.k) ?? [], cfdi ? (notasPorFactura.get(cfdi.uuid.toUpperCase()) ?? []) : null,
-        { factura: cfdi?.total ?? null, entrada: Number(p.e.monto) });
+      const lados = notasLados(notasKeplerCmp, cfdi ? (notasPorFactura.get(cfdi.uuid.toUpperCase()) ?? []) : null,
+        { factura: cfdi?.total ?? null, entrada: montoCmp });
       out.set(p.k, {
         entrada: p.e, docTipo: p.docTipo, lectura: p.lectura, cfdi, liga: l?.liga ?? null, veredicto: v, lados,
+        compartida: compartidas.has(p.k)
+          ? { motivo: compartidas.get(p.k) ?? null, entradas: grupo.map((k) => { const [s, f] = k.split('/'); return { sucursal: s, folio: f, monto: montoDe.get(k) ?? null }; }), monto_grupo: montoCmp }
+          : null,
         hallazgos: hallazgosDe(v, ajustes.get(p.k) ?? { operativo: 0, comercial: 0 }, lados),
       });
     }

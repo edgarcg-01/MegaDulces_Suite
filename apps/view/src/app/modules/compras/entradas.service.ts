@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import type { AvisoSucursal, DevueltasResumen, EntradasSinOcResumen, ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, IdentificacionEntrada, IdentificarLectura, MismaFactura, ReceiptExpediente } from '@megadulces/contracts';
+import type { AvisoSucursal, DevueltasResumen, EntradasSinOcResumen, ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, FacturaCompartidaLiga, IdentificacionEntrada, IdentificarLectura, LigaCompartidaCreada, LigaCompartidaDeshecha, MismaFactura, ReceiptExpediente } from '@megadulces/contracts';
 
 /**
  * CC (extensión) — cliente de Comprobantes de Orden de Entrada (proyecto Compras).
@@ -32,6 +32,8 @@ export interface EntradaRow {
   source_branch: string | null; // md_* = Kepler, wincaja_* = Wincaja (define el set de docs requeridos)
   monto: number;
   deposits: number;
+  /** `[RE.86]` Ligada con motivo a una factura compartida: su documento es la factura de otra entrada. */
+  factura_compartida?: boolean;
   deposit_id: string | null;
   deposit_status: ProofStatus | null;
   monto_match: boolean;
@@ -612,6 +614,8 @@ export interface EntradaDetail {
   history?: ProofHistoryEntry[];
   /** `[RE.85]` La misma factura citada por otras entradas del proveedor; `null` si sólo ésta la cita. */
   misma_factura?: MismaFactura | null;
+  /** `[RE.86]` La factura compartida a la que esta entrada está ligada (con motivo); `null` si no. */
+  factura_compartida?: FacturaCompartidaLiga | null;
 }
 
 export interface AttachReceipt {
@@ -702,6 +706,16 @@ export class EntradasService {
    */
   saveSettings(p: Partial<ReceiptSettings>): Observable<ReceiptSettings> {
     return this.http.put<ReceiptSettings>(`${this.base}/settings`, p);
+  }
+  /** `[RE.86]` Liga la entrada a una factura que ya citan otras entradas. Sin motivo el servidor la rechaza. */
+  ligarFacturaCompartida(sucursal: string, folio: string, cfdiUuid: string, motivo: string): Observable<LigaCompartidaCreada> {
+    return this.http.post<LigaCompartidaCreada>(
+      `${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/factura-compartida`, { cfdi_uuid: cfdiUuid, motivo });
+  }
+  /** `[RE.86]` Deshace esa liga, también con motivo (queda rechazada con el porqué, no se borra). */
+  desligarFacturaCompartida(sucursal: string, folio: string, motivo: string): Observable<LigaCompartidaDeshecha> {
+    return this.http.delete<LigaCompartidaDeshecha>(
+      `${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/factura-compartida`, { body: { motivo } });
   }
   /** Detalle de la entrada + sus líneas (kdm2) para auditar renglón por renglón. */
   detail(sucursal: string, folio: string): Observable<EntradaDetail> {

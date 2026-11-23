@@ -6,7 +6,7 @@ import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
 import { ReceiptSlaService } from './receipt-sla.service';
 import { GoodsReceiptExpedienteService } from './goods-receipt-expediente.service';
 import { ReceiptDevueltasService } from './receipt-devueltas.service';
-import type { EntradasSinOcResumen, IdentificacionEntrada, IdentificarLectura, ReceiptExpediente } from '@megadulces/contracts';
+import type { EntradasSinOcResumen, IdentificacionEntrada, IdentificarLectura, LigaCompartidaCreada, LigaCompartidaDeshecha, ReceiptExpediente } from '@megadulces/contracts';
 import { EXPEDIENTE_HALLAZGOS } from '@megadulces/contracts';
 import { RemisionLine } from '@megadulces/platform-core';
 
@@ -259,6 +259,30 @@ export class GoodsReceiptProofsController {
   ) {
     return this.svc.descartar(sucursal, folio, body?.motivo_codigo || '', body?.motivo,
       req?.user?.full_name || req?.user?.username);
+  }
+
+  @Post(':sucursal/:folio/factura-compartida')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({
+    summary: '[RE.86] Liga la entrada a una factura (CFDI) que ya cita otra entrada del mismo proveedor (llegó en partes, o lo que faltó llegó después). SÓLO con motivo (≥ 10 caracteres): la base lo exige. Firmado.',
+  })
+  ligarFacturaCompartida(
+    @Param('sucursal') sucursal: string, @Param('folio') folio: string,
+    @Body() body: { cfdi_uuid?: string; motivo?: string }, @Req() req: AuthedRequest,
+  ): Promise<LigaCompartidaCreada> {
+    return this.svc.ligarFacturaCompartida(sucursal, folio, body, req?.user?.full_name || req?.user?.username);
+  }
+
+  @Delete(':sucursal/:folio/factura-compartida')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({
+    summary: '[RE.86] Deshace la liga compartida, también con motivo. No borra: la liga queda rechazada con el porqué.',
+  })
+  desligarFacturaCompartida(
+    @Param('sucursal') sucursal: string, @Param('folio') folio: string,
+    @Body() body: { motivo?: string }, @Req() req: AuthedRequest,
+  ): Promise<LigaCompartidaDeshecha> {
+    return this.svc.desligarFacturaCompartida(sucursal, folio, body?.motivo || '', req?.user?.full_name || req?.user?.username);
   }
 
   @Delete(':sucursal/:folio/discard')

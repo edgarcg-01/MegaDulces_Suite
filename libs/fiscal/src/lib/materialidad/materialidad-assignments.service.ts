@@ -64,7 +64,14 @@ export class MaterialidadAssignmentsService {
            -- escribiera y esta vista siguiera mirando solo confirmed, la pantalla volveria a
            -- sugerir lo mismo que ya esta propuesto y el trabajo del lote seria invisible.
            -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
-           LEFT JOIN fiscal.cfdi_assignments a ON a.cfdi_id = c.id AND a.status IN ('confirmed', 'auto')
+           -- [RE.86] Una factura puede tener varias ligas vivas (las compartidas llevan motivo): una sola fila
+           -- por CFDI, la liga sin motivo primero; si sólo hay compartidas, la mas antigua.
+           LEFT JOIN LATERAL (
+             SELECT a0.* FROM fiscal.cfdi_assignments a0
+              WHERE a0.cfdi_id = c.id AND a0.status IN ('confirmed', 'auto')
+              ORDER BY (a0.shared_reason IS NOT NULL), a0.created_at
+              LIMIT 1
+           ) a ON true
            LEFT JOIN LATERAL (
              SELECT e.sucursal, e.doc_tipo, e.doc_folio, e.importe, e.fecha, e.beneficiario,
                     LEAST(abs(COALESCE(e.importe,0) - COALESCE(c.total,0)),
@@ -140,7 +147,9 @@ export class MaterialidadAssignmentsService {
         ? Math.abs(Math.round((Date.parse(String(cfdi.fecha)) - Date.parse(String(op.fecha))) / 86400000)) : null;
 
       // Un confirm reemplaza cualquier estado previo de este CFDI (confirmado o rechazos).
-      await trx('fiscal.cfdi_assignments').where({ tenant_id: tid, cfdi_id: cfdiId }).del();
+      // `[RE.86]` Salvo las ligas COMPARTIDAS (con motivo): ésas las hizo Compras, entrada por entrada, y
+      // confirmar aquí la liga principal no las borra.
+      await trx('fiscal.cfdi_assignments').where({ tenant_id: tid, cfdi_id: cfdiId }).whereNull('shared_reason').del();
       const [ins] = await trx('fiscal.cfdi_assignments').insert({
         tenant_id: tid, cfdi_id: cfdiId, cfdi_uuid: cfdi.uuid, rfc: String(cfdi.emisor_rfc || '').toUpperCase(),
         sucursal, doc_tipo: docTipo, doc_folio: docFolio,

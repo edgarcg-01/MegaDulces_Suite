@@ -172,6 +172,17 @@ export interface ExpedienteLectura {
   sello_evidencia?: string | null;
 }
 
+/**
+ * `[RE.86]` La factura de esta entrada es COMPARTIDA: se ligó con motivo a una factura que ya citan otras entradas.
+ * El expediente compara el GRUPO (todas sus entradas y sus notas de Kepler) contra el total del CFDI.
+ */
+export interface FacturaCompartidaExpediente {
+  motivo: string | null;
+  entradas: Array<{ sucursal: string; folio: string; monto: number | null }>;
+  /** Lo que se comparó contra la factura: la suma de las entradas del grupo. */
+  monto_grupo: number;
+}
+
 export interface ReceiptExpediente {
   sucursal: string;
   folio: string;
@@ -206,6 +217,8 @@ export interface ReceiptExpediente {
   regla: string;
   /** Tolerancia aplicada al cuadre. */
   tolerancia: { pct: number; abs: number };
+  /** `[RE.86]` La factura es compartida con otras entradas (liga con motivo); `null`/ausente si no. */
+  factura_compartida?: FacturaCompartidaExpediente | null;
 }
 
 /**
@@ -348,6 +361,24 @@ export interface MovimientoDeFactura {
   /** Devolución o nota: la entrada a la que Kepler la aplicó. */
   aplicada_a: string | null;
 }
+
+/**
+ * `[RE.86]` La liga COMPARTIDA de esta entrada (con motivo): su documento es la factura de otra entrada. `null` si
+ * no tiene. Quién la ligó y por qué van siempre: sin motivo no existe (la base lo exige).
+ */
+export interface FacturaCompartidaLiga {
+  cfdi_uuid: string;
+  serie: string | null;
+  folio: string | null;
+  motivo: string;
+  por: string | null;
+  fecha: string | null;
+}
+
+/** `[RE.86]` Lo que devuelve ligar una entrada a una factura compartida. */
+export interface LigaCompartidaCreada { id: string; cfdi_uuid: string; motivo: string; por: string | null }
+/** `[RE.86]` Lo que devuelve deshacer esa liga. */
+export interface LigaCompartidaDeshecha { desligadas: number }
 
 export interface MismaFactura {
   /** La referencia tal como la trae Kepler («0-F-319»). */

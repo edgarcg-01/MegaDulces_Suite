@@ -401,6 +401,9 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                   <span class="cb-descartada" [pTooltip]="descarteTip(c)" tooltipPosition="top">
                     <i class="pi pi-ban" aria-hidden="true"></i> {{ motivoDescarteLabel(c.descarte_motivo) || 'Descartada' }}
                   </span>
+                } @else if (c.factura_compartida) {
+                  <!-- [RE.86] Sin papel propio a propósito: se ligó (con motivo) a la factura de otra entrada. -->
+                  <span class="muted cb-comp-empty"><i class="pi pi-link" aria-hidden="true"></i> Factura compartida</span>
                 } @else { <span class="muted cb-comp-empty"><i class="pi pi-paperclip" aria-hidden="true"></i> Sin remisión</span> }
               </td>
               <!-- [RE.35.5] El veredicto del expediente (el mismo cálculo que el panel lateral). -->
@@ -1208,8 +1211,11 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
 
         <app-compras-entrada-expediente class="cb-expediente" [sucursal]="d.entrada.sucursal" [folio]="d.entrada.folio" (cargado)="expedientePanel.set($event)" />
 
-        <!-- [RE.85] La misma factura citada por otras entradas: la cadena, con el motivo de cada movimiento. -->
-        <app-compras-entrada-misma-factura class="cb-expediente" [data]="d.misma_factura" />
+        <!-- [RE.85] La misma factura citada por otras entradas: la cadena, con el motivo de cada movimiento.
+             [RE.86] Y la acción: ligar esta entrada a esa factura (o deshacer la liga), sólo con motivo. -->
+        <app-compras-entrada-misma-factura class="cb-expediente" [data]="d.misma_factura" [ligada]="d.factura_compartida ?? null"
+          [puedeLigar]="canValidate() && !d.deposits.length" [puedeDesligar]="canValidate()" [enviando]="ligando()"
+          (ligar)="ligarFactura(d, $event)" (desligar)="desligarFactura(d, $event)" />
 
         <!-- RE.2 — ajustes que EXPLICAN el descuadre (devoluciones / notas de crédito / descuentos del proveedor) -->
         @if (explains().length || cuadre(d).tone !== 'ok') {
@@ -3363,6 +3369,51 @@ export class ComprasEntradasComponent {
     } else {
       this.toast.add({ severity: 'info', summary: 'Devuelta', detail: `Entrada ${c.folio}. Se avisó a ${destinatarios} persona(s) de ${suc}.` });
     }
+  }
+
+  /** `[RE.86]` Ligando o desligando la factura compartida de la entrada abierta. */
+  readonly ligando = signal(false);
+
+  /** `[RE.86]` Liga la entrada abierta a la factura que ya citan otras entradas, con el motivo que se escribió. */
+  ligarFactura(d: EntradaDetail, motivo: string): void {
+    const uuid = d.misma_factura?.cfdi?.uuid;
+    if (!uuid || this.ligando()) return;
+    this.ligando.set(true);
+    this.svc.ligarFacturaCompartida(d.entrada.sucursal, d.entrada.folio, uuid, motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.ligando.set(false);
+        this.toast.add({ severity: 'success', summary: 'Ligada a la factura', detail: `${d.entrada.folio} ya no pide remisión.` });
+        this.reabrirDetalle();
+        this.load();
+      },
+      error: (e) => {
+        this.ligando.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo ligar', detail: e?.error?.message || 'Intenta de nuevo.' });
+      },
+    });
+  }
+
+  /** `[RE.86]` Deshace la liga compartida de la entrada abierta, con el motivo que se escribió. */
+  desligarFactura(d: EntradaDetail, motivo: string): void {
+    if (this.ligando()) return;
+    this.ligando.set(true);
+    this.svc.desligarFacturaCompartida(d.entrada.sucursal, d.entrada.folio, motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.ligando.set(false);
+        this.toast.add({ severity: 'success', summary: 'Liga deshecha', detail: `${d.entrada.folio} vuelve a pedir su papel.` });
+        this.reabrirDetalle();
+        this.load();
+      },
+      error: (e) => {
+        this.ligando.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo deshacer', detail: e?.error?.message || 'Intenta de nuevo.' });
+      },
+    });
+  }
+
+  private reabrirDetalle(): void {
+    const c = this.detailTarget();
+    if (c) this.openDetail(c);
   }
 
   openDetail(c: EntradaRow) {

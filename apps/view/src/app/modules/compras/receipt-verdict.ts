@@ -143,6 +143,15 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes: boolean | readonly 
     : `${nLin} · suman ${money(-dImp)} MÁS que el total de Kepler — revisar`;
 
   const base = { kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela, ocrDesmentido };
+  // `[RE.86]` Sin papel propio pero ligada (con motivo) a la factura de otra entrada: no se le pide remisión. Si cuadra
+  // o no lo dice el expediente de abajo, que compara el grupo entero contra la factura.
+  if (!dep && d.factura_compartida) {
+    const f = d.factura_compartida;
+    return { ...base, ocrMeta: 'su documento es la factura compartida', tone: 'muted', icon: 'pi-link',
+      titulo: `Parte de la factura ${(f.serie ?? '').trim()}${f.folio ?? ''}`.trim(),
+      lectura: `No lleva papel propio: se ligó a esa factura${f.por ? ` (${f.por}${f.fecha ? `, ${f.fecha}` : ''})` : ''} porque «${f.motivo}». `
+        + 'El expediente de abajo la compara junto con las demás entradas de esa factura.' };
+  }
   if (!dep) {
     return { ...base, tone: 'muted', icon: 'pi-paperclip',
       titulo: 'Falta la remisión del proveedor',
