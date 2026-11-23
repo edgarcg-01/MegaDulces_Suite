@@ -560,9 +560,9 @@ un día, no.
 
 | # | Qué | Por qué primero | Esfuerzo |
 |---|---|---|---|
-| 1 | **El vencido y su antigüedad en el panel**, y la lista de facturas abajo | es LA pregunta de crédito y 9 de 12 clientes tienen todo vencido. Endpoint hecho | S |
+| 1 | ✅ **El vencido y su antigüedad en el panel**, y la lista de facturas abajo | es LA pregunta de crédito y 9 de 12 clientes tienen todo vencido. Endpoint hecho | S |
 | 2 | **Aviso de otra clave del mismo cliente** | el panel hoy enseña la mitad de lo que debe (−$31,271 en el caso medido) | S |
-| 3 | **«Ver estado de cuenta»** (el PDF que ya existe) | §7 del protocolo: el documento se ve desde donde se decide | XS |
+| 3 | ✅ **«Ver estado de cuenta»** (el PDF que ya existe) | §7 del protocolo: el documento se ve desde donde se decide | XS |
 | 4 | **Los otros pedidos, con folio** | ya viajan; es pintar | XS |
 | 5 | **Filtros** | duele con 64, no con 8 | S/M |
 | 6 | Los últimos abonos | cierra «cómo paga» | S |
