@@ -1094,9 +1094,24 @@ celular.
 
 ## Addendum — `AUD-DAT.32`: 23 promotoras tienen una marca sin productos de Kepler, y Caducidades les rechaza su producto real (2026-11-21)
 
-**Estado: ABIERTO** (el punto 2 de abajo, hecho). Arreglarlo es reasignar marcas en prod: qué cubre cada promotora lo decide Edgar,
-y la escritura va con su autorización. Lo encontró la revisión de dos fotos de tienda del 20-nov que
+**Estado: CASI CERRADO — 21 de 23 cuentas destrabadas en prod el 2026-11-23** (puntos 1 y 2, hechos; queda el 3 y las
+2 cuentas ambiguas). Lo encontró la revisión de dos fotos de tienda del 20-nov que
 reportaban «al escanear, la Suite captura otro producto».
+
+> **Aplicado en prod el 2026-11-23, con autorización de Edgar** («envíalo a producción ya»): a cada una de las
+> **21** cuentas de las 10 marcas sin ambigüedad se le **AGREGÓ** la marca de Kepler confirmada —no se quitó la
+> corta, para que no desaparezca nada que ya veían—. `INSERT 0 21` en `commercial.promoter_brands`
+> (79 → 100 filas), `created_by = superoot` porque lo aplicó la operación con la autorización del PM, no una
+> persona desde la pantalla.
+>
+> **Verificado después, en prod:** las 21 cuentas quedaron con 2 marcas y **exactamente una con productos con
+> clave de Kepler**. El caso canónico de la foto, el SKU **`83368`** («CONSERVAS LA COSTEÑA (TOTTIS)»),
+> **ya está dentro del alcance** de las cuentas de Totis. El alcance se lee de la tabla **en cada petición**
+> (`brandIdsOf`), no del JWT: **no hace falta que vuelvan a entrar**.
+>
+> ⚠️ **`MARS` y `SNAKY` quedaron intactas a propósito** (1 marca cada una), por lo que dice la nota de abajo.
+> ⛔ **NO MEDIDO:** el recorrido de punta a punta con la sesión de una promotora real. Lo comprobado es la regla
+> de alcance replicada en SQL, no la pantalla escaneando.
 
 - **Qué pasa:** el alcance de una promotora sale de `commercial.promoter_brands` → `public.brands`. 12 de
   esas marcas son nombres cortos (DELICIAS, TOTIS, HERSHEYS, WINIS, ARCOR, PIGUI, JOVY, SNAKY, GUSTINOS,
@@ -1139,7 +1154,9 @@ reportaban «al escanear, la Suite captura otro producto».
 - **No es Kepler:** en los dos casos el código resolvió al producto correcto; lo que no casa es la marca
   asignada en la Suite.
 - **Cómo se arregla cuando se decida:**
-  1. Reasignar cada cuenta a la marca de Kepler confirmada (escritura en `commercial.promoter_brands`).
+  1. ✅ **Hecho en prod el 2026-11-23** para las **10 marcas sin ambigüedad** (21 de 23 cuentas): se agregó la
+     marca de Kepler confirmada en `commercial.promoter_brands`, sin quitar la corta. **Faltan `MARS` y `SNAKY`**,
+     que siguen esperando una decisión de Edgar por la nota de arriba.
   2. ✅ **Hecho en el paso 4 de P2.9 (2026-11-21, en PR):** la hoja dice «este producto no tiene clave de Kepler»
      (`fefo_motivo = sin_clave_kepler`) en vez de «no hay existencia sin fecha». Probado contra Postgres real y en pantalla
      local con la API de la copia.
