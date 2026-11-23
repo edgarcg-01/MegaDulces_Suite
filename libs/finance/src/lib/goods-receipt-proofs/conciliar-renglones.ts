@@ -322,16 +322,24 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
     remUsado.set(p.i, p); kepUsado.add(p.j);
   }
 
+  // 4b) `[RE.84]` Un par 1:1 que DIFIERE en cantidad cede ante un grupo EXACTO que lo incluye. El
+  //     proveedor facturó el mismo producto en dos renglones (CEDIS 0010301, PAF GDL/329: 15 cajas a
+  //     $1,323 con 6 % de descuento + 1 caja de regalo a $0.01) y Kepler lo recibió en uno (192 pz =
+  //     16 cajas). El 1:1 se quedaba con las 15 cajas («Difiere cantidad», 180 ≠ 192) y dejaba la de
+  //     regalo «Sin match», con el total cuadrando al centavo. El paso 5 no lo veía: sólo agrupa
+  //     renglones de Kepler SIN pareja.
+  const regrupados = reagruparParesQueDifieren(rem, kep, remUsado, fijo, bfDe, base);
+
   // 5) `[RE.56]` N:1 — Kepler capturó varias figuras del proveedor con UN código (0000276:
   //    MINIRRUEDA 40 + ENFRUTA DE HARINA 30 + ANILLO 30 = «FRITURA DE HARINA» 100). Para cada
   //    renglón de Kepler sin pareja, se busca el subconjunto de renglones sueltos que suma su
   //    cantidad y su importe. ⛔ Sólo si es ÚNICO: con dos combinaciones posibles no se elige.
-  const grupos = agruparHuerfanos(rem, kep, remUsado, kepUsado, fijo, bfDe, base);
+  const grupos = agruparHuerfanos(rem, kep, remUsado, kepUsado, fijo, bfDe, base, regrupados);
 
   const lines: ReconciledLine[] = rem.map((r, i) => {
     const p = remUsado.get(i);
     const f = fijo.get(i);
-    const g = grupos.get(i);
+    const g = grupos.get(i) ?? regrupados.get(i);
     if (!p && g) {
       const k = kep[g.j];
       return {
@@ -370,8 +378,51 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
     };
   });
 
-  const agrupados = new Set([...grupos.values()].map((g) => g.j));
+  const agrupados = new Set([...grupos.values(), ...regrupados.values()].map((g) => g.j));
   return { lines, kepler_orphans: kep.filter((_, j) => !kepUsado.has(j) && !agrupados.has(j)), base_precio: base, no_producto: noProducto };
+}
+
+/**
+ * `[RE.84]` Para cada par 1:1 cuya cantidad DIFIERE (`casa === false`, no `null`): ¿hay UN solo
+ * subconjunto de {ese renglón + renglones sueltos de la remisión} que sume la cantidad Y el importe del
+ * renglón de Kepler? Si lo hay, el par se deshace y esos renglones quedan como grupo de ese renglón de
+ * Kepler (que sigue usado). Más estricto que `agruparHuerfanos` porque deshace algo: el importe tiene
+ * que poder medirse en TODOS los renglones (la cantidad sola no basta), y con dos combinaciones
+ * posibles el par se queda como estaba. Un suelto con SKU fijo sólo entra al grupo de SU SKU.
+ */
+function reagruparParesQueDifieren(
+  rem: RemisionLine[], kep: RenglonKepler[], remUsado: Map<number, Par>,
+  fijo: Map<number, { sku: string }>, bfDe: (sku: string | null) => number | null, base: BasePrecio,
+): Map<number, { j: number; n: number }> {
+  const out = new Map<number, { j: number; n: number }>();
+  for (const [i, p] of [...remUsado.entries()]) {
+    const k = kep[p.j];
+    if (!(k.importe > 0) || cantidadCasa(rem[i], k, p.bf).casa !== false) continue;
+    const bf = bfDe(k.sku);
+    const sueltos = rem.map((_, x) => x)
+      .filter((x) => x !== i && !remUsado.has(x) && !out.has(x) && (!fijo.has(x) || fijo.get(x)!.sku === k.sku))
+      .slice(0, GRUPO_MAX_SUELTOS - 1);
+    const miembros = [i, ...sueltos];
+    const qty = miembros.map((x) => cantidadPiezas(rem[x], bf));
+    const imp = miembros.map((x) => importeRemision(rem[x]));
+    const hallados: number[][] = [];
+    const elegir = (desde: number, tomados: number[]) => {
+      if (hallados.length > 1) return; // ya es ambiguo
+      if (tomados.length >= 2) {
+        const q = tomados.reduce((s, x) => s + (qty[x] as number), 0);
+        const im = tomados.reduce((s, x) => s + (imp[x] as number), 0);
+        if (casaQty(q, k.cantidad) && importeCuadra(im, k.importe, base)) hallados.push([...tomados]);
+      }
+      if (tomados.length === GRUPO_MAX) return;
+      for (let x = desde; x < miembros.length; x++) if (qty[x] != null && imp[x] != null) elegir(x + 1, [...tomados, x]);
+    };
+    if (qty[0] == null || imp[0] == null) continue;
+    elegir(1, [0]); // el renglón del par va SIEMPRE: el grupo lo explica a él
+    if (hallados.length !== 1) continue;
+    for (const x of hallados[0]) out.set(miembros[x], { j: p.j, n: hallados[0].length });
+    remUsado.delete(i);
+  }
+  return out;
 }
 
 /** `[RE.56]` Cuántos renglones sueltos se prueban como máximo, y de qué tamaño puede ser un grupo. */
@@ -386,12 +437,14 @@ export const GRUPO_MAX = 5;
 function agruparHuerfanos(
   rem: RemisionLine[], kep: RenglonKepler[], remUsado: Map<number, Par>, kepUsado: Set<number>,
   fijo: Map<number, { sku: string }>, bfDe: (sku: string | null) => number | null, base: BasePrecio,
+  /** `[RE.84]` Renglones que ya forman grupo con el renglón de Kepler de un par que cedió. */
+  yaAgrupados: Map<number, unknown> = new Map(),
 ): Map<number, { j: number; n: number }> {
   const out = new Map<number, { j: number; n: number }>();
   kep.forEach((k, j) => {
     if (kepUsado.has(j)) return;
     const sueltos = rem.map((_, i) => i)
-      .filter((i) => !remUsado.has(i) && !out.has(i) && (!fijo.has(i) || fijo.get(i)!.sku === k.sku))
+      .filter((i) => !remUsado.has(i) && !out.has(i) && !yaAgrupados.has(i) && (!fijo.has(i) || fijo.get(i)!.sku === k.sku))
       .slice(0, GRUPO_MAX_SUELTOS);
     if (sueltos.length < 2) return;
     const bf = bfDe(k.sku);

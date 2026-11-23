@@ -285,3 +285,53 @@ describe('[RE.76] factura con renglones con y sin IVA', () => {
     expect(c.lines.filter((l) => l.status === 'difiere_precio')).toHaveLength(2);
   });
 });
+
+/**
+ * `[RE.84]` La entrada 0010301 de CEDIS (PAF), con importes SINTÉTICOS: el proveedor facturó el mismo
+ * producto en DOS renglones —15 cajas con precio + 1 caja de regalo a un centavo— y Kepler lo recibió
+ * en UNO (16 cajas × 12 = 192 pz). El 1:1 se quedaba con las 15 cajas («Difiere cantidad») y la de
+ * regalo salía «Sin match», con el total cuadrando al centavo.
+ */
+describe('[RE.84] un par que difiere en cantidad cede ante un grupo exacto', () => {
+  const kPalmer = [kep('1', '05071', 'SUPER SPORTS PALMER 100G / 6', 192, 1000.01)];
+  const bfPalmer = new Map([['05071', 12]]);
+  const e = (remision: RemisionLine[], kepler = kPalmer): EntradaConciliar =>
+    ({ remision, kepler, aliases: new Map(), barcodes: new Map(), boxFactor: bfPalmer });
+  const pagadas = rem('SUPER SPORTS PALMER 100 g x 6 pz x 12 d', 15, 1000, 'CAJAS');
+  const regalo = rem('SUPER SPORTS PALMER 100 g x 6 pz x 12 d', 1, 0.01, 'CAJAS');
+
+  it('las 15 cajas + la de regalo forman el renglón de Kepler: los dos «agrupado», ninguno «sin match»', () => {
+    const c = conciliarRenglones(e([pagadas, regalo]));
+    expect(c.lines.map((l) => l.status)).toEqual(['agrupado', 'agrupado']);
+    expect(c.lines.every((l) => l.grupo?.linea === '1' && l.grupo?.renglones === 2)).toBe(true);
+    expect(c.kepler_orphans).toEqual([]);
+  });
+
+  it('CONTROL: sin el renglón de regalo, las 15 cajas siguen diciendo «Difiere cantidad» (180 ≠ 192)', () => {
+    const c = conciliarRenglones(e([pagadas]));
+    expect(c.lines[0].status).toBe('difiere_cantidad');
+  });
+
+  it('NEGATIVA: si la suma no da el importe de Kepler, el par se queda como estaba', () => {
+    const caro = rem('SUPER SPORTS PALMER 100 g x 6 pz x 12 d', 1, 80, 'CAJAS'); // 16 cajas, pero $1,080 ≠ $1,000.01
+    const c = conciliarRenglones(e([pagadas, caro]));
+    expect(c.lines[0].status).toBe('difiere_cantidad');
+    expect(c.lines[1].status).toBe('sin_match');
+  });
+
+  it('NEGATIVA: con dos combinaciones posibles no se elige (dos regalos iguales)', () => {
+    const c = conciliarRenglones(e([pagadas, regalo, { ...regalo }]));
+    expect(c.lines[0].status).toBe('difiere_cantidad');
+    expect(c.lines.some((l) => l.status === 'agrupado')).toBe(false);
+  });
+
+  it('NEGATIVA: un par que YA cuadra en cantidad nunca se deshace, aunque también hubiera grupo', () => {
+    // 16 cajas = 192 pz cuadra solo; con el pico de 3 pz (¼ de caja) el grupo también «cuadraría» (195,
+    // dentro del 2 %). Lo que ya cuadra se queda: el grupo sólo explica un par que DIFIERE.
+    const dieciseis = rem('SUPER SPORTS PALMER 100 g x 6 pz x 12 d', 16, 1000, 'CAJAS');
+    const pico = rem('SUPER SPORTS PALMER 100 g x 6 pz x 12 d', 0.25, 0.01, 'CAJAS');
+    const c = conciliarRenglones(e([dieciseis, pico]));
+    expect(c.lines[0].status).toBe('cuadra');
+    expect(c.lines[1].status).toBe('sin_match');
+  });
+});
