@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — El estado de cuenta del cliente se lee como el de un banco (CXC.50 · 2026-11-23 · en código, sin soltar)
+- Las facturas, abiertas y pagadas, van de la más reciente a la más antigua. Lo vencido sigue arriba, en la tarjeta «Vencido» y la antigüedad del saldo.
+- Nuevo «Resumen del periodo», como el de un estado de cuenta bancario: saldo al inicio + facturas del periodo − pagos recibidos − notas de crédito, devoluciones y ajustes = saldo de sus facturas al corte, y de ahí el saldo total. Sale de las mismas facturas y abonos, sin otra fuente; lo que no cuadra se imprime como «Diferencia sin explicar» y los abonos fechados después del corte van en su propio renglón.
+- La tarjeta «Por vencer» dice el próximo vencimiento y cuánto vence ese día, como la fecha límite de pago de una tarjeta.
 ### Added — Venta y clientes › Alta de clientes: fotos y capturas se leen con IA (ALC.4 · 2026-11-22, ENCENDIDA en prod)
 - El alta acepta de 1 a 4 archivos del mismo cliente: la constancia en PDF, fotos de la constancia, capturas de Wincaja o de otro sistema, la foto de una etiqueta con sus datos. En el celular, «Tomar foto».
 - El PDF del SAT se sigue leyendo sin IA. Lo demás lo lee la IA, que sólo copia: el sistema revisa el RFC y la CURP con su dígito verificador y busca régimen, uso de CFDI y forma de pago en el catálogo del SAT. Lo que no cuadra o es dudoso se avisa junto a su casilla; «tarjeta», sin decir si es de crédito o de débito, se pregunta.

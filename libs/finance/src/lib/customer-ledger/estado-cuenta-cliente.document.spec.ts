@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { antiguedad, EstadoCuentaClienteDocument, resolverDesde, type DetalleEC } from './estado-cuenta-cliente.document';
+import { antiguedad, EstadoCuentaClienteDocument, resolverDesde, resumenPeriodo, type DetalleEC } from './estado-cuenta-cliente.document';
 import { FinanceCustomerLedgerModule } from './finance-customer-ledger.module';
 import { CustomerLedgerController } from './customer-ledger.controller';
 import { CustomerLedgerService } from './customer-ledger.service';
@@ -63,14 +63,15 @@ describe('[CXC.40] estado de cuenta del cliente', () => {
     expect(t.match(/\bTotal\b/g)).toHaveLength(1);
   });
 
-  it('la tabla de abiertas sólo trae abiertas, de la más vieja a la más nueva; la pagada va en su sección', () => {
+  it('la tabla de abiertas sólo trae abiertas, de la más NUEVA a la más vieja; la pagada va en su sección', () => {
     // `[CXC.47]` Antes la pagada no salía en el documento. Ahora sale, pero DESPUÉS de las abiertas, en «Facturas pagadas».
     const abiertasTxt = t.slice(t.indexOf('Detalle de facturas abiertas'), t.indexOf('Facturas pagadas'));
     expect(abiertasTxt).not.toContain('0001111');
     expect(t.slice(t.indexOf('Facturas pagadas'))).toContain('0001111');
-    const i = (f: string) => t.indexOf(f);
-    expect(i('0004714')).toBeLessThan(i('0005449'));
-    expect(i('0005449')).toBeLessThan(i('0009999'));
+    // `[CXC.50]` La más nueva primero (Edgar, 2026-11-23: «debería ver sus facturas nuevas»).
+    const i = (f: string) => abiertasTxt.indexOf(f);
+    expect(i('0009999')).toBeLessThan(i('0005449'));
+    expect(i('0005449')).toBeLessThan(i('0004714'));
     expect(t).toContain('Vencida · 103 días');
     expect(t).toContain('Al corriente');
   });
@@ -125,7 +126,7 @@ describe('[CXC.40] estado de cuenta del cliente', () => {
   });
 
   describe('[CXC.47] pagadas y no pagadas, a detalle, por periodo', () => {
-    const APL = (folio: string, fecha: string, monto: number) => ({ label: 'Cobro CFDI', folio, fecha, monto });
+    const APL = (folio: string, fecha: string, monto: number) => ({ tipo: 'cobro', label: 'Cobro CFDI', folio, fecha, monto });
     const D47: DetalleEC = {
       ...DET,
       partidas: [
@@ -185,6 +186,59 @@ describe('[CXC.40] estado de cuenta del cliente', () => {
       expect(resolverDesde('2026-11-20', '2026-11-20')).toBe('2026-11-20');
     });
 
+    describe('[CXC.50] como un estado de cuenta bancario', () => {
+      it('resumen del periodo: saldo al inicio + facturado − pagado = saldo de las facturas al corte, al centavo', () => {
+        // inicial: 4714 (29,686.44 − 27,662.78) + 5449 + 6001 (800, se paga DENTRO) + 5001 (pagada antes: 0)
+        expect(resumenPeriodo(D47.partidas, D47.hoy, desde)).toEqual({
+          inicial: 37622.43, facturado: 1700, n_facturas: 2, cobros: 2000, n_cobros: 3, notas: 0, n_notas: 0,
+          saldo_facturas: 37322.43, posteriores: 0, n_posteriores: 0, diferencia: 0,
+        });
+        expect(t47).toContain('Saldo al inicio del periodo (06/08/2026) $37,622.43');
+        expect(t47).toContain('+ Facturas del periodo · 2 $1,700.00');
+        expect(t47).toContain('− Pagos recibidos · 3 $2,000.00');
+        expect(t47).toContain('= Saldo de sus facturas al corte $37,322.43');
+        expect(t47).toContain('+ Saldo no asignado a una factura $100.00 = Saldo total $37,422.43');
+        expect(t47).not.toContain('sin explicar');
+      });
+
+      it('«todo»: no hay saldo anterior que declarar, y el resumen cuadra igual', () => {
+        const r = resumenPeriodo(D47.partidas, D47.hoy, null);
+        expect(r.inicial).toBeNull();
+        expect(r.diferencia).toBe(0);
+        expect(texto(doc.html(D47, EMISOR, '', null, null))).toContain('Saldo al inicio del periodo —');
+      });
+
+      it('las notas de crédito, devoluciones y ajustes van aparte de los cobros', () => {
+        const conNota = D47.partidas.map((p) => p.folio_digital.endsWith('6001')
+          ? { ...p, aplicaciones: [{ tipo: 'nota_credito', label: 'Nota de crédito', folio: 'NC1', fecha: '2026-09-01', monto: 800 }] } : p);
+        const r = resumenPeriodo(conNota, D47.hoy, desde);
+        expect([r.cobros, r.n_cobros, r.notas, r.n_notas, r.diferencia]).toEqual([1200, 2, 800, 1, 0]);
+      });
+
+      it('un abono que Kepler fecha después del corte (año mal capturado) va en su renglón, con su nombre', () => {
+        const futuro = D47.partidas.map((p) => p.folio_digital.endsWith('4714')
+          ? { ...p, aplicaciones: [{ ...p.aplicaciones![0], fecha: '2026-12-01' }] } : p);
+        const r = resumenPeriodo(futuro, D47.hoy, desde);
+        expect([r.posteriores, r.n_posteriores, r.diferencia]).toEqual([27662.78, 1, 0]);
+        expect(texto(doc.html({ ...D47, partidas: futuro }, EMISOR, '', null, desde)))
+          .toContain('− Abonos registrados con fecha posterior al corte · 1 $27,662.78');
+      });
+
+      it('NEGATIVA — una factura cuyo saldo no explican sus abonos no se reparte en silencio: sale como diferencia', () => {
+        const roto = D47.partidas.map((p) => p.folio_digital.endsWith('4714') ? { ...p, aplicaciones: [] } : p);
+        expect(resumenPeriodo(roto, D47.hoy, desde).diferencia).toBe(27662.78);
+        expect(texto(doc.html({ ...D47, partidas: roto }, EMISOR, '', null, desde)))
+          .toContain('Diferencia sin explicar −$27,662.78');
+      });
+
+      it('como la fecha límite de una tarjeta: el próximo vencimiento y cuánto vence ese día', () => {
+        expect(t47).toContain('Próximo vencimiento: 16/11/2026 · $500.00');
+      });
+
+      it('las pagadas también de la más nueva a la más vieja', () => {
+        expect(pag.indexOf('0007001')).toBeLessThan(pag.indexOf('0006001'));
+      });
+    });
   });
 
   it('[CC.20] con enlace, el PDF imprime el QR para subir la ficha de depósito; sin enlace, no', () => {
