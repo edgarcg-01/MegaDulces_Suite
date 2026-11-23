@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 3108 KB, 15422 líneas, 78 secciones.
+> **Índice navegable** — 3111 KB, 15434 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -22,69 +22,69 @@
 | 5103 | 5165 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
 | 5166 | 5238 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
 | 5239 | 5290 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 5291 | 6216 | 211 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 6217 | 6230 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 6231 | 6255 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 6256 | 6278 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 6279 | 6317 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 6318 | 7119 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 7120 | 7304 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 7305 | 7347 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 7348 | 7425 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 7426 | 7519 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 7520 | 7655 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 7656 | 7672 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 7673 | 7725 | 95 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 7726 | 7793 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 7794 | 8046 | 20 | Fase CH — Checadores / Control de asistencia |
-| 8047 | 8112 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 8113 | 8140 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 8141 | 8307 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 8308 | 8336 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
-| 8337 | 8740 | 192 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 8741 | 8803 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 8804 | 8933 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 8934 | 8996 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 8997 | 9157 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 9158 | 9228 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 9229 | 9277 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 9278 | 9310 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 9311 | 9867 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 9868 | 9999 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 10000 | 10053 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 10054 | 10093 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 10094 | 10146 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 10147 | 10213 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 10214 | 10376 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 10377 | 10660 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 10661 | 10828 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 10829 | 13259 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 13260 | 13268 | 1 | Fase RR — Ventas por ruta |
-| 13269 | 13588 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 13589 | 13599 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 13600 | 13620 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 13621 | 13631 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 13632 | 13643 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 13644 | 13703 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 13704 | 14131 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 14132 | 14146 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 14147 | 14188 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14189 | 14355 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14356 | 14387 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14388 | 14677 | 63 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14678 | 14747 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14748 | 14756 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14757 | 14817 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14824 | 14833 | 1 | 📝 Convenciones |
-| 14834 | 14871 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14872 | 14890 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14891 | 14943 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14944 | 15348 | 107 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15349 | 15379 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15380 | 15401 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15402 | 15435 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15436 | 15484 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15485 | 15512 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 5291 | 6227 | 214 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 6228 | 6241 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 6242 | 6266 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 6267 | 6289 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 6290 | 6328 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 6329 | 7130 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 7131 | 7315 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 7316 | 7358 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 7359 | 7436 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 7437 | 7530 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 7531 | 7666 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 7667 | 7683 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 7684 | 7736 | 95 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 7737 | 7804 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 7805 | 8057 | 20 | Fase CH — Checadores / Control de asistencia |
+| 8058 | 8123 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 8124 | 8151 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 8152 | 8318 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 8319 | 8347 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
+| 8348 | 8751 | 192 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 8752 | 8814 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 8815 | 8944 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 8945 | 9007 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 9008 | 9168 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 9169 | 9239 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 9240 | 9288 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 9289 | 9321 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 9322 | 9878 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 9879 | 10010 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 10011 | 10064 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 10065 | 10104 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 10105 | 10157 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 10158 | 10224 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 10225 | 10387 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 10388 | 10671 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 10672 | 10839 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 10840 | 13270 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 13271 | 13279 | 1 | Fase RR — Ventas por ruta |
+| 13280 | 13599 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 13600 | 13610 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 13611 | 13631 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 13632 | 13642 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 13643 | 13654 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 13655 | 13714 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 13715 | 14142 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 14143 | 14157 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 14158 | 14199 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 14200 | 14366 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14367 | 14398 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14399 | 14688 | 63 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14689 | 14758 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14759 | 14767 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14768 | 14828 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14835 | 14844 | 1 | 📝 Convenciones |
+| 14845 | 14882 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14883 | 14901 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14902 | 14954 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14955 | 15360 | 108 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15361 | 15391 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15392 | 15413 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15414 | 15447 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15448 | 15496 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15497 | 15524 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -15307,6 +15307,7 @@ entregada» el cuadre nunca tiene qué buscar. Firmas pendientes **D1–D5** (§
 - [ ] 🧪 `[CB.87]` C3 — **Auditoría del Cuadre 3 vías: lo que afirmaba algo falso y el ámbar ilegible (2026-11-19).** Auditado con la skill `auditoria-diseno` en nivel C (fuente) + contraste calculado con controles; el navegador estaba ocupado por otra sesión, así que **sin validación visual**. (1) **Rótulos**: desde CB.85 el «Banco» es la descarga del banco en la mayoría de las cuentas, pero el detalle seguía diciendo «Workbook» y «(Excel)», igual que la cobertura, el panel de explicación («falta en Workbook»), el Excel y la nota del servidor; ahora dicen «Banco», y se quitan «kdm1» y «102» de los textos que lee Tesorería. (2) **El Excel del detalle** exporta los huérfanos con los mismos filtros que la pantalla y separa «En ContPAQi sin banco» de «ContPAQi sin pareja aún» (antes las mezclaba en una hoja, sin filtrar). (3) **Contraste en claro**: el importe distinto del banco (`.tw-cent`) iba a 2.15:1 → 7.09 y además subrayado + texto para lector de pantalla (el color ya no es lo único); «Revisar» 4.28 → 7.36; filtro activo 4.34 → 6.30; en oscuro todos pasan. Medido: front 64/64; `ngc` 0 errores en estos archivos (el único error de la app es ajeno, en Caja General); `check:pantalla` sin fallas nuevas en esta pantalla. **Queda de la auditoría (🟠, sin hacer):** `aria-pressed` en los filtros, el selector Movimientos/Por día como radios sin flechas, `<caption>` y región con teclado en las tablas, texto para la flecha y el guion, foco al ir a «Ver cheques», `forced-colors`, búsqueda sin espera sobre hasta 1,892 filas por cuenta (INP NO MEDIDO).
 - [ ] 🧪 `[CB.88]` C3 — **Cuadre 3 vías: lo 🟠 de accesibilidad de la auditoría de CB.87 (2026-11-19).** (1) Los filtros (dirección, estado) y el selector Movimientos/Por día anuncian cuál está activo con `aria-pressed`; el selector era un grupo de «radios» que no respondía a las flechas. (2) Las tablas de totales, cheques, detalle y por día llevan título accesible (`<caption>`) y su zona con scroll se alcanza con el teclado (región con nombre); los encabezados del detalle y de cheques llevan `scope`. (3) La flecha de dirección y el guion de «no está» tienen texto para lector de pantalla (en los huérfanos la flecha tenía `title` pero `aria-hidden`: el lector no recibía nada). (4) Las filas que abren algo responden a Enter y Espacio; la fila por día ya no se declara «botón» (perdía su papel de fila) ni abre al soltar la tecla; la de «Por cuenta» ya no se nombra con `aria-label`, que tapaba sus celdas. (5) «Ver cheques» lleva el foco al título de los cheques. (6) La lupa de una diferencia también aparece con el teclado. (7) Alto Contraste de Windows: filtro elegido, resalte de la cuenta y barras de cobertura con colores del sistema. (8) La búsqueda del detalle espera 200 ms después de la última tecla (una cuenta llega a 1,892 movimientos en un mes) y el conteo «N de M» se anuncia. Medido: front 64/64; `ngc` sin errores en la app; `check:teclado` verde; `check:pantalla` sin fallas nuevas en esta pantalla. **NO MEDIDO**: todo en la pantalla viva (lector de pantalla, recorrido con teclado, Alto Contraste real, INP); la región con scroll de la tabla «Por cuenta» (la pinta PrimeNG) no se tocó. **Sin validación visual.**
 - [ ] 🧪 `[CB.89]` C3 — **Cuadre 3 vías: la fecha de comparación de UNAS cuentas ya no se presenta como la de todo el periodo, y lo medido en vivo de la auditoría (2026-11-19).** **Medido en prod con Playwright** (sólo lectura, toda escritura bloqueada; versión desplegada `9552bf79a`, sin CB.87–88), nov-2026 a 1440×900: (1) 🔴 **Contradicción en la misma pantalla**: la ventana decía «Se compara del 01/11 al 10/11: el estado de cuenta del banco llega hasta ese día» y el título de totales «del 01/11 al 10/11», mientras la cobertura decía «Banco: día 19 de 19, al 19/11» con una etiqueta ámbar «0 días atrás». Causa (CB.82): el servidor da `hasta` cuando las cuentas cortadas comparten fecha, aunque sea una sola. **Arreglo:** la frase global sale sólo si todas las cuentas con datos quedaron cortadas; si no, dice cuántas, y la cobertura dice «N cuentas atrasadas». (2) Confirmado en vivo lo que corrigió CB.87: el detalle rotula «WORKBOOK» y «(Excel)»; y lo de CB.88: Espacio no abre la fila; en Alto Contraste el filtro elegido no se distingue (fondo forzado, sin contorno, sin `aria-pressed`); escribir en la búsqueda de BBVA 4176 (694 movimientos) tarda 200–232 ms por tecla (Event Timing), arriba del umbral de 200 ms. (3) **Hallazgos nuevos, sin arreglar:** al abrir el detalle con Enter el foco NO entra al diálogo (se queda en la fila de atrás); hay 24 paradas de Tab hasta la primera cuenta (8 son encabezados ordenables); el marco (encabezado, migas, título y dos filas de pestañas) ocupa 357 px de 900 antes del veredicto y la tabla «Por cuenta» empieza abajo del pliegue (958 px); 51 elementos en rojo («No cuadra», cifras) mientras el veredicto dice «captura pendiente, no descuadre» — la pantalla se contradice en el tono. (4) Bien: abre en 2.4 s; el detalle abre en 0.8 s; el foco vuelve a la fila al cerrar; a 390 px no hay scroll horizontal de página. Front 64/64; `ngc` 0 errores (el primer intento lo cazó: `base` usada antes de declararse); `check:pantalla` sin fallas nuevas. **El arreglo (1) no se vio en pantalla: va sin soltar.**
+- [ ] 🧪 `[CB.90]` C2/C3 — **Bancos › Movimientos: los filtros que daban «0 movimientos» (Edgar, 2026-11-23: «los filtros no funcionan»).** Dos defectos, medidos: (1) el grupo **«Sin clasificar»** (selector y leyenda) comparaba `group_key` crudo, y lo que no tiene categoría lo tiene en NULL: **nunca traía nada** — en prod, noviembre tiene 86 renglones sin categoría y el filtro daba 0, solo o junto con «Solo sin clasificar» (el caso de la captura). La leyenda ya los pintaba como «Sin clasificar» y el resto del servicio los suma así (`COALESCE(mc.group_key,'sin_clasificar')`); ahora el filtro también, en el libro y en lo de la descarga sin categoría. Después: 86 y 86 (SQL de sólo lectura con el mismo predicado; la parte de la descarga, del clasificador, NO MEDIDA en prod hasta desplegar). (2) **«N que el libro no tiene» + «Solo sin clasificar» (o un estado de conciliación) daba 0 siempre**: lo de la descarga no se clasifica ni se concilia ahí (`[CB.65]`), y la pantalla dejaba juntar las dos. Ahora se excluyen: el último que se pide gana; «lo que el banco no trae» sí convive (es del libro). Pruebas: spec de la ventana 7/7 con el caso nuevo y su negativa; mutante (sin la exclusión) → rojo; bancos de `apps/view` 79/79; bank 286/286; la suite contra Postgres (bloque 12b, el caso de la captura) **NO MEDIDA en local** (Docker local caído): corre en `pruebas-db`.
 - [ ] 🧪 `[BFU.0.1]` `[BFU.0.2]` C2–C3 — **Cuentas dice de dónde sale cada saldo y hasta qué día** (anexo [FASE_CB_ANEXO_BANCO_FUENTE_UNICA](FASES/FASE_CB_ANEXO_BANCO_FUENTE_UNICA.md), E0; Edgar, 2026-11-19: «nuestra hoja será la verdad absoluta»). Visto en vivo ese día: Cuentas decía «cuadran 16» con Δ $0.00 en cada cuenta, pero sólo comprobaba el libro de Tesorería contra sí mismo, con datos al 10-nov y sin decirlo (BBVA 6721: $0 de retiros en noviembre; su banco trae unos $3.2 M). **Hecho:** `balances()` manda por cuenta `fuente` (banco desde `statement_source_since` · libro), `hasta` (último día con movimiento en esa fuente) y `banco_hasta` (último día que trae la descarga); la tabla tiene la columna «De dónde sale» («Libro de Tesorería al 10/11» + «el banco ya trae al 18/11»), «Estado» pasa a «Cierra» con texto («cierra» / «no cierra»), el encabezado dice cuántas cuentas salen del banco y cuántas del libro en vez de «todo cuadra», la nota dice que «cierra» es de la fuente de cada cuenta, y si el banco va adelante del libro, un botón lleva a Estados de cuenta (BFU.0.2). Una API vieja sin `fuente` se declara «no medido». La fila deja `role="button"` y `aria-label` (tapaba sus celdas) y abre con Enter y Espacio; el Excel lleva fuente, hasta y hasta dónde trae el banco. **Cinco preguntas:** (1) primero la cuenta, su saldo y de dónde sale; (2) ya no se ve «cuadra» a secas; (3) la fuente en texto, no en color, y la fila con teclado; (4) liga a Estados de cuenta, donde se pasa la cuenta; (5) es la pantalla que Edgar nombró como la verdad. **Medido:** spec nueva 6/6 con dos controles negativos, dos mutantes rojos (`>=` en «el banco va adelante» y quitar el «no medido»); los 11 archivos de Bancos 88/88; `ngc` 0 errores; `tsc` de libs/finance sin errores nuevos (el TS1272 del constructor ya estaba); `check:pantalla` y `check:teclado` sin fallas nuevas; las dos consultas nuevas en prod 6.3 ms y 1.4 ms, y lo que dirá la pantalla, medido en prod: las 16 cuentas con libro, al 3–10 nov, el banco al 10–19 nov. **Sin validación visual** (va sin soltar).
 - [ ] 🧪 `[BFU.1.1]` C0 — **VERDAD_ABSOLUTA §39 «El estado de cuenta del banco»** (anexo BFU, E1): las 7 propiedades (completo, de la cuenta correcta, exacto, explicado, cruzado, trazable, al día) con su árbitro y lo que se declara si fallan; lo que NO es árbitro (el libro; «cierra»; «depósito = cobranza»); la prueba de la cuenta por la cadena de saldos (§39.3, medida); el límite de dos renglones que se anulan. Índice regenerado. **Falta:** la revisión de un escéptico que pide el plan.
 - [ ] 🧪 `[BFU.1.3]` C1–C3 — **La cuenta de un archivo se prueba después de subido, por la cadena de saldos.** BBVA y BanBajío no traen el número de cuenta: 19 de 100 archivos se aceptaron «sin testigo» (2026-11-19). Regla (`cadena-de-la-cuenta.ts`, pura): un archivo es de su cuenta si su apertura es un saldo que ESA cuenta tuvo en los 7 días previos —línea de un archivo ya probado, o renglón del libro antes de su primer día—, encadenado hasta un ancla (cuenta en el archivo o comprobado al subir). **Medido en prod (sólo lectura):** prueba **18 de 19**; **control negativo** contra cada otra cuenta del mismo banco: **0 de 87**; **control positivo**: de los 64 comprobados al subir, olvidando su comprobación, la cadena prueba 63. El que no: BB 3660 del 3 al 6-nov (su libro llega al 31-jul; el Cuadre ya pide bajarlo). **Cruce de dos implementaciones:** la función real, empaquetada, con las mismas consultas del servicio da los mismos 18 de 19 (4 ms, 1,711 líneas + 1,345 renglones del libro). `GET statement-files` manda por archivo `cuenta_probada` y por cuenta `por_cadena`; `sin_testigo` cuenta sólo lo que tampoco prueba la cadena (de 19 a 1). Estados de cuenta: la columna dice «por cadena» (con su porqué en el `title` y en la leyenda) y el resumen «N probados después por la cadena de saldos». **Pruebas:** spec de la regla 7/7 (4 controles negativos), dos mutantes rojos (archivo sin probar como ancla; libro del mismo día); Estados de cuenta +2 (una negativa: API anterior sigue diciendo «sin testigo»), Bancos 72/72, libs/finance bank 223/223; `ngc` 0; `tsc` sin errores nuevos; `check:pantalla` sin fallas nuevas; `check:spec-vivo` verde. Las consultas del servicio contra Postgres real: las ejerce `test-newdb-bank-estado-de-cuenta` (`svc.archivos(1)`) en el CI, **NO MEDIDO local**. **Sin validación visual.** **No aplica todavía D9** (que un archivo sin probar no cuente para «completo»): espera la firma de Edgar.
