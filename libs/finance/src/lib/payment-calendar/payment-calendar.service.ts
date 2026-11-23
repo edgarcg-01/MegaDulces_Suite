@@ -28,6 +28,7 @@ import { faltaCuentaParaTransferirAnticipo, faltaOrigenMismoBanco, tipoDeAcreedo
 import { cajaDeSalidaTexto, ESTADOS_DIA_AUTORIZADO } from '@megadulces/contracts';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
+import { sqlEjecutadoSinKepler, type LlaveFacturaSql } from './pago-ya-en-kepler.sql';
 import { SALDADA_EN_KEPLER, conLlaveDeKepler, sqlDebeKeplerDeCapturada, sqlDisponibleDeCapturada, type LlaveDeCapturada } from './capturada-kepler.sql';
 import {
   DIAS_ANTES, EVENTO_AUNQUE_SALIO, SQL_SALIDA_QUE_LO_PAGO, motivoAunqueSalioValido, motivoParaNoCambiar,
@@ -76,6 +77,10 @@ export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supp
  */
 export { keplerPayableId, sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 const KEPLER_PAYABLE_ID = sqlKeplerPayableId('v');
+/** `[PGP.204]` La factura de la fila de `analytics.v_supplier_payables` (alias `v`), para `sqlEjecutadoSinKepler`. */
+const LLAVE_V: LlaveFacturaSql = { suc: 'v.sucursal', prov: 'v.proveedor', tipo: 'v.doc_tipo', sub: 'v.doc_sub', folio: 'v.folio' };
+/** `[PGP.204]` La misma factura cuando llega por parámetros (`loadObligationRow`, alias `f`). */
+const LLAVE_F: LlaveFacturaSql = { suc: 'f.suc', prov: 'f.prov', tipo: 'f.tipo', sub: 'f.sub', folio: 'f.folio' };
 
 /**
  * `[TP.17.1b]` **Un crédito bancario no es mercancía** (ADR-094 §7).
@@ -602,11 +607,14 @@ export class PaymentCalendarService {
     const [agg] = await trx('finance.payment_allocation_items as i')
       .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
       .where({ 'i.obligation_source': source, 'i.obligation_id': id })
-      .select(
-        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'pending'), 0) AS reserved`),
-        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'executed'), 0) AS paid`),
-      );
-    return { ...row, reserved_amount: Number(agg?.reserved ?? 0), paid_amount: Number(agg?.paid ?? 0) };
+      .select(trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'pending'), 0) AS reserved`));
+    // `[PGP.204]` De lo EJECUTADO, sólo lo que Kepler todavía no tiene: `original_amount` ya es el pendiente de
+    // Kepler. La misma regla que la lista (`sqlEjecutadoSinKepler`), o la lista ofrecería lo que aquí se rechaza.
+    const [ej] = (await trx.raw(
+      `WITH f AS (SELECT ?::text AS suc, ?::text AS prov, ?::numeric AS tipo, ?::numeric AS sub, ?::text AS folio, ?::uuid AS oid)
+       SELECT z.sin_kepler FROM f CROSS JOIN LATERAL (${sqlEjecutadoSinKepler(LLAVE_F, 'i.obligation_id = f.oid')}) z`,
+      [row.kepler_sucursal, row.kepler_proveedor, row.kepler_doc_tipo, row.kepler_doc_sub, row.kepler_folio, id])).rows as { sin_kepler: string }[];
+    return { ...row, reserved_amount: Number(agg?.reserved ?? 0), paid_amount: Number(ej?.sin_kepler ?? 0) };
   }
 
   private async getOrCreateLot(trx: Knex.Transaction, tenantId: string, date: string) {
@@ -1059,6 +1067,10 @@ export class PaymentCalendarService {
            WHERE i.obligation_source = 'kepler_payable'
            GROUP BY i.obligation_id
         ) r ON r.obligation_id = ${KEPLER_PAYABLE_ID}`)
+        // `[PGP.204]` De lo EJECUTADO sólo aparta lo que Kepler todavía no tiene: `v.pendiente` ya descuenta lo
+        // que Kepler aplicó, y restarlo otra vez escondía el resto de la factura (INDULMI 0000095, $2,805.35).
+        // Sólo se mide donde hubo un pago ejecutado (`r.paid > 0`): unas 20 de ~2,900 filas.
+        .joinRaw(`LEFT JOIN LATERAL (${sqlEjecutadoSinKepler(LLAVE_V, 'r.paid > 0 AND i.obligation_id = r.obligation_id')}) t ON true`)
         .where('v.tenant_id', tenantId)
         .whereRaw(`v.proveedor NOT LIKE 'TI%'`)
         .whereNotExists(function () {
@@ -1085,8 +1097,9 @@ export class PaymentCalendarService {
           // ⚠️ `coalesce` acá y no dentro del agregado: con LEFT JOIN, una factura SIN reserva no
           // trae fila de `r`, así que `r.reserved` es NULL y `pendiente - NULL` sería NULL — el
           // disponible desaparecería justo en las ~2,890 facturas que nadie programó todavía.
-          trx.raw('coalesce(r.reserved, 0) AS reserved_amount'), trx.raw('coalesce(r.paid, 0) AS paid_amount'),
-          trx.raw('(v.pendiente - coalesce(r.reserved, 0) - coalesce(r.paid, 0)) AS available_amount'),
+          // `[PGP.204]` `paid_amount` de la deuda de Kepler = lo ejecutado que Kepler todavía no tiene (`t`).
+          trx.raw('coalesce(r.reserved, 0) AS reserved_amount'), trx.raw('coalesce(t.sin_kepler, 0) AS paid_amount'),
+          trx.raw('(v.pendiente - coalesce(r.reserved, 0) - coalesce(t.sin_kepler, 0)) AS available_amount'),
           trx.raw('coalesce(s.is_critical, false) AS is_critical'), trx.raw('s.critical_reason'),
           // ⛔ `authorized_by` NULL y es correcto: a esta factura nadie la aceptó en una bandeja.
           // La autorización es LIBERAR EL DÍA, no un acto por documento (ADR-094 §2).

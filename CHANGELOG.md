@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Finanzas › Calendario de pagos: lo que queda de una factura ya pagada en parte vuelve a ofrecerse (PGP.204 · 2026-11-23)
+- Cuando una factura se pagó desde el Calendario y Kepler ya registró ese pago, lo que todavía debe se puede volver a programar. Antes el Calendario restaba el pago dos veces (el saldo de Kepler ya lo descontaba) y la factura no aparecía en «Agregar facturas». Caso: INDULMI, Morelia Abastos, factura 0000095, que quedó debiendo $2,805.35 por una nota de crédito hecha por error y cancelada. Aparecen también Charly ($472,501.51), Canel's y Pepsico, y Arrendamex recupera $47,472.
+- El estado de cuenta de acreedores ya no dice «Kepler aún no la aplica: no la vuelvas a programar» cuando Kepler sí la aplicó, aunque el pago no esté ligado a su documento.
+- Lo que Kepler todavía no tiene se sigue restando: un pago no se ofrece dos veces.
 ### Fixed — Conciliación bancaria: un pareo viejo ya no aparta documentos que su corrida no podía ver (BFU.7.5 · 2026-11-23)
 - Tras el corte del 1 de octubre cada sucursal reinició sus folios, y pareos de enero guardados sin sucursal dejaban sin conciliar documentos de octubre y noviembre con el mismo folio — los cheques de nómina entre ellos, que además salían como «Kepler no lo tiene».
 - Ahora un pareo de otro mes sólo aparta los documentos que su corrida alcanzaba (el mes ±45 días); lo que se libera queda declarado en el resultado de la conciliación.

@@ -7,6 +7,7 @@ import {
   CORTE_CONCENTRADOR, TOLERANCIA, adjuntarProgramado, armarEstado, calendarioDe, clasificarAcreedor, nombreGrupo, r2,
   totalesEstado, type AplicacionCruda, type DocCrudo, type ProgramadoCrudo,
 } from './creditor-statements.engine';
+import { sqlEjecutadoYaEnKepler } from '../payment-calendar/pago-ya-en-kepler.sql';
 
 /**
  * `[ECA.1]` Estado de cuenta de acreedores — lectura pura sobre el ODS, sin importer (derive-no-copy).
@@ -146,16 +147,18 @@ SELECT btrim(c3) AS nombre, nullif(btrim(c10), '') AS rfc, nullif(btrim(c7), '')
  */
 const SQL_PROGRAMADO = `
 WITH d AS (
-  SELECT k.sucursal, k.tipo_doc, k.sub, k.folio,
+  SELECT k.sucursal, k.tipo_doc, k.sub, k.folio, k.proveedor,
          md5('kepler_payable|' || k.sucursal || '|' || k.tipo_doc || '|' || k.sub || '|' || k.folio)::uuid AS oid
-    FROM jsonb_to_recordset(?::jsonb) AS k(sucursal text, tipo_doc text, sub text, folio text)
+    FROM jsonb_to_recordset(?::jsonb) AS k(sucursal text, tipo_doc text, sub text, folio text, proveedor text)
 ),
 it AS (
-  SELECT d.sucursal, d.tipo_doc, d.sub, d.folio, i.allocation_id, (i.applied_amount + i.discount_amount) AS cubierto
+  SELECT d.sucursal, d.tipo_doc, d.sub, d.folio, d.proveedor, i.allocation_id, (i.applied_amount + i.discount_amount) AS cubierto,
+         i.id, i.obligation_source, i.obligation_id, i.applied_amount
     FROM d
     JOIN finance.payment_allocation_items i ON i.obligation_source = 'kepler_payable' AND i.obligation_id = d.oid
   UNION ALL
-  SELECT d.sucursal, d.tipo_doc, d.sub, d.folio, i.allocation_id, (i.applied_amount + i.discount_amount)
+  SELECT d.sucursal, d.tipo_doc, d.sub, d.folio, d.proveedor, i.allocation_id, (i.applied_amount + i.discount_amount),
+         i.id, i.obligation_source, i.obligation_id, i.applied_amount
     FROM d
     JOIN commercial.supplier_payment_obligations o
       ON o.kepler_sucursal = d.sucursal AND o.kepler_doc_tipo::text = d.tipo_doc::text
@@ -169,7 +172,9 @@ SELECT it.sucursal, it.tipo_doc, it.sub, it.folio, it.allocation_id::text AS all
        to_char(a.executed_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS pagado_el,
        a.payment_method AS metodo,
        nullif(coalesce(nullif(btrim(b.alias), ''), concat_ws(' ', b.bank, b.account_label)), '') AS banco,
-       a.reference_text AS referencia, a.kepler_payment_folio AS kepler_folio
+       a.reference_text AS referencia, a.kepler_payment_folio AS kepler_folio,
+       -- [PGP.204] La regla del Calendario, no una copia: el pago ejecutado ya está en Kepler en ESTA factura.
+       ${sqlEjecutadoYaEnKepler({ suc: 'it.sucursal', prov: 'it.proveedor', tipo: 'it.tipo_doc::numeric', sub: 'it.sub::numeric', folio: 'it.folio' }, 'it', 'a')} AS en_kepler
   FROM it
   JOIN finance.payment_allocations a ON a.id = it.allocation_id
   JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
@@ -311,7 +316,7 @@ export class CreditorStatementsService {
       const filas = documentos.length
         // Un solo parámetro JSON: knex expande un arreglo en `trx.raw` a una lista y rompería el SQL.
         ? await this.tk.run(async (trx) => (await trx.raw(SQL_PROGRAMADO, [JSON.stringify(documentos.map((d) => ({
-          sucursal: d.sucursal, tipo_doc: String(d.tipo_doc), sub: String(d.sub), folio: d.folio,
+          sucursal: d.sucursal, tipo_doc: String(d.tipo_doc), sub: String(d.sub), folio: d.folio, proveedor: codigo,
         })))])).rows as ProgramadoCrudo[])
         : [];
       adjuntarProgramado(documentos, filas, hoy);

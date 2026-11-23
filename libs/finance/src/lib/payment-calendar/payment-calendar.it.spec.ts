@@ -1852,4 +1852,121 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     });
   });
 
+  /**
+   * `[PGP.204]` **Lo pagado en la Suite que Kepler ya tiene no se resta dos veces** (Francisco, 2026-11-23). El caso:
+   * INDULMI 08 0000095, $33,188.98; Tesorería pagó $27,578.05 descontando una devolución y una nota de crédito que se
+   * canceló; Kepler aplicó la transferencia y la factura quedó debiendo $2,805.35, pero el Calendario restaba OTRA vez
+   * el pago ejecutado y la escondía. Va al final: siembra facturas de un acreedor propio (`XPGP204`) que ninguna
+   * prueba de arriba debe ver. Cada factura es independiente; la regla es `pago-ya-en-kepler.sql.ts`.
+   */
+  describe('[PGP.204] lo ejecutado que Kepler ya tiene no esconde el resto de la factura', () => {
+    const PROV = 'XPGP204';
+    const ALTA = '2030-07-01';      // el día en que se armó cada pago ejecutado
+    const DESPUES = '2030-07-02';   // Kepler registra la transferencia
+    const DIA = '2030-07-10';       // el día al que se programa lo que queda
+    let lot = '';
+    let n = 0;
+    type App = { tipo: number; monto: number; fecha: string; folio?: string; cancelado?: boolean };
+    type Fac = { folio: string; id: string };
+
+    /** Una factura de Kepler en Morelia Abastos con sus aplicaciones (`kdxf`); cancelada = `kdm1.c43 = 'C'`. */
+    const factura = async (importe: number, apps: App[] = []): Promise<Fac> => {
+      const folio = `XPGP204-${++n}`;
+      await trx('kepler_ods.kdxe').insert({ sucursal: '08', c1: '08', c2: PROV, c3: 'A', c4: 20, c5: 1, c6: folio, c7: '2030-06-01 00:00:00', c10: '2030-06-15 00:00:00', c11: importe });
+      for (const [k, a] of apps.entries()) {
+        const pf = a.folio ?? `${folio}-P${k}`;
+        await trx('kepler_ods.kdxf').insert({ sucursal: '08', c1: '08', c2: PROV, c3: `${a.fecha} 00:00:00`, c4: a.tipo, c5: 1, c6: pf, c7: 20, c8: 1, c9: folio, c10: a.monto });
+        if (a.cancelado) {
+          await trx('kepler_ods.kdm1').insert({ sucursal: '08', c1: '08', c2: 'X', c3: 'D', c4: a.tipo, c5: 1, c6: pf, c9: `${a.fecha} 00:00:00`, c10: PROV, c16: a.monto, c43: 'C' });
+        }
+      }
+      return { folio, id: keplerPayableId('08', 20, 1, folio) };
+    };
+    /** Un pago del Calendario YA EJECUTADO por `neto` (+ descuento al pagar), armado el día `ALTA`. */
+    const ejecutado = async (f: Fac, neto: number, opt: { descuento?: number; liga?: string } = {}) => {
+      const [a] = await trx('finance.payment_allocations').insert({
+        tenant_id: M, lot_id: lot, classification: 'proveedor_mercancia', amount_assigned: neto, created_by: USER,
+        created_at: `${ALTA} 09:00:00-06`, status: 'executed', executed_at: '2030-07-03 12:00:00-06', payment_method: 'transferencia',
+        ...(opt.liga ? { kepler_payment_sucursal: '08', kepler_payment_doc_prefix: 'XD2601', kepler_payment_folio: opt.liga, kepler_payment_linked_by: 'sistema:banco' } : {}),
+      }).returning('id');
+      await trx('finance.payment_allocation_items').insert({
+        tenant_id: M, allocation_id: a.id, obligation_source: 'kepler_payable', obligation_id: f.id, applied_amount: neto,
+        ...(opt.descuento ? { discount_amount: opt.descuento, discount_reason: 'pronto_pago' } : {}),
+      });
+    };
+    type Fila = { obligation_id: string; original_amount: number; paid_amount: number; available_amount: number };
+    const fila = async (f: Fac) => {
+      const r = (await cal.listObligations({ search: PROV, onlyAvailable: false })).rows as Fila[];
+      const x = r.find((y) => y.obligation_id === f.id);
+      return x && { pendiente: Number(x.original_amount), aparta: Number(x.paid_amount), disponible: Number(x.available_amount) };
+    };
+    const ofrecida = async (f: Fac) => ((await cal.listObligations({ search: PROV })).rows as Fila[]).some((y) => y.obligation_id === f.id);
+    const programar = (f: Fac, monto: number) =>
+      cal.createAllocation({ date: DIA, items: [{ obligation_source: 'kepler_payable', obligation_id: f.id, applied_amount: monto }] }, USER);
+
+    beforeAll(async () => {
+      await trx('catalog.suppliers').insert({ tenant_id: M, code: PROV, name: 'XPGP204 INDULMI DE PRUEBA', activo: true });
+      lot = (await trx('finance.payment_calendar_lots').insert({ tenant_id: M, lot_date: ALTA }).returning('id'))[0].id;
+    });
+
+    it('⭐ INDULMI: Kepler ya aplicó la transferencia (sin ligar) → lo que queda se ofrece y se programa', async () => {
+      const f = await factura(33188.98, [
+        { tipo: 40, monto: 2805.35, fecha: '2030-06-01' },                   // devolución
+        { tipo: 55, monto: 2805.58, fecha: '2030-06-02', cancelado: true },  // la nota hecha por error, cancelada
+        { tipo: 26, monto: 27578.05, fecha: DESPUES },                       // la transferencia del pago
+        { tipo: 55, monto: 0.23, fecha: '2030-07-04' },
+      ]);
+      await ejecutado(f, 27578.05);
+      expect(await fila(f)).toEqual({ pendiente: 2805.35, aparta: 0, disponible: 2805.35 });
+      expect(await ofrecida(f)).toBe(true);
+      // El alta mide igual que la lista (`loadObligationRow`): se programa el resto, y ni un centavo más.
+      await programar(f, 2805.35);
+      await expect(programar(f, 0.01)).rejects.toThrow(/disponible|pendiente/i);
+    });
+
+    it('⛔ NEGATIVA: Kepler todavía no tiene el pago → se sigue restando (no se paga dos veces)', async () => {
+      const f = await factura(1000);
+      await ejecutado(f, 600);
+      expect(await fila(f)).toEqual({ pendiente: 1000, aparta: 600, disponible: 400 });
+      await expect(programar(f, 400.01)).rejects.toThrow(/disponible/i);
+    });
+
+    it('⛔ NEGATIVA: el dinero de Kepler ANTERIOR a armar el pago no es este pago', async () => {
+      const f = await factura(1000, [{ tipo: 26, monto: 600, fecha: '2030-06-20' }]);
+      await ejecutado(f, 600);
+      expect(await fila(f)).toEqual({ pendiente: 400, aparta: 600, disponible: -200 });
+      expect(await ofrecida(f)).toBe(false);
+      await expect(programar(f, 1)).rejects.toThrow(/disponible/i);
+    });
+
+    it('⛔ NEGATIVA: una transferencia CANCELADA en Kepler no cuenta como que Kepler ya lo tiene', async () => {
+      const f = await factura(1000, [{ tipo: 26, monto: 600, fecha: DESPUES, cancelado: true }]);
+      await ejecutado(f, 600);
+      expect(await fila(f)).toEqual({ pendiente: 1000, aparta: 600, disponible: 400 });
+    });
+
+    it('ligado: cuenta su documento; ⛔ ligado a OTRO documento no cae a la regla de los sin ligar', async () => {
+      const ok = await factura(1000, [{ tipo: 26, monto: 600, fecha: DESPUES, folio: '0024999' }]);
+      await ejecutado(ok, 600, { liga: '24999' });   // sin ceros a la izquierda: es el mismo folio
+      expect(await fila(ok)).toEqual({ pendiente: 400, aparta: 0, disponible: 400 });
+      const otro = await factura(1000, [{ tipo: 26, monto: 600, fecha: DESPUES, folio: '0024998' }]);
+      await ejecutado(otro, 600, { liga: '0011111' });
+      expect(await fila(otro)).toEqual({ pendiente: 400, aparta: 600, disponible: -200 });
+    });
+
+    it('[PGP.91] el descuento al pagar sigue apartando aunque Kepler ya tenga el neto (la nota llega después)', async () => {
+      const f = await factura(1000, [{ tipo: 26, monto: 970, fecha: DESPUES }]);
+      await ejecutado(f, 970, { descuento: 30 });
+      expect(await fila(f)).toEqual({ pendiente: 30, aparta: 30, disponible: 0 });
+      expect(await ofrecida(f)).toBe(false);
+    });
+
+    it('⛔ dos pagos ejecutados SIN ligar en la misma factura: no se adivina cuál tiene Kepler, se siguen restando', async () => {
+      const f = await factura(1000, [{ tipo: 26, monto: 300, fecha: DESPUES }]);
+      await ejecutado(f, 300);
+      await ejecutado(f, 300);
+      expect(await fila(f)).toEqual({ pendiente: 700, aparta: 600, disponible: 100 });
+    });
+  });
+
 });

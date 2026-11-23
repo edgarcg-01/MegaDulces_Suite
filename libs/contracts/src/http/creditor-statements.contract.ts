@@ -126,8 +126,10 @@ export interface AcreedorDocProgramado {
   /** Folio del pago de Kepler ligado a este pago del Calendario (`X-D-26`), si ya se ligó. */
   kepler_folio: string | null;
   /**
-   * Ejecutado y Kepler YA aplicó ese pago a esta factura (está en sus aplicaciones). Entonces el saldo
-   * de Kepler ya lo descuenta: no se resta otra vez ni se dice «Kepler aún no la aplica».
+   * Ejecutado y Kepler YA tiene ese pago en esta factura. Entonces el saldo de Kepler ya lo descuenta: no se
+   * resta otra vez ni se dice «Kepler aún no la aplica». `[PGP.204]` Ligado: su documento está vivo entre las
+   * aplicaciones. Sin ligar (`kepler_folio` null): Kepler le aplicó con dinero al menos su neto desde que se
+   * armó el pago. La misma regla que el disponible del Calendario.
    */
   aplicado_en_kepler: boolean;
 }
