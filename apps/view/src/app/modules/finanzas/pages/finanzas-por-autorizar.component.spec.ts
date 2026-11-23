@@ -40,9 +40,9 @@ describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
   let detallePedido: Array<[string, string]>;
   /** Dos facturas: una vencida vieja y una al corriente, para probar el orden. */
   const DETALLE = {
-    hoy: '2026-11-23', saldo: 20_000, vencido: 12_000, partidas: [
-      { doc_label: 'Fac', folio: 'F-1', vencimiento: '2026-11-30', saldo_documento: 8_000, vencida: false, dias_vencido: null },
-      { doc_label: 'Fac', folio: 'F-2', vencimiento: '2026-08-14', saldo_documento: 12_000, vencida: true, dias_vencido: 101 },
+    hoy: '2026-11-23', saldo: 20_000, vencido: 12_000, saldo_a_favor: 0, partidas: [
+      { doc_label: 'Fac', folio: 'F-1', folio_digital: 'UD0801-1', fecha: '2026-11-15', vencimiento: '2026-11-30', saldo_documento: 8_000, vencida: false, saldada: false, dias_vencido: null, aplicaciones: [] },
+      { doc_label: 'Fac', folio: 'F-2', folio_digital: 'UD0801-2', fecha: '2026-07-30', vencimiento: '2026-08-14', saldo_documento: 12_000, vencida: true, saldada: false, dias_vencido: 101, aplicaciones: [] },
     ],
   };
   function crear(b: BandejaAutorizacion, opts: { puede?: boolean; resultado?: ResultadoDecisionPedido } = {}) {
@@ -259,8 +259,29 @@ describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
     c.abrirFacturas(c.lista()[0], true);
     expect(detallePedido).toEqual([['08', 'C1']]);
     expect(c.detalle()?.partidas.length).toBe(2);
-    // Las vencidas primero, y entre ellas la más vieja arriba.
-    expect(c.facturas().map((x) => x.folio)).toEqual(['F-2', 'F-1']);
+    // ⭐ El MISMO orden que el estado de cuenta del cliente en toda la suite: la más nueva primero
+    // (`masNuevaPrimero` de contracts, la función que ya usan la ficha y el PDF). Dos órdenes distintos
+    // del mismo documento se leen como dos documentos.
+    expect(c.facturas().map((x) => x.folio)).toEqual(['F-1', 'F-2']);
+    // Y el próximo vencimiento sale de la misma función que la ficha, no de una cuenta propia.
+    expect(c.proximo()).toEqual({ fecha: '2026-11-30', monto: 8_000 });
+  });
+
+  // ⭐ Edgar, 2026-11-23: «¿si quiero ver el estado de cuenta tengo que descargar el pdf?». No: el estado de
+  // cuenta se VE en la ficha del cliente, que es el estado de cuenta en pantalla (CXC.50/51). El panel liga
+  // a ESE cliente por el enlace profundo de CXC.26; el PDF vive allá, para enviárselo.
+  it('⭐ el estado de cuenta se VE: liga a la ficha del cliente, y el panel ya no baja ningún PDF', () => {
+    const f = crear(bandeja([ped('1', 'A', [])]));
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
+    c.abrirFacturas(c.lista()[0], true);
+    f.detectChanges();
+    const liga = el(f).querySelector('.pa-ec-liga') as HTMLAnchorElement;
+    expect(liga).not.toBeNull();
+    expect(liga.getAttribute('href')).toBe('/finanzas/cartera?suc=08&cliente=C1');
+    expect(liga.textContent).toContain('Ver su estado de cuenta completo');
+    // El botón del PDF salió del panel: con él se fue el window.open que abrir-pdf documenta como bloqueado.
+    expect(Array.from(el(f).querySelectorAll('button')).some((b) => /pdf|estado de cuenta/i.test(b.textContent ?? ''))).toBe(false);
   });
 
   it('negativo: cerrar el desglose no vuelve a pedir, y el mismo cliente no se pide dos veces', () => {

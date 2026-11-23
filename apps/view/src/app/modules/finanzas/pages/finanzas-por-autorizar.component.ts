@@ -5,8 +5,9 @@ import { TableModule, Table } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
+import { RouterLink } from '@angular/router';
 import { MessageService } from 'primeng/api';
-import { MOTIVO_MAX, type AccionDecisionPedido, type BandejaAutorizacion, type DecisionVigente, type PedidoPorAutorizar } from '@megadulces/contracts';
+import { MOTIVO_MAX, masNuevaPrimero, proximoVencimiento, type AccionDecisionPedido, type BandejaAutorizacion, type DecisionVigente, type PedidoPorAutorizar } from '@megadulces/contracts';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -131,7 +132,7 @@ export function esperaDe(p: PedidoPorAutorizar): string {
   selector: 'app-finanzas-por-autorizar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonModule, TableModule, TagModule, TextareaModule, ToastModule, FreshnessPillComponent, LoadStateComponent, MetricStripComponent, SidePeekComponent, CarteraSegmentsComponent, ContextHelpComponent],
+  imports: [RouterLink, ButtonModule, TableModule, TagModule, TextareaModule, ToastModule, FreshnessPillComponent, LoadStateComponent, MetricStripComponent, SidePeekComponent, CarteraSegmentsComponent, ContextHelpComponent],
   providers: [MessageService],
   template: `
     <p-toast position="bottom-right" />
@@ -245,10 +246,14 @@ export function esperaDe(p: PedidoPorAutorizar): string {
             } @else if (errorDetalle()) {
               <p class="pa-error"><i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ errorDetalle() }}</p>
             } @else if (detalle(); as d) {
-              <p class="pa-tenue">
-                {{ d.partidas.length }} vivas · {{ dinero(d.saldo) }} de saldo
-                @if (d.vencido > 0) { · <strong>{{ dinero(d.vencido) }} vencido</strong> }
-              </p>
+              <!-- El mismo resumen que la ficha del cliente y el PDF (resumenPeriodo / proximoVencimiento de
+                   contracts): tres lugares, una sola cuenta. -->
+              <dl class="pa-numeros pa-ec">
+                <dt>Saldo</dt><dd>{{ dinero(d.saldo) }}</dd>
+                @if (d.vencido > 0) { <dt>Vencido</dt><dd class="pa-mal-num">{{ dinero(d.vencido) }}</dd> }
+                @if (proximo(); as pv) { <dt>Próximo vencimiento</dt><dd>{{ pv.fecha }} · {{ dinero(pv.monto) }}</dd> }
+                @if (d.saldo_a_favor > 0) { <dt>A favor</dt><dd>{{ dinero(d.saldo_a_favor) }}</dd> }
+              </dl>
               <table class="pa-facturas">
                 <caption class="sr-only">Facturas con saldo de {{ p.cliente_nombre || p.cliente }}</caption>
                 <thead>
@@ -265,13 +270,14 @@ export function esperaDe(p: PedidoPorAutorizar): string {
                   }
                 </tbody>
               </table>
-              @if (facturasDeMas() > 0) {
-                <p class="pa-tenue">Y {{ facturasDeMas() }} más, de las más nuevas. El estado de cuenta las trae todas.</p>
-              }
-              <button pButton type="button" class="p-button-outlined p-button-sm" [disabled]="bajandoPdf()" (click)="verEstadoDeCuenta(p)">
-                <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
-                <span class="p-button-label">{{ bajandoPdf() ? 'Abriendo…' : 'Ver estado de cuenta' }}</span>
-              </button>
+              <!-- El estado de cuenta completo se VE, no se descarga: la ficha del cliente es el estado de
+                   cuenta en pantalla (CXC.50/CXC.51) y abre en este cliente por el enlace profundo de CXC.26.
+                   El PDF vive allá, que es donde se usa para enviárselo al cliente. -->
+              <a class="pa-ec-liga" [routerLink]="['/finanzas/cartera']" [queryParams]="{ suc: p.sucursal, cliente: p.cliente }">
+                @if (facturasDeMas() > 0) { Ver su estado de cuenta completo ({{ facturasDeMas() }} facturas más) }
+                @else { Ver su estado de cuenta completo }
+                <i class="pi pi-arrow-up-right" aria-hidden="true"></i>
+              </a>
             }
           </details>
 
@@ -370,6 +376,10 @@ export function esperaDe(p: PedidoPorAutorizar): string {
     .pa-facturas { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); margin: var(--sp-2) 0; }
     .pa-facturas th { text-align: left; font-weight: 600; color: var(--text-muted); padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--border-color); }
     .pa-facturas td { padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--border-color); }
+    .pa-ec { margin-bottom: var(--sp-2); }
+    .pa-mal-num { color: var(--bad-soft-fg); }
+    .pa-ec-liga { display: inline-flex; gap: var(--sp-1); align-items: center; font-size: var(--fs-sm); color: var(--action); text-decoration: none; }
+    .pa-ec-liga:hover, .pa-ec-liga:focus-visible { text-decoration: underline; }
     .pa-facturas .comm-num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     /* Vencida: palabra y número lo dicen (la columna «Días»); el color no es el único portador. */
     .pa-f-vencida td { color: var(--text-main); }
@@ -418,17 +428,18 @@ export class FinanzasPorAutorizarComponent implements OnInit {
   readonly detalle = signal<CarteraDetalle | null>(null);
   readonly cargandoDetalle = signal(false);
   readonly errorDetalle = signal<string | null>(null);
-  readonly bajandoPdf = signal(false);
   private pedidoDelDetalle = '';
   /** Las vencidas primero y las más viejas arriba: es el orden en que se cobran. */
   readonly facturas = computed(() => {
     const d = this.detalle();
     if (!d) return [];
     return [...d.partidas]
-      .sort((a, b) => Number(b.vencida) - Number(a.vencida) || (a.vencimiento ?? '').localeCompare(b.vencimiento ?? ''))
+      .sort(masNuevaPrimero)
       .slice(0, FACTURAS_EN_EL_PANEL);
   });
   readonly facturasDeMas = computed(() => Math.max(0, (this.detalle()?.partidas.length ?? 0) - FACTURAS_EN_EL_PANEL));
+  /** El siguiente vencimiento de lo que está al corriente, con la misma función que la ficha y el PDF. */
+  readonly proximo = computed(() => { const d = this.detalle(); return d ? proximoVencimiento(d.partidas) : null; });
   private readonly campoMotivo = viewChild<ElementRef<HTMLTextAreaElement>>('campoMotivo');
   private readonly tabla = viewChild<Table>('tabla');
 
@@ -544,22 +555,6 @@ export class FinanzasPorAutorizarComponent implements OnInit {
     this.cartera.detalle(p.sucursal, p.cliente).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.detalle.set(d); this.cargandoDetalle.set(false); },
       error: () => { this.errorDetalle.set('No se pudieron leer sus facturas.'); this.cargandoDetalle.set(false); },
-    });
-  }
-
-  /** `[GP.A.5c]` El documento como lo ve el cliente, desde donde se decide. El endpoint pide JWT: viaja como blob. */
-  verEstadoDeCuenta(p: PedidoPorAutorizar): void {
-    if (this.bajandoPdf()) return;
-    this.bajandoPdf.set(true);
-    this.cartera.estadoCuentaPdf(p.sucursal, p.cliente).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (blob) => {
-        this.bajandoPdf.set(false);
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank', 'noopener');
-        // Se suelta después de que el navegador lo abrió: revocarlo de inmediato deja la pestaña en blanco.
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      },
-      error: () => { this.bajandoPdf.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo', detail: 'No se pudo abrir el estado de cuenta.', life: 6000 }); },
     });
   }
 
