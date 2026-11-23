@@ -38,6 +38,96 @@ Un tipo de incidencia nuevo para «el horario de un día» habría dejado a RH e
 el que ya existe conserva el porqué y quién autorizó, que ya se pedían. Y la lista de usuarios se lee sola, y no el
 registro completo, porque cuesta decenas de KB contra los ~2 MB del registro, así que se puede pedir en el momento.
 
+## RH.15 · El registro de la jornada como lo pide la ley (2026-11-17)
+
+> **Recorte del 2026-11-23 (David: «¿realmente son necesarias las 8 migraciones?»).** Quedan **2**, fusionadas porque
+> ninguna estaba aplicada en prod: `20261117103955` (checadas como evidencia + desfase del reloj, RH.15.1 + RH.15.4) y
+> `20261117105402` (firma de la semana en papel y por QR, RH.15.5 + RH.15.11). **Salieron del código**, y viven sólo en el
+> respaldo: el aviso de privacidad (RH.15.6: ya existe un registro de avisos en Mesa de Servicio, `servicedesk.privacy_*`;
+> cuando Legal entregue el texto se EXTIENDE ése), el expediente de la persona (RH.16.1: nadie lo priorizó; lo pide
+> `[MDT.5.8]` cuando el PM lo abra), la carta poder y los sobres (RH.16.2/16.3: pospuestos, el modelo no coincide con cómo
+> se entregan de verdad, ver plan RH §8 P1). Ninguna de las 8 sirve al foco actual de RH (horarios e incidencias).
+
+**El problema.** La reforma a la LFT (DOF 1-may-2026) obliga a registrar electrónicamente la jornada de cada persona,
+con hora de inicio y fin, y a entregarla a la autoridad (art. 132 fr. XXXIV; reglas de la STPS desde el 1-ene-2027).
+Ese registro sólo hace **prueba plena si se acredita que lo acordaron** la persona y el patrón. Además, la ley pide
+conservar los controles de asistencia (art. 804-III: el último año y uno más después de la baja; si no se exhiben,
+art. 805 presume lo que dice el trabajador), y la huella o el rostro son **datos sensibles** (Ley de datos personales
+2025: consentimiento expreso). Auditado en el código: las checadas se podían editar y borrar, el PDF «para firmar» no
+se guardaba, el lector perdía checadas si la llave fallaba, una falla del reloj salía como «Falta», la Suite no
+conocía los límites de jornada de la reforma y no había aviso de privacidad ni seguimiento de huellas de bajas.
+
+**La solución, item por item:**
+
+| Item | Qué pide la ley | Qué se hizo |
+|---|---|---|
+| `RH.15.1` | Un registro confiable | Las checadas son **evidencia**: un disparador rechaza cambiar reloj, código, hora, método o tipo; borrar exige `SET LOCAL hr.borrado_checadas = '<motivo>'` y deja copia en `hr.attendance_log_deletions`; la app perdió DELETE y un reloj con checadas ya no se borra (RESTRICT) |
+| `RH.15.2` | No inventar faltas | «**Sin dato**» en vez de «Falta» cuando nadie de la plaza checó y al menos dos personas salían con falta (reloj caído o día no laborable). Con una sola persona sigue siendo falta. Se re-etiqueta después del cálculo: la regla sigue en paridad con Mega Talento |
+| `RH.15.3` | No perder checadas | El lector ya no da por enviado un lote que la Suite rechazó por la llave (401/403): se queda en la cola y se reintenta |
+| `RH.15.4` | Inicio y fin exactos | Cada checada guarda el **desfase de su reloj** al entregarla; lo de más de un día en el futuro se rechaza (reloj con la fecha mal puesta), unos minutos adelante no |
+| `RH.15.5` | Prueba plena (acuerdo) | **Firma de la semana**: una hoja por departamento, firmada por las personas y su jefe de área, se sube en el panel de cierre y queda ligada a la versión cerrada; si la semana se reabre y cambia, hay que volver a firmar |
+| `RH.15.9` | Entregarlo a la autoridad | «**Registro para la autoridad**» en la ficha: CSV de las checadas tal como las entregó el reloj (hasta 400 días) con su huella sha256 |
+| `RH.15.10` | Jornada 48→40 h y horas extra 9→12 | Cada semana se mide contra la **ley del año**; lo que pasa de la jornada es irregularidad, y si pasa del tope de horas extra (se pagan al triple) es alta |
+| `RH.15.6` | Consentimiento por la huella | ⏸️ **Fuera del código desde el 2026-11-23** (respaldo en `Documents\respaldos-git\2026-11-23\antes-de-recortar-a-2-migraciones\`). Era: registro del **aviso de privacidad firmado** por persona (el texto lo da Legal) |
+| `RH.15.7` | Suprimir lo que ya no se necesita | Lista de **huellas de personas dadas de baja** que el reloj sigue teniendo; a los 7 días, «por quitar». No se borra nada desde aquí |
+| `RH.15.8` | Conservar 1 año después de la baja | Hasta cuándo se conservan las checadas de cada baja. Nada se borra solo |
+| `RH.15.0` | El registro de **cada** trabajador | Personas activas que no checaron en una semana (no vinieron, o trabajan sin registrar) |
+| `RH.15.11` | Prueba plena (acuerdo), desde el celular | **QR personal** por persona (un uso, 72 h): lo escanea, ve SU semana cerrada y firma con el dedo; **la firma es la autorización** y cuenta en ese momento. RH la puede **anular con motivo** (no se borra). Se guarda en el **PDF del departamento** (todas las firmas, con trazo, hora e IP) y en el **expediente de la persona** (Asistencia › persona › «Firmas de su asistencia», con comprobante de la versión exacta que firmó). La hoja en papel queda como respaldo. La base guarda la **huella** del token, no el token |
+| `RH.16.1` | Un solo expediente por persona | ⏸️ **Fuera del código desde el 2026-11-23** (respaldo en `Documents\respaldos-git\2026-11-23\antes-de-recortar-a-2-migraciones\`). Era: **expediente de la persona** (su usuario de la Suite, no la plaza): el **contrato** y los 12 casilleros de Reclutamiento, aunque nunca haya pasado por Reclutamiento («Subir archivo» en su ficha de Asistencia), más sus **semanas firmadas de todas sus plazas**. Al pasar a «Contratado», RH dice **quién es en la Suite** y los documentos de la candidatura se **ven** en el expediente (no se copian). Quién ve: **RH** (llaves de Reclutamiento) todo; **su jefe**, sólo si es de su gente por el organigrama, y sin subir ni retirar |
+| `RH.16.2` | Pago directo o con carta poder (LFT art. 100) | ⏸️ **Fuera del código desde el 2026-11-23** (respaldo en `Documents\respaldos-git\2026-11-23\antes-de-recortar-a-2-migraciones\`). Era: **carta poder para cobro** en el expediente: a quién autoriza la persona a recoger su sobre, **dos testigos distintos**, la carta firmada y desde cuándo vale. **Una vigente por persona**; se **revoca con motivo** (no se borra). Sin carta vigente, «recoge su sobre en persona». Es la regla que usará la entrega del sábado: el representante sólo recoge los sobres de quien le dio carta poder |
+| `RH.16.3` | El efectivo del sábado se entrega por departamento y nadie sabía, después, quién recogió el sobre de quién ni si le llegó | ⏸️ **Fuera del código desde el 2026-11-23** (respaldo en `Documents\respaldos-git\2026-11-23\antes-de-recortar-a-2-migraciones\`). Era: **sobres de efectivo** (`/rh/sobres`, clave nueva `HR_PAY_ENVELOPES_GESTIONAR`, para quien escojan de Finanzas): **armar** el monto de cada persona sobre la semana cerrada (en la fila o pegando desde Excel; corregir pide motivo y queda el historial) y **entregar**: se elige quién viene a recoger (la lista dice cuántos sobres le tocan), la pantalla muestra **sólo nombres, nunca montos**, y firma **una vez por todos**. El sobre ajeno sólo sale con **carta poder vigente a su nombre**; si uno no le toca, no sale ninguno. Cada dueño ve su sobre **con monto**, quién lo recogió y cuándo, y contesta «Sí lo recibí» / «No me llegó» (con nota a RH): en **«Mi sobre»** (menú de usuario) y en la página de su QR, aunque ya haya firmado su semana. Quien recoge el suyo ya firmó de recibido. **No toca Caja General** |
+
+**Cómo se implementó.** 2 migraciones (`20261117103955` candado + desfase, `20261117105402` firmas en papel y por QR;
+antes eran 5, fusionadas el 2026-11-23), tres controladores **nuevos** (firmas, registro, cumplimiento) en vez de parámetros nuevos en el de
+asistencia (#414), sin permisos nuevos (firmas con `HR_PERIOD_CLOSE`), y en la
+pantalla: el bloque de firmas debajo del cierre, el registro en la ficha y el cumplimiento en el panel de Relojes.
+
+**Por qué así.**
+- **Re-etiquetar en vez de cambiar la regla de faltas**: la regla da 0 diferencias contra Mega Talento; «Sin dato» se
+  agrega después y se puede quitar sin tocarla.
+- **La firma va ligada al cierre**: se firma lo que quedó cerrado; firmar algo que todavía cambia no prueba nada.
+- **Huellas y conservación sólo se AVISAN**: borrar una huella es una orden a un equipo de producción y el plazo exacto
+  lo confirma el abogado.
+- **La ingesta tolera que falte la columna del desfase**: un INSERT que nombra una columna inexistente pararía los 12 relojes.
+- **Firma del celular (`RH.15.11`): la firma es la autorización** (decisión de desarrollo con RH, 2026-11-17). Primero se
+  construyó con número de reloj (5 intentos) y confirmación del jefe con su trazo; se quitaron los dos para que firmar sea
+  abrir, leer y firmar. ⚠️ **Riesgo declarado:** el QR es la única llave: quien lo tenga ve la semana de esa persona y
+  puede firmar por ella. Lo acotan: 144 bits al azar, un solo uso, 72 h, se revoca al generar otro, entrega en mano, IP +
+  navegador + hora de cada firma, la frase «si no eres Fulano, no firmes» y **anular con motivo**. Falta que Legal diga
+  si así alcanza como «acuerdo»; si no, se regresa el número de reloj (nunca llegó a `main`: hay que volver a escribirlo).
+- **Expediente (`RH.16.1`, fuera del código desde el 2026-11-23), por qué era así:** la persona ya es la llave de la asistencia (cada número de reloj se liga a su
+  usuario; el «alta» crea uno sin acceso), así que no hace falta otra identidad. Los documentos de la persona usan la MISMA
+  forma y reglas que los del candidato (`talent/logic/expediente.ts`), y el expediente lee los de la candidatura por la
+  liga `hired_user_id` (regla 2: derivar, no copiar). El jefe sale de la cadena de mando de puestos
+  (`platform-core/org/cadena-de-mando.ts`, primitivo común): **falla cerrado**, un organigrama incompleto lo deja sin ver,
+  nunca de más. Sin permiso nuevo (decisión de desarrollo, se puede separar después). ⚠️ Son INE, CURP, NSS y cuenta
+  bancaria: bucket privado y URL de 10 minutos. Lo que dijo RH sin medir (todos ligados, todos con jefe) queda por medir.
+- **El PDF se arma con lo guardado** (la foto del cierre + el trazo + la huella de la versión): se vuelve a generar igual
+  cuando se necesite, en vez de guardar un PDF que podría no cuadrar con la base.
+  El token lleva el tenant (no es secreto) y 144 bits al azar: la página pública no necesita saltarse RLS.
+  Página pública `/mi-semana/:token` (en `RUTAS_PUBLICAS`); API `/hr/attendance/firma/:token` con límite de peticiones.
+- **El tope de 2 MB del JSON**: la hoja escaneada (hasta 10 MB) daba 413; `main.ts` les da 16 MB sólo a esas rutas.
+
+**Lo que falta, y de quién es.** El texto y la versión del aviso de privacidad (Legal) · el plazo exacto de
+conservación (abogado) · quitar huellas del reloj (Sistemas / líder técnico) · el formato oficial del registro (STPS, se espera
+en diciembre) · el «banco de horas extra», que la LFT no contempla (abogado) · la cobertura real necesita la nómina · si la firma
+del celular, sin número de reloj ni jefe, basta como «acuerdo» del 132-XXXIV (Legal) · si una carta poder firmada UNA vez vale para todas las semanas (Legal, `RH.16.2`) · el monto del sobre se CAPTURA en la Suite (`RH.16.3`, dato propio): confirmar con Edgar que reemplaza al archivo de RH y no se lleva doble · si el efectivo sale de Caja General, ese asiento es de Edgar · repartir `HR_PAY_ENVELOPES_GESTIONAR` a quien escojan de Finanzas (Edgar, regla 20) · medir en prod cuántos están ligados y tienen jefe (`RH.16.1`, sin medir) · ligar ContPAQi ↔ persona (Edgar abre `contpaqi_nom`) · revisar la página pública
+antes de prod (líder técnico) · `APP_PUBLIC_URL` en prod, o las ligas toman el origen de quien las genera.
+
+**Cómo se probó, después del recorte (2026-11-23).** `tsc` de api y view, y `ngc` de view: 0 errores. libs/hr asistencia
+316/326 contra el Postgres local (stack de desarrollo, transacciones que se deshacen): las 11 de RH.15 en verde (firma
+digital, firmas en papel, cumplimiento, registro, ingesta); las 9 rojas son de la base local, que se quedó en la migración
+del 2026-09-08 (le faltan `identity.users.status` y `hr.device_enrollments.user_id`) y no tocan RH.15: **NO MEDIDAS**.
+Talent 257, authz 79, vista RH 319: en verde. La migración de checadas fusionada, 11/11 en una transacción que se deshace,
+con su NEGATIVA (con el `down`, cambiar la hora de una checada vuelve a pasar). `test-newdb-rh15-checadas-inborrables.js`:
+NO MEDIDO en local (pide `hr.attendance_sites`, que la base local no tiene). `check:pantalla -- rh`: 29 fallas «nuevas»
+contra la línea del 2026-10-19, ninguna por el recorte (fallan igual pantallas idénticas a `main`). **Sin validación visual.**
+
+**Cómo se probó (2026-11-17, antes del recorte).** libs/hr completo contra Postgres local **542/542**; vista RH **264/264**; `test-newdb-rh15-checadas-inborrables.js`
+**10/10** con su prueba negativa. Pruebas negativas también en el lector (sin el arreglo, 3 rojos), «Sin dato» (con una
+persona sigue siendo falta) y el CSV (una hora tocada cambia la huella). `ngc` 0 errores; firmas y cumplimiento
+cumplen las 10 reglas de pantalla. **Sin validación visual** hasta que se vea en local con el stack arriba.
+
 ## RH.13.8 · El horario ya no se encima sobre las checadas (2026-11-17)
 
 **El problema.** En la tabla semanal de `/rh/asistencia`, a quien tiene varios horarios (mañana, tarde) y sábado, el
