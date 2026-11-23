@@ -6115,3 +6115,42 @@ En la última semana cerrada (254 recibos):
 (Jet 32-bit, `Mode=Read`), en el scratchpad de la sesión del 2026-11-23. El detalle por persona y los
 importes individuales **no se publican acá**: viven en el anexo privado del frente NE
 ([`FASE_RH_FRENTE_NE_NOMINA.md`](IMPLEMENTACION/FASES/FASE_RH_FRENTE_NE_NOMINA.md)).
+
+### 40.6 ⭐⭐ La nómina se paga con DOS cifras distintas, y una de ellas tiene nombre falso (NE.0.3, 2026-11-23)
+
+Medido con las vistas mínimas de ContPAQi Nóminas publicadas el mismo día
+(`contpaqi_ods.v_nomina_empleado` y `v_nomina_pago_periodo`, sin RFC/CURP/NSS/cuenta en claro).
+
+**Qué dispersa el banco — resuelto.** El archivo de dispersión de una semana real trae 20 importes
+distintos: **los 20 aparecen como neto de ContPAQi del mismo periodo. Cero no hallados.**
+→ **El banco dispersa el NETO FISCAL que calcula ContPAQi**, no una cifra del sistema de nómina.
+
+**Y el sistema de nómina trabaja en BRUTO.** Su campo de pago por banco coincide al peso (±$1) con la
+**percepción bruta** de ContPAQi en **157 de 201** personas, con diferencia mediana **$0.00**.
+
+Semana del 7 al 13 de noviembre, nómina ordinaria, 208 personas:
+
+| | |
+|---|---:|
+| percepciones | $471,998.63 |
+| otros pagos | $3,035.38 |
+| **deducciones** (ISR, IMSS, Infonavit) | **$105,777.41** |
+| **= neto, que es lo que el banco envía** | **$369,256.60** |
+
+→ La brecha medida entre «lo que el sistema viejo supone de banco» y «lo que el banco mandó» fue de
+**$105,109.71** sobre 201 personas. **Las deducciones la explican completa** ($105,777.41 sobre 208).
+⛔ **No falta dinero y nadie cobra de menos**: son retenciones, que por definición las paga el
+trabajador.
+
+**Lo que sí es un defecto — el nombre.** El campo se llama *«sueldo a recibir»* y **no es lo que se
+recibe**: comparando lo que la persona recibe en mano (neto del banco + efectivo del sobre) contra
+ese campo, **186 de 201 reciben menos**, con mediana **−$390.37** por persona y semana. Es una cifra
+bruta con nombre de neto — Ley 0 del estándar de interfaces: *nada afirma lo que no es*.
+
+**Y la consecuencia operativa que importa:** las dos mitades viven en sistemas que no se conocen —
+la bancaria en ContPAQi, la de efectivo en el sistema de nómina, sin llave común. **Hoy nadie en la
+empresa puede responder «¿cuánto recibió esta persona esta semana?» desde un solo lugar.** Para
+armarlo hay que cruzar dos bases a mano, por nombre.
+
+⚠️ **NO MEDIDO:** las 15 personas que reciben **de más** que el campo; por qué 44 de 201 no coinciden
+al peso entre el pago por banco del sistema viejo y la percepción bruta.
