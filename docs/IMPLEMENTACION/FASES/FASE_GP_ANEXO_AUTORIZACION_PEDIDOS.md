@@ -467,7 +467,7 @@ de E4.
 | 3 | Llave `FINANCE_PEDIDOS_AUTORIZAR` | ✅ repartida: `credito_cobranza` + `superadmin` (regla 20) | — |
 | 4 | **Permiso en Kepler (GP.A.0d)** | ⬜ **no corrido**, ni GP.A.0d ni GP.12.0e | ⭐ **el PM**: `node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/gpa0d_kdm1_update_c11.sql --aplicar` (pide la contraseña de superusuario) |
 | 5 | Ensayo con ROLLBACK en el Kepler vivo | ⬜ sin correr (depende del 4) | Claude, apenas exista el 4 (`ops/prod/ensayo-autorizacion-kepler`) |
-| 6 | `KEPLER_AUTORIZACION_PEDIDOS=encendida` | ⬜ **la bandera no existe** en los secretos de k3s (`prod-env`/`kepler-push`) | el PM, con `kubectl patch` sobre el secreto (⛔ nunca `--from-env-file`) |
+| 6 | `KEPLER_AUTORIZACION_PEDIDOS=encendida` | ⬜ **la bandera no existe** en los secretos de k3s (`prod-env`/`kepler-push`) | el PM, igual que `KEPLER_GASTO_AUTORIZACION` en PGP.79: va en el secreto `prod/kepler-push` (ningún manifiesto lo define, así sobrevive a `aplicar-k3s-prod.sh`) y después `rollout restart deploy/api`. ⛔ Nunca `--from-env-file`: ese secreto tiene llaves que su maestro no |
 | 7 | Interruptor por sucursal (`kepler_push_switch`, tipo `autorizacion`) | ⬜ **9 de 9 apagados, sin tope** | el PM decide la sucursal piloto; encender = se puede **a mano**. El automático pide además un **tope del día** (D-A14) |
 
 **Qué pasa hoy, con 4–7 cerrados:** Crédito y cobranza ya puede **rechazar** con motivo (no toca Kepler) y lo
