@@ -199,3 +199,60 @@ no se publica en ninguna pantalla general.
 | 2026-11-23 | Empate rehecho y **métrica corregida de 69.9 % a 73.7 %**: el primer número contaba como acierto a quien coincidía con más de un usuario. La ambigüedad eran registros duplicados e inactivos, no homónimos; preferir el activo la lleva a 0 %. Quedan **65 sin candidato** y **3 con usuario inactivo** como lista de trabajo de RH | Claude |
 | 2026-11-23 | Medido el catálogo de centros: **17 de 34 son sitios físicos, 17 son áreas**. Conclusión de diseño: la columna se parte en dos al migrar, no se copia | Claude |
 | 2026-11-23 | ⚠️ **Corregida una afirmación falsa de este documento**: no es cierto que los días y las horas se tecleen recibo por recibo — `HorasTrabajadas` vale 0 en los 254 recibos de la semana y los días están vacíos en 235. Medido en su lugar: **82.7 % de los recibos son el catálogo tal cual** y el bono de asistencia lo cobran **154 de 155**. Refuerza D3: lo que el Access hace es registrar y repartir un pago, no calcularlo | Claude |
+
+---
+
+## 8. `[NE.0.6]` El centro partido en dos — lo que RH tiene que confirmar
+
+**Medido el 2026-11-23** (sólo lectura). Universo: la última semana cerrada, **254 personas en 34
+centros**; 204 (80.3 %) ligan con un usuario de la Suite.
+
+⛔ **No se crea ningún catálogo nuevo:** la Suite ya tiene los dos ejes —`hr.attendance_sites` (12
+sitios) e `identity.departments` (22 áreas)— y el texto `Sucursal` del sistema viejo resultó ser
+**sitio × área pegados**.
+
+### 8.1 El sitio SE DERIVA; el área NO
+
+⭐ **Sitio:** mirando dónde checa de verdad la gente de cada centro, **30 de 34 centros** resuelven
+su sitio, casi todos con **100 % de consenso**, cubriendo **248 de 254 personas**. Eso es una
+medición contra un hecho independiente, no una opinión.
+
+⛔ **Área:** el campo `department_code` de la Suite y el sufijo del nombre del centro coinciden en
+**21 de 28** casos comparables (**75 %**, contra **4.8 %** que daría el azar entre las 21 áreas en
+uso). Miden lo mismo —por eso coinciden tanto— **pero se contradicen en 1 de cada 4**, así que
+ninguno de los dos manda solo. ⚠️ `department_code` está lleno en **204 de 284 usuarios activos
+(71.8 %)**, no en el 16 % que sugiere el padrón completo (ése arrastra 983 registros muertos).
+
+### 8.2 Las 7 contradicciones, una por una
+
+| centro de nómina | el nombre dice | la Suite dice | personas |
+|---|---|---|---:|
+| Morelia Vecinal | `ruta_vecinal` | `ruta_directa` | 3 |
+| Canindo TLMK | `telemarketing` | `mayoreo` | 1 |
+| Morelia Abastos TLMK | `telemarketing` | `ruta_vecinal` | 1 |
+| PHidalgo TLMK | `telemarketing` | `mayoreo` | 1 |
+| PHidalgo TLMK | `telemarketing` | `tienda` | 1 |
+
+### 8.3 Lo que queda pendiente, con su motivo
+
+| qué falta | centros | personas |
+|---|---|---:|
+| **sin sitio derivable** (nadie de ahí checa en un sitio conocido) | Direccion · RD Zamora · Morelia TLMK · Promotoria Morelia | 6 |
+| **consenso de sitio por debajo del 70 %** | PHidalgo Staff (67 %) · Compras (50 %) | 9 |
+| **sin área en ninguna de las dos fuentes** | Logistica · Yurecuaro · Logistica Carga · Mercadotecnia · Promotoras · Compras · Promotoria Morelia | 27 |
+| **el mismo centro escrito de dos formas** | `Marcadotecnia` (1) vs `Mercadotecnia` (4) | 5 |
+
+⛔ **El gate de `[NE.0.6]` —«ninguna persona del universo sin sitio y sin área»— NO está cumplido**,
+y `cubreElUniverso()` en [`libs/hr/src/lib/nomina/centro.ts`](../../../libs/hr/src/lib/nomina/centro.ts)
+lo mide en cada corrida en vez de darlo por bueno.
+
+### 8.4 Las tres preguntas para RH
+
+1. **¿`Morelia Vecinal` es ruta vecinal o ruta directa?** Es la única contradicción con más de una
+   persona, y cambia a qué área se le imputa el costo.
+2. **¿Qué área tienen los 27 sin ninguna?** En particular `Logistica` (8) y `Yurecuaro` (5).
+3. **¿`Marcadotecnia` y `Mercadotecnia` son el mismo centro?** Si sí, cuál es la escritura buena.
+   ⛔ El sistema **no** lo decide solo: un error de dedo y un centro distinto se ven igual.
+
+⚠️ **NO MEDIDO:** el sitio de las 6 personas que no checan; si los 50 sin candidato en la Suite
+cambiarían alguna mayoría de centro.
