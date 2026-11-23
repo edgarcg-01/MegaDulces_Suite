@@ -356,6 +356,17 @@ async function completo(urlAdmin, urlRuntime) {
       const sinCat = await mov(BBVA_A, { uncategorized: 'true' });
       check(sinCat.rows.length > 0 && sinCat.rows.every((x) => x.fuente === 'libro'),
         `[negativa] «sin clasificar» es del libro: la descarga no se clasifica ahí (${sinCat.rows.map((x) => x.fuente)})`);
+      // [CB.90] El grupo «Sin clasificar» (la leyenda y el selector) alcanza lo que no tiene categoría. Antes comparaba
+      // `group_key` crudo, que es NULL sin categoría: daba 0 siempre, y con «Solo sin clasificar» puesto también.
+      const grupoSC = await mov(BBVA_A, { group_key: 'sin_clasificar' });
+      const idsSinCat = sinCat.rows.map((x) => x.id).sort().join(',');
+      check(grupoSC.total >= sinCat.total && sinCat.rows.every((x) => grupoSC.rows.some((y) => y.id === x.id)),
+        `[CB.90] el grupo «Sin clasificar» trae lo del libro sin categoría (${grupoSC.total} ⊇ ${sinCat.total})`);
+      check(grupoSC.rows.every((x) => (x.group_key ?? 'sin_clasificar') === 'sin_clasificar') && !grupoSC.rows.some((x) => x.fuente === 'descarga' && x.category_id),
+        `[CB.90][negativa] nada con categoría entra, tampoco la comisión, el IVA ni la venta de la descarga (${grupoSC.rows.map((x) => `${x.fuente}:${x.group_key}`)})`);
+      const ambos = await mov(BBVA_A, { group_key: 'sin_clasificar', uncategorized: 'true' });
+      check(ambos.total === sinCat.total && ambos.rows.map((x) => x.id).sort().join(',') === idsSinCat,
+        `[CB.90] el caso de la pantalla: grupo «Sin clasificar» + «Solo sin clasificar» = los mismos ${sinCat.total} (antes 0; da ${ambos.total})`);
       const sinPeriodo = await fbs.movements({ account_id: BBVA_A, limit: 50 });
       check(sinPeriodo.descarga === null && sinPeriodo.rows.every((x) => x.fuente === 'libro' && x.en_descarga === null),
         '[negativa] sin periodo no se afirma nada de la descarga');

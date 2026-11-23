@@ -91,9 +91,9 @@ describe('[PGP.117] sólo el worker escucha, y se puede apagar', () => {
     con({ WORKER: 'false', DISABLE_PAGOS_VENCIDOS: undefined }, (escuchar) => expect(escuchar).not.toHaveBeenCalled());
   });
 
-  it('en el worker se suscribe UNA vez, a los documentos de Kepler', () => {
+  it('en el worker se suscribe UNA vez a los documentos de Kepler y, desde [PGP.202], UNA a los avisos del banco', () => {
     con({ WORKER: 'true', DISABLE_PAGOS_VENCIDOS: undefined }, (escuchar) => {
-      expect(escuchar.mock.calls.map((c) => c[0])).toEqual([CANAL_FUENTE_KEPLER]);
+      expect(escuchar.mock.calls.map((c) => c[0])).toEqual([CANAL_FUENTE_KEPLER, CANAL_BANCOS]);
     });
   });
 

@@ -23,6 +23,29 @@ const piezasEnterasDe = (l: { sku: string; cajas: number; piezas_por_caja?: numb
  */
 export const textoKepler = (v: number): string => String(Math.round((Number(v) || 0) * 100) / 100);
 
+/**
+ * `[PQ.146]` El texto de condiciones (`kdm1.c30`) que Kepler escribe para un plazo (`c17`), medido en
+ * 28,716 de 28,735 documentos de compra capturados a mano (6 meses): 0 → «Pago de contado»; N →
+ * «N días fecha factura». Las 19 que no lo siguen son texto libre («Pago en efectivo», «30 dias»).
+ */
+export const condicionDePlazo = (dias: number): string => (dias === 0 ? 'Pago de contado' : `${dias} días fecha factura`);
+
+/**
+ * `[PQ.146]` El plazo del proveedor en la ficha de Kepler (`kdxd.c16`, días). Fail-closed: un plazo
+ * que no es un entero ≥ 0 (hay un proveedor con −1 en los nueve servidores) NO se escribe ni se
+ * reemplaza por el de la plantilla — se rechaza con el motivo, y lo corrige Compras en la ficha.
+ */
+export function plazoDeKepler(c16: unknown):
+  | { ok: true; valor: { dias: string; condicion: string } }
+  | { ok: false; motivo: string } {
+  const t = String(c16 ?? '').trim();
+  const n = Number(t);
+  if (t === '' || !Number.isInteger(n) || n < 0) {
+    return { ok: false, motivo: `su plazo en la ficha (kdxd.c16) es «${t || 'vacío'}», no un número de días válido` };
+  }
+  return { ok: true, valor: { dias: String(n), condicion: condicionDePlazo(n) } };
+}
+
 /** `[KR.17]` Quién capturó (`kdm1.c67`, varchar(23)): lo escribió la Suite, no una persona. */
 export const CAPTURISTA_SUITE = 'SUITE';
 
@@ -183,6 +206,8 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       // desconocido para el ERP no falla al escribir: produce un documento que apunta a algo
       // que no existe, y eso lo descubre alguien de compras días después.
       let c10: string, c32: string;
+      /** `[PQ.146]` Sólo la compra: el plazo del proveedor en ESTE servidor. El traspaso no tiene plazo. */
+      let plazo: { dias: string; condicion: string } | undefined;
 
       if (tipo === 'compra') {
         if (!e.proveedor_code?.trim()) return { estado: 'rechazada', motivo: 'Sin código de proveedor Kepler (kdm1.c10 es obligatorio)' };
@@ -194,7 +219,7 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
         // Kepler sólo exige el catálogo; nosotros exigíamos historia. Medido con el simulacro
         // `database/scripts/pq-simulacro-escritura-kepler.js`.
         const prov = await c.query(
-          `SELECT btrim(c2) AS code, btrim(c3) AS nombre FROM md.kdxd WHERE btrim(c2)=$1 LIMIT 1`,
+          `SELECT btrim(c2) AS code, btrim(c3) AS nombre, c16::text AS dias FROM md.kdxd WHERE btrim(c2)=$1 LIMIT 1`,
           [e.proveedor_code.trim()]);
         if (!prov.rowCount) {
           // `[PQ.24]` El catálogo de la Suite trae proveedores con la clave VIEJA activa y la de
@@ -203,7 +228,7 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
           // catálogo de ESTA sucursal por nombre exacto, y sólo si el nombre señala UNA clave.
           const nombre = e.proveedor_nombre?.trim();
           const porNombre = nombre ? await c.query(
-            `SELECT DISTINCT btrim(c2) AS code, btrim(c3) AS nombre FROM md.kdxd WHERE upper(btrim(c3)) = upper($1)`,
+            `SELECT DISTINCT btrim(c2) AS code, btrim(c3) AS nombre, c16::text AS dias FROM md.kdxd WHERE upper(btrim(c3)) = upper($1)`,
             [nombre]) : { rowCount: 0, rows: [] };
           if (porNombre.rowCount !== 1) {
             return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no tiene al proveedor ${e.proveedor_code} en su catálogo (kdxd)`
@@ -214,6 +239,9 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
         }
         c10 = prov.rows[0].code;
         c32 = e.proveedor_nombre?.trim() || prov.rows[0].nombre;
+        const p = plazoDeKepler(prov.rows[0].dias);
+        if (!p.ok) return { estado: 'rechazada', motivo: `Proveedor ${c10} en Kepler (sucursal ${e.sucursal}): ${p.motivo}` };
+        plazo = p.valor;
       } else {
         // ⭐ El destino de un traspaso NO es un almacén: es un pseudo-cliente `TI###`, y **no se
         // puede inferir del número de sucursal** — `02` La Piedad es `TI008` y `03` 8 Esquinas
@@ -405,6 +433,15 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       await c.query(
         `UPDATE _h SET c18 = $1, c14 = 0, c15 = 0, c69 = $2, c67 = $3, c22 = $4, c33 = $5, c34 = $6, c35 = $7`,
         [e.fecha, horaMx(), CAPTURISTA_SUITE, fiscal.c22, fiscal.c33, fiscal.c34, fiscal.c35]);
+
+      // ⛔ `[PQ.146]` El PLAZO (`c17`) y su texto (`c30`) son del PROVEEDOR, no de la plantilla. Hasta
+      // el 2026-11-23 se heredaban del molde («21 días fecha factura» o «Pago de contado»): de 283
+      // OC escritas en 60 días, 202 llevaban un plazo distinto al de la ficha del proveedor, y el
+      // plazo viaja OC → vale → entrada → aplicación, donde el vencimiento de la CxP = fecha + plazo
+      // (3,020 de 3,272 aplicaciones a mano). Kepler, al capturar a mano, lo toma del catálogo de
+      // acreedores (`kdxd.c16`) en 1,474 de 1,539 OC, y el texto sigue la regla de `condicionDePlazo`
+      // en 28,716 de 28,735 documentos de compra (6 meses). Se copia a la OC con el resto de `_h`.
+      if (plazo) await c.query('UPDATE _h SET c17 = $1, c30 = $2', [plazo.dias, plazo.condicion]);
 
       // `c27` sólo lo usa el traspaso (`SUCURSAL`); la compra no tiene esa columna en juego.
       if (d.c27) await c.query('UPDATE _h SET c27 = $1', [d.c27]);

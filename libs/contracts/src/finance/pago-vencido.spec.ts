@@ -18,13 +18,18 @@ const p = (o: Partial<PagoPendienteVencido> = {}): PagoPendienteVencido => ({
 });
 
 describe('[PGP.117] decidirVencido', () => {
-  it('a la semana, sin abono en Kepler ni salida de banco: se libera', () => {
+  it('[PGP.202] al día siguiente, sin abono en Kepler ni salida de banco (con el banco cubriendo): se libera', () => {
+    expect(decidirVencido(p(), '2026-11-04')).toEqual({ accion: 'liberar', dias: 1 });
     expect(decidirVencido(p(), '2026-11-10')).toEqual({ accion: 'liberar', dias: 7 });
   });
 
-  it('antes de la semana se espera, aunque no haya ningún testigo (borde: 6 días)', () => {
-    expect(decidirVencido(p(), '2026-11-09')).toEqual({ accion: 'esperar', dias: 6 });
-    expect(DIAS_PARA_LIBERAR).toBe(7);
+  it('su mismo día se espera, aunque no haya ningún testigo (borde: 0 días)', () => {
+    expect(decidirVencido(p(), '2026-11-03')).toEqual({ accion: 'esperar', dias: 0 });
+    expect(DIAS_PARA_LIBERAR).toBe(1);
+  });
+
+  it('[PGP.202] al día siguiente con el banco todavía sin cubrir esos días: NO se libera (la espera la pone el banco)', () => {
+    expect(decidirVencido(p({ salidaDeBanco: null }), '2026-11-04')).toEqual({ accion: 'conservar', dias: 1, motivo: 'banco_sin_medir' });
   });
 
   it('un día futuro también espera (no se libera lo que todavía no llega)', () => {
@@ -83,8 +88,12 @@ describe('[PGP.173] un cheque emitido no se libera a la semana', () => {
       .toMatchObject({ motivo: 'cheque_emitido' });
   });
 
-  it('antes de la semana se espera igual que cualquier pago (no cambia el «esperar»)', () => {
-    expect(decidirVencido(p({ chequeEmitido: true }), '2026-11-09')).toEqual({ accion: 'esperar', dias: 6 });
+  it('el mismo día se espera igual que cualquier pago (no cambia el «esperar»)', () => {
+    expect(decidirVencido(p({ chequeEmitido: true }), '2026-11-03')).toEqual({ accion: 'esperar', dias: 0 });
+  });
+
+  it('[PGP.202] al día siguiente ya NO espera: se conserva por ser cheque emitido (antes esperaba la semana)', () => {
+    expect(decidirVencido(p({ chequeEmitido: true }), '2026-11-04')).toEqual({ accion: 'conservar', dias: 1, motivo: 'cheque_emitido' });
   });
 
   it('ligado a mano sigue contando como ligado (el motivo más fuerte primero)', () => {
@@ -102,5 +111,8 @@ describe('[PGP.117] diasEntre y la nota', () => {
     expect(n).toContain('[liberado 2026-11-12]');
     expect(n).toContain('9 días');
     expect(n).toContain('disponibles');
+  });
+  it('[PGP.202] al día siguiente la nota dice «1 día», no «1 días»', () => {
+    expect(notaLiberado('2026-11-04', 1)).toContain('] 1 día después de su día');
   });
 });

@@ -59,8 +59,22 @@ export interface RenglonCantidadConFactor extends RenglonCantidad {
   piezas_por_caja?: number | string | null;
 }
 
-/** Tolerancia: `final_qty` se guarda a 3 decimales (0.4 cj × 50 = 20.0; 0.489 × 45 = 22.005). */
-const TOLERANCIA_PIEZAS = 0.02;
+/**
+ * `[PQ.147]` **El recorte a 3 decimales se mide en CAJAS, que es donde ocurre.**
+ *
+ * `final_qty` se guarda con 3 decimales, así que el error máximo del recorte es **media
+ * milésima de caja** — siempre, sin importar cuántas piezas tenga la caja.
+ *
+ * ⛔ Antes esto se comparaba en PIEZAS con una tolerancia fija de 0.02, y esa tolerancia **no
+ * escala**: el error de media milésima, multiplicado por el factor, crece con la caja. Con cajas
+ * de 96 llega a 0.048 piezas y rebasa el límite aunque la cantidad sea exacta.
+ *
+ * *Medido el 2026-11-23 en `RQ-2026-03239` (el primer pedido que Autoabasto mandó a Kepler):
+ * **11 de 294 renglones** se rechazaron por esto. El 02031 pedía **32 piezas** de una caja de 96
+ * — 32/96 = 0.33333…, guardado `0.333`, que al multiplicar da 31.968 y erraba por 0.032. La
+ * cantidad nunca estuvo mal: lo que no alcanzaba era la tolerancia.*
+ */
+const TOLERANCIA_CAJAS = 0.0005;
 
 /**
  * `[PQ.17]` **Cuántas piezas enteras son estas cajas, o `null` si no son enteras.**
@@ -76,9 +90,12 @@ export function piezasEnteras(l: RenglonCantidadConFactor): number | null {
   const cajas = Number(l?.final_qty);
   const uxc = Number(l?.piezas_por_caja);
   if (!Number.isFinite(cajas) || !Number.isFinite(uxc) || uxc <= 0) return null;
-  const pz = cajas * uxc;
-  const ent = Math.round(pz);
-  return ent > 0 && Math.abs(pz - ent) <= TOLERANCIA_PIEZAS ? ent : null;
+  const ent = Math.round(cajas * uxc);
+  if (ent <= 0) return null;
+  // `[PQ.147]` La pregunta correcta no es «¿cuántas piezas da?» sino **«esas piezas, vueltas a
+  // cajas, reproducen lo que se guardó?»**. Así se compara en la escala donde ocurrió el recorte,
+  // y el criterio vale igual para una caja de 4 que para una de 96.
+  return Math.abs(ent / uxc - cajas) <= TOLERANCIA_CAJAS + 1e-9 ? ent : null;
 }
 
 /**

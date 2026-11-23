@@ -104,6 +104,22 @@ describe('[CB.64] Movimientos es una ventana de Cuentas', () => {
     expect(pedidos.at(-1)?.['group_key']).toBeUndefined();
   });
 
+  it('[CB.90] «lo que el libro no tiene» y «sin clasificar» se excluyen: el último que se pide gana (antes: 0 siempre)', () => {
+    const { cmp, pedidos } = montar();
+    cmp.abrirMovimientos({ uncat: true });
+    cmp.onMovFilter({ field: 'recon', value: 'unmatched' });
+    cmp.onMovFilter({ field: 'descarga', value: 'solo_descarga' });
+    expect(pedidos.at(-1)).toMatchObject({ contra_descarga: 'solo_descarga' });
+    expect(pedidos.at(-1)?.['uncategorized']).toBeUndefined();
+    expect(pedidos.at(-1)?.['recon_status']).toBeUndefined();
+    cmp.onMovFilter({ field: 'uncat', value: true });
+    expect(pedidos.at(-1)).toMatchObject({ uncategorized: true });
+    expect(pedidos.at(-1)?.['contra_descarga']).toBeUndefined();
+    // [negativa] «lo que el banco no trae» SÍ es del libro: convive con «sin clasificar».
+    cmp.onMovFilter({ field: 'descarga', value: 'no_trae' });
+    expect(pedidos.at(-1)).toMatchObject({ uncategorized: true, contra_descarga: 'no_trae' });
+  });
+
   it('un enlace viejo con ?view=movimientos cae en Cuentas con la ventana abierta', () => {
     const { cmp, pedidos } = montar({ view: 'movimientos' });
     expect(cmp.view()).toBe('cuentas');

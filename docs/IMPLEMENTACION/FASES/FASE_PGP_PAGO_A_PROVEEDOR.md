@@ -2965,3 +2965,9 @@ decisión de Edgar.
 | `[PGP.164]` | C0+C1 | **Los complementos de pago de proveedores, completos:** re-descargar del SAT los REP de ene–jun (sigue a `[PGP.110b]`) y medir; después, el pago PPD dice «espera complemento» y a los 30 días sin REP es hallazgo. Indicador: PPD pagadas sin REP | 🧪 2026-11-20: la descarga automática rellena sola el hueco del año (ene–jun de recibidas); falta que baje y medir |
 | `[PGP.177]` | C1+C3 | **Al programar el pago, el proveedor en la 69-B** (presunto o definitivo): primer aviso del renglón y marca en el renglón cerrado, con la misma lectura de `[PGP.158]`. Indicador: pagos a proveedores en la 69-B | 🧪 2026-11-20: hoy 0 de 335 facturas por pagar |
 | `[PGP.178]` | C1+C3 | **Al programar el pago, el proveedor que canceló una factura ya pagada:** aviso una vez por pago («pídele la sustituta») con la misma lectura de `[PGP.158]`. Indicador: pagadas con CFDI cancelado sin sustituta | 🧪 2026-11-20: 11 medidas, 8 sin sustituta; hoy lo prenden 3 pagos |
+
+---
+
+### Anexo CL — el cuadre de los libros del pago (2026-11-23)
+
+**[Anexo CL](FASE_PGP_ANEXO_CUADRE_DE_LIBROS.md)**: después del pago doble a CD031, el análisis por reglas y no por caso de los cuatro libros del pago (Calendario, Kepler, banco y SAT) — el método para la próxima, las reglas que deben cumplirse siempre, lo encontrado el 2026-11-23, los límites de cada fuente y las consultas para repetirlo (`ops/prod/cuadre-de-libros/`). Items `[PGP.197]`–`[PGP.201]`; la trampa en `GOTCHAS.md` §95.

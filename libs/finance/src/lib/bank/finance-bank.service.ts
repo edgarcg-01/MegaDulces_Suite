@@ -730,8 +730,13 @@ export class FinanceBankService {
         const c = descarga?.categoria.get(id)?.codigo;
         return c && c !== 'sin_clasificar' ? catDe.get(c) ?? null : null;
       };
+      // [CB.90] Sin categoría = grupo «sin_clasificar», igual que la leyenda la pinta y que el resto del servicio la suma
+      // (`COALESCE(mc.group_key,'sin_clasificar')`). Antes el grupo comparaba `group_key` crudo: lo sin categoría tiene
+      // NULL, así que «Sin clasificar» nunca traía nada (medido en prod el 2026-11-23: 86 renglones de noviembre sin
+      // categoría, la ventana decía «0 movimientos»).
+      const grupoDeDescarga = (id: string) => catDeDescarga(id)?.group_key ?? 'sin_clasificar';
       const idsDescarga = Array.from(descarga?.solo.keys() ?? []).filter((id) =>
-        (!q.category_id || catDeDescarga(id)?.id === q.category_id) && (!q.group_key || catDeDescarga(id)?.group_key === q.group_key));
+        (!q.category_id || catDeDescarga(id)?.id === q.category_id) && (!q.group_key || grupoDeDescarga(id) === q.group_key));
       const soloDelLibro = q.uncategorized === 'true' || !!q.recon_status;
       const conLibro = q.contra_descarga !== 'solo_descarga';
       const conDescarga = idsDescarga.length > 0 && !soloDelLibro && q.contra_descarga !== 'no_trae';
@@ -745,7 +750,7 @@ export class FinanceBankService {
         if (q.period) b.where('st.period', q.period);
         if (q.account_id) b.where('bm.bank_account_id', q.account_id);
         if (q.category_id) b.where('bm.category_id', q.category_id);
-        if (q.group_key) b.where('mc.group_key', q.group_key);
+        if (q.group_key) b.whereRaw(`COALESCE(mc.group_key, 'sin_clasificar') = ?`, [q.group_key]); // [CB.90]
         if (q.uncategorized === 'true') b.whereNull('bm.category_id');
         if (q.recon_status) b.where('bm.recon_status', q.recon_status);
         if (q.search) {
