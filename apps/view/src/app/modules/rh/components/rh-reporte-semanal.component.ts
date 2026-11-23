@@ -1,9 +1,31 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import type { HrPersonaAsistencia } from '@megadulces/contracts';
 import {
-  type ColumnaDia, type GrupoDepartamento, type Irregularidad, celdaDe, cuentaIrregular, departamentoDe, diasPorFecha, difHorario,
-  firmaHoras, horarioPartes, horarioRenglones, horasTexto, saldoHorasTexto,
+  type BloqueIncidencia, type ColumnaDia, type GrupoDepartamento, type IncidenciaPendiente, type Irregularidad, bloquesDeCelda, celdaDe,
+  cuentaIrregular, departamentoDe, diasPorFecha, difHorario, firmaHoras, horarioPartes, horarioRenglones, horasTexto, saldoHorasTexto,
+  totalesPorDia,
 } from '../reporte-formato';
+
+const DIA_LARGO = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const MES_CORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+/**
+ * `[RH.18.7]` Qué se pinta en la celda, además de sus bloques de incidencia:
+ *  · 'dia'    — checó: la jornada, sus pausas y sus avisos (con el bloque abajo si ese día tiene, p. ej., Horario distinto);
+ *  · 'falta'  — falta sin incidencia: el bloque «Falta · sin justificar»;
+ *  · 'nada'   — el día ES su incidencia (no checó: vacaciones, permiso, falta justificada…): sólo el bloque;
+ *  · 'texto'  — lo demás tal cual («—», «DESC.», «S/D», «·», un día en curso).
+ */
+function vistaDe(tipo: string, conBloques: boolean): 'dia' | 'falta' | 'nada' | 'texto' {
+  if (tipo === 'dia' || tipo === 'marca' || tipo === 'curso') return 'dia';
+  if (tipo === 'falta') return conBloques ? 'nada' : 'falta';
+  if ((tipo === 'inc' || tipo === 'just') && conBloques) return 'nada';
+  return 'texto';
+}
+
+/** `[RH.18.5]` Dónde se recuerda si la persona quiere ver la columna Horario. */
+const LLAVE_VER_HORARIO = 'rh.asistencia.verHorario';
+const leerVerHorario = (): boolean => { try { return localStorage.getItem(LLAVE_VER_HORARIO) === '1'; } catch { return false; } };
 
 /**
  * Fase RH · `[RH.1.7c]` — el reporte semanal «calcado» de Mega Talento: una fila por persona y una columna por día,
@@ -25,10 +47,17 @@ import {
         <thead>
           <tr>
             <th class="rs-clv" scope="col">Clv</th>
-            <th class="rs-nom" scope="col">Nombre</th>
-            <th class="rs-hor-h" scope="col" title="Asignado por RH, o el que se deduce de sus checadas">Horario</th>
+            <!-- [RH.18.5] El horario de cada quien no está a la vista (RH, 2026-11-23): se muestra con este botón y se recuerda. -->
+            <th class="rs-nom" scope="col">
+              <span class="rs-nom-h">Nombre
+                <button type="button" class="rs-ver-hor" [attr.aria-pressed]="verHorario()" (click)="alternarHorario()">
+                  <i class="pi" [class.pi-eye]="!verHorario()" [class.pi-eye-slash]="verHorario()" aria-hidden="true"></i>{{ verHorario() ? 'Ocultar horario' : 'Mostrar horario' }}
+                </button>
+              </span>
+            </th>
+            @if (verHorario()) { <th class="rs-hor-h" scope="col" title="Asignado por RH, o el que se deduce de sus checadas">Horario</th> }
             @for (c of columnas(); track c.fecha) {
-              <th class="rs-dia" [class.hoy]="c.hoy" scope="col">{{ c.dow }}<span>{{ c.dia }}</span></th>
+              <th class="rs-dia" [class.hoy]="c.hoy" scope="col">{{ cab(c.fecha).dia }}<span>{{ cab(c.fecha).fecha }}</span></th>
             }
             <th class="num" scope="col" title="Horas netas del periodo: jornada menos comida. En Oficinas el desayuno no se descuenta.">Horas</th>
             <th class="num rs-c-gano" scope="col" title="Horas extra GANADAS en el periodo: lo que se quedó después de su hora de salida, en bloques de 30 min.">Extra ganó</th>
@@ -58,21 +87,29 @@ import {
                     <!-- [RH.14.10] Sin «⋯»: todo lo que ofrecía (ficha, ver sola, capturar, horario) ya está en la ficha que abre la fila. -->
                   </div>
                 </td>
-                <td class="rs-hor" [class.ded]="!f.horario.asignado">@for (r of f.horarioRenglones; track $index) { <span class="rs-hor-r">{{ r }}</span> }@if (f.horario.nota) { <small>{{ f.horario.nota }}</small> }</td>
+                @if (verHorario()) { <td class="rs-hor" [class.ded]="!f.horario.asignado">@for (r of f.horarioRenglones; track $index) { <span class="rs-hor-r">{{ r }}</span> }@if (f.horario.nota) { <small>{{ f.horario.nota }}</small> }</td> }
                 @for (c of f.celdas; track $index) {
                   <!-- [RH.18.4] Con permiso de capturar, la celda del día levanta la incidencia de ESE día (como en Mega Talento);
                        el nombre, la clave y el horario siguen abriendo la ficha. Sin permiso, la celda hace lo de siempre. -->
-                  <td class="rs-celda" [attr.data-t]="c.tipo" [class.tarde]="c.tarde" [class.capturable]="capturable()" [title]="c.titulo"
+                  <td class="rs-celda" [attr.data-t]="c.tipo" [class.tarde]="c.tarde" [class.capturable]="capturable()" [class.rs-destello]="esDestello(f.p.codigo, c.fecha)" [title]="c.titulo"
                       (click)="tocarDia($event, f.p, c.fecha)">
                     @if (capturable()) {
                       <button type="button" class="rs-inc-btn" (click)="tocarDia($event, f.p, c.fecha)" (keydown.enter)="$event.stopPropagation()"
                               [attr.aria-label]="'Levantar incidencia de ' + (f.p.nombreCompleto || f.p.nombre) + ' el ' + c.dow + ' ' + c.dia"><i class="pi pi-plus" aria-hidden="true"></i></button>
                     }
+                    <!-- [RH.18.7] La incidencia es un BLOQUE con su nombre (tinte por grupo, punteado si está por calificar); la falta
+                         sin justificar, un bloque con borde rojo. El PDF y el Excel siguen con el código y «0 - 0». -->
+                    @for (b of c.bloques; track $index) {
+                      <span class="rs-blq" [attr.data-g]="b.grupo" [class.pend]="b.pendiente" [title]="b.titulo">{{ b.nombre }}@if (b.pendiente) { <small>por calificar</small> }</span>
+                    }
+                    @if (c.vista === 'falta') { <span class="rs-blq falta" title="Falta: un día que trabaja, sin checadas">Falta<small>sin justificar</small></span> }
+                    @if (c.vista === 'dia' || c.vista === 'texto') {
                     <span class="j">@if (c.partes; as pt) { {{ pt[0] }}–<span class="antes">{{ pt[1] }}</span> } @else { {{ rango(c) }} }</span>
-                    @if (c.tramos.length) { <span class="t">@for (t of c.tramos; track $index) { <span>{{ t }}</span> }</span> }
+                    }
+                    @if (c.vista === 'dia' && c.tramos.length) { <span class="t">@for (t of c.tramos; track $index) { <span>{{ t }}</span> }</span> }
                     <!-- [RH.13.5] D y C sólo cuando se pasó: «C 60» en 37 de 49 celdas era ruido que tapaba las 2 que importaban.
                          El PDF y el Excel siguen trayendo los minutos de todos los días (es el papel de RH). -->
-                    @if (c.desExcedido || c.comExcedida) {
+                    @if (c.vista === 'dia' && (c.desExcedido || c.comExcedida)) {
                       <span class="pz">
                         @if (c.desExcedido) { <span class="exc">D {{ c.desMin }}</span> }
                         @if (c.comExcedida) { <span class="exc">C {{ c.comMin }}</span> }
@@ -94,7 +131,7 @@ import {
               <tr class="rs-sub">
                 <td class="rs-clv"></td>
                 <td class="rs-nom rs-sub-et">Subtotal {{ g.departamento }}</td>
-                <td class="rs-hor"></td>
+                @if (verHorario()) { <td class="rs-hor"></td> }
                 <td class="rs-sub-dias" [attr.colspan]="columnas().length"></td>
                 <td class="num">{{ horas(g.subMin) }}</td>
                 <td class="num rs-extra-tot rs-c-gano">{{ g.subExtra ? horas(g.subExtra) : '' }}</td>
@@ -110,8 +147,11 @@ import {
           <tr>
             <td class="rs-clv"></td>
             <td class="rs-nom rs-sub-et">{{ parcial() ? 'Totales de lo que se ve' : 'Totales' }}</td>
-            <td class="rs-hor"></td>
-            <td class="rs-sub-dias" [attr.colspan]="columnas().length"></td>
+            @if (verHorario()) { <td class="rs-hor"></td> }
+            <!-- [RH.18.7] Lo de cada día: horas y cuántos checaron (de lo que se ve). -->
+            @for (d of porDia(); track d.fecha) {
+              <td class="rs-sub-dias rs-tot-dia"><span class="rs-tot-h">{{ d.checaron ? horas(d.min) : '—' }}</span><small>{{ d.checaron === 1 ? '1 checó' : d.checaron + ' checaron' }}</small></td>
+            }
             <td class="num">{{ horas(totales().min) }}</td>
             <td class="num rs-extra-tot rs-c-gano">{{ totales().extra ? horas(totales().extra) : '' }}</td>
             <td class="num rs-usada-tot rs-c-uso">{{ totales().usadas ? horas(totales().usadas) : '' }}</td>
@@ -128,9 +168,27 @@ import {
       /* [RH.13.5] «Con cuadros» (David, 13-nov): la rejilla se tiene que VER, como en el papel de RH. El hairline del sistema
          (--border-color, 1.27:1 sobre blanco) casi desaparece en una matriz de 7 días; éste sale del texto atenuado, así que
          se ajusta solo al modo oscuro. La línea fuerte separa encabezado, nombre fijo y subtotales. */
-      --rs-linea: color-mix(in srgb, var(--text-muted) 30%, var(--card-bg));
-      --rs-linea-fuerte: color-mix(in srgb, var(--text-muted) 55%, var(--card-bg)); }
-    .rs-scroll { overflow: auto; max-height: calc(100vh - 300px); border: 1px solid var(--rs-linea); border-radius: var(--r-md); }
+      /* [RH.18.7] «Más marcado» (David, 23-nov): la rejilla se lee como tabla. */
+      --rs-linea: color-mix(in srgb, var(--text-muted) 55%, var(--card-bg));
+      --rs-linea-fuerte: color-mix(in srgb, var(--text-main) 75%, var(--card-bg)); }
+    .rs-scroll { overflow: auto; max-height: calc(100vh - 300px); border: 2px solid var(--rs-linea-fuerte); border-radius: var(--r-md); }
+    /* [RH.18.7] El bloque de la incidencia: tinte suave de la paleta de gráficas (Q.6: determinista, dark-safe, sin morado),
+       siempre con su nombre; el borde punteado dice «por calificar». */
+    .rs-blq { display: block; margin: 1px 0 3px; padding: 3px 4px; border-radius: var(--r-sm); font: 600 var(--fs-micro)/1.25 var(--font-body);
+      color: var(--text-main); white-space: normal; text-align: center;
+      --g: var(--chart-8); background: color-mix(in srgb, var(--g) 16%, var(--card-bg)); border: 1px solid color-mix(in srgb, var(--g) 55%, var(--card-bg)); }
+    .rs-blq small { display: block; font-weight: 400; color: var(--text-muted); }
+    .rs-blq.pend { border-style: dashed; }
+    .rs-blq[data-g='permiso'] { --g: var(--chart-7); }
+    .rs-blq[data-g='salud'] { --g: var(--chart-5); }
+    .rs-blq[data-g='vacaciones'] { --g: var(--chart-4); }
+    .rs-blq[data-g='horario'] { --g: var(--chart-2); }
+    .rs-blq.falta { background: var(--card-bg); border: 1px solid color-mix(in srgb, var(--bad-border) 70%, var(--card-bg)); color: var(--bad-soft-fg); }
+    .rs-tot-dia { text-align: center; font-family: var(--font-mono); }
+    .rs-tot-dia small { display: block; font: 400 var(--fs-micro)/1.25 var(--font-body); color: var(--text-muted); }
+    .rs-tabla td.rs-destello { animation: rs-destello 350ms ease-out; }
+    @keyframes rs-destello { from { background: var(--ok-soft-bg); } to { background: var(--card-bg); } }
+    @media (prefers-reduced-motion: reduce) { .rs-tabla td.rs-destello { animation: none; } }
     .rs-tabla { border-collapse: separate; border-spacing: 0; width: 100%; font-size: var(--fs-xs); }
     /* [RH.13.5] «Hazla tabla» (David, 12-nov): cada día y cada total en SU celda. Sin líneas verticales los números flotaban y
        no se sabía a qué columna pertenecían (HE saldo y Min. retardo se leían corridos). */
@@ -149,6 +207,11 @@ import {
     th.num { text-align: right; }
     .rs-clv { position: sticky; left: 0; z-index: 1; width: 2.6rem; min-width: 2.6rem; font-family: var(--font-mono); color: var(--text-muted); }
     .rs-nom-in { display: flex; align-items: flex-start; gap: 2px; }
+    .rs-nom-h { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+    .rs-ver-hor { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 0; border-radius: var(--r-sm); background: none;
+      color: var(--text-muted); font: 500 var(--fs-micro)/1.2 var(--font-body); text-transform: none; letter-spacing: 0; cursor: pointer; white-space: nowrap; }
+    .rs-ver-hor:hover { color: var(--text-main); background: var(--surface-hover-bg); }
+    .rs-ver-hor:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
     .rs-nom-txt { flex: 1 1 auto; min-width: 0; }
     .rs-nom { position: sticky; left: 2.6rem; z-index: 1; min-width: 9rem; max-width: 13rem; }
     /* La columna fija lleva su borde más marcado: es la que se queda cuando la semana se desplaza. */
@@ -157,7 +220,7 @@ import {
     .rs-n { font-weight: 600; overflow-wrap: anywhere; }
     .rs-n.reloj { font-style: italic; }
     .rs-pill { display: inline-block; margin-left: 4px; font: 700 var(--fs-micro)/1 var(--font-mono); padding: 2px 5px; border-radius: var(--r-pill); vertical-align: 1px; }
-    .rs-pill.alta { background: var(--bad-fg); color: var(--card-bg); }
+    .rs-pill.alta { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .rs-pill.baja { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .rs-inc { display: inline-block; margin-left: 4px; font: 700 var(--fs-micro)/1 var(--font-mono); padding: 2px 4px; border-radius: var(--r-sm);
       background: var(--info-soft-bg); color: var(--info-soft-fg); vertical-align: 1px; }
@@ -179,9 +242,9 @@ import {
     .rs-extra-tot { color: var(--ok-soft-fg); font-weight: 700; }
     .rs-usada { display: block; text-align: center; font-size: var(--fs-micro); font-weight: 700; color: var(--info-soft-fg); margin-top: 1px; }
     .rs-usada-tot { color: var(--info-soft-fg); font-weight: 700; }
-    .rs-neg { color: var(--bad-fg); font-weight: 700; }
+    .rs-neg { color: var(--bad-soft-fg); font-weight: 600; }
     .rs-celda .exc, .rs-celda .antes { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-radius: 3px; padding: 0 3px; font-weight: 700; }
-    .rs-celda.tarde .j { color: var(--bad-fg); font-weight: 700; }
+    .rs-celda.tarde .j { color: var(--bad-soft-fg); font-weight: 600; }
     /* [RH.18.4] La celda que levanta la incidencia: se nota al pasar, y su «+» es la puerta del teclado. */
     .rs-tabla td.rs-celda.capturable { position: relative; cursor: pointer; }
     .rs-tabla td.rs-celda.capturable:hover { background: var(--surface-hover-bg); }
@@ -191,19 +254,20 @@ import {
     .rs-celda.capturable:hover .rs-inc-btn, .rs-inc-btn:focus-visible { opacity: 1; }
     .rs-inc-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
     @media (pointer: coarse) { .rs-inc-btn { display: none; } }
-    .rs-celda[data-t='falta'] .j, .rs-celda[data-t='marca'] .j { color: var(--bad-fg); font-weight: 700; }
-    .rs-celda[data-t='falta'], .rs-celda[data-t='marca'] { box-shadow: inset 0 0 0 1px var(--bad-border); }
+    /* [RH.18.8] Sin recuadro rojo: la falta ya es un bloque que se lee; la marca sola, en rojo apagado. */
+    .rs-celda[data-t='falta'] .j, .rs-celda[data-t='marca'] .j { color: var(--bad-soft-fg); font-weight: 600; }
     .rs-celda[data-t='inc'] .j, .rs-celda[data-t='just'] .j { color: var(--info-soft-fg); font-weight: 700; }
     .rs-celda[data-t='descanso'] .j, .rs-celda[data-t='desc_aus'] .j, .rs-celda[data-t='vacio'] .j, .rs-celda[data-t='sin_checar_hoy'] .j { color: var(--text-faint); }
     /* [RH.15.2] «S/D»: no es falta ni descanso; se ve atenuado y en cursiva para no leerse como un día normal. */
     .rs-celda[data-t='sin_dato'] .j { color: var(--text-muted); font-style: italic; }
-    .rs-ret { color: var(--bad-fg); font-weight: 700; }
+    .rs-ret { color: var(--bad-soft-fg); font-weight: 600; }
     .na { color: var(--text-faint); }
     .menos { color: var(--warn-soft-fg); }
     .mas { color: var(--ok-soft-fg); }
     tr.rs-fila { cursor: pointer; }
     tr.rs-fila:hover td { background: var(--surface-hover-bg); }
-    tr.rs-fila.irr td { background: var(--bad-soft-bg); }
+    /* [RH.18.8] El renglón con algo que revisar: un tinte que se nota sin lastimar (antes, el rosa de alerta completo). */
+    tr.rs-fila.irr td { background: color-mix(in srgb, var(--bad-soft-bg) 40%, var(--card-bg)); }
     tr.rs-fila:focus-visible td { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     tr.rs-depto td { border-right: 0; background: var(--surface-2); font-size: var(--fs-micro); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); padding-block: 5px; }
     tr.rs-depto td span { position: sticky; left: var(--sp-2); }
@@ -256,6 +320,25 @@ export class RhReporteSemanalComponent {
   readonly abrir = output<HrPersonaAsistencia>();
   /** `[RH.18.4]` Quien captura: la celda del día levanta la incidencia de ese día (sin permiso, abre la ficha como siempre). */
   readonly capturable = input(false);
+  /** `[RH.18.7]` Las capturadas que todavía no califican: se ven en su día (punteadas) aunque todavía no cuenten. */
+  readonly pendientes = input<readonly IncidenciaPendiente[]>([]);
+  /** El nombre de cada tipo (del catálogo), para las pendientes, que sólo traen su clave. */
+  readonly etiquetas = input<ReadonlyMap<string, string>>(new Map());
+  /** `[RH.18.7]` La celda que acaba de guardar una incidencia: destella una vez. */
+  readonly destello = input<{ codigo: string; fecha: string } | null>(null);
+  esDestello(codigo: string, fecha: string): boolean {
+    const d = this.destello();
+    return !!d && d.codigo === codigo && d.fecha === fecha;
+  }
+
+  /** `[RH.18.7]` El encabezado del día en dos renglones: «Jueves» y «19 nov». */
+  cab(fecha: string): { dia: string; fecha: string } {
+    const d = new Date(`${fecha}T12:00:00Z`);
+    return { dia: DIA_LARGO[d.getUTCDay()], fecha: `${d.getUTCDate()} ${MES_CORTO[d.getUTCMonth()]}` };
+  }
+
+  /** `[RH.18.7]` Las horas y cuántos checaron, de cada día, de lo que se ve. */
+  readonly porDia = computed(() => totalesPorDia(this.grupos().flatMap((g) => g.personas), this.columnas().map((c) => c.fecha)));
   readonly capturarDia = output<{ persona: HrPersonaAsistencia; fecha: string; ancla: HTMLElement }>();
 
   /** La celda (o su «+») levanta la incidencia; el clic ya no sube al renglón, que abriría la ficha. */
@@ -280,12 +363,22 @@ export class RhReporteSemanalComponent {
     return c.tipo === 'dia' || c.tipo === 'marca' || c.tipo === 'curso' ? c.jornada.replace(' - ', '–') : c.jornada;
   }
 
-  // Clv, Nombre, Horario + los días + Horas, Extra ganó, Extra usó, Extra saldo y Retardo (+ vs. horario). Antes contaba una
+  // Clv, Nombre (+ Horario si se muestra) + los días + Horas, Extra ganó, Extra usó, Extra saldo y Retardo (+ vs. horario). Antes contaba una
   // de menos y la barra del departamento no llegaba a la última columna.
-  readonly ncol = computed(() => this.columnas().length + 8 + (this.hayAsignados() ? 1 : 0));
+  readonly ncol = computed(() => this.columnas().length + 7 + (this.verHorario() ? 1 : 0) + (this.hayAsignados() ? 1 : 0));
+
+  /** `[RH.18.5]` La columna Horario: oculta al abrir; quien la quiere la muestra y se le recuerda (sólo en ese navegador). */
+  readonly verHorario = signal(leerVerHorario());
+  alternarHorario(): void {
+    const v = !this.verHorario();
+    this.verHorario.set(v);
+    try { localStorage.setItem(LLAVE_VER_HORARIO, v ? '1' : '0'); } catch { /* sin almacenamiento: no se recuerda */ }
+  }
 
   readonly modelo = computed(() => {
     const o = { hoy: this.hoy(), mideRetardo: this.mideRetardo() };
+    const pend = this.pendientes();
+    const etq = this.etiquetas();
     const cols = this.columnas();
     const irr = this.irregularidades();
     const todas = this.todas();
@@ -310,7 +403,9 @@ export class RhReporteSemanalComponent {
             celdas: cols.map((c) => {
               const x = celdaDe(p, dias, c.fecha, o);
               // La salida antes de hora va en ámbar: se parte aquí, no en la plantilla.
-              return { ...x, fecha: c.fecha, dow: c.dow, dia: c.dia, partes: x.salioAntes ? x.jornada.split(' - ') : null };
+              const bloques: BloqueIncidencia[] = bloquesDeCelda(p, dias, c.fecha, pend, etq);
+              return { ...x, fecha: c.fecha, dow: c.dow, dia: c.dia, partes: x.salioAntes ? x.jornada.split(' - ') : null,
+                bloques, vista: vistaDe(x.tipo, bloques.length > 0) };
             }),
             horario: horarioPartes(p),
             horarioRenglones: horarioRenglones(horarioPartes(p).hora),

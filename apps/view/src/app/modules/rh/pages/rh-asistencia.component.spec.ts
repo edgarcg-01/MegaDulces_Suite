@@ -52,6 +52,8 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     api = {
       sitios: vi.fn(() => of(SITIOS)),
       asistencia: vi.fn((q: { site_code: string }) => of(o.porSitio?.[q.site_code] ?? datos)),
+      // [RH.18.7] Con incidencias por calificar en la semana, la pantalla lee los nombres de los tipos.
+      tiposIncidencia: vi.fn(() => of([])),
       asignarHorario: vi.fn(() => of({ ok: true, guardados: 1 })),
       quitarHorario: vi.fn(() => of({ ok: true, quitados: 1 })),
       editarFicha: vi.fn(() => of({ site_code: 'PH', person_code: '104', seccion: 'ALMACEN', promotora: false, nombre: null })),
@@ -101,14 +103,20 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     const deptos = Array.from(el().querySelectorAll('tr.rs-depto')).map((t) => t.textContent?.replace(/\s+/g, ' ').trim());
     expect(deptos).toEqual(['CONTABILIDAD (1)', 'SISTEMAS (2)']);
     const dias = Array.from(el().querySelectorAll('th.rs-dia')).map((t) => t.textContent?.replace(/\s+/g, ''));
-    expect(dias).toEqual(['Jue1', 'Vie2', 'Sáb3', 'Dom4', 'Lun5', 'Mar6', 'Mié7']);
+    // [RH.18.7] El encabezado del día en dos renglones: «Jueves» y «1 oct».
+    expect(dias).toEqual(['Jueves1oct', 'Viernes2oct', 'Sábado3oct', 'Domingo4oct', 'Lunes5oct', 'Martes6oct', 'Miércoles7oct']);
     const uno = filas().find((f) => f.textContent?.includes('Prueba Uno'))!;
     expect(uno.textContent).toContain('07:56–17:04');   // [RH.13.5] en pantalla, rango sin espacios
     // [RH.13.5] Desayuno de 22 y comida de 59 sin pasarse: no se repiten en la celda (las pausas sí se ven).
     expect(uno.textContent).toContain('11:02');
     expect(uno.querySelector('.pz')).toBeNull();
-    // El horario empieza por la hora; «deducido» va aparte, en chico.
-    expect(uno.querySelector('.rs-hor small')?.textContent?.trim()).toBe('deducido');
+    // [RH.18.5] El horario no está a la vista al abrir; con «Mostrar horario» empieza por la hora y «deducido» va aparte.
+    expect(uno.querySelector('.rs-hor')).toBeNull();
+    (el().querySelector('button.rs-ver-hor') as HTMLButtonElement).click();
+    await ciclo();
+    const uno2 = filas().find((f) => f.textContent?.includes('Prueba Uno'))!;
+    expect(uno2.querySelector('.rs-hor small')?.textContent?.trim()).toBe('deducido');
+    localStorage.removeItem('rh.asistencia.verHorario');
   });
 
   it('[RH.13.5] la comida que se pasó SÍ sale, con sus minutos y en ámbar', async () => {
@@ -155,7 +163,9 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     expect(inc?.textContent?.replace(/\D/g, '')).toBe('2');
     const dos = filas().find((f) => f.textContent?.includes('Prueba Dos'))!;
     const celdas = Array.from(dos.querySelectorAll('td.rs-celda')).map((c) => c.textContent?.trim());
-    expect(celdas[5]).toBe('0 - 0');
+    // [RH.18.7] En pantalla la falta es un bloque que se lee; el PDF y el Excel siguen con «0 - 0» (el papel de RH).
+    expect(celdas[5]).toBe('Faltasin justificar');
+    expect(dos.querySelectorAll('td.rs-celda')[5].querySelector('.rs-blq.falta')).not.toBeNull();
     expect(celdas[6]).toBe('·');
   });
 
@@ -470,15 +480,23 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     it('[RH.13.5] cada columna que la pantalla angosta esconde existe en TODOS los renglones (si no, la tabla se corre)', async () => {
       await render({ claves: [Permission.HR_ATTENDANCE_VER] });
       const ancho = (tr: Element) => Array.from(tr.children).reduce((t, td) => t + Number(td.getAttribute('colspan') || 1), 0);
-      const columnas = el().querySelectorAll('.rs-tabla thead th').length;
-      const renglones = Array.from(el().querySelectorAll('.rs-tabla tbody tr:not(.rs-depto), .rs-tabla tfoot tr'));
-      expect(renglones.length).toBeGreaterThan(3);
-      for (const tr of renglones) {
-        expect(ancho(tr)).toBe(columnas);
-        for (const c of ['rs-c-gano', 'rs-c-uso', 'rs-c-saldo']) expect(tr.querySelectorAll('.' + c).length).toBe(1);
-        expect(tr.querySelectorAll('.rs-hor').length).toBe(1);
+      // [RH.18.5] En los DOS estados de la columna Horario (oculta al abrir, y mostrada): ningún renglón se corre.
+      for (const conHorario of [false, true]) {
+        if (conHorario) { (el().querySelector('button.rs-ver-hor') as HTMLButtonElement).click(); await ciclo(); }
+        const columnas = el().querySelectorAll('.rs-tabla thead th').length;
+        const renglones = Array.from(el().querySelectorAll('.rs-tabla tbody tr:not(.rs-depto), .rs-tabla tfoot tr'));
+        expect(renglones.length).toBeGreaterThan(3);
+        for (const tr of renglones) {
+          expect(ancho(tr)).toBe(columnas);
+          for (const c of ['rs-c-gano', 'rs-c-uso', 'rs-c-saldo']) expect(tr.querySelectorAll('.' + c).length).toBe(1);
+          expect(tr.querySelectorAll('.rs-hor').length).toBe(conHorario ? 1 : 0);
+        }
+        // La barra del departamento ocupa todo el ancho.
+        for (const d of Array.from(el().querySelectorAll('.rs-tabla tr.rs-depto td'))) expect(Number(d.getAttribute('colspan'))).toBe(columnas);
+        for (const c of ['rs-c-gano', 'rs-c-uso', 'rs-c-saldo']) expect(el().querySelectorAll('.rs-tabla thead th.' + c).length).toBe(1);
+        expect(el().querySelectorAll('.rs-tabla thead th.rs-hor-h').length).toBe(conHorario ? 1 : 0);
       }
-      for (const c of ['rs-c-gano', 'rs-c-uso', 'rs-c-saldo', 'rs-hor-h']) expect(el().querySelectorAll('.rs-tabla thead th.' + c).length).toBe(1);
+      localStorage.removeItem('rh.asistencia.verHorario');
       // El horario tiene a dónde bajar cuando su columna no cabe.
       expect(el().querySelectorAll('tr.rs-fila .rs-hor-movil').length).toBe(el().querySelectorAll('tr.rs-fila').length);
     });
@@ -749,7 +767,8 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     relojes = [reloj({ semaforo: 'mudo', segundosSinSenal: null }), reloj({ serie: 'S9', sucursalId: 'CEDIS', semaforo: 'ok' })];
     await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] });
     expect(el().querySelector('.mc-vivo')?.textContent?.trim()).toBe('Sin señal');
-    expect(el().querySelector('.rf-alerta')?.textContent).toContain('no ha reportado');
+    // [RH.18.8] Sin franja roja plegada: lo dicen el chip y el encabezado de Relojes (la explicación, al abrirlo).
+    expect(el().querySelector('.rf-alerta')).toBeNull();
     expect(el().querySelector('.rf-resumen')?.textContent?.trim()).toBe('1 sin señal');
   });
 

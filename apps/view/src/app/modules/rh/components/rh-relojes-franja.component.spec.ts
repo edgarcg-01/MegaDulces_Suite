@@ -50,9 +50,13 @@ describe('[RH.1.7b] RhRelojesFranjaComponent', () => {
     expect(el().querySelector('.rf-lista')).toBeNull();
   });
 
-  it('⭐ el aviso «no ha reportado» se ve aunque esté plegada', async () => {
+  it('⭐ [RH.18.8] plegada ya no grita (sin franja roja): el encabezado dice «sin señal»; al abrir, la explicación', async () => {
     await render([r({ semaforo: 'mudo', segundosSinSenal: null })]);
     expect(el().querySelector('.rf-lista')).toBeNull();
+    expect(el().querySelector('.rf-alerta')).toBeNull();
+    expect(el().querySelector('.rf-resumen')?.textContent).toContain('sin señal');
+    (el().querySelector('button.rf-head') as HTMLButtonElement).click();
+    fix.detectChanges();
     expect(el().querySelector('.rf-alerta')?.textContent).toContain('no ha reportado');
   });
 

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -18,7 +18,7 @@ import { RhReporteSemanalComponent } from '../components/rh-reporte-semanal.comp
 import { RhPersonaDiasComponent } from '../components/rh-persona-dias.component';
 import { RhExpedienteFirmasComponent } from '../components/rh-expediente-firmas.component';
 import { RhCapturaIncidenciaComponent } from '../components/rh-captura-incidencia.component';
-import { type FormCaptura, formDelDia, sugerenciasDelDia } from '../incidencia-captura';
+import { type FormCaptura, contextoDelDia, formDelDia, sugerenciasDelDia } from '../incidencia-captura';
 import { RhFaltasComponent } from './rh-faltas.component';
 import { RhToleranciaComponent } from './rh-tolerancia.component';
 import { RhIncidenciasComponent } from './rh-incidencias.component';
@@ -27,7 +27,7 @@ import { RhNombresPorConfirmarComponent } from '../components/rh-nombres-por-con
 import { RhAsistenciaEstado } from '../rh-asistencia.estado';
 import { RhService, fechaCorta, rhError, sumarDias } from '../rh.service';
 import {
-  type Irregularidad, columnasDelRango, cuentaIrregular, departamentoDe, diaLargo, diasPorFecha, difHorario, etiquetaParcial, firmaHoras,
+  GRUPOS_INCIDENCIA, type Irregularidad, columnasDelRango, cuentaIrregular, departamentoDe, diaLargo, diasPorFecha, difHorario, etiquetaParcial, firmaHoras,
   hora12, horarioDe, horasTexto, irregularidadesDe, porDepartamento, SIN_DEPARTAMENTO,
 } from '../reporte-formato';
 import { cubiertas, haySeleccion, personaUnica } from '../personas-seleccion';
@@ -148,12 +148,16 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             @if (filas().length) {
               <app-rh-reporte-semanal [grupos]="grupos()" [todas]="todas()" [columnas]="columnas()" [irregularidades]="irr()" [hoy]="est.hoy()"
                                       [mideRetardo]="mide()" [parcial]="!!parcial()" [subtotales]="conSubtotales()" [saldos]="est.saldosHE()"
-                                      [capturable]="puedeCapturar()" (abrir)="abrir($event)" (capturarDia)="capturarEnTabla($event)" />
+                                      [capturable]="puedeCapturar()" [pendientes]="est.pendientesLista()" [etiquetas]="etiquetasInc()"
+                                      [destello]="destello()" (abrir)="abrir($event)" (capturarDia)="capturarEnTabla($event)" />
               <!-- La leyenda, al pie y en palabras: cada color dice lo que significa; toca a una persona para ver su semana. -->
               <p class="ra-ley">
                 @if (mide()) { <span><b class="ra-ley-rojo">En rojo</b>, la entrada tarde y la falta.</span> }
                 @else { <span>En esta plaza no se mide retardo: cada quien entra en su turno.</span> }
                 <span class="ra-ley-dc"><b class="ra-ley-ambar">D</b> desayuno y <b class="ra-ley-ambar">C</b> comida salen sólo si se pasó, con sus minutos.</span>
+                <!-- [RH.18.7] El color de cada bloque de incidencia, con su nombre (Q.6: el color nunca va solo). -->
+                @for (g of gruposInc; track g.grupo) { <span class="ra-ley-g"><i class="ra-ley-mu" [attr.data-g]="g.grupo"></i>{{ g.nombre }}</span> }
+                <span class="ra-ley-g"><i class="ra-ley-mu pend"></i>punteado = por calificar</span>
                 <span>Toca a una persona para ver su semana día por día.</span>
               </p>
             } @else {
@@ -332,7 +336,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             <div class="ra-globo">
               <app-rh-captura-incidencia [(form)]="capturaForm" [site]="est.sitio()" [tipos]="tiposInc()" [sugeridos]="c.sugeridos"
                                          [persona]="c.nombre" [titulo]="'Incidencia del ' + diaLargo(c.fecha)"
-                                         [deLoChecado]="c.deLoChecado" [puedeCalificar]="puedeCalificar()"
+                                         [deLoChecado]="c.deLoChecado" [contexto]="c.contexto" [puedeCalificar]="puedeCalificar()"
                                          (guardada)="capturaGuardada($event)" (cancelada)="cerrarGlobo()" />
             </div>
           }
@@ -344,7 +348,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
         @if (captura(); as c) {
           <app-rh-captura-incidencia [(form)]="capturaForm" [site]="est.sitio()" [tipos]="tiposInc()" [sugeridos]="c.sugeridos"
                                      [persona]="p.nombreCompleto || p.nombre" [titulo]="'Incidencia del ' + diaLargo(c.fecha)"
-                                     [deLoChecado]="c.deLoChecado" [puedeCalificar]="puedeCalificar()"
+                                     [deLoChecado]="c.deLoChecado" [contexto]="c.contexto" [puedeCalificar]="puedeCalificar()"
                                      (guardada)="capturaGuardada($event)" (cancelada)="cerrarCaptura()" />
         }
       </ng-template>
@@ -455,8 +459,16 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
     .ra-chip:focus-visible { outline: 2px solid var(--focus-ring); }
     .ra-ley { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted);
       border-top: 1px solid var(--border-color); }
-    .ra-ley-rojo { color: var(--bad-fg); }
+    .ra-ley-rojo { color: var(--bad-soft-fg); }
     .ra-ley-ambar { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-radius: 3px; padding: 0 3px; }
+    .ra-ley-g { display: inline-flex; align-items: center; gap: 5px; }
+    .ra-ley-mu { display: inline-block; width: 14px; height: 10px; border-radius: 3px;
+      --g: var(--chart-8); background: color-mix(in srgb, var(--g) 16%, var(--card-bg)); border: 1px solid color-mix(in srgb, var(--g) 55%, var(--card-bg)); }
+    .ra-ley-mu[data-g='permiso'] { --g: var(--chart-7); }
+    .ra-ley-mu[data-g='salud'] { --g: var(--chart-5); }
+    .ra-ley-mu[data-g='vacaciones'] { --g: var(--chart-4); }
+    .ra-ley-mu[data-g='horario'] { --g: var(--chart-2); }
+    .ra-ley-mu.pend { background: var(--card-bg); border-style: dashed; }
     .ra-vacio { margin: 0; padding: var(--sp-5) var(--sp-3); text-align: center; color: var(--text-muted); font-size: var(--fs-sm); border-top: 1px solid var(--border-color); }
     .ra-una { display: flex; flex-direction: column; gap: var(--sp-3); padding: 0 var(--sp-3) var(--sp-3); }
     .ra-ficha { display: flex; flex-direction: column; gap: var(--sp-3); }
@@ -464,7 +476,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
     .ra-nums div { display: flex; flex-direction: column; padding: var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--r-sm); }
     .ra-nums b { font: 700 var(--fs-h3)/1.1 var(--font-mono); color: var(--text-main); }
     .ra-nums span { font-size: var(--fs-xs); color: var(--text-muted); }
-    .ra-nums .bad b { color: var(--bad-fg); }
+    .ra-nums .bad b { color: var(--bad-soft-fg); }
     .ra-irr-lista, .ra-marcas ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--text-main); }
     .ra-marcas summary { cursor: pointer; font-size: var(--fs-sm); color: var(--text-muted); margin-bottom: var(--sp-1); }
     .pill { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); white-space: nowrap; background: var(--surface-2); color: var(--text-muted); }
@@ -474,7 +486,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
     .ra-tira { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); background: var(--surface-2);
       font-size: var(--fs-sm); color: var(--text-main); }
     .ra-tira p { margin: 0; flex: 1 1 28ch; }
-    .ra-falta { color: var(--bad-fg); }
+    .ra-falta { color: var(--bad-soft-fg); }
     .ra-baja-lnk { display: flex; justify-content: flex-end; }
     .ra-baja { border-color: var(--bad-border); }
     .ra-ancho { flex: 1 1 100%; }
@@ -561,7 +573,13 @@ export class RhAsistenciaComponent {
   readonly puedeVerPersonas = computed(() => this.perms.has(Permission.USUARIOS_VER));
   irAPersonas(ev: Event): void { ev.preventDefault(); void this.router.navigate(['/admin/users']); }
   /** `[RH.18.1]` La incidencia que se está capturando desde un día (de quién, qué día, qué se le propone). */
-  readonly captura = signal<{ codigo: string; nombre: string; fecha: string; sugeridos: string[]; deLoChecado: boolean; origen: 'ficha' | 'tabla' } | null>(null);
+  readonly captura = signal<{ codigo: string; nombre: string; fecha: string; sugeridos: string[]; deLoChecado: boolean; contexto: string; origen: 'ficha' | 'tabla' } | null>(null);
+  /** `[RH.18.7]` Los grupos de la leyenda de bloques. */
+  readonly gruposInc = GRUPOS_INCIDENCIA;
+  /** El nombre de cada tipo (para las pendientes de la tabla, que sólo traen su clave). */
+  readonly etiquetasInc = computed(() => new Map(this.tiposInc().map((x) => [x.tipo, x.etiqueta] as const)));
+  /** `[RH.18.7]` La celda que acaba de guardar: destella una vez en la tabla. */
+  readonly destello = signal<{ codigo: string; fecha: string } | null>(null);
   /** `[RH.18.4]` El globo de la tabla semanal. */
   private readonly capPop = viewChild<Popover>('capPop');
   /** Se cambió de celda con el globo abierto: se abre la nueva cuando termina de cerrarse la anterior. */
@@ -727,6 +745,10 @@ export class RhAsistenciaComponent {
       this.est.fichaPendiente.set(null);
       if (p) this.abrir(p);
     });
+    // `[RH.18.7]` Hay incidencias por calificar en la semana: se leen los nombres de los tipos para pintar sus bloques.
+    effect(() => {
+      if (this.est.pendientesLista().length && !untracked(() => this.tiposInc().length)) untracked(() => this.conTipos(() => undefined));
+    });
     // Al recalcular (otra semana, horario guardado), la ficha abierta se refresca con los números nuevos.
     effect(() => {
       const d = this.est.datos();
@@ -811,7 +833,7 @@ export class RhAsistenciaComponent {
     const hoy = this.est.hoy();
     const form = formDelDia(p.codigo, fecha, d);
     this.capturaForm.set(form);
-    this.captura.set({ codigo: p.codigo, nombre: p.nombreCompleto || p.nombre, fecha, sugeridos: sugerenciasDelDia(d, fecha, hoy), deLoChecado: !!form.entrada, origen });
+    this.captura.set({ codigo: p.codigo, nombre: p.nombreCompleto || p.nombre, fecha, sugeridos: sugerenciasDelDia(d, fecha, hoy), deLoChecado: !!form.entrada, contexto: contextoDelDia(d, fecha, hoy), origen });
   }
 
   /** El día abierto de ESTA persona (null si se captura para otra o no hay captura). */
@@ -824,7 +846,9 @@ export class RhAsistenciaComponent {
 
   /** Guardada: se dice si ya cuenta y se recalcula (la ficha abierta se refresca sola con los números nuevos). */
   capturaGuardada(n: HrIncidenciaDto): void {
-    if (this.captura()?.origen === 'tabla') this.capPop()?.hide();
+    const c = this.captura();
+    if (c) { this.destello.set(null); queueMicrotask(() => this.destello.set({ codigo: c.codigo, fecha: c.fecha })); }
+    if (c?.origen === 'tabla') this.capPop()?.hide();
     this.cerrarCaptura();
     this.aviso.set({ texto: n.status === 'calificada' ? 'Incidencia guardada y calificada: ya cuenta en la asistencia.' : 'Incidencia guardada. Cuenta cuando otra persona la califique (en Incidencias).', mal: false });
     this.est.asegurar(true);

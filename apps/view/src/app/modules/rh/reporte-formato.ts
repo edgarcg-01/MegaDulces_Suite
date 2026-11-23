@@ -369,3 +369,85 @@ export function etiquetaParcial(o: {
   if (o.soloIrregulares) partes.push('sólo con irregularidades');
   return partes.join(' · ');
 }
+
+// ── `[RH.18.7]` La semana en rejilla (pantalla): la incidencia como BLOQUE en su día, y los totales por día ──────────
+// Sólo para la pantalla: el PDF y el Excel (el papel de RH) siguen con `celdaDe` tal cual.
+
+/** El grupo de una incidencia: decide su tinte (Q.6: determinista, sutil, con leyenda y nunca sin su nombre). */
+export type GrupoIncidencia = 'permiso' | 'salud' | 'vacaciones' | 'horario' | 'otros';
+/** El nombre de cada grupo, para la leyenda (en este orden). */
+export const GRUPOS_INCIDENCIA: ReadonlyArray<{ grupo: GrupoIncidencia; nombre: string }> = [
+  { grupo: 'permiso', nombre: 'Permisos' },
+  { grupo: 'salud', nombre: 'Incapacidad y salud' },
+  { grupo: 'vacaciones', nombre: 'Vacaciones y descanso' },
+  { grupo: 'horario', nombre: 'Horario distinto' },
+  { grupo: 'otros', nombre: 'Otros' },
+];
+const GRUPO_DE_TIPO: Readonly<Record<string, GrupoIncidencia>> = {
+  permiso_sin_goce: 'permiso', permiso_con_goce: 'permiso',
+  incapacidad: 'salud', paternidad: 'salud', maternidad: 'salud', riesgo_trabajo: 'salud',
+  vacaciones: 'vacaciones', descanso: 'vacaciones', cambio_descanso: 'vacaciones',
+  horario_distinto: 'horario', desayuno_distinto: 'horario', comida_distinta: 'horario', horas_extra: 'horario',
+};
+export const grupoDeTipo = (tipo: string): GrupoIncidencia => GRUPO_DE_TIPO[tipo] ?? 'otros';
+
+/** El nombre corto que cabe en la celda (el completo va en el `title`). */
+const NOMBRE_CORTO: Readonly<Record<string, string>> = {
+  vacaciones: 'Vacaciones', permiso_sin_goce: 'Permiso s/goce', permiso_con_goce: 'Permiso c/goce', falta_injustificada: 'Falta injust.',
+  incapacidad: 'Incapacidad', paternidad: 'Paternidad', maternidad: 'Maternidad', riesgo_trabajo: 'Riesgo trabajo',
+  amonestacion: 'Amonestación', semana_reducida: 'Sem. reducida', horas_extra: 'Usó h. extra', visita_fuera: 'Visita fuera',
+  pago_horas_extra: 'Pago h. extra', otros: 'Otros', horario_distinto: 'Horario dist.', desayuno_distinto: 'Desayuno dist.',
+  comida_distinta: 'Comida dist.', cambio_descanso: 'Cambio desc.', descanso: 'Descanso',
+};
+
+export interface BloqueIncidencia {
+  tipo: string;
+  grupo: GrupoIncidencia;
+  /** Lo que cabe en la celda: «Vacaciones», «Permiso s/goce». */
+  nombre: string;
+  /** El nombre completo y la nota, para el `title`. */
+  titulo: string;
+  /** Capturada y todavía sin calificar: se ve (con borde punteado) aunque todavía no cuente. */
+  pendiente: boolean;
+}
+
+/** Lo mínimo de una incidencia capturada sin calificar (`HrIncidenciaDto`), para no atar esta lógica al DTO entero. */
+export interface IncidenciaPendiente { person_code: string; incident_type: string; date_from: string; date_to: string; note: string | null }
+
+/**
+ * `[RH.18.7]` Los bloques de incidencia de una celda: las que ya cuentan (las del día o del periodo, como `celdaDe`) y las
+ * capturadas por calificar. En su día de descanso, lo que justifica no se pinta (`[RH.6.2]`: su descanso no se vuelve
+ * vacaciones); sí lo que no justifica.
+ */
+export function bloquesDeCelda(
+  p: HrPersonaAsistencia, dias: Map<string, HrDiaAsistencia>, fecha: string,
+  pendientes: readonly IncidenciaPendiente[], etiquetas: ReadonlyMap<string, string>,
+): BloqueIncidencia[] {
+  const d = dias.get(fecha);
+  let incs = d?.incidencias?.length ? d.incidencias : p.incidencias.filter((i) => i.desde <= fecha && i.hasta >= fecha);
+  if (d?.estado === 'descanso') incs = incidenciasEnDescanso(incs).otras;
+  const bloque = (tipo: string, etiqueta: string, nota: string | null | undefined, pendiente: boolean): BloqueIncidencia => ({
+    tipo, grupo: grupoDeTipo(tipo), nombre: NOMBRE_CORTO[tipo] ?? etiqueta,
+    titulo: etiqueta + (nota ? ` — ${nota}` : '') + (pendiente ? ' (por calificar)' : ''), pendiente,
+  });
+  return [
+    ...incs.map((i) => bloque(i.tipo, i.etiqueta, i.nota, false)),
+    ...pendientes.filter((x) => x.person_code === p.codigo && x.date_from <= fecha && x.date_to >= fecha)
+      .map((x) => bloque(x.incident_type, etiquetas.get(x.incident_type) ?? NOMBRE_CORTO[x.incident_type] ?? x.incident_type, x.note, true)),
+  ];
+}
+
+/** `[RH.18.7]` Lo de un día en la tabla: las horas de lo que se ve y cuántos checaron (sin checar no cuenta). */
+export function totalesPorDia(personas: readonly HrPersonaAsistencia[], fechas: readonly string[]): Array<{ fecha: string; min: number; checaron: number }> {
+  const porPersona = personas.map((p) => diasPorFecha(p));
+  return fechas.map((fecha) => {
+    let min = 0, checaron = 0;
+    for (const dias of porPersona) {
+      const d = dias.get(fecha);
+      if (!d || !(d.entrada || d.hora)) continue;
+      checaron++;
+      min += d.netasMin || 0;
+    }
+    return { fecha, min, checaron };
+  });
+}

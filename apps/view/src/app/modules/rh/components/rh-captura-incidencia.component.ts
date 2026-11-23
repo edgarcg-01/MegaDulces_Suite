@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, model, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, model, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -6,14 +6,14 @@ import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import type { HrIncidenciaDto, HrTipoIncidenciaDto } from '@megadulces/contracts';
 import { RhService, rhError } from '../rh.service';
-import { firmaHoras, horasTexto } from '../reporte-formato';
+import { diaLargo, firmaHoras, horasTexto } from '../reporte-formato';
 import { COMO_LE_DICEN, type FormCaptura, conAutorizacion, cuerpoCaptura, deUnDia, etiquetaConAlias, etiquetaNota, notaObligatoria } from '../incidencia-captura';
 
 interface GrupoTipos { label: string; items: HrTipoIncidenciaDto[]; }
 /** `[RH.18.4]` Un botón de tipo: el nombre que usa RH arriba («Personal»), el tipo oficial abajo («Permiso sin goce»). */
 interface BotonTipo { tipo: string; titulo: string; sub: string; }
 
-/** Cuántos botones: los que caben en una línea y se leen de un vistazo (el resto, en «Otro tipo…»). */
+/** Cuántos van destacados (grandes): los que caben en una línea; los demás tipos van enseguida, en chico. */
 const MAX_BOTONES = 4;
 /** `[RH.18.4]` Dónde se recuerda «quién lo autorizó» (sólo en este navegador: es una comodidad, no un dato). */
 const LLAVE_AUTORIZO = 'rh.incidencias.ultimoAutorizo';
@@ -44,24 +44,34 @@ const guardarAutorizo = (v: string): void => { try { localStorage.setItem(LLAVE_
   template: `
     @if (form(); as f) {
       <form class="ci-form" (ngSubmit)="guardar()" [attr.aria-label]="titulo()">
-        <h2>{{ titulo() }}</h2>
-        @if (persona(); as nom) {
-          <p class="ci-quien">{{ nom }} <span class="ci-cod">#{{ f.person_code }}</span></p>
-        } @else {
+        <!-- [RH.18.6] De quién y qué día, juntos arriba: el nombre ya no flota entre los campos. -->
+        <div class="ci-head">
+          <h2>{{ titulo() }}</h2>
+          @if (persona(); as nom) { <p class="ci-quien">{{ nom }} <span class="ci-cod">#{{ f.person_code }}</span></p> }
+          <!-- [RH.18.7] Lo que pasó ese día: la razón por la que se abrió (la tabla queda tapada por el globo). -->
+          @if (contexto(); as ctx) { <p class="ci-contexto">{{ ctx }}</p> }
+        </div>
+        @if (!persona()) {
           <label>Número de la persona <input pInputText name="persona" [(ngModel)]="f.person_code" required /></label>
         }
-        @if (botones().length && !verLista()) {
-          <!-- [RH.18.4] (A) Lo que más usan para ese día, en un toque y con su nombre; nada viene elegido. -->
-          <fieldset class="ci-ancho ci-botones">
+        @if (botones().length) {
+          <!-- [RH.18.4] (A) Lo que más usan para ese día, en un toque y con su nombre; nada viene elegido.
+               [RH.18.6] «Todo en uno»: enseguida, TODOS los demás tipos, también a un toque (antes, detrás de «Otro tipo…»). -->
+          <fieldset class="ci-todo ci-botones">
             <legend>¿Qué pasó?</legend>
-            @for (b of botones(); track b.tipo) {
-              <button type="button" class="ci-boton" [class.sel]="f.incident_type === b.tipo" [attr.aria-pressed]="f.incident_type === b.tipo" (click)="elegir(b.tipo)">
-                <span class="ci-b-tit">{{ b.titulo }}</span>@if (b.sub) { <span class="ci-b-sub"> {{ b.sub }}</span> }
-              </button>
-            }
-            <button type="button" class="ci-boton ci-otro" (click)="verLista.set(true)">
-              <span class="ci-b-tit">Otro tipo…</span><span class="ci-b-sub"> los 19, se buscan tecleando</span>
-            </button>
+            <div class="ci-dest">
+              @for (b of botones(); track b.tipo) {
+                <button type="button" class="ci-boton" [class.sel]="f.incident_type === b.tipo" [attr.aria-pressed]="f.incident_type === b.tipo" (click)="elegir(b.tipo)">
+                  <span class="ci-b-tit">{{ b.titulo }}</span>@if (b.sub) { <span class="ci-b-sub"> {{ b.sub }}</span> }
+                </button>
+              }
+            </div>
+            <p class="ci-otras" id="ci-otras">Otras incidencias</p>
+            <div class="ci-resto" role="group" aria-labelledby="ci-otras">
+              @for (r of resto(); track r.tipo) {
+                <button type="button" class="ci-chip" [class.sel]="f.incident_type === r.tipo" [attr.aria-pressed]="f.incident_type === r.tipo" (click)="elegir(r.tipo)">{{ r.etiqueta }}</button>
+              }
+            </div>
           </fieldset>
         } @else {
         <label>Tipo
@@ -130,7 +140,7 @@ const guardarAutorizo = (v: string): void => { try { localStorage.setItem(LLAVE_
         @if (error(); as e) { <p class="ci-ancho ci-error" role="alert">{{ e }}</p> }
         <div class="ci-btns">
           <!-- [RH.18.3] Sin tipo no se guarda: nada viene elegido, así que Guardar espera a que lo elijan. -->
-          <p-button type="submit" label="Guardar" [loading]="ocupado()" [disabled]="!site() || !f.incident_type" />
+          <p-button type="submit" [label]="resumen() ? 'Guardar · ' + resumen() : 'Guardar'" [loading]="ocupado()" [disabled]="!site() || !f.incident_type" />
           <p-button label="Cancelar" [text]="true" severity="secondary" [disabled]="ocupado()" (onClick)="cancelar()" />
         </div>
       </form>
@@ -139,25 +149,38 @@ const guardarAutorizo = (v: string): void => { try { localStorage.setItem(LLAVE_
   styles: [`
     :host { display: block; }
     .ci-form { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
-    .ci-form h2 { flex: 1 1 100%; margin: 0; font-size: var(--fs-h3); color: var(--text-main); }
+    .ci-head { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--sp-1) var(--sp-3); }
+    .ci-form h2 { margin: 0; font-size: var(--fs-h3); color: var(--text-main); }
+    .ci-form .ci-todo { flex: 1 1 100%; min-width: 0; }
     .ci-form label { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     .ci-form .ci-ancho { flex: 1 1 18rem; }
     .ci-form .ci-check { flex-direction: row; align-items: center; gap: var(--sp-2); }
-    .ci-quien { margin: 0; align-self: center; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+    .ci-quien { margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+    .ci-contexto { flex: 1 1 100%; margin: 0; font-size: var(--fs-sm); color: var(--text-muted); }
     .ci-cod { font-family: var(--font-mono); font-weight: 400; color: var(--text-muted); font-size: var(--fs-xs); }
     .ci-saldo { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; font-size: var(--fs-sm); color: var(--text-muted); }
     .ci-ayuda { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .ci-propuesto { color: var(--info-soft-fg); }
     .ci-error { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .ci-btns { display: flex; gap: var(--sp-2); }
-    .ci-botones { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: 0; padding: 0; border: 0; }
+    .ci-botones { display: flex; flex-direction: column; gap: var(--sp-2); margin: 0; padding: 0; border: 0; }
     .ci-botones legend { padding: 0; margin-bottom: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     .ci-boton { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 44px; padding: var(--sp-1) var(--sp-3);
       border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); cursor: pointer; font: inherit; text-align: left; }
     .ci-boton:hover { background: var(--surface-hover-bg); }
     .ci-boton:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .ci-boton.sel { border: 2px solid var(--action); background: var(--overlay-selected); }
-    .ci-otro { border-style: dashed; }
+    /* Los destacados, parejos: cuatro por renglón donde caben, nunca uno solo colgando. */
+    .ci-dest { display: grid; grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); gap: var(--sp-2); }
+    .ci-dest .ci-boton { width: 100%; }
+    .ci-otras { margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .ci-resto { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+    .ci-chip { min-height: 32px; padding: 2px var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-pill); background: var(--card-bg);
+      color: var(--text-main); font: inherit; font-size: var(--fs-xs); cursor: pointer; }
+    .ci-chip:hover { background: var(--surface-hover-bg); }
+    .ci-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .ci-chip.sel { border: 2px solid var(--action); background: var(--overlay-selected); font-weight: 600; }
+    @media (pointer: coarse) { .ci-chip { min-height: 44px; } }
     .ci-b-tit { font-size: var(--fs-sm); font-weight: 600; }
     .ci-b-sub { font-size: var(--fs-xs); color: var(--text-muted); }
   `],
@@ -176,22 +199,13 @@ export class RhCapturaIncidenciaComponent {
   readonly persona = input<string | null>(null);
   readonly titulo = input('Capturar incidencia');
   readonly puedeCalificar = input(false);
+  /** `[RH.18.7]` Lo que pasó ese día, en una línea («No checó en todo el día.»). Vacío = no se dice nada. */
+  readonly contexto = input('');
   /** `[RH.18.1]` La entrada y la salida ya vienen de lo que checó ese día. */
   readonly deLoChecado = input(false);
   readonly guardada = output<HrIncidenciaDto>();
   readonly cancelada = output<void>();
 
-  /** `[RH.18.4]` «Otro tipo…»: se ve la lista completa (los 19, con búsqueda). */
-  readonly verLista = signal(false);
-  /** Otra persona u otro día: la lista se vuelve a cerrar (los botones primero). */
-  private ultimaCaptura = '';
-  constructor() {
-    effect(() => {
-      const f = this.form();
-      const clave = f ? f.person_code + '|' + f.date_from : '';
-      if (clave !== this.ultimaCaptura) { this.ultimaCaptura = clave; this.verLista.set(false); }
-    });
-  }
   readonly ocupado = signal(false);
   readonly error = signal<string | null>(null);
   readonly saldoUso = signal<string | null>(null);
@@ -206,7 +220,8 @@ export class RhCapturaIncidenciaComponent {
 
   /**
    * `[RH.18.4]` (A) Los botones del día: los sugeridos que el catálogo trae, hasta `MAX_BOTONES`, con el nombre que usa RH
-   * arriba («Personal») y el tipo oficial abajo. Sin sugeridos (el panel de Incidencias) no hay botones: la lista de siempre.
+   * arriba («Personal») y el tipo oficial abajo; `[RH.18.6]` los demás tipos van enseguida (`resto`). Sin sugeridos (el panel
+   * de Incidencias) no hay botones: la lista de siempre.
    */
   readonly botones = computed<BotonTipo[]>(() => {
     const tipos = this.tipos();
@@ -230,6 +245,25 @@ export class RhCapturaIncidenciaComponent {
       return { ...f, incident_type: tipo, reason: motivo, authorized_by_name: autorizo };
     });
   }
+
+  /** `[RH.18.6]` Todos los demás tipos (los que no van destacados), cada uno con su nombre de Mega Talento si lo tiene. */
+  readonly resto = computed<HrTipoIncidenciaDto[]>(() => {
+    const dest = new Set(this.botones().map((b) => b.tipo));
+    return this.conAlias().filter((t) => !dest.has(t.tipo)).sort((a, b) => a.etiqueta.localeCompare(b.etiqueta, 'es'));
+  });
+
+  /**
+   * `[RH.18.7]` Lo que va a guardar, en el botón: «Personal, lunes 23». Confirma sin un clic más; sin tipo, sólo «Guardar».
+   * Se lee de la señal del formulario, así que se actualiza al elegir con un botón (el selector de la lista cambia el
+   * objeto en el lugar: ahí el resumen llega en el siguiente ciclo).
+   */
+  readonly resumen = computed<string>(() => {
+    const f = this.form();
+    if (!f?.incident_type) return '';
+    const b = this.botones().find((x) => x.tipo === f.incident_type);
+    const nombre = b ? b.titulo : this.tipos().find((x) => x.tipo === f.incident_type)?.etiqueta ?? '';
+    return nombre && f.date_from ? `${nombre}, ${diaLargo(f.date_from)}` : nombre;
+  });
 
   /** Con sugeridos: «Para este día» arriba, «Todos los tipos» abajo. Sin ellos, la lista plana de siempre. */
   readonly grupos = computed<GrupoTipos[] | null>(() => {
@@ -267,7 +301,7 @@ export class RhCapturaIncidenciaComponent {
       next: (n) => {
         // `[RH.18.4]` Se recuerda quién autorizó (la próxima vez llega puesto).
         if (conAutorizacion(f.incident_type) && f.authorized_by_name.trim()) guardarAutorizo(f.authorized_by_name.trim());
-        this.ocupado.set(false); this.saldoUso.set(null); this.verLista.set(false); this.form.set(null); this.guardada.emit(n);
+        this.ocupado.set(false); this.saldoUso.set(null); this.form.set(null); this.guardada.emit(n);
       },
       error: (e) => { this.ocupado.set(false); this.error.set(rhError(e, 'No se pudo guardar la incidencia. Nada cambió.')); },
     });
@@ -275,7 +309,6 @@ export class RhCapturaIncidenciaComponent {
 
   cancelar(): void {
     this.error.set(null);
-    this.verLista.set(false);
     this.saldoUso.set(null);
     this.form.set(null);
     this.cancelada.emit();

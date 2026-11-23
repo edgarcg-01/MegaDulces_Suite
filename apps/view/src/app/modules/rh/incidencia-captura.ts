@@ -149,3 +149,24 @@ export function formDelDia(persona: string, fecha: string, d: HrDiaAsistencia | 
   else if ((d.desayunoExcesoMin ?? 0) > 0 && d.desayunoMin != null) f.minutos = String(d.desayunoMin);
   return f;
 }
+
+/**
+ * `[RH.18.7]` Lo que pasó ese día, en una línea, arriba del globo: la razón por la que se abre. Lo dice el cálculo del
+ * servidor tal cual (no se recalcula): «No checó en todo el día.», «Llegó 08:25 (+25 min), salió 18:00.».
+ */
+export function contextoDelDia(d: HrDiaAsistencia | undefined, fecha: string, hoy: string): string {
+  if (!d) return fecha > hoy ? 'Un día que todavía no llega.' : 'Sin checadas que medir ese día.';
+  switch (d.estado) {
+    case 'falta': return fecha === hoy ? 'Todavía no checa hoy.' : 'No checó en todo el día.';
+    case 'sin_dato': return 'Sin dato: nadie de la plaza checó ese día.';
+    case 'marca_faltante': return `Una sola checada (${hhmm(d.hora || d.entrada) || '?'}): no se sabe si fue entrada o salida.`;
+    case 'descanso': return 'Su día de descanso.';
+    case 'justificado': return `Ya justificado${d.justificacion ? `: ${d.justificacion}` : ''}.`;
+    default: {
+      const ent = hhmm(d.entrada), sal = hhmm(d.salida);
+      const tarde = (d.atrasoMin ?? 0) > 0 ? ` (+${d.atrasoMin} min)` : '';
+      if (!sal) return `Entró ${ent || '?'}${tarde}.`;
+      return tarde ? `Llegó ${ent}${tarde}, salió ${sal}.` : `Checó de ${ent} a ${sal}.`;
+    }
+  }
+}

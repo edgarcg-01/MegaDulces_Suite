@@ -47,18 +47,20 @@ describe('[RH.18.4] RhCapturaIncidenciaComponent (propuesta A)', () => {
   beforeEach(() => { try { localStorage.removeItem(LLAVE); } catch { /* sin almacenamiento */ } });
   afterEach(() => TestBed.resetTestingModule());
 
-  it('⭐ los del día en botones, con el nombre que usan arriba y el tipo oficial abajo; los 19 en «Otro tipo…»', async () => {
-    const fix = await montar(['permiso_sin_goce', 'incapacidad', 'otros', 'vacaciones', 'horario_distinto']);
-    expect(botones(fix)).toEqual([
-      'Personal Permiso sin goce de sueldo', 'Cita médica Incapacidad', 'No registrada Otros', 'Vacaciones',
-      'Otro tipo… los 19, se buscan tecleando',
-    ]);
-    // ⛔ Nada viene elegido, y sin la lista no hay selector.
-    expect(el(fix).querySelector('.ci-boton.sel')).toBeNull();
+  it('⭐ [RH.18.6] todo en uno: los del día grandes, con su nombre, y enseguida TODOS los demás tipos; nada viene elegido', async () => {
+    const fix = await montar(['permiso_sin_goce', 'incapacidad', 'otros', 'vacaciones']);
+    expect(botones(fix)).toEqual(['Personal Permiso sin goce de sueldo', 'Cita médica Incapacidad', 'No registrada Otros', 'Vacaciones']);
+    // Los demás, a la vista y con su nombre de Mega Talento si lo tienen; sin «Otro tipo…» ni lista que abrir.
+    const resto = () => Array.from(el(fix).querySelectorAll('button.ci-chip'));
+    expect(resto().map((b) => b.textContent?.trim())).toEqual(['Horario distinto · tráfico']);
+    expect(el(fix).textContent).not.toContain('Otro tipo');
     expect(el(fix).querySelector('p-select')).toBeNull();
-    (Array.from(el(fix).querySelectorAll('button.ci-boton')).at(-1) as HTMLButtonElement).click();
+    expect(el(fix).querySelector('.sel')).toBeNull();
+    // Uno de los demás también se elige en un toque (y Tráfico trae su motivo).
+    (resto()[0] as HTMLButtonElement).click();
     fix.detectChanges();
-    expect(el(fix).querySelector('p-select')).not.toBeNull();
+    expect([fix.componentInstance.form()?.incident_type, fix.componentInstance.form()?.reason]).toEqual(['horario_distinto', 'Tráfico']);
+    expect(resto()[0].getAttribute('aria-pressed')).toBe('true');
   });
 
   it('⭐ «Tráfico» en un toque: Horario distinto, con «Tráfico» de motivo y quien autorizó la última vez', async () => {

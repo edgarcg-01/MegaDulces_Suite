@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import type { HrAsistenciaResponse, HrCierreDto, HrPersonaDirectorioDto, HrRelojEstadoDto, HrSiteDto } from '@megadulces/contracts';
+import type { HrAsistenciaResponse, HrCierreDto, HrIncidenciaDto, HrPersonaDirectorioDto, HrRelojEstadoDto, HrSiteDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { Permission } from '../../core/constants/permissions';
 import {
@@ -46,6 +46,8 @@ export class RhAsistenciaEstado {
   readonly relojesMedidos = signal(false);
   /** Incidencias por calificar del periodo; null = no se pudo leer (sin permiso): no se pinta un cero. */
   readonly pendientes = signal<number | null>(null);
+  /** `[RH.18.7]` Las capturadas por calificar de la semana: la tabla las pinta (punteadas) en su día. */
+  readonly pendientesLista = signal<HrIncidenciaDto[]>([]);
   /** Semanas cerradas que toca el periodo; null = no se pudo leer. */
   readonly cierres = signal<HrCierreDto[] | null>(null);
   /**
@@ -135,7 +137,7 @@ export class RhAsistenciaEstado {
     // `[RH.14.8]` Otra plaza, otro periodo u otro grupo: lo de antes NO se queda pintado bajo la etiqueta nueva mientras
     // llega lo nuevo (se leían los totales de la semana pasada con «Semana del …» de la actual). Recalcular lo mismo
     // (`forzar` con la misma clave, p. ej. después de guardar un horario) sí conserva la tabla.
-    if (clave !== this.clave) { this.datos.set(null); this.pendientes.set(null); this.cierres.set(null); }
+    if (clave !== this.clave) { this.datos.set(null); this.pendientes.set(null); this.pendientesLista.set([]); this.cierres.set(null); }
     this.clave = clave;
     this.cargar(site, desde, hasta);
   }
@@ -171,8 +173,8 @@ export class RhAsistenciaEstado {
     if (!this.puedeVerIncidencias()) return;
     const semana = { desde: juevesDeLaSemana(desde), hasta: sumarDias(juevesDeLaSemana(desde), 6) };
     this.api.incidencias({ site_code: site, date_from: semana.desde, date_to: semana.hasta, statuses: 'capturada' }).subscribe({
-      next: (l) => { if (mi === this.seq) this.pendientes.set(l.length); },
-      error: () => { if (mi === this.seq) this.pendientes.set(null); },
+      next: (l) => { if (mi === this.seq) { this.pendientes.set(l.length); this.pendientesLista.set(l); } },
+      error: () => { if (mi === this.seq) { this.pendientes.set(null); this.pendientesLista.set([]); } },
     });
     this.api.estadoCierre(site, semana.desde, semana.hasta).subscribe({
       next: (c) => { if (mi === this.seq) this.cierres.set(c); },

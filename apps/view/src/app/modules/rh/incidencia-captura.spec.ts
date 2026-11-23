@@ -67,3 +67,16 @@ describe('[RH.18.1] el formulario de un día', () => {
     expect([f.entrada, f.salida]).toEqual(['', undefined]);
   });
 });
+
+describe('[RH.18.7] lo que pasó ese día, arriba del globo', () => {
+  it('lo dice el cálculo tal cual: falta, tarde, una checada, a tiempo, por venir', async () => {
+    const { contextoDelDia } = await import('./incidencia-captura');
+    expect(contextoDelDia(dia({ fecha: '2026-10-06', estado: 'falta', entrada: null, salida: null }), '2026-10-06', HOY)).toBe('No checó en todo el día.');
+    expect(contextoDelDia(dia({ atrasoMin: 25, entrada: '8:25', salida: '18:00' }), '2026-10-01', HOY)).toBe('Llegó 08:25 (+25 min), salió 18:00.');
+    expect(contextoDelDia(dia({ estado: 'marca_faltante', hora: '13:10', entrada: null }), '2026-10-01', HOY)).toBe('Una sola checada (13:10): no se sabe si fue entrada o salida.');
+    expect(contextoDelDia(dia({}), '2026-10-01', HOY)).toBe('Checó de 08:00 a 18:00.');
+    expect(contextoDelDia(undefined, '2026-10-09', HOY)).toBe('Un día que todavía no llega.');
+    // ⛔ El día en curso no es falta todavía.
+    expect(contextoDelDia(dia({ fecha: HOY, estado: 'falta', entrada: null, salida: null }), HOY, HOY)).toBe('Todavía no checa hoy.');
+  });
+});
