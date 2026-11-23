@@ -160,6 +160,10 @@ libro después de E3.
 | **D12** (ídem) | Kepler registró el pago en otra cuenta de banco | (a) la categoría sale del documento igual · (b) motivo para Tesorería | **(b)** en el motor de hoy (no se casa por cuenta ajena); BFU.7.5 decide si además da la categoría |
 | **D13** (ídem) | Plazo para «Kepler todavía no lo tiene» | días hábiles | **5** (mediana de captura 2–5, CB.53); después el motivo pasa al área dueña |
 | **D10** ✅ Edgar, 2026-11-19 («ya no se vuelve a usar workbook») | El libro CUENTAS ¿se sigue cargando mientras pasan las cuentas? | — | **No se vuelve a cargar.** La subida y la sincronización de Sheets se niegan desde ya (BFU.5.1); las cuentas que todavía no cuadran quedan con su libro al 10-nov hasta que su descarga se complete y pasen |
+| **D14** (Claude, 2026-11-23; Edgar vio la maqueta: «me agrada», sin firma) | Con qué área arranca BFU.4.5 | (a) Compras, RH y Tesorería, como se escribió el 20-nov · (b) Crédito y Cobranza y Tesorería; Compras y RH sólo ven | **(b)**: medido en noviembre, Compras tiene 4 pendientes y RH 5 (ya explican 97–98 % de sus pesos); Cobranza tiene 453 depósitos sin cliente y Tesorería 196 |
+| **D15** (ídem) | Qué ve un área | (a) sus movimientos, sin saldos de las cuentas · (b) todo Bancos | **(a)**: el área necesita lo suyo para explicarlo; el saldo es de Tesorería |
+| **D16** (ídem) | Qué es «ligar» | (a) el área confirma una propuesta del sistema; la liga definitiva es el documento de Kepler, que el área captura allá y el motor casa solo · (b) la suite guarda la liga y basta | **(a)**: Kepler es el árbitro (ADR-059). Lo que el área confirma queda «identificado, falta en Kepler» hasta que el motor casa el documento; si el documento contradice la identificación, se marca, no se pisa. Buscar a mano es el respaldo, no el camino |
+| **D17** (ídem) | Los mecanismos de liga a mano sin uso (bandeja de captura, cliente declarado, confirmación de pago en ContPAQi, programa de pagos → movimiento: 0 usos medidos el 2026-11-23) | (a) se apaga el que la bandeja reemplace · (b) conviven | **(a)** (ADR-056: un primitivo); se apaga, no se borra (regla 5), y uno por uno, midiendo que nadie lo usa |
 
 ---
 
@@ -241,8 +245,41 @@ Cargar la skill `diseno` antes del primer archivo; las 🔴 de §11 son criterio
 | BFU.4.2 | **El estado de cuenta de una cuenta**, día por día: saldo de apertura y cierre del banco, cada movimiento con su explicación (BFU.2.8) y su fuente (archivo, línea, quién lo subió), y lo que falta explicar arriba | ⬜ | |
 | BFU.4.3 | **«Sin explicar» como bandeja con dueño**: por cuenta, lo que no tiene documento, categoría con evidencia o sucursal; se resuelve ahí | ⬜ | |
 | BFU.4.4 | **Exportar el estado de cuenta explicado** (Excel y PDF): el del banco más el porqué de cada peso, con las propiedades del mes en el encabezado | ⬜ | |
-| BFU.4.5 | **Aviso a quien sube** (D6): a la hora límite, qué cuenta no tiene el archivo de ayer y desde qué día bajarlo | ⬜ | |
-| BFU.4.5 | ⬜ **Cada área ve y reconoce sus movimientos del banco para conciliarlos en Kepler** (Edgar, 2026-11-20). Lo que no tiene documento le llega al área dueña (del Calendario, del acreedor, o asignada por Tesorería con un clic); el área lo captura en Kepler y el motor casa solo. Primero Compras, RH y Tesorería; falta quién en cada una | ⬜ | Permiso repartido en prod + pantalla viva |
+| BFU.4.6 | **Aviso a quien sube** (D6): a la hora límite, qué cuenta no tiene el archivo de ayer y desde qué día bajarlo. *(Era un segundo BFU.4.5; renumerado el 2026-11-23.)* | ⬜ | |
+| BFU.4.5 | ⬜ **Cada área ve y reconoce sus movimientos del banco para conciliarlos en Kepler** (Edgar, 2026-11-20). Lo que no tiene documento le llega al área dueña (del Calendario, del acreedor, o asignada por Tesorería con un clic); el área lo captura en Kepler y el motor casa solo. Desglosado abajo el 2026-11-23 (D14–D17) | ⬜ | Permiso repartido en prod + pantalla viva |
+
+#### BFU.4.5 desglosado — cada área ve y confirma lo suyo (2026-11-23)
+
+Edgar, 2026-11-23, sobre `/finanzas/bancos?view=cuentas`: *«mi idea es que cada departamento pueda observar los
+movimientos y ligarlos a sus respectivos movimientos, para así mejorar la visibilidad de la información y darle un
+valor agregado»*. Es el mismo pedido que BFU.4.5 (20-nov); se desglosa aquí, no se abre etapa nueva.
+
+**HOY** (`pg-prod`, sólo lectura, 1–23 nov, 3,934 movimientos): **77 %** de los pesos explicados (documento de
+Kepler, pago del Calendario o cargo que el banco nombra). **668 movimientos por ligar en 5 áreas**: Crédito y
+Cobranza 453 (depósitos sin cliente), Tesorería 196 (sin categoría, compras con tarjeta, créditos, un préstamo que
+entró como cobranza), Administración 10, RH 5, Compras 4. **6 de 11 áreas ya están al 100 %.**
+**META:** 100 % explicado o declarado «sin explicar» con área dueña, cada mes.
+
+**La lección que manda el diseño:** ya hay cuatro mecanismos para ligar a mano y ninguno tiene un solo uso, y nadie
+categoriza a mano desde el 10-sep. Un área que tiene que buscar y ligar no lo hace. Por eso el sistema **propone** y
+el área **confirma** donde ya trabaja; la liga definitiva sigue siendo el documento de Kepler (D16).
+
+**Maqueta** (privada de Edgar; pedirle acceso): <https://claude.ai/artifact/8LH7qxe7zeJjRZxvgmCqLH> — Cuentas por
+área, la bandeja de Cobranza, el cobro dentro del estado de cuenta del cliente y el parámetro categoría → área.
+
+| # | Item | Estado | Verificado contra |
+|---|---|---|---|
+| BFU.4.5.1 | C0 · **Área dueña por categoría como parámetro**: columna en `finance.movement_categories` hacia `identity.departments` (se extiende, no se copia); Tesorería la cambia en Admin | ⬜ | Cada movimiento del mes cae en un área; la suma por área = el total del mes |
+| BFU.4.5.2 | C1 · **El motor resuelve `'area'`** (hoy no apunta a nadie) al departamento dueño, y el diagnóstico (BFU.7.6) da la cobertura **por área** | ⬜ | Suma por área = total, contra un conteo aparte; mutante en rojo |
+| BFU.4.5.3 | C1 · **Propuesta de cliente para un depósito** (= BFU.6.1): folio en el concepto, nombre o RFC del ordenante, ordenante ya confirmado antes. **El importe solo es señal débil y nunca propone solo** | ⬜ | Acierto contra los depósitos de noviembre que ya tienen documento de Kepler, **con placebo** (documentos barajados) |
+| BFU.4.5.4 | C1 · **La confirmación del área**: tabla propia (dato HITL) movimiento → cliente/factura, periodo de nómina o contrato, con parcial (1→N), quién, cuándo y señal. Queda «identificado, falta en Kepler» hasta que el motor casa el documento. **Nunca toca importe, fecha ni concepto del banco** | ⬜ | Prueba contra base real con el payload de la pantalla (regla 13); un documento de Kepler que contradice se marca |
+| BFU.4.5.5 | C2 · **«Movimientos de mi área»**, sin saldos (D15); permiso por área **repartido** en prod (regla 20) | ⬜ | Prueba negativa: un usuario de Cobranza no recibe saldos ni movimientos de otra área |
+| BFU.4.5.6 | C3 · **Bancos › Cuentas: «Quién explica cada peso»** por área (= BFU.7.7) | ⬜ | Pantalla viva + `diseno` §0b; suma por área = total |
+| BFU.4.5.7 | C3 · **Bandeja de Cobranza en «Mi trabajo»** (confirmar · es otro cliente · no es cobranza) y el cobro en banco dentro del estado de cuenta del cliente. Después Tesorería; Compras y RH sólo ven (D14) | ⬜ | Pendientes de Cobranza antes/después; e2e con el payload de la pantalla |
+| BFU.4.5.8 | C1 · **Apagar los mecanismos sin uso** que la bandeja reemplace (D17), uno por uno | ⬜ | 0 usos medidos al apagar cada uno; nada se borra |
+
+**Falta de Edgar:** firmar D14–D17 y nombrar a la persona de cada área (ya pedido el 20-nov). Cupo: BFU sigue
+⬜ propuesta con el tablero por encima de 4 fases 🔨.
 
 ### E5 · C2–C3 — Apagar el libro
 
@@ -343,3 +380,4 @@ falta; terciario = el detalle de cada movimiento.
 | 2026-11-20 | El motor (BFU.7.1–7.4) en prod y medido: en noviembre, sin categoría 143 → 78, todos con motivo y responsable; 1,639 renglones con la categoría de su documento de Kepler. BFU.7.8: las comisiones abreviadas de BBVA, con su IVA como testigo | Claude |
 | 2026-11-23 | BFU.7.5: los cheques de nómina SÍ están en Kepler; los apartaba el candado anti doble-cobro con pareos de enero sin sucursal (los folios se reiniciaron con el corte del 1-oct). Una reclamación ya sólo aparta lo que su corrida alcanzaba: se liberan 465 documentos de octubre y 206 de noviembre | Claude |
 | 2026-11-23 | BFU.7.6: el diagnóstico de Bancos da la cobertura del motor (con categoría + por motivo y responsable + sin motivo), «todavía no» recalculado al leer y la suma contrastada contra un conteo aparte. Falta la pantalla (BFU.7.7) | Claude |
+| 2026-11-23 | «Que cada departamento observe sus movimientos y los ligue»: es BFU.4.5; se desglosa (BFU.4.5.1–4.5.8) con D14–D17 y maqueta. Medido: 77 % de los pesos explicados, 668 por ligar en 5 áreas, 4 mecanismos de liga a mano con 0 usos. El segundo BFU.4.5 («aviso a quien sube») pasa a BFU.4.6 | Edgar / Claude |
