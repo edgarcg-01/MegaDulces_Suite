@@ -28,6 +28,7 @@ import { faltaCuentaParaTransferirAnticipo, faltaOrigenMismoBanco, tipoDeAcreedo
 import { cajaDeSalidaTexto, ESTADOS_DIA_AUTORIZADO } from '@megadulces/contracts';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
+import { SALDADA_EN_KEPLER, conLlaveDeKepler, sqlDebeKeplerDeCapturada, sqlDisponibleDeCapturada, type LlaveDeCapturada } from './capturada-kepler.sql';
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
 import type { CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts';
 import type { PagoParaCheque } from '@megadulces/contracts';
@@ -989,13 +990,16 @@ export class PaymentCalendarService {
 
       const legSupplier = trx('commercial.supplier_payment_obligations as o')
         .join('catalog.suppliers as s', 's.id', 'o.supplier_id')
+        // `[PGP.197]` Lo que Kepler todavía debe de su factura: la que Tesorería ya pagó por fuera no se vuelve a
+        // ofrecer (CD031, 13-nov: pagada dos veces). Sólo las obligaciones que traen su llave; 85 ms las 38.
+        .joinRaw(`LEFT JOIN LATERAL (${sqlDebeKeplerDeCapturada('o')}) kd ON o.status IN ('pending', 'partial')`)
         .select(
           trx.raw(`'supplier_payable'::text AS obligation_source`), 'o.id AS obligation_id',
           's.name AS beneficiary', trx.raw(`coalesce(o.concept, o.invoice_folio, 'Mercancía')::text AS concept`),
           trx.raw(`'proveedor_mercancia'::text AS classification`), trx.raw(`'mercancia'::text AS subtype`),
           's.code AS area_code', 'o.original_due_date', 'o.negotiated_date', 'o.original_amount',
           'o.reserved_amount', 'o.paid_amount',
-          trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
+          trx.raw(`${sqlDisponibleDeCapturada('o', 'kd')} AS available_amount`),
           's.is_critical', 's.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw("nullif(btrim(o.kepler_sucursal), '') AS branch_code"), 'o.supplier_id AS payee_id',
           trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_tasa'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
           // [TP.20.5] La obligacion CAPTURADA por Entregas tambien tiene ficha, pero solo si
@@ -1425,11 +1429,20 @@ export class PaymentCalendarService {
         if (source === 'supplier_payable') {
           const rows = await trx('commercial.supplier_payment_obligations as o')
             .join('catalog.suppliers as s', 's.id', 'o.supplier_id')
+            // `[PGP.197]` Si Kepler ya saldó su factura, el renglón lo dice igual que con una derivada (`[PGP.35]`).
+            .joinRaw(`LEFT JOIN LATERAL (${sqlDebeKeplerDeCapturada('o')}) kd ON true`)
             .whereIn('o.id', ids)
             // `[PGP.126]` `to_jsonb(o) ->> 'nature'` en vez de `o.nature`: si el código llegara antes
             // que la migración `pgp119`, el día entero no se cae por una columna que aún no existe.
-            .select('o.id', 's.name as beneficiary', 'o.supplier_id', trx.raw("nullif(btrim(o.kepler_sucursal), '') as branch_code"), trx.raw("coalesce(o.concept, o.invoice_folio, 'Mercancía') as concept"), trx.raw("to_jsonb(o) ->> 'nature' as nature"));
-          for (const r of rows as { id: string; beneficiary: string; concept: string; supplier_id: string; branch_code: string | null; nature: string | null }[]) labels.set(`${source}:${r.id}`, { beneficiary: r.beneficiary, concept: r.concept, supplier_id: r.supplier_id, branch_code: r.branch_code ?? null, es_anticipo: r.nature === 'anticipo' });
+            .select('o.id', 's.name as beneficiary', 'o.supplier_id', trx.raw("nullif(btrim(o.kepler_sucursal), '') as branch_code"), trx.raw("coalesce(o.concept, o.invoice_folio, 'Mercancía') as concept"), trx.raw("to_jsonb(o) ->> 'nature' as nature"), trx.raw('kd.debe AS kepler_debe'));
+          for (const r of rows as { id: string; beneficiary: string; concept: string; supplier_id: string; branch_code: string | null; nature: string | null; kepler_debe: number | string | null }[]) {
+            const debe = r.kepler_debe === null || r.kepler_debe === undefined ? null : Number(r.kepler_debe);
+            labels.set(`${source}:${r.id}`, {
+              beneficiary: r.beneficiary, concept: r.concept, supplier_id: r.supplier_id, branch_code: r.branch_code ?? null, es_anticipo: r.nature === 'anticipo',
+              // Sólo la saldada por completo: el «debe menos» de una capturada no tiene botón que lo baje (`[PGP.148]` ajusta derivadas).
+              saldada: debe !== null && debe <= SALDADA_EN_KEPLER,
+            });
+          }
         } else if (source === 'kepler_payable') {
           // `[TP.18]` El derivado no tiene tabla: su etiqueta se rearma desde la vista por la
           // misma llave determinística con que se guardó el item (ADR-094 §4).
@@ -1561,7 +1574,9 @@ export class PaymentCalendarService {
         // `[PGP.40]` Ya no se deduce de la ausencia de etiqueta: desde el rescate la etiqueta
         // EXISTE y trae la marca. Se conserva el caso sin etiqueta por si una factura no
         // estuviera ni en el universo completo — ahí sí no hay de dónde sacar nada.
-        const saldada = it.obligation_source === 'kepler_payable' && (!label || label.saldada === true);
+        const saldada = (it.obligation_source === 'kepler_payable' && (!label || label.saldada === true))
+          // `[PGP.197]` La capturada, sólo si se midió contra Kepler (sin llave no se afirma nada).
+          || (it.obligation_source === 'supplier_payable' && label?.saldada === true);
         const antes = pendientes.has(String(it.allocation_id)) ? antesDe.get(String(it.id)) ?? 0 : 0;
         if (antes > 0.005) partidaDe.add(String(it.id));
         const arr = itemsByAllocation.get(it.allocation_id) ?? [];
@@ -1577,7 +1592,7 @@ export class PaymentCalendarService {
           es_anticipo: label?.es_anticipo === true,
           kepler_saldada: saldada,
           // `[PGP.147]` Lo que debe hoy (0 si está saldada; null si no es factura de Kepler). `[PGP.190]` Partida: su parte.
-          kepler_debe: it.obligation_source === 'kepler_payable' ? (saldada ? 0 : debeParaEsteRenglon(label?.kepler_debe ?? null, antes)) : null,
+          kepler_debe: it.obligation_source === 'kepler_payable' ? (saldada ? 0 : debeParaEsteRenglon(label?.kepler_debe ?? null, antes)) : (saldada ? 0 : null),
           // `[PGP.36]` La razón por la que esta factura está en el día de hoy.
           vence: label?.vence ?? null,
           pronto_fecha_limite: label?.pronto_fecha_limite ?? null,
@@ -2639,11 +2654,19 @@ export class PaymentCalendarService {
     items: ItemParaCierre[],
   ): Promise<Map<string, CierreKeplerPago>> {
     if (!pagos.length) return new Map();
-    const ids = idsParaCierre(items);
+    // `[PGP.197]` La obligación capturada que trae su llave de Kepler se mide como la factura que es; sin esto quedaba
+    // «sin medir» y el pago nunca se cerraba ni se ligaba (2 de CF006 «pendientes» desde el 26-oct, pagados en Kepler).
+    const capturadas = [...new Set(items.filter((i) => i.obligation_source === 'supplier_payable').map((i) => i.obligation_id))];
+    const llaves = capturadas.length
+      ? ((await trx('commercial.supplier_payment_obligations').whereIn('id', capturadas)
+        .select('id', 'kepler_sucursal as sucursal', 'kepler_doc_tipo as doc_tipo', 'kepler_doc_sub as doc_sub', 'kepler_folio as folio')) as LlaveDeCapturada[])
+      : [];
+    const medibles = conLlaveDeKepler(items, llaves);
+    const ids = idsParaCierre(medibles);
     const filas = ids.length
       ? ((await trx.raw(SQL_CIERRE_KEPLER, [ids, this.tenantCtx.requireTenantId()])).rows as FilaCierreKepler[])
       : [];
-    return armarCierres(pagos, items, filas);
+    return armarCierres(pagos, medibles, filas);
   }
 
   async originAccounts(): Promise<PaymentOriginAccount[]> {
