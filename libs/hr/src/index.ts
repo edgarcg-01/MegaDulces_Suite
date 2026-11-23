@@ -25,3 +25,4 @@ export * from './lib/hr.module';
 // Fase RH · frente NE — el periodo de nómina como llave (ADR-056: el primitivo vive en libs/).
 export * from './lib/nomina/periodo';
 export * from './lib/nomina/recibo';
+export * from './lib/nomina/sobre';
