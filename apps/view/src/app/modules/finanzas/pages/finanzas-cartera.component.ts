@@ -236,6 +236,18 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                       <td class="ta-r" [class.ct-venc-num]="v.vencido > 0">{{ v.vencido | number:'1.0-0' }}</td>
                       <td class="ta-r"><b>{{ v.saldo | number:'1.0-0' }}</b></td>
                     </tr>
+                  }
+                  <!-- [CXC.52] Edgar: «quiero ver un total». De TODOS los vendedores con cartera, no de los 10 de arriba:
+                       el rótulo dice cuántos suma para que no se lea como la suma de lo visible. -->
+                  @if (totalVendedores(rs); as t) {
+                    <tr class="ct-rs-total" data-testid="total-vendedores">
+                      <td colspan="2">Total · {{ t.n }} vendedores</td>
+                      <!-- Sin clientes: el que compra con dos vendedores se contaría dos veces. -->
+                      <td></td>
+                      <td class="ta-r">@if (!rs.venta_vendedor?.medida) { <span class="muted">no medido</span> } @else { {{ t.venta | number:'1.0-0' }} }</td>
+                      <td class="ta-r" [class.ct-venc-num]="t.vencido > 0">{{ t.vencido | number:'1.0-0' }}</td>
+                      <td class="ta-r">{{ t.saldo | number:'1.0-0' }}</td>
+                    </tr>
                   }</tbody></table>
                 @if (rs.venta_vendedor?.medida) {
                   <p class="ct-rs-nota muted" data-testid="venta-vendedor-nota">Venta: lo facturado con esa clave en {{ rs.venta_vendedor?.dias }} días, contado y crédito. «—»: sin venta con esa clave; la sucursal Oficinas dejó de facturar el 1-oct y sus vendedores venden con la clave de su sucursal.</p>
@@ -827,6 +839,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-det-saldos { display: flex; gap: 1rem; }
     .ct-resumen { flex-basis: 100%; margin: .25rem 0 0; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
     .ct-resumen-dif { color: var(--warn-soft-fg); }
+    .ct-rs-total td { font-weight: 700; border-top: 1px solid var(--border); }
     .ct-det-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
     .ct-det-table th, .ct-det-table td { padding: .4rem .6rem; text-align: left; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
     .ct-det-table th { color: var(--text-muted); font-weight: 600; }
@@ -1008,6 +1021,22 @@ export class FinanzasCarteraComponent implements OnInit {
     return { ...resumenPeriodo(det.partidas, det.hoy, df === 'todo' ? null : df), desde: df === 'todo' ? null : df };
   });
   readonly proxVence = computed(() => proximoVencimiento(this.detalle()?.partidas || []));
+
+  /**
+   * `[CXC.52]` El total de «Cartera por vendedor»: TODOS los vendedores con cartera (la tabla pinta 10). La venta suma
+   * sólo las claves que vendieron; «—» no aporta nada porque no es cero, es sin venta con esa clave.
+   */
+  totalVendedores(rs: CarteraResumen): { n: number; venta: number; vencido: number; saldo: number } | null {
+    const vs = rs.por_vendedor;
+    if (!vs.length) return null;
+    const r = (n: number) => Math.round(n * 100) / 100;
+    return {
+      n: vs.length,
+      venta: r(vs.reduce((s, v) => s + (v.venta ?? 0), 0)),
+      vencido: r(vs.reduce((s, v) => s + v.vencido, 0)),
+      saldo: r(vs.reduce((s, v) => s + v.saldo, 0)),
+    };
+  }
   /** El periodo elegido, para los mensajes: su nombre y la liga pública al PDF de ESE periodo. */
   readonly periodoMensaje = computed<PeriodoMensaje | null>(() => {
     const df = this.dateFromEC();

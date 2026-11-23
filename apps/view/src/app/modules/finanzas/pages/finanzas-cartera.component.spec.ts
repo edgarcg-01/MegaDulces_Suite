@@ -486,6 +486,9 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(medida.head).toContain('Venta 30 d');
     expect(medida.celdas).toEqual(['4,277,123', '—']);
     expect(document.body.querySelector('[data-testid="venta-vendedor-nota"]')?.textContent).toContain('Oficinas dejó de facturar el 1-oct');
+    // El total: de TODOS (no de los 10 visibles); «—» no suma; sin clientes (el compartido se contaría dos veces).
+    const total = () => [...document.body.querySelectorAll('[data-testid="total-vendedores"] td')].map((td) => td.textContent!.trim());
+    expect(total()).toEqual(['Total · 2 vendedores', '', '4,277,123', '900', '1,700']);
     f.destroy();
     TestBed.resetTestingModule();
     // NEGATIVA — la lectura falló: no se dibuja como cero ni como «—».
@@ -494,6 +497,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     expect(celdas(f).celdas).toEqual(['no medido', 'no medido']);
+    expect(total()).toEqual(['Total · 2 vendedores', '', 'no medido', '900', '1,700']);
   });
 
   describe('21 · [CXC.47] periodo, pagadas y envío al vendedor', () => {
