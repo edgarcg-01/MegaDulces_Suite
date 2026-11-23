@@ -8,8 +8,8 @@ import { PaymentCalendarService } from './payment-calendar.service';
 const ESPERA_MS = 60_000;
 
 /**
- * `[PGP.117]` **El pago que nadie pagó se libera solo, sin reloj.** Edgar, 2026-11-12; desde `[PGP.202]` (2026-11-23)
- * al día siguiente de su día, en cuanto el banco confirma que no salió.
+ * `[PGP.117]` **A la semana, el pago que nadie pagó se libera solo, sin reloj.** Edgar, 2026-11-12. `[PGP.204]` Se
+ * bajó a un día y se regresó a la semana el mismo 2026-11-23: ver `DIAS_PARA_LIBERAR`.
  *
  * ── Qué lo dispara ──────────────────────────────────────────────────────────────────────────
  * Lo mismo que a la descarga del SAT (`[PGP.110c]`): `caja_fuente` suena con cada documento que
@@ -59,7 +59,7 @@ export class PagosVencidosService implements OnModuleInit, OnModuleDestroy {
     );
     try {
       this.dejarDeEscuchar = this.listen.escuchar(CANAL_FUENTE_KEPLER, () => { this.avisosKepler++; this.miradaKepler?.avisar(); this.mirada?.avisar(); });
-      this.logger.log(`escuchando ${CANAL_FUENTE_KEPLER} (sin reloj): libera desde el día siguiente los pagos que nadie pagó, en cuanto el banco lo confirma`);
+      this.logger.log(`escuchando ${CANAL_FUENTE_KEPLER} (sin reloj): libera a la semana los pagos que nadie pagó, en cuanto el banco lo confirma`);
     } catch (e: unknown) {
       this.logger.error(`no se pudo escuchar ${CANAL_FUENTE_KEPLER}: ${(e as Error)?.message} — los pagos vencidos NO se van a liberar`);
     }
@@ -131,7 +131,7 @@ export class PagosVencidosService implements OnModuleInit, OnModuleDestroy {
         const r = await this.tenantCtx.run({ tenantId, roleName: 'system' }, () => this.calendario.liberarVencidos());
         liberados += r.liberados;
         const c = r.conservados;
-        this.logger.log(`pagos vencidos ${r.hoy}: ${r.revisados} con su día ya pasado ·${r.liberados} liberados ($${r.monto_liberado.toFixed(2)})`
+        this.logger.log(`pagos vencidos ${r.hoy}: ${r.revisados} con su día hace una semana o más · ${r.liberados} liberados ($${r.monto_liberado.toFixed(2)})`
           + ` · conservados: Kepler pagado ${c.kepler_pagado}, Kepler a medias ${c.kepler_en_parte}, sin medir en Kepler ${c.kepler_sin_medir},`
           + ` banco ${c.banco}, banco sin medir ${c.banco_sin_medir}, ligados ${c.ligado}, cheques emitidos ${c.cheque_emitido}`
           + (r.ids_liberados.length ? ` · liberados: ${r.ids_liberados.join(', ')}` : '')

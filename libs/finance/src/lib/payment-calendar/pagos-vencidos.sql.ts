@@ -1,5 +1,5 @@
 /**
- * `[PGP.117]` Las dos lecturas de la liberación (desde `[PGP.202]`, al día siguiente). Viven aparte del servicio para que el
+ * `[PGP.117]` Las dos lecturas de la liberación (a la semana, `[PGP.204]`). Viven aparte del servicio para que el
  * texto que corre en producción sea el MISMO que se mide contra prod (se importa, no se copia).
  * La regla está en `@megadulces/contracts` (`decidirVencido`); el cierre de Kepler es `SQL_CIERRE_KEPLER`.
  */

@@ -2073,8 +2073,8 @@ export class PaymentCalendarService {
 
   /**
    * `[PGP.117]` **El pago que nadie pagó se libera, y queda en la bitácora.** Edgar, 2026-11-12: «después de una
-   * semana hay que quitar lo que no se haya pagado, pero dejar logs de lo ocurrido»; `[PGP.202]` desde el 2026-11-23,
-   * al día siguiente de su día (en cuanto el banco cubre esos días). `[PGP.48]` sólo avisaba de los pagos atrasados;
+   * semana hay que quitar lo que no se haya pagado, pero dejar logs de lo ocurrido» (`[PGP.204]`: se bajó a un día y
+   * se regresó a la semana el 2026-11-23, medido). `[PGP.48]` sólo avisaba de los pagos atrasados;
    * mientras seguían `pending`, sus facturas no se ofrecían para programar.
    *
    * La regla es `decidirVencido` (pura, con sus pruebas): se libera sólo si NINGÚN testigo dice que se
