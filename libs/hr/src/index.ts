@@ -26,3 +26,4 @@ export * from './lib/hr.module';
 export * from './lib/nomina/periodo';
 export * from './lib/nomina/recibo';
 export * from './lib/nomina/sobre';
+export * from './lib/nomina/entrega';
