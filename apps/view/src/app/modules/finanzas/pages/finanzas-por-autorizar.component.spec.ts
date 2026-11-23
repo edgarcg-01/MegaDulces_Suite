@@ -119,15 +119,67 @@ describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
     expect(enviado).toEqual([{ sucursal: '08', serie: 1, folio: '0001842', accion: 'autorizar', motivo: 'Habló el cliente, deposita mañana' }]);
   });
 
-  it('⛔ sin motivo no se puede decidir: los dos botones apagados y lo dice', () => {
+  // ⭐ Los botones quedan HABILITADOS a propósito: uno apagado no se enfoca y no dice por qué
+  // (modern-web-guidance «required-field-feedback»). El que no se mande nada lo garantiza el código.
+  it('⛔ sin motivo no se manda nada: el botón sigue vivo, el campo se marca inválido y el error se dice', () => {
     const f = crear(bandeja([ped('1', 'A', [])], [], { sucursales_encendidas: ['08'] }));
-    f.componentInstance.abrir(f.componentInstance.lista()[0]);
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
     f.detectChanges();
-    expect(boton(f, 'Autorizar').disabled).toBe(true);
-    expect(boton(f, 'Rechazar').disabled).toBe(true);
-    expect(el(f).textContent).toContain('Escribe el motivo para decidir');
+    const campo = el(f).querySelector('#pa-motivo') as HTMLTextAreaElement;
+    expect(boton(f, 'Rechazar').disabled).toBe(false);
+    // Al abrir, el campo NO está marcado inválido: un required vacío marcado de entrada hace que un lector
+    // de pantalla cante «no válido» antes de que la persona lo toque.
+    expect(campo.getAttribute('aria-invalid')).toBe('false');
+    expect(el(f).textContent).not.toContain('Escribe el motivo');
+
     boton(f, 'Rechazar').click();
+    f.detectChanges();
     expect(enviado).toEqual([]);
+    expect(c.motivoInvalido()).toBe(true);
+    expect((el(f).querySelector('#pa-motivo') as HTMLTextAreaElement).getAttribute('aria-invalid')).toBe('true');
+    expect(el(f).textContent).toContain('Escribe el motivo: queda registrado con tu nombre.');
+    expect(el(f).querySelector('#pa-motivo-error')).not.toBeNull();
+
+    // Y al escribir, el error se va.
+    c.escribirMotivo('ya lo revisé');
+    f.detectChanges();
+    expect(c.motivoInvalido()).toBe(false);
+  });
+
+  it('⭐ lo tecleado no se pierde: el panel se declara sucio para que cerrar pregunte', () => {
+    const f = crear(bandeja([ped('1', 'A', [])], [], { sucursales_encendidas: ['08'] }));
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
+    f.detectChanges();
+    const peek = () => f.debugElement.query((n) => n.name === 'app-side-peek')?.componentInstance as { sucio: () => boolean };
+    expect(peek().sucio()).toBe(false);
+    c.escribirMotivo('debe desde agosto');
+    f.detectChanges();
+    expect(peek().sucio()).toBe(true);
+  });
+
+  it('el resultado se dice DENTRO del panel (un toast de afuera no llega a un lector dentro de un modal)', () => {
+    const f = crear(bandeja([ped('1', 'A', []), ped('2', 'B', [])], [], { sucursales_encendidas: ['08'] }));
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
+    c.escribirMotivo('va');
+    c.decidir(c.lista()[0], 'autorizar');
+    f.detectChanges();
+    const vivo = el(f).querySelector('[role="status"]');
+    expect(vivo?.textContent).toContain('Autorizado en Kepler.');
+  });
+
+  it('un error del servidor conserva lo tecleado para reintentar', () => {
+    const f = crear(bandeja([ped('1', 'A', [])], [], { sucursales_encendidas: ['08'] }));
+    const c = f.componentInstance;
+    TestBed.inject(AutorizacionPedidosService).decidir = (() =>
+      throwError(() => ({ error: { message: 'Ese pedido se está escribiendo en Kepler en este momento.' } }))) as never;
+    c.abrir(c.lista()[0]);
+    c.escribirMotivo('reintento');
+    c.decidir(c.lista()[0], 'autorizar');
+    expect(c.motivo()).toBe('reintento');
+    expect(c.resultado()).toContain('se está escribiendo en Kepler');
   });
 
   it('⛔ el doble clic del pánico no decide dos veces', () => {
@@ -162,7 +214,7 @@ describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
     const dec: DecisionVigente = { accion: 'rechazar', estado: 'registrado', motivo: 'Debe de agosto', automatica: false, quien: 'ggarcia', cuando: '2026-11-23T16:00:00Z' };
     const f = crear(bandeja([], [], { decididos: [ped('0001842', 'Abarrotes El Sol', [], { decision: dec })] }));
     const c = f.componentInstance;
-    expect(c.cifras().map((x) => x.label)).toContain('Ya decidiste');
+    expect(c.cifras().map((x) => x.label)).toContain('Ya decididos');
     c.vista.set('decididos');
     f.detectChanges();
     c.abrir(c.lista()[0]);
@@ -174,7 +226,7 @@ describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
 
   it('negativo: sin la cifra en cero — si nadie decidió nada, no aparece la lista', () => {
     const f = crear(bandeja([ped('1', 'A', [])]));
-    expect(f.componentInstance.cifras().map((x) => x.label)).not.toContain('Ya decidiste');
+    expect(f.componentInstance.cifras().map((x) => x.label)).not.toContain('Ya decididos');
   });
 
   it('⛔ sin el permiso no hay botones de decisión, y se dice dónde se hace', () => {

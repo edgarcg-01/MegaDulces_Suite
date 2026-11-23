@@ -102,3 +102,49 @@ describe('[PGP.7] el about del Calendario de pagos', () => {
     }
   });
 });
+
+/**
+ * `[GP.A.5]` La ayuda de «Por autorizar» (anexo EA de GP). Lo que esta pantalla tiene que dejar claro no es
+ * vocabulario: es qué cambia cada decisión en Kepler y qué NO. Rechazar es el caso que más se malinterpreta —
+ * no cancela el pedido—, y «sin límite» leído como cero fue el defecto que la regla tuvo que evitar.
+ */
+describe('[GP.A.5] ayuda de «Por autorizar»', () => {
+  const topic = CONTEXT_HELP['por-autorizar'];
+  const entradas = () => topic.groups!.flatMap((g) => g.entries);
+  const def = (t: string) => entradas().find((e) => e.term === t)!.def;
+
+  it('existe y toda entrada trae término y definición con sustancia', () => {
+    expect(topic).toBeDefined();
+    for (const g of topic.groups!) {
+      expect(g.heading.trim()).not.toBe('');
+      for (const e of g.entries) {
+        expect(e.term.trim(), `término vacío en "${g.heading}"`).not.toBe('');
+        expect(e.def.trim().length, `definición corta en "${e.term}"`).toBeGreaterThan(20);
+      }
+    }
+  });
+
+  it('⛔ dice que RECHAZAR no cancela el pedido en Kepler', () => {
+    expect(def('Rechazar')).toMatch(/no cancela/i);
+    expect(def('Rechazar')).toMatch(/sigue sin autorizar/i);
+  });
+
+  it('⛔ dice que «sin límite» NO es cero', () => {
+    expect(def('Límite')).toMatch(/no es lo mismo que cero/i);
+  });
+
+  it('explica que autorizar sólo cambia el estatus, no existencias ni cartera', () => {
+    expect(def('Autorizar')).toMatch(/ni existencias/i);
+    expect(def('Autorizar')).toMatch(/quién lo autorizó/i);
+  });
+
+  it('⛔ dice que encender el carril NO enciende lo automático: eso pide un tope del día', () => {
+    expect(def('Tope del día')).toMatch(/sin tope no autoriza ninguno/i);
+    expect(def('Encendida por sucursal')).toMatch(/se sigue haciendo en Kepler/i);
+  });
+
+  it('nombra la marca NO TOCAR como lo que es: el nombre del cliente, por sucursal', () => {
+    expect(def('NO TOCAR')).toMatch(/no hay un campo/i);
+    expect(def('NO TOCAR')).toMatch(/por sucursal/i);
+  });
+});

@@ -1,8 +1,9 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
+import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { MOTIVO_MAX, type AccionDecisionPedido, type BandejaAutorizacion, type DecisionVigente, type PedidoPorAutorizar } from '@megadulces/contracts';
@@ -12,6 +13,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CarteraSegmentsComponent } from '../cartera-segments.component';
 import { AutorizacionPedidosService } from '../autorizacion-pedidos.service';
 
@@ -117,7 +119,7 @@ export function esperaDe(p: PedidoPorAutorizar): string {
   selector: 'app-finanzas-por-autorizar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ButtonModule, TableModule, TagModule, ToastModule, FreshnessPillComponent, LoadStateComponent, MetricStripComponent, SidePeekComponent, CarteraSegmentsComponent],
+  imports: [ButtonModule, TableModule, TagModule, TextareaModule, ToastModule, FreshnessPillComponent, LoadStateComponent, MetricStripComponent, SidePeekComponent, CarteraSegmentsComponent, ContextHelpComponent],
   providers: [MessageService],
   template: `
     <p-toast position="bottom-right" />
@@ -126,9 +128,12 @@ export function esperaDe(p: PedidoPorAutorizar): string {
         <div class="surf-page-head-text">
           <h1>Crédito de clientes</h1>
         </div>
-        @if (data(); as d) {
-          <app-freshness-pill measures="data" [freshness]="d.freshness" [since]="d.freshness.data_as_of" label="Datos del ERP" />
-        }
+        <div class="pa-head-acc">
+          @if (data(); as d) {
+            <app-freshness-pill measures="data" [freshness]="d.freshness" [since]="d.freshness.data_as_of" label="Datos del ERP" />
+          }
+          <app-context-help topic="por-autorizar" />
+        </div>
       </header>
 
       <app-cartera-segments />
@@ -144,14 +149,19 @@ export function esperaDe(p: PedidoPorAutorizar): string {
                               ariaLabel="Pedidos por autorizar" (drill)="verLista($event)" />
             <p class="pa-sub">
               @if (vista() === 'aparte') { Más de {{ d.parametros.pedidoViejoDias }} días sin movimiento o de la ruta vecinal: no se autorizan solos ni ocupan la lista del día. }
-              @else if (vista() === 'decididos') { Ya los decidiste tú o la regla: Kepler todavía los muestra sin autorizar. Si hay que reconsiderar uno, se decide de nuevo desde aquí. }
+              @else if (vista() === 'decididos') { Decididos ya, por ti o por la regla: Kepler todavía los muestra sin autorizar. Si hay que reconsiderar uno, se decide de nuevo desde aquí. }
               @else if (!d.sucursales_encendidas.length) { La autorización automática está apagada: todos esperan aquí. }
               @if (vista() === 'pendientes' && d.contado.length) { {{ d.contado.length }} de contado no necesitan tu autorización. }
             </p>
           </div>
         }
 
+        <!-- Paginado sólo cuando la lista lo pide: «aparte» trae ~800 pedidos muertos (medido en prod el
+             2026-11-23) y pintarlos todos traba el desplazamiento. La del día (15 hoy) se ve entera, sin
+             paginador: la maqueta aprobada no cambia. La cifra de arriba sigue siendo recorrible (Cruce 1). -->
         <p-table [value]="lista()" selectionMode="single" dataKey="folio" size="small" [rowHover]="true"
+                 [paginator]="lista().length > 50" [rows]="50" [alwaysShowPaginator]="false"
+                 currentPageReportTemplate="{first}–{last} de {totalRecords}" [showCurrentPageReport]="true"
                  class="surf-table surf-table--plain surf-table--sticky dt-stack" (onRowSelect)="abrir($any($event).data)">
           <ng-template #header>
             <tr>
@@ -184,7 +194,8 @@ export function esperaDe(p: PedidoPorAutorizar): string {
 
     <app-side-peek [open]="peekOpen()" (openChange)="peekOpen.set($event)"
                    [title]="sel()?.cliente_nombre || sel()?.cliente || 'Pedido'"
-                   [subtitle]="sel() ? subtitulo(sel()!) : null">
+                   [subtitle]="sel() ? subtitulo(sel()!) : null"
+                   [sucio]="!!motivo().trim()" textoDescartar="El motivo que escribiste no se guarda.">
       @if (sel(); as p) {
         <div class="pa-panel">
           <section class="pa-bloque">
@@ -225,28 +236,42 @@ export function esperaDe(p: PedidoPorAutorizar): string {
               <p class="pa-nota">{{ loQueSeDecidio(dec) }}</p>
             }
             @if (puedeDecidir()) {
-              <label class="pa-motivo-campo">
-                <span class="pa-h3">Motivo <span class="pa-req" aria-hidden="true">·</span> queda con tu nombre</span>
-                <textarea class="pa-motivo-input" rows="2" [attr.maxlength]="motivoMax"
-                          [value]="motivo()" (input)="motivo.set($any($event.target).value)"
-                          [disabled]="enviando()" [attr.aria-invalid]="motivo().trim() ? null : 'true'"
+              <div class="pa-motivo-campo">
+                <label class="pa-h3" for="pa-motivo">Motivo · queda con tu nombre</label>
+                <!-- pTextarea: el tema pone fondo, borde y anillo de foco (antes un textarea crudo con un token
+                     inventado dejaba el campo con el fondo del navegador: en oscuro, 1.04:1). -->
+                <textarea pTextarea id="pa-motivo" #campoMotivo rows="2" class="pa-motivo-input"
+                          [attr.maxlength]="motivoMax" [value]="motivo()" (input)="escribirMotivo($any($event.target).value)"
+                          [disabled]="!!enviando()" [attr.aria-invalid]="motivoInvalido() ? 'true' : 'false'"
+                          [attr.aria-describedby]="motivoInvalido() ? 'pa-motivo-error pa-motivo-ayuda' : 'pa-motivo-ayuda'"
                           placeholder="Por qué lo autorizas o lo rechazas"></textarea>
-              </label>
+                @if (motivoInvalido()) {
+                  <p class="pa-error" id="pa-motivo-error">
+                    <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+                    <span class="sr-only">Error: </span>Escribe el motivo: queda registrado con tu nombre.
+                  </p>
+                }
+              </div>
+              <!-- Habilitados a propósito (modern-web-guidance «required-field-feedback»): un botón deshabilitado no
+                   se puede enfocar y no dice por qué. Al pulsarlo sin motivo, el foco va al campo y el error se anuncia.
+                   El disabled queda sólo mientras la decisión va en camino (un clic = una escritura). -->
               <div class="pa-acciones">
-                <button pButton type="button" [disabled]="!motivo().trim() || enviando() || !escrituraEncendida(p)"
+                <button pButton type="button" [disabled]="!!enviando() || !escrituraEncendida(p)"
                         (click)="decidir(p, 'autorizar')">
                   <span class="p-button-label">{{ enviando() === 'autorizar' ? 'Autorizando…' : 'Autorizar' }}</span>
                 </button>
-                <button pButton type="button" class="p-button-outlined pa-rechazar" [disabled]="!motivo().trim() || enviando()"
+                <button pButton type="button" class="p-button-outlined pa-rechazar" [disabled]="!!enviando()"
                         (click)="decidir(p, 'rechazar')">
                   <span class="p-button-label">{{ enviando() === 'rechazar' ? 'Rechazando…' : 'Rechazar' }}</span>
                 </button>
               </div>
-              <p class="pa-tenue">
-                @if (!escrituraEncendida(p)) { Autorizar desde la Suite está apagado en {{ p.sucursal_nombre }}: por ahora, en Kepler › Autorización de Pedidos. }
-                @else if (!motivo().trim()) { Escribe el motivo para decidir. }
+              <p class="pa-tenue" id="pa-motivo-ayuda">
+                @if (!escrituraEncendida(p)) { Autorizar desde la Suite está apagado en {{ p.sucursal_nombre }}: por ahora, en Kepler › Autorización de Pedidos. Rechazar sí queda registrado aquí. }
                 @else { Autorizar lo pasa a AUTORIZADO en Kepler. Rechazar no cambia Kepler: lo saca de esta lista con tu motivo. }
               </p>
+              <!-- El resultado, DENTRO del panel: como es aria-modal, un toast de afuera queda inerte para un
+                   lector de pantalla (modern-web-guidance «persistent-toast-notifications»). -->
+              <p class="pa-resultado" role="status" aria-live="polite">{{ resultado() }}</p>
             } @else {
               <p class="pa-tenue">No tienes el permiso para autorizar pedidos. Se hace en Kepler › Autorización de Pedidos.</p>
             }
@@ -264,6 +289,7 @@ export function esperaDe(p: PedidoPorAutorizar): string {
   `,
   styles: [`
     :host { display: block; }
+    .pa-head-acc { display: flex; gap: var(--sp-2); align-items: center; }
     .pa-respuesta { display: flex; flex-direction: column; gap: var(--sp-1); margin: var(--sp-3) 0 var(--sp-4); }
     .pa-sub { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
     .pa-cliente { font-weight: 600; }
@@ -284,14 +310,11 @@ export function esperaDe(p: PedidoPorAutorizar): string {
     .pa-ok { color: var(--ok-soft-fg); font-weight: 700; }
     .pa-mal { color: var(--bad-soft-fg); font-weight: 700; }
     .pa-motivo-campo { display: flex; flex-direction: column; gap: var(--sp-1); }
-    .pa-motivo-input {
-      width: 100%; resize: vertical; font: inherit; font-size: var(--fs-sm); color: var(--text-main);
-      background: var(--surface-1); border: 1px solid var(--border-color); border-radius: var(--r-sm);
-      padding: var(--sp-2) var(--sp-3);
-    }
-    .pa-motivo-input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
-    .pa-motivo-input:disabled { opacity: .6; }
-    .pa-req { color: var(--text-faint); }
+    /* Fondo, borde y anillo de foco los pone pTextarea (el tema). Acá sólo el ancho y el alto mínimo. */
+    .pa-motivo-input { width: 100%; resize: vertical; font-size: var(--fs-sm); }
+    .pa-error { margin: 0; font-size: var(--fs-xs); color: var(--bad-soft-fg); display: flex; gap: var(--sp-1); align-items: center; }
+    .pa-resultado:empty { display: none; }
+    .pa-resultado { margin: 0; font-size: var(--fs-sm); color: var(--text-main); background: var(--surface-2); border-radius: var(--r-sm); padding: var(--sp-2) var(--sp-3); }
     /* La negativa no lleva el color de acción (Von Restorff): se distingue, no compite. */
     .pa-rechazar { --p-button-outlined-primary-color: var(--bad-soft-fg); }
     .pa-acciones { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
@@ -316,6 +339,15 @@ export class FinanzasPorAutorizarComponent implements OnInit {
   readonly enviando = signal<AccionDecisionPedido | null>(null);
   readonly motivoMax = MOTIVO_MAX;
   readonly puedeDecidir = this.permisos.has$(Permission.FINANCE_PEDIDOS_AUTORIZAR);
+  /**
+   * El campo se marca inválido **sólo después** de intentar decidir, nunca al abrir el panel: un `required` vacío
+   * marcado desde el inicio hace que un lector de pantalla cante «no válido» antes de que la persona lo toque.
+   */
+  readonly intento = signal(false);
+  readonly motivoInvalido = computed(() => this.intento() && !this.motivo().trim());
+  /** Lo que contestó la última decisión, dentro del panel (el toast de afuera no llega a un lector dentro de un modal). */
+  readonly resultado = signal('');
+  private readonly campoMotivo = viewChild<ElementRef<HTMLTextAreaElement>>('campoMotivo');
 
   /** Se conserva para la plantilla y las pruebas que ya existían. */
   readonly verAparte = computed(() => this.vista() === 'aparte');
@@ -335,8 +367,9 @@ export class FinanzasPorAutorizarComponent implements OnInit {
       { label: 'Esperan tu decisión', value: d.pendientes.length, format: 'number', drill: 'pendientes' },
       { label: 'Viejos, aparte', value: d.aparte.length, format: 'number', drill: 'aparte' },
     ];
+    // «Ya decididos», no «Ya decidiste»: la lista también trae los que autorizó sola la regla.
     // Sólo cuando hay: una cifra en cero no es trabajo, es ruido.
-    if (d.decididos.length) c.push({ label: 'Ya decidiste', value: d.decididos.length, format: 'number', drill: 'decididos' });
+    if (d.decididos.length) c.push({ label: 'Ya decididos', value: d.decididos.length, format: 'number', drill: 'decididos' });
     return c;
   });
 
@@ -368,14 +401,33 @@ export class FinanzasPorAutorizarComponent implements OnInit {
 
   abrir(p: PedidoPorAutorizar): void {
     this.sel.set(p);
-    this.motivo.set('');
+    this.limpiarCaptura();
     this.peekOpen.set(true);
   }
 
   siguiente(): void {
     const i = this.indice();
     const n = this.lista()[i + 1];
-    if (n) { this.sel.set(n); this.motivo.set(''); }
+    if (n) this.pasarA(n);
+  }
+
+  escribirMotivo(v: string): void {
+    this.motivo.set(v);
+    // El error se quita en cuanto hay algo escrito; aparecer de nuevo exige otro intento.
+    if (v.trim()) this.intento.set(false);
+  }
+
+  private limpiarCaptura(): void {
+    this.motivo.set('');
+    this.intento.set(false);
+    this.resultado.set('');
+  }
+
+  /** Cambiar de pedido conserva el panel abierto y deja el foco en el campo, no en un botón de otro pedido. */
+  private pasarA(p: PedidoPorAutorizar): void {
+    this.sel.set(p);
+    this.limpiarCaptura();
+    queueMicrotask(() => this.campoMotivo()?.nativeElement.focus());
   }
 
   verLista(cual: string): void {
@@ -384,7 +436,7 @@ export class FinanzasPorAutorizarComponent implements OnInit {
 
   tituloVacio(): string {
     if (this.vista() === 'aparte') return 'No hay pedidos viejos';
-    if (this.vista() === 'decididos') return 'Todavía no has decidido ninguno';
+    if (this.vista() === 'decididos') return 'Todavía no se ha decidido ninguno';
     return 'Ningún pedido espera tu decisión';
   }
 
@@ -402,25 +454,38 @@ export class FinanzasPorAutorizarComponent implements OnInit {
     return `${quien} ${hecho} el ${cuando}.${d.motivo ? ` Motivo: «${d.motivo}».` : ''}${nota}`;
   }
 
-  /** `[GP.A.5]` Autorizar o rechazar, con el motivo. Un clic deshabilita los dos botones hasta que conteste el servidor. */
+  /**
+   * `[GP.A.5]` Autorizar o rechazar, con el motivo. Un clic deshabilita los dos botones hasta que conteste el
+   * servidor. Sin motivo no manda nada: marca el campo, lo enfoca y deja que el error se anuncie — en vez de
+   * ofrecer un botón apagado que no explica por qué.
+   */
   decidir(p: PedidoPorAutorizar, accion: AccionDecisionPedido): void {
     const motivo = this.motivo().trim();
-    if (!motivo || this.enviando()) return;
+    if (this.enviando()) return;
+    if (!motivo) {
+      this.intento.set(true);
+      this.campoMotivo()?.nativeElement.focus();
+      return;
+    }
     this.enviando.set(accion);
     this.api.decidir(p, accion, motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.enviando.set(null);
-        this.motivo.set('');
         const llego = r.estado === 'escrito' || r.estado === 'ya_estaba' || r.estado === 'registrado';
-        this.toast.add({ severity: llego ? 'success' : 'warn', summary: llego ? 'Listo' : 'No se pudo', detail: r.mensaje, life: 6000 });
         const siguiente = this.lista()[this.indice() + 1] ?? null;
+        this.toast.add({ severity: llego ? 'success' : 'warn', summary: llego ? 'Listo' : 'No se pudo', detail: r.mensaje, life: 6000 });
         this.cargar();
-        // Seguir con el próximo pedido sin cerrar el panel: la cola se trabaja de corrido.
-        if (siguiente) this.sel.set(siguiente); else this.peekOpen.set(false);
+        // Seguir con el próximo pedido sin cerrar el panel: la cola se trabaja de corrido. El resultado viaja
+        // al panel nuevo (dentro del modal), porque el toast de afuera no llega a un lector de pantalla.
+        if (siguiente) { this.pasarA(siguiente); this.resultado.set(r.mensaje); }
+        else { this.limpiarCaptura(); this.peekOpen.set(false); }
       },
       error: (e: { error?: { message?: string } }) => {
         this.enviando.set(null);
-        this.toast.add({ severity: 'error', summary: 'No se pudo', detail: e?.error?.message ?? 'No se pudo registrar la decisión.', life: 8000 });
+        const msg = e?.error?.message ?? 'No se pudo registrar la decisión.';
+        // El motivo NO se borra: lo tecleado se conserva para reintentar.
+        this.resultado.set(msg);
+        this.toast.add({ severity: 'error', summary: 'No se pudo', detail: msg, life: 8000 });
       },
     });
   }

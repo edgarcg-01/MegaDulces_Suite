@@ -3232,4 +3232,52 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+
+  // `[GP.A.5]` Crédito de clientes › Por autorizar. Lo lee Crédito y cobranza al decidir un pedido de
+  // telemarketing. Cada cifra está medida en producción (anexo EA de GP, 19 al 23 de noviembre de 2026).
+  'por-autorizar': {
+    title: 'Por autorizar — qué decide cada cosa',
+    intro: 'Un pedido de telemarketing nace sin autorizar y el almacén no lo surte hasta que alguien lo autoriza. Esta lista trae los que esperan tu decisión, con lo que Kepler sabe del cliente y por qué el sistema no lo dejó pasar solo.',
+    groups: [
+      {
+        heading: 'Las decisiones',
+        entries: [
+          { term: 'Autorizar', def: 'Pasa el pedido de «creado» a «autorizado» en Kepler, que es lo único que cambia: ni existencias, ni cartera, ni los renglones del pedido. A partir de ahí el almacén puede surtirlo. Queda registrado quién lo autorizó, cuándo y con qué números a la vista — eso Kepler no lo guarda.' },
+          { term: 'Rechazar', def: 'No cancela el pedido: en Kepler sigue sin autorizar, igual que antes. Lo que cambia es que la Suite deja de pedirte la decisión y guarda tu motivo. Cancelarlo se sigue haciendo en Kepler.' },
+          { term: 'Motivo', def: 'Obligatorio en toda decisión de una persona, y queda con tu nombre y la hora. Es lo que permite explicar después por qué se autorizó un pedido que excedía el límite.' },
+          { term: 'Ya decididos', def: 'Pedidos que ya decidiste tú o que autorizó sola la regla, y que Kepler todavía muestra sin autorizar (el ERP tarda unos minutos en reflejarse). No esperan nada; si hay que reconsiderar uno, se abre y se decide otra vez.' },
+        ],
+      },
+      {
+        heading: 'Los números del cliente',
+        entries: [
+          { term: 'Por cobrar en Kepler', def: 'El mismo número que ves en Kepler: la suma de lo que se le cargó al cliente, sin los tickets de contado, menos todo lo que ha abonado. Se verificó contra la pantalla de Kepler en los nueve clientes de una captura, al centavo.' },
+          { term: 'Por qué Kepler cuenta de más', def: 'Cuando Kepler dice más que la cartera de la Suite, casi siempre son facturas hechas sobre un ticket ya cobrado: el ticket se cerró, pero a la factura nadie le aplicó el abono, así que Kepler la sigue contando. En la red hay unos 2.2 millones de pesos así, casi todos anteriores a junio.' },
+          { term: 'Límite', def: 'El crédito que el cliente tiene capturado en Kepler para esa sucursal. «Sin límite» quiere decir que Kepler no tiene ninguno capturado, que no es lo mismo que cero: por eso esos pedidos no pasan solos y los decide una persona.' },
+          { term: 'Otros pedidos sin facturar', def: 'Lo que el cliente ya tiene pedido y todavía no se le factura, de los últimos 30 días. Kepler no lo suma a lo que debe; la Suite sí lo pone a la vista, porque también compromete su crédito.' },
+          { term: 'Cómo paga', def: 'De sus facturas ya pagadas: a cuántos días suele pagar, cuántas pagó dentro de su plazo y cuál fue su peor atraso. Es lo que separa a un cliente que se pasa del límite y paga, de uno que se pasa y no paga.' },
+        ],
+      },
+      {
+        heading: 'Por qué no pasó solo',
+        entries: [
+          { term: 'Excede', def: 'Lo que debe, más sus otros pedidos, más éste, no cabe en su límite. La frase dice por cuánto se pasa. Si se pasa seguido y paga bien, sale más barato subirle el límite en Kepler que autorizarlo a mano cada vez.' },
+          { term: 'Vencido', def: 'Tiene facturas vencidas fuera del plazo de gracia. Los restos de centavos no cuentan: hay clientes que se ven morosos sólo por unos centavos de una factura vieja.' },
+          { term: 'NO TOCAR', def: 'La marca de un cliente bloqueado. En Kepler no hay un campo para eso: la marca vive al principio del nombre del cliente y es por sucursal. A un cliente marcado no se le autoriza; si la marca ya no aplica, se quita en Kepler.' },
+          { term: 'Ruta vecinal', def: 'El pedido lo capturó una ruta vecinal con el canal de telemarketing. No es un pedido de telemarketing ni pasa por esta bandeja: se lista aparte.' },
+          { term: 'Viejo', def: 'Lleva más de dos días sin autorizarse. Medido en producción: un pedido de telemarketing se autoriza el mismo día o al siguiente; lo que sigue sin autorizar después es un uno por ciento que ya nadie va a surtir. Esos se listan aparte y no se autorizan solos.' },
+          { term: 'Contado', def: 'Venta de contado: no usa crédito, así que las condiciones de límite y vencido no le aplican. Va en su propia lista.' },
+        ],
+      },
+      {
+        heading: 'La autorización automática',
+        entries: [
+          { term: 'Qué autoriza sola', def: 'Sólo lo que cumple todas las condiciones: con límite, dentro de él, sin vencido fuera de gracia, sin la marca NO TOCAR, con datos recientes y en una sucursal donde esté encendida. Lo que no cumple una sola condición llega a esta bandeja con la condición que falló.' },
+          { term: 'Encendida por sucursal', def: 'Se enciende sucursal por sucursal. Mientras esté apagada en una, autorizar desde la Suite no está disponible ahí y se sigue haciendo en Kepler; rechazar sí queda registrado aquí.' },
+          { term: 'Tope del día', def: 'Cuántos pedidos puede autorizar sola la regla en un día en esa sucursal. Sin tope no autoriza ninguno: encender el carril habilita la decisión a mano, no la automática.' },
+          { term: 'Aviso', def: 'Cada pedido que la regla autoriza sola le llega a Crédito y cobranza como aviso, con la liga para regresarlo mientras no se haya surtido.' },
+        ],
+      },
+    ],
+  },
 };
