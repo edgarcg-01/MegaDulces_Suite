@@ -100,6 +100,12 @@ registros activos, así que basta preferir el activo.
 
 ## 3. Las capas
 
+> ⭐⭐ **El orden del trabajo, los catorce patrones de diseño que no se repiten y los gates de cada
+> etapa viven en [`FASE_RH_FRENTE_NE_DISENO.md`](FASE_RH_FRENTE_NE_DISENO.md).** Esta tabla es el
+> detalle por item; ese documento es el porqué y el orden. Las tres reglas que mandan sobre todo lo
+> demás: **nada se apaga hasta que su reemplazo corrió en paralelo y coincidió** · **no se migra lo
+> que no se usa** · **no se reproduce el cálculo, se reproduce el registro**.
+
 ### C0 · Dato — la llave de la persona
 
 ⛔ **Nada de este frente sube de capa hasta que C0 cierre.** Sin llave, cualquier cálculo de nómina
