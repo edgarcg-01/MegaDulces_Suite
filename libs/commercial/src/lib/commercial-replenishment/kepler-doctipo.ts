@@ -60,11 +60,17 @@ export interface DoctipoSpec {
    * `[PQ.135]` El renglón de este documento lleva **cantidad pedida (`c51`)** y **estado
    * (`c28`)**, y el sink los escribe en vez de heredarlos del renglón molde.
    *
-   * Medido el 2026-11-22 en los pedidos de sucursal reales de Morelia Abastos (30 días): `c51`
-   * viene lleno en 145 de 145 renglones y vale lo mismo que `c56` en 145 de 145; `c28` sigue al
-   * encabezado (`CREADO` en 1,405 de 1,405 renglones de encabezados `CREADO`). Heredarlos del
-   * molde es inocuo sólo mientras el molde tenga el mismo estado: con un pedido que nace
-   * `CREADO` (ADR-127) el encabezado diría `CREADO` y sus renglones `AUTORIZADO`.
+   * Medido el 2026-11-22 sobre los 85,436 renglones de pedido de sucursal de 90 días: `c51` viene
+   * lleno siempre y vale lo mismo que `c56` — la cantidad en la **presentación capturada**, no en
+   * unidad base: entre los renglones con `c58 > 1`, 35,533 de 38,372 tienen `c51 = c56` y **uno
+   * solo** `c51 = c9`.
+   *
+   * ⛔⛔ Y `c28` **NO sigue al encabezado**: guarda el estado con el que el renglón NACIÓ y ahí se
+   * queda. 81,482 renglones de documentos ya `EMBARCADO` siguen diciendo `c28='AUTORIZADO'`; sólo
+   * 498 dicen `EMBARCADO`. Por eso heredarlo del molde no es cosmético: **nadie lo corrige
+   * después**, y el renglón queda contradiciendo a su propio encabezado para siempre. *(La lectura
+   * anterior —«`c28` sigue al encabezado»— salía de mirar sólo documentos que no habían avanzado:
+   * el carril de sucursal NUNCA usa `CREADO`, ver `estadosIniciales`.)*
    *
    * ⛔ En la compra (`X-A-30`) **no se midió**: queda en `false` y el renglón sigue como estaba.
    */
@@ -101,9 +107,19 @@ export const DOCTIPOS: Readonly<Record<KeplerDoctipo, DoctipoSpec>> = Object.fre
     envSerie: 'KEPLER_PED_TEMPLATE_SERIE', envFolio: 'KEPLER_PED_TEMPLATE_FOLIO',
     gruposPrecedente: ['40', '41'],
     renglonPedidaYEstado: true,
-    // `[DT5]` El pedido que escribe Autoabasto nace CREADO (D1 del PM, 2026-11-22) y el que manda
-    // una requisición aprobada sigue naciendo AUTORIZADO. Es el MISMO documento con dos puertas,
-    // así que el estado viaja en la entrada y no se edita esta constante.
+    // `[DT5]` El estado viaja en la ENTRADA porque el mismo documento tiene dos puertas: la
+    // requisición que aprueba Compras y el pedido que arma la sucursal en Autoabasto. Por eso no se
+    // edita esta constante.
+    //
+    // ⛔⛔ Lo que la medición del 2026-11-22 le dice a D1 («el pedido nace CREADO»): en el carril de
+    // sucursal (`c27='SUCURSAL'`) **no existe un solo pedido CREADO** — 0 de 4,182 en 90 días y
+    // ninguno en toda la historia del ODS. `CREADO` vive SÓLO en el carril de telemarketing (818
+    // desde marzo de 2026), que sí tiene un paso de autorización. El menú del pedido de sucursal va
+    // de «Alta de pedido» directo a «Estatus Surtido»: un documento que naciera CREADO quedaría
+    // antes del primer paso del flujo, y ninguna pantalla medida lo mueve de ahí.
+    //
+    // Queda ELEGIBLE porque la decisión es del PM, pero el DEFAULT del tipo es `AUTORIZADO` (`c11`
+    // arriba): quien no manda `estado_inicial` cae donde caen los 4,182.
     estadosIniciales: ['CREADO', 'AUTORIZADO'],
   },
 });

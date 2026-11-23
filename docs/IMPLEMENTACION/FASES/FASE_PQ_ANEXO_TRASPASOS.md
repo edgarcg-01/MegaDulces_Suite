@@ -182,6 +182,8 @@ contra piezas, así que «hecho» puede estar subcontado.
 | 2026-11-09 | Análisis de la interfaz de traspasos (16 superficies, uso, cadena de Kepler, liga con la Suite). Anexo creado; PQ.115 a 🔨 |
 | 2026-11-09 | **PQ.115 en código**: migración `20261109140626_pq115_v_traspasos_ciclo.js` (`analytics.v_traspasos_ciclo`) y prueba `test-newdb-pq115-traspasos-ciclo.js` (escenario sintético con ROLLBACK, control negativo sin origen en la llave). El SQL exacto de la migración, como vista temporal en prod: 3,767 filas = 3,767 pedidos de Kepler, 0 duplicados, 0 sin tenant, 140–240 ms. Dos lecciones: (1) con `LEFT JOIN` el planificador estimaba ~1 fila por pieza y tardaba 6.2 s (> 2 min sin `MATERIALIZED`; esa consulta se canceló en prod); apilar y agrupar por llave es lineal. (2) La recepción se liga por origen (`c10`). **NO MEDIDO:** la prueba no corrió en local (sin Docker); corre en `pruebas-db` del CI. **Falta:** aplicar la migración (lo hace el carril de despliegue) y, ya aplicada, que Autoabasto lea la vista (corrige AB.45) |
 | 2026-11-22 | **Edgar: «el bloqueo funcional es que el informe no tiene a dónde llegar»**. Decisiones D1–D4 y **ADR-127** (deroga las decisiones 1 y 2 de ADR-100): el pedido de sucursal lo decide la sucursal y la Suite lo escribe como `U-D-40` en el Kepler del origen; el de proveedor sigue como requisición. Medición de la operación real (4,213 pedidos a mano en 90 días, red, cadencia, ventana horaria) y de las piezas: el sink de traspaso **ya existe y está en prod**, apagado en 9 de 9. Items **PQ.134–PQ.142** en §7.4. ⚠️ D1 (`CREADO`) queda abierta otra vez: 0 de 5,621 pedidos de sucursal de 365 días nacieron así, y donde el estado existe se pudre (§7.2) |
+| 2026-11-22 | **PQ.135, PQ.136 y PQ.137 en código.** PQ.136/137: «Lo que te va a llegar» dejaba de pintar un pedido **cancelado** —de 170 documentos a 61 en las 9 sucursales, 109 eran cancelados; Morelia Madero 111 → 29— y `CREADO` entra en la lista de abiertos; la regla vive en `libs/contracts` y las tres consultas la comparten (ADR-056). PQ.135: el renglón del traspaso se escribe completo (`c51`, `c28`) y el estado inicial pasa a ser un parámetro validado (`[DT5]`). De paso, el ensayo contra el Kepler vivo estaba roto desde PQ.19 (mandaba las líneas sin factor de caja) y se saltaba en silencio por falta de plantilla. Nueve mutantes muertos |
+| 2026-11-22 | **El PM recorrió el carril entero a mano**, con un faltante deliberado, y lo cerró con un `U-D-90`. **§8**. Confirma `c10`, `c24` y `limpiar`; **corrige** dos cifras propias (`c28` **no** sigue al encabezado: guarda el estado de nacimiento, 81,482 renglones lo prueban; `c51` está en la **presentación**, no en unidad base) y **cierra D1** con evidencia: 0 de 4,182 pedidos de sucursal nacen `CREADO`, el estado es del carril de telemarketing y el menú del pedido de sucursal no tiene paso de autorización. Destapa dos cosas nuevas: el faltante **en tránsito** no lo ve nadie (35 embarques de 90 días llevan más de 11 días sin recepción) y Kepler **ya tiene una columna «Cant. Sug»** vacía donde cabría el sugerido de Autoabasto |
 
 ---
 
@@ -277,3 +279,109 @@ mediana de `CREADO → AUTORIZADO` pasa de **1 día hábil**, se cambia a (a) si
 - El tamaño exacto del sugerido: los 1,244 renglones de Morelia Madero salen de
   `analytics.replenishment_plan`, no de la fórmula completa del motor.
 - Si `c16` del `U-D-40` es costo o precio de venta: no se usó esa cifra para ninguna conclusión.
+
+---
+
+## 8. Anexo T.3 — El carril completo, recorrido a mano (2026-11-22)
+
+El PM capturó de punta a punta un pedido real de **Morelia Abastos → Morelia Madero**, con dos
+renglones y **un faltante deliberado de 1 PAQ**, y lo cerró. Es el documento más valioso de este
+anexo: no es una hipótesis sobre cómo opera el carril, es el carril ocurriendo. Todo lo de abajo se
+contrastó después contra el ODS en sólo lectura — el documento ya estaba replicado el mismo día.
+
+### 8.1 Los seis documentos, y quién escribe cada uno
+
+| # | Acto (menú de Kepler) | Documento | Se captura en | Cómo liga al anterior |
+|---|---|---|---|---|
+| 1 | Control de Pedidos › Pedido de Sucursal › **Alta de pedido** | `U-D-40-1` | servidor del **origen** | `c10 = TI###` del **destino** · nace **`AUTORIZADO`** |
+| 2 | **Estatus Surtido** | el mismo | origen | llena `c100` (responsable surtido) y las cantidades `c52` |
+| 3 | **Estatus Checado** | el mismo | origen | llena `c102` y `c53` |
+| 4 | **Estatus Embarque** | el mismo → `EMBARCADO` | origen | llena `c103` y `c54` |
+| 5 | **Asignación de Transporte** | el mismo | origen | ruta, chofer y guía (`c83`, `c84`, `c86`) |
+| 6 | **Salida por Embarque** | `U-D-41-2` | origen | `c36='D' c37=40 c38=1 c39=`folio del pedido |
+| 7 | Traspaso de Sucursal › **Recepción Traspaso Suc** | `U-A-50-1` | ⭐ servidor del **destino** | `c36='D' c37=41 c38=2 c39=`folio del embarque · `c10 = TI###` del **origen** |
+| 8 | **Saldar Embarque › Alta saldar documento** | `U-D-90-1` | origen | `c37=41 c38=2 c39=`folio del embarque · sólo la **diferencia** |
+
+⭐ **La recepción vive en la base de la sucursal que recibe, no en la que surte.** Por eso el carril
+no se puede auditar desde un solo servidor: hay que cruzar dos, y el ODS es el único lugar donde
+ambos están juntos.
+
+### 8.2 Lo que CONFIRMA del diseño ya construido
+
+- **`c10 = TI###` del destino**, y el código es **el mismo en los dos sentidos**: la sucursal que
+  surte aparece como «proveedor» en la recepción con su propio `TI###` del mismo catálogo
+  (`analytics.v_erp_branch_catalog.dest_code`). No hay dos padrones que conciliar.
+- **`c24` (Anotaciones) es la marca correcta** (`DOCTIPOS.traspaso.marca`): el texto que el PM
+  escribió en el pedido **viajó solo** al embarque, a la pantalla de transporte («Observaciones
+  Pedido»), a la recepción y al documento de saldo. Un pedido escrito por la Suite será reconocible
+  en los cinco documentos siguientes sin tocar nada más.
+- **`limpiar: ['c100','c102','c103']` es correcto**: los tres responsables se llenan en los pasos
+  2, 3 y 4. Un documento recién nacido los tiene vacíos.
+- **El renglón del pedido de sucursal** usa `c51` pedida · `c52` surtida · `c53` checada · `c54`
+  embarcada, y `c59`/`c60`/`c61` para las ubicaciones de surtido, checado y embarque.
+
+### 8.3 Lo que CORRIGE de lo que ya estaba escrito
+
+| | Lo que decía | Lo medido el 2026-11-22 | Qué cambia |
+|---|---|---|---|
+| **`c28`** | «sigue al encabezado» | **NO lo sigue**: guarda el estado de **nacimiento** y ahí se queda — 81,482 renglones de documentos ya `EMBARCADO` siguen diciendo `AUTORIZADO`, y sólo 498 dicen `EMBARCADO` (de 85,436 renglones en 90 días) | La regla de PQ.135 **se refuerza**: no es que heredarlo del molde sea inocuo mientras los estados coincidan — es que **nadie lo corrige después**. La cifra vieja salía de mirar sólo documentos que no habían avanzado |
+| **`c51`** | «vale lo mismo que `c56`» | Cierto, y ahora se sabe **por qué importa**: `c51` está en la **presentación capturada**, no en unidad base. Entre los renglones con factor de caja > 1, 35,533 de 38,372 tienen `c51 = c56` y **uno solo** `c51 = c9` | El sink ya escribe `c51 = c56` por construcción ✅. Queda **declarado** para que nadie lo «arregle» poniendo la unidad base |
+| **D1** (nace `CREADO`) | «no tiene precedente en este carril» | **0 de 4,182** pedidos de sucursal de 90 días, y ninguno en toda la historia del ODS. `CREADO` vive **sólo** en el carril de telemarketing (818 documentos desde marzo de 2026) | Ver §8.6 |
+
+### 8.4 Lo que DESTAPA — y no estaba en el plan
+
+**a) El faltante no se ve en el pedido.** En esta prueba el pedido y el embarque dicen 2 PAQ; la
+**recepción** dice 1. `c51 − c54` del pedido —lo que Autoabasto lee hoy como «negado»— da **cero**.
+Son dos faltantes distintos y sólo uno está medido:
+
+| Faltante | Dónde se ve | ¿Autoabasto lo lee? |
+|---|---|---|
+| El origen no surtió todo | en el propio pedido, `c51 ≠ c54` | **Sí** (1,023 documentos en 90 días) |
+| Salió y no llegó | sólo cruzando el embarque con la recepción | **No** |
+
+**b) Los embarques que nunca se reciben.** De 2,948 embarques de traspaso en 90 días, **35 llevan
+más de 11 días sin su `U-A-50`** — y el desfase normal tiene mediana 1 día y p90 4. Casi todos son
+de agosto y septiembre, concentrados en dos parejas de sucursales. En cambio, la diferencia **de
+cantidad** entre lo embarcado y lo recibido es marginal: 94 recepciones por debajo, casi todas por
+centavos. ⛔ **El agujero no es la merma, es la recepción que no se captura.**
+
+**c) El documento que cierra la diferencia casi no se usa.** El `U-D-90` «Saldar documento» existe y
+funciona —lo acaba de ejercer el PM—, pero en toda la historia del ODS hay **dos**, y uno es el de
+esta prueba.
+
+**d) ⭐ Kepler ya tiene una columna para el SUGERIDO.** La pantalla de pedido de sucursal muestra
+**«Cant. Sug»** justo antes de «Cant. Ped», y está **vacía** en el documento del PM. Si Autoabasto
+escribiera ahí su sugerido y en `c51` lo que la sucursal confirmó, **el lazo se cerraría dentro del
+propio ERP**: cuánto de lo que el motor propuso se convirtió en pedido quedaría medible sin ninguna
+tabla nuestra. ⚠️ **Qué columna es, no está arbitrado** — ver §8.5.
+
+### 8.5 Lo NO medido de este recorrido
+
+- **Qué columna de `kdm2` es «Cant. Sug».** La hipótesis natural es `c50` (el renglón usa `c51`–`c54`
+  para las otras cuatro cantidades, en el mismo orden de la pantalla), y `c50` está **en cero en los
+  85,436 renglones** de 90 días — consistente con la hipótesis y también con que sea otra columna.
+  Se arbitra como se arbitró el resto: capturando un valor a mano en ese campo, en el servidor vivo,
+  y viendo cuál cambia. **Hasta entonces no se escribe.**
+- **Si los 35 embarques sin recepción son captura faltante o mercancía que no llegó.** El ODS no
+  distingue las dos cosas; hace falta preguntarle a las dos sucursales involucradas.
+- **Si el pedido de sucursal puede salir de `CREADO` dentro de Kepler.** El menú de «Pedido de
+  Sucursal» va de «Alta de pedido» a «Estatus Surtido» sin un paso de autorización — eso es lo que
+  la pantalla **ofrece**, no lo que la base **prohíbe**.
+- **`c62` no es la hora de captura.** En este documento `c62 = 07:10` («Hora Ticket» en la pantalla)
+  y la captura real fue a las 21:01 (`c69`). No se usó `c62` para ninguna conclusión.
+
+### 8.6 Lo que esto le pide al PM — D1 otra vez
+
+La intención de D1 es buena y está clara: **que el origen revise el pedido antes de surtirlo.** Lo
+que el recorrido muestra es que **ese paso no existe en este carril de Kepler**: el almacenista da
+de alta el pedido y el documento nace `AUTORIZADO` sin preguntar; el siguiente acto del menú es
+surtirlo. `CREADO` es un estado del carril de **telemarketing**, que sí tiene autorización.
+
+**Recomendación revisada (reemplaza la de §7.2):** la Suite escribe **`AUTORIZADO`** —donde caen los
+4,182— y **la revisión del origen vive en la Suite**, no en el estado de Kepler. El borrador de
+Autoabasto ya es ese lugar: el pedido se arma, el origen lo mira y «Enviar» es el acto que lo
+convierte en documento. Así no se inventa un estado que ninguna pantalla medida sabe mover, y no se
+pierde la revisión que D1 quería.
+
+El mecanismo de `[DT5]` **queda igual**: el estado es un parámetro validado, no una constante. Si el
+PM sostiene `CREADO`, se enciende cambiando el valor que manda `enviar()` — sin tocar el sink.

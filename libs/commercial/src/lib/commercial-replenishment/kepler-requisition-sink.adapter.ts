@@ -473,8 +473,11 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
             textoKepler(cantidad), c10, e.fecha, rs.unidad]);
         // ⛔ `[PQ.135]` Cantidad PEDIDA (`c51`) y ESTADO del renglón (`c28`). Sin esto los hereda
         // del renglón molde: el `c51` de la plantilla (otra cantidad) y su `c28` (otro estado).
-        // Medido en los pedidos de sucursal reales de la 08 (30 días): `c51` lleno en 145 de 145 y
-        // `c51 = c56` en 145 de 145; `c28` sigue al encabezado (1,405 de 1,405 en los `CREADO`).
+        // Medido el 2026-11-22 sobre 85,436 renglones de pedido de sucursal (90 días): `c51` = `c56`,
+        // o sea la cantidad en la PRESENTACIÓN y no en unidad base (con `c58>1`: 35,533 de 38,372
+        // `c51=c56` contra UNO solo `c51=c9`), y `c28` se queda con el estado de NACIMIENTO —81,482
+        // renglones de documentos ya EMBARCADO siguen diciendo AUTORIZADO—. Lo que se escriba acá al
+        // nacer es lo que el renglón dirá para siempre: nadie lo corrige después.
         // Los dos van como TEXTO, con el mismo formato y en su propio UPDATE — la misma forma que
         // usa el sink de telemarketing, que escribe este MISMO documento (`[KR.16]`: mezclar texto
         // y numérico en un parámetro compartido rechaza la sentencia entera).
