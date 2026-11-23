@@ -2443,7 +2443,7 @@ export class PaymentCalendarService {
           detail: JSON.stringify({
             regla: 'PGP.121', hoy,
             planeado: { dia: p.dia, importe: Number(p.importe), metodo: p.metodo, cuenta: p.cuenta_planeada },
-            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe, ...(d.grupo ? { grupo: d.grupo } : {}) },
+            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe, ...(d.grupo ? { grupo: d.grupo } : {}), ...(d.cheque ? { cheque: d.cheque } : {}) },
           }),
         });
         await this.aplicarRenglonesPagados(trx, tenantId, p.id, autor);
@@ -2546,7 +2546,7 @@ export class PaymentCalendarService {
           tenant_id: tenantId, allocation_id: p.id, event: EVENTO_CONFIRMADO_POR_EL_BANCO, status_from: 'executed', status_to: 'executed',
           created_by: autor,
           detail: JSON.stringify({ regla: 'PGP.130b', hoy, comprobante: { dia: p.dia, importe: Number(p.importe) },
-            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe, ...(d.grupo ? { grupo: d.grupo } : {}) } }),
+            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe, ...(d.grupo ? { grupo: d.grupo } : {}), ...(d.cheque ? { cheque: d.cheque } : {}) } }),
         });
         return true;
       });

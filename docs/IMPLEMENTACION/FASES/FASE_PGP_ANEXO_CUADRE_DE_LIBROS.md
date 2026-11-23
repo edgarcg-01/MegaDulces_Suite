@@ -323,7 +323,7 @@ Las fechas están fijas a las del análisis.
 | `[PGP.197]` | La obligación capturada se mide contra Kepler (ofrecer, renglón, cierre) | 🧪 en código, falta soltar |
 | `[PGP.198]` | El cuadre permanente con las reglas de §2 | ⬜ |
 | `[PGP.199]` | No se cancela, reprograma ni libera un pago cuyo dinero ya salió | 🧪 en código, falta soltar |
-| `[PGP.200]` | El cheque cobrado deja el pago pagado y su `X-D-25` en Kepler | ⬜ (con el anexo de cheques, `[PGP.171]`) |
+| `[PGP.166]` (era `[PGP.200]`) | El cheque cobrado deja el pago pagado (el `X-D-25` en Kepler sigue en `[PGP.171]`) | 🧪 en código, falta soltar |
 | `[PGP.201]` | El testigo del banco: una salida devuelta no es pago; un pago partido en varias transferencias (misma referencia) sí | 🧪 en código, falta soltar |
 | ⛔ Tesorería, hoy | **No autorizar el pago de Effem del 18-nov: ya salió.** Darlo por pagado y registrar su `X-D-26` | urgente |
 | Tesorería | Registrar en Kepler los pagos que salieron sin documento (Effem, CD015, CB005, Barcel, el SPEI del 10-nov); confirmar con CH001 y CF005 los pagos dobles; cancelar los pagos de Kepler sin dinero (copias espejo, CP012, CA043) y averiguar los dos del 28-oct sin salida; corregir la cuenta de los tres pagos mal registrados; decidir qué copia de cada factura espejo se cancela | pedido |

@@ -7,7 +7,7 @@
 /** Pagos pendientes de los últimos 60 días (hasta hoy) sin prueba de banco. Parámetros: `[tenant, hoy, hoy]`. */
 export const SQL_PENDIENTES_POR_EL_BANCO = `
 SELECT a.id::text AS id, to_char(l.lot_date, 'YYYY-MM-DD') AS dia, a.amount_assigned::float8 AS importe,
-       a.payment_method AS metodo, a.bank_account_id::text AS cuenta_planeada
+       a.payment_method AS metodo, a.bank_account_id::text AS cuenta_planeada, a.reference_text AS referencia
   FROM finance.payment_allocations a
   JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
  WHERE a.tenant_id = ? AND a.status = 'pending' AND a.paid_bank_movement_id IS NULL
@@ -112,7 +112,7 @@ SELECT jsonb_array_elements_text(h.detail -> 'banco' -> 'grupo') AS id
  */
 export const SQL_RECLAMANTES_DE_LA_DESCARGA = `
 SELECT a.id::text AS id, to_char(l.lot_date, 'YYYY-MM-DD') AS dia, a.amount_assigned::float8 AS importe,
-       a.payment_method AS metodo, a.bank_account_id::text AS cuenta_planeada, a.status
+       a.payment_method AS metodo, a.bank_account_id::text AS cuenta_planeada, a.status, a.reference_text AS referencia
   FROM finance.payment_allocations a
   JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
  WHERE a.tenant_id = ? AND a.status IN ('pending', 'executed')

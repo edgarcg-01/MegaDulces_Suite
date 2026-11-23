@@ -36,6 +36,10 @@ export interface PagoPendiente {
   importe: number;
   /** `payment_allocations.payment_method`; null = nadie lo preparó (casi todos hoy). */
   metodo: string | null;
+  /** `[PGP.166]` `payment_allocations.reference_text`: en un cheque, su número. */
+  referencia?: string | null;
+  /** `[PGP.166]` La cuenta que alguien preparó; null = nadie. Un cheque se busca en ESA cuenta. */
+  cuenta_planeada?: string | null;
 }
 
 export interface SalidaBanco {
@@ -52,6 +56,8 @@ export type DecisionBanco =
     estado: 'probado'; movimiento_id: string; cuenta_id: string; fecha: string; importe: number;
     /** `[PGP.201]` Pago partido en varias transferencias: TODAS sus salidas (`movimiento_id` es la mayor). */
     grupo?: string[];
+    /** `[PGP.166]` El número del cheque cuyo cobro lo prueba. */
+    cheque?: string;
   }
   | { estado: 'sin_salida' | 'varias_cuentas' | 'disputada' | 'excluido'; motivo: string };
 
@@ -109,6 +115,66 @@ const NO_TRANSFERENCIA = new Set(['cheque', 'efectivo']);
 
 const dias = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 
+/**
+ * `[PGP.166]` El número de un cheque emitido: el primer número de 3 dígitos o más de la referencia del pago (Tesorería lo
+ * teclea al llenarlo, `[PGP.173]`), sin ceros a la izquierda. Pura.
+ */
+export function numeroDeChequeEmitido(referencia: string | null | undefined): string | null {
+  const m = /([0-9]{3,})/.exec(String(referencia ?? ''));
+  return m ? m[1].replace(/^0+/, '') || null : null;
+}
+
+/**
+ * `[PGP.166]` El número del cheque que cobró el banco, del concepto de la salida. BanBajío (4166):
+ * «Doc. Pagado por Camara de Compensacion por (7,120.32) mxn numero de cheque | 5395 | Recibo | …». Santander (2169)
+ * lo pone sólo en la referencia de la descarga, que el libro no guarda (NO MEDIDO aquí). Pura.
+ */
+export function numeroDeChequeCobrado(concepto: string | null | undefined): string | null {
+  const m = /numero de cheque\s*\|\s*([0-9]+)/i.exec(String(concepto ?? ''));
+  return m ? m[1].replace(/^0+/, '') || null : null;
+}
+
+/** `[PGP.166]` Días antes del día del pago en que ya se acepta su cobro (el cheque se entrega antes de su día). */
+export const DIAS_ANTES_COBRO_CHEQUE = 15;
+
+/**
+ * `[PGP.166]` **El cheque se da por cobrado cuando el banco trae su número** (anexo CH, frente 1; lo que el anexo CL
+ * llamó `[PGP.200]`). Pide Francisco (2026-11-19): «controlar … cuando son cobrados y se reflejan en el estado de
+ * cuenta». Medido el 2026-11-23 (prod, sólo lectura): de 15 cheques numerados «pendientes» en BanBajío 4166, **7 ya se
+ * cobraron** (3 por un centavo de diferencia: el redondeo de `[PGP.165]`); control con el número +1000: 0.
+ * Por número y en la cuenta preparada si la hay; uno a uno. Diferencia de hasta $1: pagado (la bitácora guarda los dos
+ * importes). Más de $1: no se decide (`disputada`) y se dicen los dos importes. Sin cobro: `sin_salida`. Pura.
+ */
+export function decidirChequesCobrados(pagos: readonly PagoPendiente[], salidas: readonly SalidaBanco[]): Map<string, DecisionBanco> {
+  const out = new Map<string, DecisionBanco>();
+  const porNumero = new Map<string, SalidaBanco[]>();
+  for (const s of salidas) {
+    const n = numeroDeChequeCobrado(s.concepto);
+    if (n) porNumero.set(n, [...(porNumero.get(n) ?? []), s]);
+  }
+  const cheques = pagos.filter((p) => p.metodo === 'cheque' && numeroDeChequeEmitido(p.referencia));
+  const reclamado = new Map<string, number>();
+  for (const p of cheques) reclamado.set(numeroDeChequeEmitido(p.referencia)!, (reclamado.get(numeroDeChequeEmitido(p.referencia)!) ?? 0) + 1);
+  for (const p of cheques) {
+    const n = numeroDeChequeEmitido(p.referencia)!;
+    const c = (porNumero.get(n) ?? []).filter((s) => (!p.cuenta_planeada || s.cuenta_id === p.cuenta_planeada)
+      && dias(p.dia, s.fecha) >= -DIAS_ANTES_COBRO_CHEQUE);
+    if (!c.length) { out.set(p.id, { estado: 'sin_salida', motivo: `El cheque ${n} todavía no aparece cobrado en el banco` }); continue; }
+    if (c.length > 1 || (reclamado.get(n) ?? 0) > 1) {
+      out.set(p.id, { estado: 'disputada', motivo: c.length > 1 ? `El banco trae ${c.length} cobros del cheque ${n}: no se adivina cuál es`
+        : `Hay más de un pago pendiente con el cheque ${n}: no se sabe de cuál es el cobro` });
+      continue;
+    }
+    const s = c[0];
+    if (Math.abs(s.importe - p.importe) > TOLERANCIA_BANCO) {
+      out.set(p.id, { estado: 'disputada', motivo: `El cheque ${n} se cobró por $${s.importe.toFixed(2)} y el pago es por $${p.importe.toFixed(2)}: no se da por pagado` });
+      continue;
+    }
+    out.set(p.id, { estado: 'probado', movimiento_id: s.id, cuenta_id: s.cuenta_id, fecha: s.fecha, importe: s.importe, cheque: n });
+  }
+  return out;
+}
+
 export function casaConElPago(p: PagoPendiente, s: SalidaBanco): boolean {
   return Math.abs(s.importe - p.importe) <= TOLERANCIA_BANCO && Math.abs(dias(p.dia, s.fecha)) <= VENTANA_BANCO_DIAS;
 }
@@ -121,8 +187,15 @@ export function decidirPagosPorElBanco(
   pagos: readonly PagoPendiente[], salidas: readonly SalidaBanco[], hoy: string, ligadas: ReadonlySet<string> = new Set(),
 ): Map<string, DecisionBanco> {
   const out = new Map<string, DecisionBanco>();
-  const libres = salidas.filter((s) => !ligadas.has(s.id) && s.importe > 0);
+  const sinLigar = salidas.filter((s) => !ligadas.has(s.id) && s.importe > 0);
   const vigentes = pagos.filter((p) => p.dia <= hoy);
+  // `[PGP.166]` Primero los cheques con número: el número es una llave más fuerte que el importe. El cobro que toma un
+  // cheque ya no lo puede reclamar una transferencia por coincidir en importe.
+  const cobros = decidirChequesCobrados(vigentes, sinLigar);
+  for (const [id, d] of cobros) out.set(id, d);
+  const tomadasPorCheque = new Set<string>();
+  for (const d of cobros.values()) if (d.estado === 'probado') tomadasPorCheque.add(d.movimiento_id);
+  const libres = sinLigar.filter((s) => !tomadasPorCheque.has(s.id));
   const candidatas = new Map<string, SalidaBanco[]>();
   for (const p of vigentes) {
     if (p.metodo && NO_TRANSFERENCIA.has(p.metodo)) continue;
@@ -135,9 +208,10 @@ export function decidirPagosPorElBanco(
   const reclamadasPorGrupo = new Set<string>();
 
   for (const p of vigentes) {
+    if (cobros.has(p.id)) continue;
     if (p.metodo && NO_TRANSFERENCIA.has(p.metodo)) {
       out.set(p.id, { estado: 'excluido', motivo: p.metodo === 'cheque'
-        ? 'Pago con cheque: Kepler lo registra distinto, sigue a mano'
+        ? 'Pago con cheque sin número en la referencia: no hay con qué casar su cobro, sigue a mano'
         : 'Pago en efectivo: no pasa por el banco' });
       continue;
     }
