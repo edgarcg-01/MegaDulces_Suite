@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -6,6 +6,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
+import { Popover, PopoverModule } from 'primeng/popover';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type { HrCatalogosFichaDto, HrFichaPersonaDto, HrIncidenciaDto, HrPersonaAsistencia, HrSinPlazasDto, HrTipoIncidenciaDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -49,7 +50,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
   selector: 'app-rh-asistencia',
   standalone: true,
   imports: [
-    NgTemplateOutlet, FormsModule, ButtonModule, InputTextModule, SelectModule, LoadStateComponent, SidePeekComponent,
+    NgTemplateOutlet, FormsModule, ButtonModule, InputTextModule, SelectModule, PopoverModule, LoadStateComponent, SidePeekComponent,
     RhMarcoComponent, RhReporteSemanalComponent, RhPersonaDiasComponent, RhExpedienteFirmasComponent, RhCapturaIncidenciaComponent,
     RhFaltasComponent, RhToleranciaComponent, RhIncidenciasComponent, RhRelojesComponent, RhNombresPorConfirmarComponent,
   ],
@@ -147,7 +148,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             @if (filas().length) {
               <app-rh-reporte-semanal [grupos]="grupos()" [todas]="todas()" [columnas]="columnas()" [irregularidades]="irr()" [hoy]="est.hoy()"
                                       [mideRetardo]="mide()" [parcial]="!!parcial()" [subtotales]="conSubtotales()" [saldos]="est.saldosHE()"
-                                      (abrir)="abrir($event)" />
+                                      [capturable]="puedeCapturar()" (abrir)="abrir($event)" (capturarDia)="capturarEnTabla($event)" />
               <!-- La leyenda, al pie y en palabras: cada color dice lo que significa; toca a una persona para ver su semana. -->
               <p class="ra-ley">
                 @if (mide()) { <span><b class="ra-ley-rojo">En rojo</b>, la entrada tarde y la falta.</span> }
@@ -324,6 +325,20 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
         }
       </app-side-peek>
 
+      <!-- [RH.18.4] Desde la tabla de la semana: la captura en un globo sobre la celda del día, sin salir de la tabla. -->
+      <p-popover #capPop appendTo="body" ariaLabel="Levantar incidencia" (onHide)="alCerrarGlobo()">
+        @if (captura(); as c) {
+          @if (c.origen === 'tabla') {
+            <div class="ra-globo">
+              <app-rh-captura-incidencia [(form)]="capturaForm" [site]="est.sitio()" [tipos]="tiposInc()" [sugeridos]="c.sugeridos"
+                                         [persona]="c.nombre" [titulo]="'Incidencia del ' + diaLargo(c.fecha)"
+                                         [deLoChecado]="c.deLoChecado" [puedeCalificar]="puedeCalificar()"
+                                         (guardada)="capturaGuardada($event)" (cancelada)="cerrarGlobo()" />
+            </div>
+          }
+        }
+      </p-popover>
+
       <!-- [RH.18.1] La captura de un día, debajo de su renglón: la persona y la fecha ya puestas, los tipos de ese día arriba. -->
       <ng-template #capturaDia let-p>
         @if (captura(); as c) {
@@ -485,6 +500,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
     .ra-reloj small { color: var(--text-muted); font-size: var(--fs-xs); }
     .ra-confirmar { border: 1px solid var(--border-color); }
     .ra-acceso { margin-left: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
+    .ra-globo { width: min(36rem, 92vw); max-height: 80vh; overflow-y: auto; }
     .ra-bloqueado { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); }
     .ra-ir { color: var(--action); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
     .ra-ir:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
@@ -545,7 +561,11 @@ export class RhAsistenciaComponent {
   readonly puedeVerPersonas = computed(() => this.perms.has(Permission.USUARIOS_VER));
   irAPersonas(ev: Event): void { ev.preventDefault(); void this.router.navigate(['/admin/users']); }
   /** `[RH.18.1]` La incidencia que se está capturando desde un día (de quién, qué día, qué se le propone). */
-  readonly captura = signal<{ codigo: string; fecha: string; sugeridos: string[]; deLoChecado: boolean } | null>(null);
+  readonly captura = signal<{ codigo: string; nombre: string; fecha: string; sugeridos: string[]; deLoChecado: boolean; origen: 'ficha' | 'tabla' } | null>(null);
+  /** `[RH.18.4]` El globo de la tabla semanal. */
+  private readonly capPop = viewChild<Popover>('capPop');
+  /** Se cambió de celda con el globo abierto: se abre la nueva cuando termina de cerrarse la anterior. */
+  private reabrir: (() => void) | null = null;
   readonly capturaForm = signal<FormCaptura | null>(null);
   /** Los 19 tipos: se leen la primera vez que se captura. */
   readonly tiposInc = signal<HrTipoIncidenciaDto[]>([]);
@@ -747,31 +767,64 @@ export class RhAsistenciaComponent {
     const c = this.captura();
     if (c && c.codigo === p.codigo && c.fecha === dia) { this.cerrarCaptura(); return; }
     this.aviso.set(null);
-    if (this.tiposInc().length) { this.abrirCaptura(p, dia); return; }
+    this.conTipos(() => this.abrirCaptura(p, dia, 'ficha'));
+  }
+
+  /** Los 19 tipos se leen la primera vez que se captura; después, al momento. */
+  private conTipos(sigue: () => void): void {
+    if (this.tiposInc().length) { sigue(); return; }
     this.api.tiposIncidencia().subscribe({
-      next: (tipos) => { this.tiposInc.set(tipos); this.abrirCaptura(p, dia); },
+      next: (tipos) => { this.tiposInc.set(tipos); sigue(); },
       error: (e) => this.aviso.set({ texto: rhError(e, 'No se pudieron leer los tipos de incidencia.'), mal: true }),
     });
   }
 
-  private abrirCaptura(p: HrPersonaAsistencia, fecha: string): void {
+  /**
+   * `[RH.18.4]` La celda del día en la tabla de la semana: la captura se abre en un globo sobre esa celda (la persona y el
+   * día puestos, los botones del día), sin salir de la tabla. La misma celda otra vez lo cierra; otra celda lo mueve.
+   */
+  capturarEnTabla(e: { persona: HrPersonaAsistencia; fecha: string; ancla: HTMLElement }): void {
+    const pop = this.capPop();
+    const c = this.captura();
+    if (c && c.origen === 'tabla' && c.codigo === e.persona.codigo && c.fecha === e.fecha) { this.cerrarGlobo(); return; }
+    this.aviso.set(null);
+    const abrir = () => this.conTipos(() => { this.abrirCaptura(e.persona, e.fecha, 'tabla'); pop?.show(null, e.ancla); });
+    if (pop?.overlayVisible()) { this.reabrir = abrir; pop.hide(); return; }
+    abrir();
+  }
+
+  cerrarGlobo(): void {
+    if (this.capPop()?.overlayVisible()) this.capPop()!.hide();
+    else if (this.captura()?.origen === 'tabla') this.cerrarCaptura();
+  }
+
+  /** El globo se cerró (Esc, clic fuera, Guardar, Cancelar): se suelta la captura; si se cambió de celda, se abre la nueva. */
+  alCerrarGlobo(): void {
+    if (this.captura()?.origen === 'tabla') this.cerrarCaptura();
+    const r = this.reabrir;
+    this.reabrir = null;
+    if (r) setTimeout(r);
+  }
+
+  private abrirCaptura(p: HrPersonaAsistencia, fecha: string, origen: 'ficha' | 'tabla'): void {
     const d = diasPorFecha(p).get(fecha);
     const hoy = this.est.hoy();
     const form = formDelDia(p.codigo, fecha, d);
     this.capturaForm.set(form);
-    this.captura.set({ codigo: p.codigo, fecha, sugeridos: sugerenciasDelDia(d, fecha, hoy), deLoChecado: !!form.entrada });
+    this.captura.set({ codigo: p.codigo, nombre: p.nombreCompleto || p.nombre, fecha, sugeridos: sugerenciasDelDia(d, fecha, hoy), deLoChecado: !!form.entrada, origen });
   }
 
   /** El día abierto de ESTA persona (null si se captura para otra o no hay captura). */
   abiertoDe(p: HrPersonaAsistencia): string | null {
     const c = this.captura();
-    return c && c.codigo === p.codigo ? c.fecha : null;
+    return c && c.origen === 'ficha' && c.codigo === p.codigo ? c.fecha : null;
   }
 
   cerrarCaptura(): void { this.captura.set(null); this.capturaForm.set(null); }
 
   /** Guardada: se dice si ya cuenta y se recalcula (la ficha abierta se refresca sola con los números nuevos). */
   capturaGuardada(n: HrIncidenciaDto): void {
+    if (this.captura()?.origen === 'tabla') this.capPop()?.hide();
     this.cerrarCaptura();
     this.aviso.set({ texto: n.status === 'calificada' ? 'Incidencia guardada y calificada: ya cuenta en la asistencia.' : 'Incidencia guardada. Cuenta cuando otra persona la califique (en Incidencias).', mal: false });
     this.est.asegurar(true);

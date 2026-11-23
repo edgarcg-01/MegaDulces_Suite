@@ -390,6 +390,68 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
       expect((api['asistencia'] as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(antes);
     });
 
+    describe('[RH.18.4] la incidencia desde la celda del día, en la tabla de la semana', () => {
+      /** La celda del día 6 de la persona 118 (la que tiene falta). */
+      const celda = () => {
+        const fila = Array.from(el().querySelectorAll('tr.rs-fila')).find((tr) => tr.querySelector('.rs-clv')?.textContent?.trim() === '118')!;
+        const cols = fix.componentInstance.columnas().map((c) => c.fecha);
+        return fila.querySelectorAll('td.rs-celda')[cols.indexOf('2026-10-06')] as HTMLElement;
+      };
+
+      it('⭐ tocar la celda abre la captura de ESE día y esa persona en un globo, sin abrir la ficha', async () => {
+        await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
+        Object.assign(api, { tiposIncidencia: vi.fn(() => of([{ tipo: 'vacaciones', etiqueta: 'Vacaciones', codigo: 'VAC', excusaFalta: true }, { tipo: 'permiso_sin_goce', etiqueta: 'Permiso sin goce de sueldo', codigo: 'PSG', excusaFalta: true }, { tipo: 'incapacidad', etiqueta: 'Incapacidad', codigo: 'INC', excusaFalta: true }, { tipo: 'otros', etiqueta: 'Otros', codigo: 'OTR', excusaFalta: true }])) });
+        const c = fix.componentInstance;
+        celda().click();
+        await ciclo();
+        expect(c.sel()).toBeNull();
+        expect(c.captura()).toMatchObject({ codigo: '118', fecha: '2026-10-06', origen: 'tabla' });
+        expect([c.capturaForm()?.person_code, c.capturaForm()?.date_from, c.capturaForm()?.incident_type]).toEqual(['118', '2026-10-06', '']);
+        // El globo trae los botones del día (falta: personal, cita médica, no registrada…).
+        const textos = Array.from(document.querySelectorAll('.ra-globo button.ci-boton')).map((b) => b.querySelector('.ci-b-tit')?.textContent?.trim());
+        expect(textos.slice(0, 3)).toEqual(['Personal', 'Cita médica', 'No registrada']);
+        // Y el «+» de la celda es la misma puerta, para el teclado.
+        expect(celda().querySelector('button.rs-inc-btn')?.getAttribute('aria-label')).toContain('Prueba Dos Ejemplo el');
+      });
+
+      it('⭐ desde el globo: un toque en «Personal» y Guardar; se dice si ya cuenta y se recalcula', async () => {
+        await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
+        Object.assign(api, { tiposIncidencia: vi.fn(() => of([{ tipo: 'vacaciones', etiqueta: 'Vacaciones', codigo: 'VAC', excusaFalta: true }, { tipo: 'permiso_sin_goce', etiqueta: 'Permiso sin goce de sueldo', codigo: 'PSG', excusaFalta: true }, { tipo: 'incapacidad', etiqueta: 'Incapacidad', codigo: 'INC', excusaFalta: true }, { tipo: 'otros', etiqueta: 'Otros', codigo: 'OTR', excusaFalta: true }])), capturar: vi.fn(() => of({ id: 'i-1', status: 'capturada' })) });
+        const c = fix.componentInstance;
+        celda().click();
+        await ciclo();
+        (document.querySelector('.ra-globo button.ci-boton') as HTMLButtonElement).click();
+        await ciclo();
+        const antes = (api['asistencia'] as ReturnType<typeof vi.fn>).mock.calls.length;
+        (document.querySelector('.ra-globo form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+        await ciclo();
+        expect(api['capturar']).toHaveBeenCalledWith(expect.objectContaining({ person_code: '118', date_from: '2026-10-06', incident_type: 'permiso_sin_goce' }));
+        expect(c.captura()).toBeNull();
+        expect(c.aviso()?.texto).toContain('Cuenta cuando otra persona la califique');
+        expect((api['asistencia'] as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(antes);
+      });
+
+      it('⛔ NEGATIVA — el nombre sigue abriendo la ficha (no levanta incidencia)', async () => {
+        await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
+        const fila = Array.from(el().querySelectorAll('tr.rs-fila')).find((tr) => tr.querySelector('.rs-clv')?.textContent?.trim() === '118')!;
+        (fila.querySelector('td.rs-nom') as HTMLElement).click();
+        await ciclo();
+        expect(fix.componentInstance.sel()?.codigo).toBe('118');
+        expect(fix.componentInstance.captura()).toBeNull();
+      });
+
+      it('⛔ NEGATIVA — sin permiso de capturar, la celda hace lo de siempre: abre la ficha, sin «+»', async () => {
+        await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+        // Con los tipos a la mano: si la celda capturara sin permiso, aquí se vería.
+        Object.assign(api, { tiposIncidencia: vi.fn(() => of([{ tipo: 'otros', etiqueta: 'Otros', codigo: 'OTR', excusaFalta: true }])) });
+        expect(celda().querySelector('button.rs-inc-btn')).toBeNull();
+        celda().click();
+        await ciclo();
+        expect(fix.componentInstance.sel()?.codigo).toBe('118');
+        expect(fix.componentInstance.captura()).toBeNull();
+      });
+    });
+
     it('⭐ [RH.18.1] en «solo esta persona» también hay «+ Incidencia» por día', async () => {
       await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
       fix.componentInstance.est.verSolo('118');

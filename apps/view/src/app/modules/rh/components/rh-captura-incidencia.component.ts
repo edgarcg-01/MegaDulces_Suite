@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, model, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, model, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -7,9 +7,18 @@ import { ButtonModule } from 'primeng/button';
 import type { HrIncidenciaDto, HrTipoIncidenciaDto } from '@megadulces/contracts';
 import { RhService, rhError } from '../rh.service';
 import { firmaHoras, horasTexto } from '../reporte-formato';
-import { type FormCaptura, conAutorizacion, cuerpoCaptura, deUnDia, etiquetaConAlias, etiquetaNota, notaObligatoria } from '../incidencia-captura';
+import { COMO_LE_DICEN, type FormCaptura, conAutorizacion, cuerpoCaptura, deUnDia, etiquetaConAlias, etiquetaNota, notaObligatoria } from '../incidencia-captura';
 
 interface GrupoTipos { label: string; items: HrTipoIncidenciaDto[]; }
+/** `[RH.18.4]` Un botón de tipo: el nombre que usa RH arriba («Personal»), el tipo oficial abajo («Permiso sin goce»). */
+interface BotonTipo { tipo: string; titulo: string; sub: string; }
+
+/** Cuántos botones: los que caben en una línea y se leen de un vistazo (el resto, en «Otro tipo…»). */
+const MAX_BOTONES = 4;
+/** `[RH.18.4]` Dónde se recuerda «quién lo autorizó» (sólo en este navegador: es una comodidad, no un dato). */
+const LLAVE_AUTORIZO = 'rh.incidencias.ultimoAutorizo';
+const leerAutorizo = (): string => { try { return localStorage.getItem(LLAVE_AUTORIZO) ?? ''; } catch { return ''; } };
+const guardarAutorizo = (v: string): void => { try { localStorage.setItem(LLAVE_AUTORIZO, v); } catch { /* sin almacenamiento: no se recuerda */ } };
 
 /**
  * Fase RH · `[RH.18.1]` — Capturar una incidencia. La usan el panel de Incidencias (cualquier persona, cualquier día) y
@@ -41,6 +50,20 @@ interface GrupoTipos { label: string; items: HrTipoIncidenciaDto[]; }
         } @else {
           <label>Número de la persona <input pInputText name="persona" [(ngModel)]="f.person_code" required /></label>
         }
+        @if (botones().length && !verLista()) {
+          <!-- [RH.18.4] (A) Lo que más usan para ese día, en un toque y con su nombre; nada viene elegido. -->
+          <fieldset class="ci-ancho ci-botones">
+            <legend>¿Qué pasó?</legend>
+            @for (b of botones(); track b.tipo) {
+              <button type="button" class="ci-boton" [class.sel]="f.incident_type === b.tipo" [attr.aria-pressed]="f.incident_type === b.tipo" (click)="elegir(b.tipo)">
+                <span class="ci-b-tit">{{ b.titulo }}</span>@if (b.sub) { <span class="ci-b-sub"> {{ b.sub }}</span> }
+              </button>
+            }
+            <button type="button" class="ci-boton ci-otro" (click)="verLista.set(true)">
+              <span class="ci-b-tit">Otro tipo…</span><span class="ci-b-sub"> los 19, se buscan tecleando</span>
+            </button>
+          </fieldset>
+        } @else {
         <label>Tipo
           @if (grupos(); as g) {
             <p-select [options]="g" [group]="true" optionGroupLabel="label" optionGroupChildren="items" optionLabel="etiqueta" optionValue="tipo"
@@ -50,6 +73,7 @@ interface GrupoTipos { label: string; items: HrTipoIncidenciaDto[]; }
                       name="tipo" [(ngModel)]="f.incident_type" appendTo="body" placeholder="Elige el tipo" ariaLabel="Tipo de incidencia" />
           }
         </label>
+        }
         <label>Desde <input pInputText type="date" name="desde" [(ngModel)]="f.date_from" required /></label>
         @if (!deUnDia(f.incident_type)) {
           <label>Hasta <input pInputText type="date" name="hasta" [(ngModel)]="f.date_to" [min]="f.date_from" /></label>
@@ -126,6 +150,16 @@ interface GrupoTipos { label: string; items: HrTipoIncidenciaDto[]; }
     .ci-propuesto { color: var(--info-soft-fg); }
     .ci-error { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .ci-btns { display: flex; gap: var(--sp-2); }
+    .ci-botones { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: 0; padding: 0; border: 0; }
+    .ci-botones legend { padding: 0; margin-bottom: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
+    .ci-boton { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 44px; padding: var(--sp-1) var(--sp-3);
+      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); cursor: pointer; font: inherit; text-align: left; }
+    .ci-boton:hover { background: var(--surface-hover-bg); }
+    .ci-boton:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .ci-boton.sel { border: 2px solid var(--action); background: var(--overlay-selected); }
+    .ci-otro { border-style: dashed; }
+    .ci-b-tit { font-size: var(--fs-sm); font-weight: 600; }
+    .ci-b-sub { font-size: var(--fs-xs); color: var(--text-muted); }
   `],
 })
 export class RhCapturaIncidenciaComponent {
@@ -147,6 +181,17 @@ export class RhCapturaIncidenciaComponent {
   readonly guardada = output<HrIncidenciaDto>();
   readonly cancelada = output<void>();
 
+  /** `[RH.18.4]` «Otro tipo…»: se ve la lista completa (los 19, con búsqueda). */
+  readonly verLista = signal(false);
+  /** Otra persona u otro día: la lista se vuelve a cerrar (los botones primero). */
+  private ultimaCaptura = '';
+  constructor() {
+    effect(() => {
+      const f = this.form();
+      const clave = f ? f.person_code + '|' + f.date_from : '';
+      if (clave !== this.ultimaCaptura) { this.ultimaCaptura = clave; this.verLista.set(false); }
+    });
+  }
   readonly ocupado = signal(false);
   readonly error = signal<string | null>(null);
   readonly saldoUso = signal<string | null>(null);
@@ -158,6 +203,33 @@ export class RhCapturaIncidenciaComponent {
 
   /** `[RH.18.3]` Cada tipo con su nombre de Mega Talento («Incapacidad · cita médica»): se ve y se encuentra tecleándolo. */
   readonly conAlias = computed<HrTipoIncidenciaDto[]>(() => this.tipos().map((t) => ({ ...t, etiqueta: etiquetaConAlias(t.tipo, t.etiqueta) })));
+
+  /**
+   * `[RH.18.4]` (A) Los botones del día: los sugeridos que el catálogo trae, hasta `MAX_BOTONES`, con el nombre que usa RH
+   * arriba («Personal») y el tipo oficial abajo. Sin sugeridos (el panel de Incidencias) no hay botones: la lista de siempre.
+   */
+  readonly botones = computed<BotonTipo[]>(() => {
+    const tipos = this.tipos();
+    return this.sugeridos().map((s) => tipos.find((t) => t.tipo === s)).filter((t): t is HrTipoIncidenciaDto => !!t)
+      .slice(0, MAX_BOTONES)
+      .map((t) => {
+        const alias = COMO_LE_DICEN[t.tipo];
+        return alias ? { tipo: t.tipo, titulo: alias.charAt(0).toUpperCase() + alias.slice(1), sub: t.etiqueta } : { tipo: t.tipo, titulo: t.etiqueta, sub: '' };
+      });
+  });
+
+  /**
+   * `[RH.18.4]` Un toque elige el tipo. «Tráfico» (Horario distinto) trae «Tráfico» de motivo, y lo que pide quién lo
+   * autorizó llega con el último que se escribió en este navegador. Todo se puede corregir antes de guardar.
+   */
+  elegir(tipo: string): void {
+    this.form.update((f) => {
+      if (!f) return f;
+      const motivo = tipo === 'horario_distinto' && !f.reason.trim() ? 'Tráfico' : f.reason;
+      const autorizo = conAutorizacion(tipo) && !f.authorized_by_name.trim() ? leerAutorizo() : f.authorized_by_name;
+      return { ...f, incident_type: tipo, reason: motivo, authorized_by_name: autorizo };
+    });
+  }
 
   /** Con sugeridos: «Para este día» arriba, «Todos los tipos» abajo. Sin ellos, la lista plana de siempre. */
   readonly grupos = computed<GrupoTipos[] | null>(() => {
@@ -192,13 +264,18 @@ export class RhCapturaIncidenciaComponent {
     this.ocupado.set(true);
     this.error.set(null);
     this.api.capturar(cuerpoCaptura(f, site)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (n) => { this.ocupado.set(false); this.saldoUso.set(null); this.form.set(null); this.guardada.emit(n); },
+      next: (n) => {
+        // `[RH.18.4]` Se recuerda quién autorizó (la próxima vez llega puesto).
+        if (conAutorizacion(f.incident_type) && f.authorized_by_name.trim()) guardarAutorizo(f.authorized_by_name.trim());
+        this.ocupado.set(false); this.saldoUso.set(null); this.verLista.set(false); this.form.set(null); this.guardada.emit(n);
+      },
       error: (e) => { this.ocupado.set(false); this.error.set(rhError(e, 'No se pudo guardar la incidencia. Nada cambió.')); },
     });
   }
 
   cancelar(): void {
     this.error.set(null);
+    this.verLista.set(false);
     this.saldoUso.set(null);
     this.form.set(null);
     this.cancelada.emit();

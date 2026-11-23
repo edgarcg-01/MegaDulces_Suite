@@ -60,7 +60,14 @@ import {
                 </td>
                 <td class="rs-hor" [class.ded]="!f.horario.asignado">@for (r of f.horarioRenglones; track $index) { <span class="rs-hor-r">{{ r }}</span> }@if (f.horario.nota) { <small>{{ f.horario.nota }}</small> }</td>
                 @for (c of f.celdas; track $index) {
-                  <td class="rs-celda" [attr.data-t]="c.tipo" [class.tarde]="c.tarde" [title]="c.titulo">
+                  <!-- [RH.18.4] Con permiso de capturar, la celda del día levanta la incidencia de ESE día (como en Mega Talento);
+                       el nombre, la clave y el horario siguen abriendo la ficha. Sin permiso, la celda hace lo de siempre. -->
+                  <td class="rs-celda" [attr.data-t]="c.tipo" [class.tarde]="c.tarde" [class.capturable]="capturable()" [title]="c.titulo"
+                      (click)="tocarDia($event, f.p, c.fecha)">
+                    @if (capturable()) {
+                      <button type="button" class="rs-inc-btn" (click)="tocarDia($event, f.p, c.fecha)" (keydown.enter)="$event.stopPropagation()"
+                              [attr.aria-label]="'Levantar incidencia de ' + (f.p.nombreCompleto || f.p.nombre) + ' el ' + c.dow + ' ' + c.dia"><i class="pi pi-plus" aria-hidden="true"></i></button>
+                    }
                     <span class="j">@if (c.partes; as pt) { {{ pt[0] }}–<span class="antes">{{ pt[1] }}</span> } @else { {{ rango(c) }} }</span>
                     @if (c.tramos.length) { <span class="t">@for (t of c.tramos; track $index) { <span>{{ t }}</span> }</span> }
                     <!-- [RH.13.5] D y C sólo cuando se pasó: «C 60» en 37 de 49 celdas era ruido que tapaba las 2 que importaban.
@@ -175,6 +182,15 @@ import {
     .rs-neg { color: var(--bad-fg); font-weight: 700; }
     .rs-celda .exc, .rs-celda .antes { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-radius: 3px; padding: 0 3px; font-weight: 700; }
     .rs-celda.tarde .j { color: var(--bad-fg); font-weight: 700; }
+    /* [RH.18.4] La celda que levanta la incidencia: se nota al pasar, y su «+» es la puerta del teclado. */
+    .rs-tabla td.rs-celda.capturable { position: relative; cursor: pointer; }
+    .rs-tabla td.rs-celda.capturable:hover { background: var(--surface-hover-bg); }
+    .rs-inc-btn { position: absolute; top: 1px; right: 1px; display: grid; place-items: center; width: 20px; height: 20px; padding: 0;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm); background: var(--card-bg); color: var(--text-muted);
+      font-size: var(--fs-micro); cursor: pointer; opacity: 0; }
+    .rs-celda.capturable:hover .rs-inc-btn, .rs-inc-btn:focus-visible { opacity: 1; }
+    .rs-inc-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+    @media (pointer: coarse) { .rs-inc-btn { display: none; } }
     .rs-celda[data-t='falta'] .j, .rs-celda[data-t='marca'] .j { color: var(--bad-fg); font-weight: 700; }
     .rs-celda[data-t='falta'], .rs-celda[data-t='marca'] { box-shadow: inset 0 0 0 1px var(--bad-border); }
     .rs-celda[data-t='inc'] .j, .rs-celda[data-t='just'] .j { color: var(--info-soft-fg); font-weight: 700; }
@@ -238,6 +254,17 @@ export class RhReporteSemanalComponent {
   readonly saldos = input<Map<string, number> | null>(null);
 
   readonly abrir = output<HrPersonaAsistencia>();
+  /** `[RH.18.4]` Quien captura: la celda del día levanta la incidencia de ese día (sin permiso, abre la ficha como siempre). */
+  readonly capturable = input(false);
+  readonly capturarDia = output<{ persona: HrPersonaAsistencia; fecha: string; ancla: HTMLElement }>();
+
+  /** La celda (o su «+») levanta la incidencia; el clic ya no sube al renglón, que abriría la ficha. */
+  tocarDia(ev: Event, persona: HrPersonaAsistencia, fecha: string): void {
+    if (!this.capturable()) return;
+    ev.stopPropagation();
+    const ancla = ((ev.currentTarget as HTMLElement | null)?.closest('td') ?? ev.currentTarget) as HTMLElement;
+    this.capturarDia.emit({ persona, fecha, ancla });
+  }
 
   readonly horas = horasTexto;
   readonly firma = firmaHoras;
@@ -283,7 +310,7 @@ export class RhReporteSemanalComponent {
             celdas: cols.map((c) => {
               const x = celdaDe(p, dias, c.fecha, o);
               // La salida antes de hora va en ámbar: se parte aquí, no en la plantilla.
-              return { ...x, partes: x.salioAntes ? x.jornada.split(' - ') : null };
+              return { ...x, fecha: c.fecha, dow: c.dow, dia: c.dia, partes: x.salioAntes ? x.jornada.split(' - ') : null };
             }),
             horario: horarioPartes(p),
             horarioRenglones: horarioRenglones(horarioPartes(p).hora),
