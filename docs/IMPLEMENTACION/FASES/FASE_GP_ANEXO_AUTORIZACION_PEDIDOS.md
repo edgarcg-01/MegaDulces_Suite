@@ -409,6 +409,59 @@ sucursal; rechazar sí funciona desde el primer día, porque no toca Kepler.
 **Rechazar no cancela.** El pedido sigue `CREADO` en Kepler: lo que cambia es que la Suite sabe que ya se
 decidió y deja de pedirlo. Cancelarlo en Kepler está fuera de este anexo (§5).
 
+#### 3.6c Auditoría de la pantalla (2026-11-23) — pedida por Edgar antes de encender
+
+> **Nivel de evidencia: C (fuente) y B (prod, sólo lectura).** ⛔ **SIN VALIDACIÓN VISUAL**: no se vio en una
+> pantalla viva, así que los píxeles reales, `forced-colors`, el recorrido con teclado, el zoom al 400 % y el
+> reflujo a 320 px quedan **NO MEDIDOS** — y la mitad de `VALORES.md` pide nivel A.
+> Hecha con [`auditoria-diseno`](../../../.claude/skills/auditoria-diseno/SKILL.md) y
+> `modern-web-guidance` (guías `required-field-feedback`, `accessible-error-announcement`,
+> `persistent-toast-notifications`).
+
+**Lo que encontró, y ya está corregido** (lo de fondo: lo escribí yo el mismo día, y ninguna compuerta lo vio):
+
+| # | Capa | Qué estaba mal | Cómo se midió |
+|---|---|---|---|
+| 1 | Accesibilidad | El campo de motivo usaba **`var(--surface-1)`, un token que no existe**: la declaración se cae y el campo queda con el fondo del navegador. En oscuro, texto `#FAFAFA` sobre blanco = **1.04:1** (pide 4.5). Ahora usa `pTextarea`, como los otros 60 campos de la suite | script de contraste con sus dos controles (21.00 y 4.48) |
+| 2 | **Veracidad** | La cifra decía **«Ya decidiste»** y la lista también trae lo que autorizó **sola la regla**. Ahora «Ya decididos», y el panel dice «la regla, sola, lo autorizó» | Cruce 2 (rótulo contra lo que muestra) |
+| 3 | Retrabajo | **Se perdía lo tecleado**: cerrar el panel con un motivo escrito lo borraba sin preguntar — y `app-side-peek` **ya traía** la pieza (`[sucio]`), sin usar. Un error del servidor tampoco lo borra ya | lectura del componente compartido |
+| 4 | Accesibilidad | El resultado salía **sólo por `p-toast`**, que vive fuera del panel; el panel es `aria-modal`, así que para un lector de pantalla ese contenido queda **inerte**. Ahora también se publica dentro, en una región `role="status"` que existe desde el render | `persistent-toast-notifications` |
+| 5 | Validación | Los dos botones estaban **deshabilitados** sin motivo: uno apagado no se enfoca y no dice por qué. Ahora siguen vivos; al pulsarlos sin motivo no se manda nada, el campo se marca, el foco va a él y el error se lee | `required-field-feedback` |
+| 6 | Accesibilidad | `aria-invalid` nacía en **`true`**: un `required` vacío marcado desde que abre hace que un lector cante «no válido» antes de que la persona toque el campo | `accessible-error-announcement` |
+| 7 | Respeto | Al pasar al siguiente pedido, el **foco se quedaba en un botón que ahora decide OTRO pedido**. Ahora cae en el campo de motivo | lectura del flujo |
+| 8 | Carga | «Aparte» trae **~800 pedidos muertos** y la tabla los pintaba todos. Paginador a 50, sólo cuando la lista pasa de 50: la del día (15 hoy) se sigue viendo entera y la maqueta aprobada no cambia | medido en prod el 2026-11-23 |
+| 9 | Comprensión | Sin entrada en el **diccionario versionado**. Se agregó `por-autorizar` (`app-context-help`): qué cambia cada decisión en Kepler y qué no, de dónde sale cada número, y que **«sin límite» no es cero**. `check:pantalla` pasa de ⚠️ a **«cumple las 10 reglas»** | `check:pantalla -- finanzas` |
+
+**⚠️ Dos cosas sobre los instrumentos, que valen más que los hallazgos:**
+
+1. **`check:tokens` dio VERDE** sobre el archivo con el token inexistente **mientras estaba sin commitear**, y
+   rojo después de commitearlo. Es el mismo caso que la skill ya documenta para `check-template-types`: *una
+   compuerta corrida sobre cambios sin commitear mide el universo equivocado*. Ahora hay **dos** compuertas con
+   ese defecto; conviene mirarlas todas.
+2. **`ngc --noEmit` volvió a cazar lo que `check:pantalla` no ve**: tres **acentos graves en comentarios dentro
+   del `template`**, que cierran el literal (la 15ª vez en el repo).
+
+**Contradicción nº 13 de `VALORES.md` §17** (nueva): esa tabla pide *«enviar deshabilitado mientras sea
+inválido»* (STD §4.5 · DS §10.6) y `modern-web-guidance` pide lo contrario (*«keep your submit button
+enabled»*), porque un botón apagado no se enfoca ni explica nada. **Se resolvió con el híbrido**: botón vivo,
+pero sin motivo no se manda nada y el foco va al campo con el error leído — la prevención se conserva y la
+accesibilidad se gana. Queda anotado para que lo arbitre el PM.
+
+**El veredicto, por capa (nunca un promedio):**
+
+| Capa | Veredicto | Por qué |
+|---|---|---|
+| **Veracidad** | ✓ | el rótulo falso corregido; las cifras del encabezado se pueden recorrer (la lista no tiene tope, trae todo); lo no medido se declara |
+| **Alcance** | ✓ | todo total se abre a su detalle en el panel; la lista larga ahora se pagina sin esconder |
+| **Comprensión** | ✓ | diccionario versionado; cada frase dice lo que pasa en Kepler y lo que no |
+| **Sencillez** | 🟡 | una sola acción primaria, las condiciones plegadas; el panel sigue en ~6 controles y ~8 cifras visibles |
+| **Respeto** | ✓ | estado sucio, un clic = una escritura, edad del dato a la vista, y el error conserva lo tecleado. **INP NO MEDIDO** |
+| **Accesibilidad** | 🟠 | todo el texto pasa AA en claro y oscuro (lo más bajo, 5.00:1). **✗ el borde del campo** (`--border-color`: 1.27:1 claro, 1.19:1 oscuro; WCAG 1.4.11 pide 3) — es deuda de toda la suite, y con `pTextarea` lo pone el tema: se mide en pantalla viva. **NO MEDIDO**: `forced-colors`, 44 px en táctil, teclado real, zoom 400 %, reflujo a 320 px, lector de pantalla |
+
+**🟠 Pasa con deuda.** No hay ✗ en veracidad ni nada que pierda trabajo, así que **no bloquea**; lo de
+accesibilidad se cierra en la fase. ⛔ **Lo que sí falta antes de decir que el Paso 1 está listo es el nivel A**:
+ver la pantalla con datos, en claro y oscuro, recorrerla con teclado y medir el borde real del campo.
+
 **Qué revisa Crédito y cobranza al autorizar a mano** (lo que el panel pone en «Para decidir», según el caso):
 
 | Siempre | Excede | Sin límite | Vencido | NO TOCAR | Viejo (aparte) |
@@ -525,6 +578,7 @@ construirla pasa GP a 🔨. Si se abre, **reemplaza a E2 como siguiente etapa**.
 | 2026-11-23 | **Medido el estado real del «construido, no encendido», candado por candado** (prod, sólo lectura): el código **sí está desplegado** (`e80e10be4`), la migración `20261120145451` **aplicada** el 20-nov 19:44, la llave **repartida** a `credito_cobranza` (regla 20 ✔). Lo que sigue cerrado: el interruptor (**9 de 9 apagados, sin tope**), la bandera `KEPLER_AUTORIZACION_PEDIDOS` (**no existe** en los secretos de k3s) y **el permiso GP.A.0d, que nadie ha corrido** (tampoco GP.12.0e). La bitácora tiene **0 filas**: nadie ha decidido nada todavía desde la Suite. Hoy hay **808 pedidos TELEMARK en CREADO**, 782 de ellos los muertos de Zamora Centro; telemarketing de verdad, 14 capturados hoy | Claude |
 | 2026-11-23 | ⭐ **Hallazgo: rechazar no servía de nada.** La bandeja leía sólo el ODS, y rechazar **no cambia nada en Kepler**, así que el pedido rechazado volvía al día siguiente idéntico, como si nadie lo hubiera visto — y «N pedidos esperan tu decisión» habría contado decisiones ya tomadas (ley 0 del estándar). Lo encontró leer el camino completo antes de encender los botones, no una compuerta. **GP.A.4b** lo cierra | Claude |
 | 2026-11-23 | **GP.A.4b 🧪 y GP.A.5 🔨: el panel decide y la bandeja sabe lo decidido.** Motivo obligatorio, Autorizar y Rechazar conectados al `POST`, el doble clic no decide dos veces, y Autorizar apagado **con el nombre de la sucursal** mientras la escritura esté apagada. El tope del día deja de ser un cero dibujado. 22 ✔ contra Postgres real (SQL leído del servicio, con la migración aplicada en la base local), 28 de motor y pantalla, **4 mutantes en rojo**. `ngc --noEmit` encontró un `[maxlength]` que `check:pantalla` no ve (NG8002): corregido. ⚠️ Sin validación visual. **Falta para encender: el permiso GP.A.0d (lo corre el PM), el ensayo con ROLLBACK, la bandera y el interruptor de una sucursal piloto** | Claude |
+| 2026-11-23 | **Auditoría de la pantalla, pedida por Edgar antes de encender** (§3.6c, con `auditoria-diseno` y `modern-web-guidance`). Nueve defectos **de lo que yo mismo había escrito ese día**, ninguno visto por una compuerta: el campo de motivo **ilegible en oscuro** (1.04:1, por un token inventado), **«Ya decidiste» contando lo que autorizó la regla**, **se perdía lo tecleado** (el panel ya traía `[sucio]` sin usar), el aviso del resultado **inerte** para un lector dentro de un `aria-modal`, los botones apagados sin explicar, `aria-invalid` en `true` desde que abre, el foco saltando a otro pedido, ~800 filas pintadas de una vez y sin entrada en el diccionario. Todo corregido; `check:pantalla` pasa a **«cumple las 10 reglas»**. Veredicto: **🟠 pasa con deuda** (borde del campo a 1.27:1, deuda de la suite). ⚠️ **Dos instrumentos fallaron:** `check:tokens` dio verde sobre el archivo **sin commitear**, y `ngc` volvió a cazar acentos graves dentro del `template`. Nueva contradicción nº 13 en `VALORES.md` (botón deshabilitado contra botón vivo), resuelta con el híbrido | Claude |
 | 2026-11-19 | Nace el anexo. Auditoría en prod (sólo lectura): qué es autorizar, la pantalla de Kepler columna por columna, telemarketing de 60 días, los 782 pedidos de Zamora Centro, lo que la Suite ya tiene | Claude, a pedido de Edgar |
 | 2026-11-19 | Edgar decide D-A3 (automático dentro del límite, siempre avisando) y pide la ficha de crédito. Medido: el «Monto por Cobrar» de Kepler sigue a los pedidos abiertos, no al saldo; la regla simulada autoriza 19.8 % (control: 185 con el límite a la mitad); 70 % del importe se autorizó excedido; 37 buenos pagadores concentran $5.66 M de excedidos; $3.1 M vencido a más de 45 días. Nuevos GP.A.3 a GP.A.8 y D-A6, D-A7 | Claude |
 | 2026-11-19 | Edgar decide D-A2 (Crédito y cobranza; si no, Dirección General), D-A4 (evitar los pedidos viejos) y D-A7 (Crédito y cobranza puede regresar un autorizado solo), y pide el aviso de renovar o subir el crédito y un análisis externo. Medido: 73 de 366 clientes con RFC propio, 0 en listas del SAT; el RFC genérico aparece en la lista 69 (falso positivo controlado). Nuevos §3.4, §3.5, GP.A.6b a GP.A.6d y D-A8 a D-A10 | Claude |
