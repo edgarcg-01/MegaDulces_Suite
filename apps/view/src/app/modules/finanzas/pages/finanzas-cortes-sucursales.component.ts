@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
@@ -384,7 +384,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
           <div class="cs-note" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i><span>El corte de caja POS en Kepler arrancó el <b>01/10/2026</b>. Antes de esa fecha casi no hay cortes; un periodo anterior se ve vacío por eso, no porque no haya habido venta.</span></div>
         }
 
-        <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de cortes del periodo" />
+        <app-metric-strip [items]="kpiItems()" [instant]="true" ariaLabel="Resumen de cortes del periodo" />
 
         <section class="cs-block dt-scope" aria-labelledby="cs-h-suc">
           <div class="cs-bh"><h2 id="cs-h-suc">Por sucursal</h2>
@@ -465,7 +465,13 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                           @if (c.arqueo; as a) {
                             @let cj = celdaCajero(a);
                             @let kp = celdaKepler(a);
-                            <td><p-tag [value]="cj.label" [severity]="cj.sev" styleClass="cs-tag" />
+                            <!-- [CSU.25] Si el cajero contó algo, su aviso lleva directo a sus conteos (antes: abrir
+                                 el corte y bajar a buscarlos). Las teclas no suben a la fila: Espacio la seleccionaría
+                                 y le quitaría el clic al botón. -->
+                            <td>@if (a.conteos_cajero.length) {
+                                <button type="button" class="cs-ir" (click)="verConteos(c)" (keydown.enter)="$event.stopPropagation()" (keydown.space)="$event.stopPropagation()"
+                                  [attr.aria-label]="'Ver lo que contó el cajero en ' + c.documento + ': ' + cj.label"><p-tag [value]="cj.label" [severity]="cj.sev" styleClass="cs-tag" /><i class="pi pi-chevron-right" aria-hidden="true"></i></button>
+                              } @else { <p-tag [value]="cj.label" [severity]="cj.sev" styleClass="cs-tag" /> }
                               @if (a.declaracion_cajero?.concuerda_con_kepler === false) { <p-tag value="no concuerda con Kepler" severity="secondary" styleClass="cs-tag" /> }</td>
                             <td><p-tag [value]="kp.label" [severity]="kp.sev" styleClass="cs-tag" /></td>
                           } @else {
@@ -484,7 +490,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                       <thead><tr><th class="cs-togcol"><span class="sr-only">Ver lo que contó</span></th><th>Hora</th><th>Qué</th><th>Caja</th><th class="ta-r">Importe</th><th>Por qué no está en un corte</th><th>Quién contó</th></tr></thead>
                       <tbody>
                         @for (x of d.fuera; track $index) {
-                          @let abierto = !!x.id && conteoAbierto() === x.id;
+                          @let abierto = !!x.id && conteosAbiertos().has(x.id);
                           <tr><td class="cs-togcol"><button type="button" class="cs-tog" [disabled]="!x.id" (click)="toggleConteo(x.id)"
                                 [attr.aria-expanded]="abierto" [attr.aria-controls]="'cs-ct-' + x.id"
                                 [attr.aria-label]="(abierto ? 'Ocultar' : 'Ver') + ' lo que contó a las ' + x.hora.slice(0, 5)"><i class="pi" [class.pi-chevron-right]="!abierto" [class.pi-chevron-down]="abierto" aria-hidden="true"></i></button></td>
@@ -529,7 +535,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                          /tienda/arqueo). Hasta CSU.16 la columna de en medio era c25: otro numero de
                          Kepler, identico al esperado en el 85.1% de los cortes. Se imprimia un solo tipo
                          dos veces. La de la derecha es el desglose que Kepler guarda (solo efectivo). -->
-                    <thead><tr><th></th><th class="ta-r">Esperado<span class="cs-th-de">sistema</span></th><th class="ta-r">Declarado<span class="cs-th-de">cajero</span></th><th class="ta-r">Desglose<span class="cs-th-de">Kepler</span></th></tr></thead>
+                    <thead><tr><th scope="col"><span class="sr-only">Concepto</span></th><th scope="col" class="ta-r">Esperado<span class="cs-th-de">sistema</span></th><th scope="col" class="ta-r">Declarado<span class="cs-th-de">cajero</span></th><th scope="col" class="ta-r">Desglose<span class="cs-th-de">Kepler</span></th></tr></thead>
                     <tbody>
                       <!-- [CSU.18] Con devoluciones pagadas del cajon, el esperado se pinta NETO: las dos
                            diferencias de abajo son contra el neto, y el bruto contra el desglose se leia
@@ -612,10 +618,10 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                        turno, con sus piezas. Antes sólo llegaba la suma; para ver un retiro había que ir a
                        /tienda/arqueo, que Finanzas no tiene (SM.47). -->
                   @if (a.conteos_cajero.length) {
-                    <p class="cs-sub">Lo que contó el cajero · {{ a.conteos_cajero.length }} conteo(s)</p>
+                    <p class="cs-sub" id="cs-conteos-t" tabindex="-1">Lo que contó el cajero · {{ a.conteos_cajero.length }} conteo(s)</p>
                     <ul class="cs-conteos">
                       @for (k of a.conteos_cajero; track k.id; let i = $index) {
-                        @let abierto = conteoAbierto() === k.id;
+                        @let abierto = conteosAbiertos().has(k.id);
                         <li>
                           <button type="button" class="cs-conteo" (click)="toggleConteo(k.id)" [attr.aria-expanded]="abierto" [attr.aria-controls]="'cs-ct-' + k.id">
                             <i class="pi" [class.pi-chevron-right]="!abierto" [class.pi-chevron-down]="abierto" aria-hidden="true"></i>
@@ -751,9 +757,9 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     /* [CSU.24] Las partes del efectivo: un nivel abajo (sangría y texto secundario); la que difiere, en peso, no en color. */
     .cs-mini .cs-parte td { font-size:var(--fs-xs); color:var(--text-muted); border-bottom-style:dotted; }
     .cs-mini .cs-parte td:first-child { padding-left:1rem; }
-    .cs-mini .cs-parte-dif td { color:var(--text-main); font-weight:600; }
+    .cs-mini .cs-parte-dif td { color:var(--text-main); font-weight:var(--fw-medium); }
     .cs-mini .cs-parte-dif td:first-child::before { content:'≠'; display:inline-block; width:1rem; margin-left:-1rem; }
-    .cs-donde { margin:.1rem 0 .5rem; }
+    .cs-donde { margin:.1rem 0 .5rem; font-size:var(--fs-sm); color:var(--text-main); }
     .cs-th-de { display:block; text-transform:none; letter-spacing:0; font-weight:400; color:var(--text-faint); }
     .cs-mini tr.cs-tot td { border-bottom:0; }
     .cs-pad-fuera { margin-top:var(--sp-3); }
@@ -780,7 +786,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-cortes td { padding:var(--sp-1) var(--sp-2); border-top:1px solid var(--border-color); }
     .cs-corte { cursor:pointer; }
     .cs-corte:hover { background:var(--overlay-hover); }
-    .cs-corte:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
+    .cs-corte:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; }
     .cs-corte-sel { background:var(--overlay-selected); }
     .ta-r { text-align:right !important; }
     .num, .cs-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -796,7 +802,12 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-conteos { list-style:none; margin:0; padding:0; }
     .cs-conteo { display:grid; grid-template-columns:auto auto minmax(0,1fr) auto; align-items:center; gap:.5rem; width:100%; padding:.3rem .15rem; border:0; border-bottom:1px dashed var(--border-color); background:none; color:inherit; font:inherit; font-size:var(--fs-sm); text-align:left; cursor:pointer; }
     .cs-conteo:hover { background:var(--overlay-hover); }
-    .cs-conteo:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
+    .cs-conteo:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; }
+    .cs-ir { display:inline-flex; align-items:center; gap:.1rem; min-height:max(1.5rem, var(--tap-min)); padding:0 .15rem 0 0; border:0; background:none; color:var(--text-muted); font:inherit; cursor:pointer; border-radius:var(--radius-sm); }
+    .cs-conteo { min-height:var(--tap-min); }
+    .cs-ir .pi { font-size:var(--fs-nano); }
+    .cs-ir:hover .pi { color:var(--text-main); }
+    .cs-ir:focus-visible, #cs-conteos-t:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
     .cs-conteo .pi { font-size:var(--fs-nano); color:var(--text-muted); }
     .cs-conteo-que { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cs-ct-det { padding:.35rem 0 .5rem 1.4rem; }
@@ -1064,12 +1075,35 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
     return `${frases.join(' · ')}.`;
   }
 
-  /** `[CSU.23]` El conteo abierto (por su id): uno a la vez, en el detalle o en los de fuera de corte. */
-  readonly conteoAbierto = signal<string | null>(null);
+  /**
+   * `[CSU.23]` Los conteos abiertos (por su id), en el detalle o en los de fuera de corte. `[CSU.25]` Varios
+   * a la vez: abrir uno cerraba el anterior, y comparar dos retiros obligaba a ir y venir.
+   */
+  readonly conteosAbiertos = signal<ReadonlySet<string>>(new Set());
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+  /**
+   * `[CSU.25]` Desde el aviso «Cajero» de la lista: abre el corte y lleva la vista y el foco a sus conteos,
+   * para que el teclado y el lector de pantalla sigan desde ahí. Sin animación (respeta movimiento reducido).
+   */
+  verConteos(c: CorteRow): void {
+    this.selCorte.set(c);
+    afterNextRender({
+      read: () => {
+        const t = this.host.nativeElement.querySelector<HTMLElement>('#cs-conteos-t');
+        if (!t) return;
+        t.scrollIntoView?.({ block: 'center' });
+        t.focus({ preventScroll: true });
+      },
+    }, { injector: this.injector });
+  }
   /** `[CSU.24]` El efectivo del corte abierto, parte por parte, y en palabras dónde se separan. */
   readonly partesEfectivo = computed(() => { const a = this.selCorte()?.arqueo; return a ? partesDelEfectivo(a) : []; });
   readonly lecturaEfectivo = computed(() => { const a = this.selCorte()?.arqueo; return a ? lecturaDelEfectivo(a) : null; });
-  toggleConteo(id: string): void { if (id) this.conteoAbierto.update((x) => (x === id ? null : id)); }
+  toggleConteo(id: string): void {
+    if (!id) return;
+    this.conteosAbiertos.update((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
   /** `[CSU.23]` «Retiro 2 de 4» o «Cierre»: el número dice en qué orden los contó. */
   etiquetaConteo(xs: readonly CorteConteoCajero[], i: number): string {
     if (xs[i].tipo === 'cierre') return 'Cierre';

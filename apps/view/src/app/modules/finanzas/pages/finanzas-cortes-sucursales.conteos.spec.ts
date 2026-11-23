@@ -97,7 +97,7 @@ describe('[CSU.23] los conteos del cajero, uno por uno', () => {
     expect(el.textContent).toContain('Lo que contó el cajero · 3 conteo(s)');
   });
 
-  it('al abrir uno se ven sus piezas; se cierra con el mismo botón y sólo uno abierto a la vez', () => {
+  it('al abrir uno se ven sus piezas; se cierra con el mismo botón, y abrir otro NO cierra el primero (CSU.25)', () => {
     const { c, el, render } = montar();
     c.selCorte.set(c.data()!.cortes[0]);
     render();
@@ -111,12 +111,37 @@ describe('[CSU.23] los conteos del cajero, uno por uno', () => {
     expect(det.textContent).toContain('Billete de $500');
     expect(det.textContent).toContain('16');
     expect(det.textContent).toContain('Suma de las piezas');
-    // Abrir otro cierra el primero.
+    // [CSU.25] Abrir otro deja el primero abierto: se comparan lado a lado.
     btn()[2].click(); render();
-    expect(el.querySelector('#cs-ct-r1')).toBeNull();
+    expect(el.querySelector('#cs-ct-r1')).not.toBeNull();
     expect(el.querySelector('#cs-ct-c1')).not.toBeNull();
+    expect(btn().map((b) => b.getAttribute('aria-expanded'))).toEqual(['true', 'false', 'true']);
+    // Cerrar uno cierra sólo ése.
     btn()[2].click(); render();
     expect(el.querySelector('#cs-ct-c1')).toBeNull();
+    expect(el.querySelector('#cs-ct-r1')).not.toBeNull();
+  });
+
+  it('[CSU.25] el aviso «Cajero» de la lista abre el corte y lleva el foco a sus conteos', async () => {
+    const { fixture, c, el, render } = montar();
+    c.todosLosDias(true); render();
+    const ir = el.querySelector<HTMLButtonElement>('button.cs-ir')!;
+    expect(ir).not.toBeNull();
+    expect(ir.getAttribute('aria-label')).toContain('Ver lo que contó el cajero en');
+    expect(c.selCorte()).toBeNull();
+    ir.click(); render();
+    await fixture.whenStable();
+    expect(c.selCorte()?.clave).toBe(c.data()!.cortes[0].clave);
+    expect(document.activeElement?.id).toBe('cs-conteos-t');
+  });
+
+  it('[CSU.25] NEGATIVA: sin conteos del cajero, el aviso es sólo un aviso (no promete un salto a la nada)', () => {
+    const { fixture, c, el, render } = montar();
+    const corte = c.data()!.cortes[0];
+    c.data.set({ ...c.data()!, cortes: [{ ...corte, arqueo: { ...corte.arqueo!, conteos_cajero: [] } }] });
+    c.todosLosDias(true); render();
+    expect(el.querySelector('button.cs-ir')).toBeNull();
+    expect(fixture).toBeTruthy();
   });
 
   it('NEGATIVA: un conteo sin piezas NO se pinta como «contó cero»', () => {
