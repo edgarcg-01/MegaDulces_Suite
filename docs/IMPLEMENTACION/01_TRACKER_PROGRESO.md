@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 3148 KB, 15501 líneas, 78 secciones.
+> **Índice navegable** — 3151 KB, 15503 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -71,20 +71,20 @@
 | 14186 | 14227 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 14228 | 14394 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 14395 | 14426 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14427 | 14724 | 71 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14725 | 14794 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14795 | 14803 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14804 | 14864 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14871 | 14880 | 1 | 📝 Convenciones |
-| 14881 | 14918 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14919 | 14937 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14938 | 14990 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14991 | 15394 | 101 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15395 | 15425 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15426 | 15447 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15448 | 15481 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15482 | 15530 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15531 | 15591 | 40 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14427 | 14725 | 72 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14726 | 14795 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14796 | 14804 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14805 | 14865 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14872 | 14881 | 1 | 📝 Convenciones |
+| 14882 | 14919 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14920 | 14938 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14939 | 14991 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14992 | 15395 | 101 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15396 | 15426 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15427 | 15448 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15449 | 15482 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15483 | 15531 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15532 | 15593 | 41 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14453,6 +14453,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >   - [ ] **[GP.A.4]** 🔨 (2026-11-20) Servidor hecho: `GET /api/finance/receivables/autorizacion-pedidos`, ~200 ms en prod (sólo lectura). Pantalla hecha en sólo lectura: `/finanzas/cartera/por-autorizar` (tercer segmento de Cartera; Autorizar apagado hasta GP.A.2; sin validación visual). D-A12 (CONTADO sin condiciones de crédito) y D-A13 (ruta vecinal aparte) aplicadas: la bandeja de hoy baja de 64 a 8 pedidos.
 >   - [x] **[GP.A.4b]** 🧪 (2026-11-23) **La bandeja sabe lo que ya se decidió.** Rechazar no cambia nada en Kepler, así que sin esto el pedido rechazado volvía cada día como si nadie lo hubiera visto. `DECISIONES_VIGENTES_SQL` trae la última decisión en pie por pedido y sale a la lista «Ya decidiste» con quién, cuándo y su motivo; lo regresado (D-A7) y lo que Kepler no aceptó vuelven a esperar. El tope del día deja de ser un cero dibujado (`AUTOMATICAS_HOY_SQL`, regla 11). 28 pruebas, **22 ✔ contra Postgres real** con el SQL leído del servicio, 4 mutantes rojos.
 >   - [x] **[GP.A.5b]** 🧪 (2026-11-23) **Auditoría de accesibilidad del panel** (`auditoria-diseno` + `modern-web-guidance`, pedida por Edgar antes de encender): 9 defectos de lo escrito ese mismo día, ninguno visto por una compuerta — campo de motivo **ilegible en oscuro** (1.04:1, token `--surface-1` inexistente → `pTextarea`), rótulo «Ya decidiste» que contaba lo que autorizó la regla, **se perdía lo tecleado** (`app-side-peek` ya traía `[sucio]`), el resultado **inerte** para un lector dentro de un `aria-modal` (ahora `role="status"` dentro del panel), botones apagados sin explicar (ahora vivos: sin motivo no manda, marca el campo y lo enfoca), `aria-invalid` en `true` desde que abre, el foco saltando al siguiente pedido, ~800 filas sin paginar y sin entrada de diccionario. `check:pantalla`: **«cumple las 10 reglas»**. Veredicto **🟠 pasa con deuda** (el borde del campo, medido en vivo: 1.48:1 en claro y 2.29:1 en oscuro contra los 3:1 de WCAG 1.4.11 — lo pone el tema para TODOS los campos de la suite, así que subirlo es decisión de `tokens.css`). Contraste de todo el texto ✔ AA en claro y oscuro. ✅ **Nivel A hecho el 2026-11-23** (frontend local autorizado por Edgar, Playwright con toda escritura en 403): dos defectos más que el nivel C no podía ver — el paginador decía **«1–1 de 1» sobre 120 filas** y los botones medían **35 px** con el dedo (44 ahora); verificados en vivo el oscuro (19.73:1), el foco, `Esc` preguntando antes de descartar, Alto Contraste de Windows, el reflujo a 320 px y un guardado que falla sin perder lo tecleado. ⚠️ Y un instrumento con hueco, declarado: **`ngc --noEmit` no vio un TS2322** que el bundle del dev server sí (control hecho a propósito). [§3.6c y §3.6d del anexo](FASES/FASE_GP_ANEXO_AUTORIZACION_PEDIDOS.md)
+>   - [x] **[GP.A.5d]** 🧪 (2026-11-23) **Todo lo que pidió Crédito, y nada se suelta hasta que lo pide.** Edgar marcó las diez opciones de la encuesta con el criterio «la mayor cantidad de información, sin saturarlo, sólo cuando ella quiera acceso». Cinco de las siete pendientes salían de la MISMA llamada del desglose: lo **vencido por antigüedad** (1-30/31-60/61-90/+90, sin pintar los tramos en cero), los **últimos pagos** con fecha y monto, la **promesa de pago** —que dice «sin promesa registrada» porque la tabla está vacía en toda la base (ADR-056)— y el **teléfono**, arriba y sin plegar. Los **otros pedidos** ya viajaban: el contrato gana `otros_pedidos_detalle` y se abren con su folio, sin llamada nueva. Cada bloque lleva su número en el título. 31 pruebas (6 nuevas, cada una con su negativo) y un mutante en rojo. ⬜ Faltan las dos que piden dato nuevo: la clave duplicada y el historial de excedidos
 >   - [ ] **[GP.A.5c]** 🔨 (2026-11-23) **El panel le da valor a Crédito: las facturas, al dar clic.** Edgar, con una captura de prod: «la interfaz es muy pobre… no contiene la información necesaria para crédito… no tiene accesibilidad a ver las facturas», y después el principio: «que al dar clic tenga la accesibilidad; lo que evitamos es que al cargar suelte mucha información». **Al cargar** no se pide nada nuevo: «Para decidir» arranca por lo vencido (números que la regla ya calculaba y el panel no pintaba; medido: 9 de 12 clientes con TODO vencido y el panel callaba). **Al clic**, «Ver sus facturas» pide el auxiliar y pinta folio/vence/saldo/días, vencidas primero, con «Ver estado de cuenta» (el PDF). Sin primitivos nuevos: reusa `CarteraService.detalle` y `estadoCuentaPdf`. 24 pruebas, mutante en rojo (pedirlo al abrir el panel). ⬜ **Falta de [§3.6f](FASES/FASE_GP_ANEXO_AUTORIZACION_PEDIDOS.md):** el aviso de **clave duplicada** (12 de 135 clientes de la bandeja; el de la captura debe $31,271 más en otra clave), los filtros y los últimos abonos.
 >   - [x] **[GP.A.1b]** 🧪 (2026-11-23) **La regla no veía «NO USAR».** El cliente de la captura se llama «NO USARRRRRRRR…» en `kdud` y el panel decía «No está marcado NO TOCAR ✔». GP.A.0c midió «NO TOCAR» y buscó otras ocho palabras, pero no ésa: **63 filas más, 40 claves, 3 con límite vivo**. La regla lee ahora `MARCAS_BLOQUEO`, el motivo dice cuál marca trae y la etiqueta pasa a «Bloqueado». 26 pruebas, control negativo (la marca en medio del nombre no bloquea) y un mutante en rojo.
 >   - [ ] **[GP.A.5]** 🔨 (2026-11-23) **El panel decide:** motivo obligatorio, Autorizar y Rechazar contra el `POST` de GP.A.2, el doble clic no decide dos veces, aviso del sistema con lo que contestó Kepler y salto al siguiente pedido. Autorizar apagado **con el nombre de la sucursal** mientras la escritura esté apagada; sin la llave no hay botones. «Pasar a Dirección General» **no se puso**: su bandeja es GP.A.6b y no existe. `ngc --noEmit` cazó un `[maxlength]` (NG8002) que `check:pantalla` no ve. ⚠️ Sin validación visual; falta la sugerencia de límite (GP.A.6).
