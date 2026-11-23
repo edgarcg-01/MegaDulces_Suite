@@ -176,6 +176,91 @@ export function creditosExplicanDesglose(a: CorteArqueo): boolean {
   return a.declaracion_cajero?.creditos_fuera_del_desglose === true && a.fisico_diferencia !== null && Math.abs(a.fisico_diferencia) >= 1;
 }
 
+/** `[CSU.24]` Una parte del renglón «Efectivo»: lo del cajero y lo de Kepler, lado a lado. */
+export interface ParteEfectivo {
+  etiqueta: string;
+  cajero: number | null;
+  kepler: number | null;
+  /** Lo que va en la celda de Kepler cuando Kepler no tiene esa parte. */
+  nota: string | null;
+  difiere: boolean;
+}
+
+const conSigno = (x: number): string => (x > 0.005 ? `+${money(x)}` : money(x));
+
+/**
+ * `[CSU.24]` Lo que explica una parte que no da lo mismo. Medido en prod (noviembre 2026, 418 cortes
+ * con los dos lados): en 22 el cajón da igual y sólo cambia el reparto entre billetes y monedas (hay
+ * $20 de las dos); en 43 Kepler trae dentro de su cajón los créditos y cheques; y lo que Kepler retiró
+ * y nadie contó se toma como bueno (CSU.16). Ninguno de esos es una diferencia de dinero.
+ */
+function lecturaCajon(a: CorteArqueo): { cajon: 'igual' | 'reparto' | 'documentos' | 'difiere'; retirado: 'igual' | 'sin_contar' | 'difiere' } | null {
+  const d = a.declaracion_cajero, k = a.desglose_kepler;
+  if (!d || !k || d.cajon === null) return null;
+  const dCaj = d.cajon - (k.billetes + k.monedas);
+  const dBil = d.cajon_billetes === null ? 0 : d.cajon_billetes - k.billetes;
+  const dRet = d.retiros - k.retirado;
+  const cajon = Math.abs(dCaj) < 1 ? (Math.abs(dBil) >= 1 ? 'reparto' : 'igual')
+    : d.documentos > 0 && Math.abs(dCaj + d.documentos) < 1 ? 'documentos' : 'difiere';
+  const retirado = dRet <= -1 ? 'sin_contar' : dRet >= 1 ? 'difiere' : 'igual';
+  return { cajon, retirado };
+}
+
+/**
+ * `[CSU.24]` El renglón «Efectivo» del cuadre, parte por parte: billetes y monedas del cajón al cerrar,
+ * créditos y cheques, y lo retirado en el turno. Del cajero, de sus piezas; de Kepler, de `c43`, `c44` y
+ * `c48`. Las partes suman lo que el renglón ya decía de cada lado (medido sobre octubre y noviembre).
+ * Kepler no guarda el conteo por denominación: se compara por familia, no pieza por pieza.
+ */
+export function partesDelEfectivo(a: CorteArqueo): ParteEfectivo[] {
+  const d = a.declaracion_cajero, k = a.desglose_kepler;
+  if (!d && !k) return [];
+  const l = lecturaCajon(a);
+  const dif = (x: number | null, y: number | null): boolean => x !== null && y !== null && Math.abs(x - y) >= 1;
+  const cajonDifiere = l?.cajon === 'difiere';
+  const partes: ParteEfectivo[] = [];
+  if (d && d.cajon !== null && d.cajon_billetes === null) {
+    // El cierre no se pudo partir (sin piezas o piezas que no dan el total): el cajón va entero.
+    const kc = k ? k.billetes + k.monedas : null;
+    partes.push({ etiqueta: 'Cajón al cerrar', cajero: d.cajon, kepler: kc, nota: null, difiere: cajonDifiere && dif(d.cajon, kc) });
+  } else {
+    const cb = d?.cajon_billetes ?? null, cm = d?.cajon_monedas ?? null;
+    partes.push({ etiqueta: 'Billetes en el cajón', cajero: cb, kepler: k?.billetes ?? null, nota: null, difiere: cajonDifiere && dif(cb, k?.billetes ?? null) });
+    partes.push({ etiqueta: 'Monedas en el cajón', cajero: cm, kepler: k?.monedas ?? null, nota: null, difiere: cajonDifiere && dif(cm, k?.monedas ?? null) });
+  }
+  if (d && d.documentos > 0) {
+    partes.push({ etiqueta: 'Créditos y cheques en el cajón', cajero: d.documentos, kepler: null, nota: 'no los separa', difiere: false });
+  }
+  const cr = d ? d.retiros : null, kr = k ? k.retirado : null;
+  if ((cr ?? 0) > 0 || (kr ?? 0) > 0) {
+    const n = d?.retiros_n ?? 0;
+    partes.push({
+      etiqueta: n ? `Retirado en el turno · ${n} ${n === 1 ? 'retiro' : 'retiros'}` : 'Retirado en el turno',
+      cajero: cr, kepler: kr, nota: null, difiere: l?.retirado === 'difiere',
+    });
+  }
+  return partes;
+}
+
+/** `[CSU.24]` En una o dos frases, dónde se separan el cajero y Kepler. `null` si falta uno de los dos lados. */
+export function lecturaDelEfectivo(a: CorteArqueo): string | null {
+  const l = lecturaCajon(a);
+  const d = a.declaracion_cajero, k = a.desglose_kepler;
+  if (!l || !d || !k || d.cajon === null) return null;
+  const frases: string[] = [];
+  const dCaj = d.cajon - (k.billetes + k.monedas);
+  if (l.cajon === 'reparto') frases.push('El cajón da lo mismo; sólo cambia el reparto entre billetes y monedas.');
+  else if (l.cajon === 'documentos') frases.push(`Kepler cuenta dentro de su cajón los ${money(d.documentos)} de créditos y cheques; sin ellos, el cajón da lo mismo.`);
+  else if (l.cajon === 'difiere') {
+    const fam = d.cajon_billetes === null || d.cajon_monedas === null ? ''
+      : ` (billetes ${conSigno(d.cajon_billetes - k.billetes)}, monedas ${conSigno(d.cajon_monedas - k.monedas)})`;
+    frases.push(`El cajón difiere: el cajero contó ${conSigno(dCaj)} contra Kepler${fam}.`);
+  }
+  if (l.retirado === 'sin_contar') frases.push(`Kepler registra ${money(k.retirado - d.retiros)} retirados que el cajero no contó; se toman como buenos.`);
+  else if (l.retirado === 'difiere') frases.push(`El cajero contó ${money(d.retiros - k.retirado)} más en retiros de lo que Kepler registra.`);
+  return frases.length ? frases.join(' ') : 'El cajero y Kepler coinciden parte por parte.';
+}
+
 /**
  * `[CSU.15]` Englobar los cortes por día de sucursal — **el único cambio al proceso de hoy**.
  *
@@ -443,6 +528,13 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                            diferencias de abajo son contra el neto, y el bruto contra el desglose se leia
                            como un faltante que no existe (Madero 1-48: $221.23 = sus dos devoluciones). -->
                       <tr><td>Efectivo@if (c.devoluciones_total > 0) { <span class="muted">neto de devoluciones</span> }</td><td class="ta-r num">{{ money(a.efectivo_esperado - c.devoluciones_total) }}</td><td class="ta-r num cs-strong">{{ d?.efectivo == null ? '—' : money(d.efectivo) }}</td><td class="ta-r num">{{ a.conteo_fisico === null ? '—' : money(a.conteo_fisico) }}</td></tr>
+                      <!-- [CSU.24] El efectivo, parte por parte: dónde se separan el cajero y Kepler. Suman el
+                           renglón de arriba de cada lado. El sistema no espera por parte: esa celda va vacía. -->
+                      @for (p of partesEfectivo(); track p.etiqueta) {
+                        <tr class="cs-parte" [class.cs-parte-dif]="p.difiere"><td>{{ p.etiqueta }}@if (p.difiere) { <span class="sr-only"> (difieren)</span> }</td><td></td>
+                          <td class="ta-r num">{{ p.cajero === null ? '—' : money(p.cajero) }}</td>
+                          <td class="ta-r num">@if (p.nota) { <span class="muted">{{ p.nota }}</span> } @else { {{ p.kepler === null ? '—' : money(p.kepler) }} }</td></tr>
+                      }
                       <!-- [CSU.19] Tarjeta y transferencia en UN renglon: el cierre del cajero las trae juntas
                            (112 de 126 en octubre) y Kepler tambien (c45 «otros»). Separadas se leian como
                            un sobrante de tarjeta y una transferencia sin declarar. -->
@@ -450,6 +542,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                       <tr class="cs-tot"><td>Total</td><td class="ta-r num">{{ money(a.esperado_neto) }}</td><td class="ta-r num">{{ d?.total == null ? '—' : money(d.total) }}</td><td class="ta-r num" [class.muted]="a.conteo_fisico === null || a.electronico_kepler === null">{{ a.conteo_fisico === null || a.electronico_kepler === null ? '—' : money(a.conteo_fisico + a.electronico_kepler) }}</td></tr>
                     </tbody>
                   </table>
+                  @if (lecturaEfectivo(); as le) { <p class="cs-hint cs-donde">{{ le }}</p> }
                   @if (c.devoluciones.length) {
                     <p class="cs-sub">Devoluciones pagadas en esta caja</p>
                     @for (v of c.devoluciones; track v.doc_prefix + v.folio) {
@@ -648,6 +741,12 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-mini { width:100%; border-collapse:collapse; font-size:var(--fs-sm); margin-bottom:.4rem; }
     .cs-mini th { font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); font-weight:600; padding:.2rem 0; text-align:left; }
     .cs-mini td { padding:.2rem 0; border-bottom:1px dashed var(--border-color); }
+    /* [CSU.24] Las partes del efectivo: un nivel abajo (sangría y texto secundario); la que difiere, en peso, no en color. */
+    .cs-mini .cs-parte td { font-size:var(--fs-xs); color:var(--text-muted); border-bottom-style:dotted; }
+    .cs-mini .cs-parte td:first-child { padding-left:1rem; }
+    .cs-mini .cs-parte-dif td { color:var(--text-main); font-weight:600; }
+    .cs-mini .cs-parte-dif td:first-child::before { content:'≠'; display:inline-block; width:1rem; margin-left:-1rem; }
+    .cs-donde { margin:.1rem 0 .5rem; }
     .cs-th-de { display:block; text-transform:none; letter-spacing:0; font-weight:400; color:var(--text-faint); }
     .cs-mini tr.cs-tot td { border-bottom:0; }
     .cs-pad-fuera { margin-top:var(--sp-3); }
@@ -960,6 +1059,9 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
 
   /** `[CSU.23]` El conteo abierto (por su id): uno a la vez, en el detalle o en los de fuera de corte. */
   readonly conteoAbierto = signal<string | null>(null);
+  /** `[CSU.24]` El efectivo del corte abierto, parte por parte, y en palabras dónde se separan. */
+  readonly partesEfectivo = computed(() => { const a = this.selCorte()?.arqueo; return a ? partesDelEfectivo(a) : []; });
+  readonly lecturaEfectivo = computed(() => { const a = this.selCorte()?.arqueo; return a ? lecturaDelEfectivo(a) : null; });
   toggleConteo(id: string): void { if (id) this.conteoAbierto.update((x) => (x === id ? null : id)); }
   /** `[CSU.23]` «Retiro 2 de 4» o «Cierre»: el número dice en qué orden los contó. */
   etiquetaConteo(xs: readonly CorteConteoCajero[], i: number): string {

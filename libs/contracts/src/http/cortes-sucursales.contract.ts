@@ -104,6 +104,13 @@ export interface CorteDevolucion {
   cajero: string | null;
 }
 
+/** `[CSU.24]` El desglose de Kepler en sus tres sumas (ver `CorteArqueo.desglose_kepler`). */
+export interface CorteDesgloseKepler {
+  billetes: number;
+  monedas: number;
+  retirado: number;
+}
+
 export interface CorteArqueo {
   fecha: string;
   efectivo_esperado: number;
@@ -147,6 +154,12 @@ export interface CorteArqueo {
    * que dejó de pintarse: es un número de Kepler, no del cajero. Sale de `cuadreTurno` (`diff_kepler`).
    */
   fisico_diferencia: number | null;
+  /**
+   * `[CSU.24]` Las partes de `conteo_fisico`: billetes (`c43`) y monedas (`c44`) del cajón al cerrar y lo
+   * retirado en el turno (`c48`). Suman `conteo_fisico`; `null` exactamente cuando él es `null`. Kepler
+   * no guarda el conteo por denominación, sólo estas tres sumas: se comparan contra el cajero por familia.
+   */
+  desglose_kepler: CorteDesgloseKepler | null;
   /**
    * `[CSU.19]` Tarjeta + transferencia que Kepler tiene en el corte (`kdpv_folio_caja.c45`, «otros»):
    * = `c16 + c17` en 555 de 643 cortes de octubre. `null` si Kepler no lo trae.
@@ -233,6 +246,14 @@ export interface CorteConteoCajero {
 export interface CorteDeclaracionCajero {
   /** Cajón contado al cerrar. `null` = contó retiros pero no capturó el cierre: no hay declaración completa. */
   cajon: number | null;
+  /**
+   * `[CSU.24]` El cajón del cierre partido por familia, de sus piezas: lo que se compara contra los
+   * billetes (`c43`) y las monedas (`c44`) de Kepler. `null` si no hay cierre, si no guardó piezas (salvo
+   * el cajón vacío de $0, que es cero y cero), si una llave no está en el catálogo o si las piezas no dan
+   * el total del cajón: no se adivina la parte.
+   */
+  cajon_billetes: number | null;
+  cajon_monedas: number | null;
   /** Suma de los retiros que contó en el turno. */
   retiros: number;
   retiros_n: number;

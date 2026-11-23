@@ -10,7 +10,7 @@
  * se declara).
  */
 import {
-  armarRespuesta, construirCorte, conteoCajero, estadoCobro, mediosDeConteo, piezasDeConteo, sinCuadrar, veredictoCuadre, type CorteCrudo,
+  armarRespuesta, construirCorte, conteoCajero, estadoCobro, familiasDeConteo, mediosDeConteo, piezasDeConteo, sinCuadrar, veredictoCuadre, type CorteCrudo,
 } from './cortes-sucursales.engine';
 import type { CorteArqueo } from '@megadulces/contracts';
 
@@ -603,5 +603,68 @@ describe('[CSU.23] los conteos del cajero, uno por uno y con sus piezas', () => 
     }]);
     const x = r.conteos_fuera_de_corte[0];
     expect([x.id, x.nota, x.piezas.map((p) => p.importe), x.piezas_diferencia]).toEqual(['f1', 'del domingo', [500, 200], 0]);
+  });
+});
+
+describe('[CSU.24] el efectivo, parte por parte: cajero contra Kepler', () => {
+  // Forma del caso real La Piedad 3-407 (oct-2026): Kepler $6,060 en billetes, $48 en monedas y $31,440 retirados.
+  const retiro = (total: string, hora: string) => ({ tipo: 'retiro', total, medios: null, captured_at: `2026-10-30T${hora}Z`, ligado: 'folio' as const });
+  const cierre = (denominations: Record<string, unknown> | string | null, total = '6108.5') => ({
+    tipo: 'cierre', total, medios: { tarjeta: 6482.95 }, captured_at: '2026-10-30T20:56:04Z', ligado: 'folio' as const, denominations,
+  });
+  // 2×$1,000 + 6×$500 + 53×$20 = $6,060 en billetes; $20 + 2×$10 + $5 + 3×$1 + 50¢ = $48.50 en monedas.
+  const PIEZAS = { '1000': 2, '500': 6, '20': 53, '20m': 1, '10': 2, '5': 1, '1': 3, '0.5': 1 };
+  const piedad = base({
+    sucursal: '02', folio: '0000112', referencia: 'Caja 3-407', caja: '3', turno: '407', monto: '44031.01', arqueo_fecha: '2026-10-30',
+    efectivo_esperado: '37548.06', efectivo_contado: '37548.06', tarjeta_esperado: '6482.95', tarjeta_contado: '6482.95',
+    transfer_esperado: '0', transfer_contado: '0', arqueo_billetes: '6060.00', arqueo_monedas: '48.00', efectivo_retirado: '31440.00',
+  });
+  const conteos = [retiro('30000', '18:00:00'), retiro('1440', '20:40:00'), cierre(PIEZAS)];
+
+  it('⭐ el cajón del cajero sale por familia, y lo de Kepler en sus tres sumas', () => {
+    const a = construirCorte({ ...piedad, conteos_cajero: conteos }, NOMBRES).arqueo!;
+    const d = a.declaracion_cajero!;
+    expect([d.cajon_billetes, d.cajon_monedas, d.retiros]).toEqual([6060, 48.5, 31440]);
+    expect(a.desglose_kepler).toEqual({ billetes: 6060, monedas: 48, retirado: 31440 });
+  });
+
+  it('las partes suman lo que ya publicaba cada lado: no aparece ni se pierde un peso', () => {
+    const a = construirCorte({ ...piedad, conteos_cajero: conteos }, NOMBRES).arqueo!;
+    const d = a.declaracion_cajero!;
+    const k = a.desglose_kepler!;
+    expect(d.cajon_billetes! + d.cajon_monedas! + d.retiros + d.documentos).toBeCloseTo(d.efectivo!, 2);
+    expect(k.billetes + k.monedas + k.retirado).toBeCloseTo(a.conteo_fisico!, 2);
+  });
+
+  it('⛔ NEGATIVA: si no se puede partir el cajón, no se adivina la parte (null, no cero)', () => {
+    const fam = (den: Record<string, unknown> | null, total = '6108.5') =>
+      construirCorte({ ...piedad, conteos_cajero: [cierre(den, total)] }, NOMBRES).arqueo!.declaracion_cajero!;
+    // sin piezas
+    expect([fam(null).cajon_billetes, fam(null).cajon_monedas]).toEqual([null, null]);
+    // una llave que el catálogo no conoce: no se sabe si es billete o moneda — aunque el resto dé el total
+    expect(fam({ ...PIEZAS, '5000': 0, '3': 1 }, '6111.5').cajon_billetes).toBeNull();
+    expect(familiasDeConteo({ '500': 2, x9: 1 }, 1000)).toBeNull();
+    // las piezas no dan el total del cajón
+    expect(fam(PIEZAS, '6200').cajon_monedas).toBeNull();
+    // retiros sin cierre: no hay cajón que partir
+    const soloRetiros = construirCorte({ ...piedad, conteos_cajero: [retiro('30000', '18:00:00')] }, NOMBRES).arqueo!.declaracion_cajero!;
+    expect([soloRetiros.cajon, soloRetiros.cajon_billetes, soloRetiros.cajon_monedas]).toEqual([null, null, null]);
+  });
+
+  it('⛔ NEGATIVA: sin desglose de Kepler no hay partes de Kepler (tres ceros no son un conteo)', () => {
+    expect(construirCorte({ ...piedad, arqueo_billetes: null, arqueo_monedas: null, efectivo_retirado: null }, NOMBRES).arqueo!.desglose_kepler).toBeNull();
+    expect(construirCorte({ ...piedad, arqueo_billetes: '0', arqueo_monedas: '0', efectivo_retirado: '0' }, NOMBRES).arqueo!.desglose_kepler).toBeNull();
+  });
+
+  it('las piezas en cero o negativas no cuentan ni rompen la partición', () => {
+    expect(familiasDeConteo({ '500': 2, '200': 0, '10': -3 }, 1000)).toEqual({ billetes: 1000, monedas: 0 });
+    expect(familiasDeConteo('no-json', 5)).toBeNull();
+  });
+
+  it('el cajón vacío ($0 sin piezas, medido: 24 cierres en noviembre) sí se parte: cero y cero', () => {
+    expect(familiasDeConteo({}, 0)).toEqual({ billetes: 0, monedas: 0 });
+    expect(familiasDeConteo(null, 0)).toEqual({ billetes: 0, monedas: 0 });
+    // NEGATIVA: sin piezas y con total NO es cajón vacío; no se inventa la parte.
+    expect(familiasDeConteo({}, 300)).toBeNull();
   });
 });

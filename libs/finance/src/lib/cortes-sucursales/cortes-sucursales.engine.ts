@@ -208,6 +208,32 @@ export function diferenciaDePiezas(piezas: CorteConteoPieza[], total: number): n
   return piezas.length ? r2(piezas.reduce((t, p) => t + p.importe, 0) - total) : null;
 }
 
+/**
+ * `[CSU.24]` Un conteo partido en billetes y monedas, de sus piezas. `null` si no guardó piezas, si una
+ * llave no está en el catálogo (no se sabe de qué familia es) o si las piezas no dan su total: en esos
+ * casos la parte no se adivina. Medido en prod (noviembre 2026): las piezas dan el total en todos los
+ * conteos que las traen.
+ */
+export function familiasDeConteo(denominations: unknown, total: number): { billetes: number; monedas: number } | null {
+  // El cajón vacío (medido: los conteos sin piezas son todos de $0) sí se parte: cero y cero, sin adivinar.
+  const vacio = Math.abs(total) < 0.005 ? { billetes: 0, monedas: 0 } : null;
+  const d = objeto(denominations);
+  if (!d) return vacio;
+  let billetes = 0, monedas = 0, piezas = 0;
+  for (const [k, v] of Object.entries(d)) {
+    const cuantas = Number(v);
+    if (!Number.isFinite(cuantas) || cuantas <= 0) continue;
+    const cat = denomDe(k);
+    if (!cat) return null;
+    piezas++;
+    if (cat.familia === 'billete') billetes += cat.valor * cuantas;
+    else monedas += cat.valor * cuantas;
+  }
+  if (!piezas) return vacio;
+  if (Math.abs(billetes + monedas - total) >= 0.005) return null;
+  return { billetes: r2(billetes), monedas: r2(monedas) };
+}
+
 /** `[CSU.23]` Un conteo del cajero, listo para verlo. */
 export function conteoCajero(x: ConteoCajeroCrudo): CorteConteoCajero {
   const total = r2(n(x.total));
@@ -261,6 +287,8 @@ function declaracionCajero(
   const total = efectivo === null || (electronico === null && esperado.tarjeta + esperado.transferencia > 0.005)
     ? null : r2(efectivo + (electronico ?? 0));
   const diferencia = cq.diff_real === null ? null : r2(-cq.diff_real);
+  // [CSU.24] El cajón por familia, para ponerlo junto a los billetes y monedas de Kepler.
+  const familias = cierre && cajon !== null ? familiasDeConteo(cierre.denominations, cajon) : null;
   // [CSU.19] Los créditos y cheques del cajón entran o NO al desglose de Kepler según la caja: medido en
   // octubre, en Padre Hidalgo Caja 2 y Canindo 5-46 quedan fuera (el desglose «falta» justo esos papeles),
   // y en Yurécuaro Caja 3 o La Piedad Abastos 5-226 ya vienen dentro (cuadra a $0 sin sumarlos).
@@ -271,6 +299,8 @@ function declaracionCajero(
   const creditos_fuera_del_desglose = documentos > 0 && !coincide(fisicoDiferencia) && coincide(fisico_con_documentos);
   return {
     cajon,
+    cajon_billetes: familias?.billetes ?? null,
+    cajon_monedas: familias?.monedas ?? null,
     retiros: retirosContados,
     retiros_n: retiros.length,
     retiros_kepler: cq.retirado_kepler,
@@ -324,6 +354,8 @@ function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
     cajero_nombre: c.cajero_nombre || null,
     conteo_fisico,
     fisico_diferencia,
+    // [CSU.24] Sus tres partes; suman conteo_fisico, y sin él no hay partes (mismo criterio: tres ceros no son un conteo).
+    desglose_kepler: conteo_fisico === null ? null : { billetes: r2(n(bil)), monedas: r2(n(mon)), retirado: r2(n(ret)) },
     // [CSU.19] c45 «otros» = tarjeta + transferencia que Kepler tiene en el corte (= c16 + c17 en 555 de 643
     // cortes de octubre). Es el desglose electrónico; no entra al efectivo ([CSU.9]).
     electronico_kepler: c.arqueo_otros == null ? null : r2(n(c.arqueo_otros)),
