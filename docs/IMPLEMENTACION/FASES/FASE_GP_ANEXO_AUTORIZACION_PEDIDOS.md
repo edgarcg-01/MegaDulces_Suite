@@ -452,7 +452,7 @@ accesibilidad se gana. Queda anotado para que lo arbitre el PM.
 | Capa | Veredicto | Por qué |
 |---|---|---|
 | **Veracidad** | ✓ | el rótulo falso corregido; las cifras del encabezado se pueden recorrer (la lista no tiene tope, trae todo); lo no medido se declara |
-| **Alcance** | ✓ | todo total se abre a su detalle en el panel; la lista larga ahora se pagina sin esconder |
+| **Alcance** | 🟠 | todo total se abre a su detalle en el panel y la lista larga se pagina sin esconder, **pero** a la bandeja se llega sólo si la persona se acuerda de entrar: **«Mi trabajo» no avisa que hay pedidos esperando** y el buscador de la portada no la encuentra (§3.6e) |
 | **Comprensión** | ✓ | diccionario versionado; cada frase dice lo que pasa en Kepler y lo que no |
 | **Sencillez** | 🟡 | una sola acción primaria, las condiciones plegadas; el panel sigue en ~6 controles y ~8 cifras visibles |
 | **Respeto** | ✓ | estado sucio, un clic = una escritura, edad del dato a la vista, y el error conserva lo tecleado. **INP NO MEDIDO** |
@@ -510,6 +510,44 @@ decisión de `tokens.css`, no un parche de esta pantalla. **Queda para el PM.**
 
 **NO MEDIDO todavía:** lector de pantalla real (NVDA/JAWS), e **INP** — el número que salió (446 ms) incluye una
 espera del propio guion, así que no se puede citar.
+
+#### 3.6e ¿Se llega sin escribir la dirección? (2026-11-23, pedido de Edgar)
+
+> *«Desde la portada de Mi trabajo ingresa a la interfaz como un usuario promedio, sin escribir URL, sólo
+> clics.»* Es la ley 0 del estándar: **todo lo que importa se puede alcanzar**. Medido en la pantalla viva con
+> los **78 permisos REALES** del rol `credito_cobranza` leídos de producción (no un token con todo: con permisos
+> de más el recorrido mentiría). Lo único que se escribió fue `/projects`; de ahí en adelante, sólo clics.
+
+**Sí se llega, en 3 clics:**
+
+| # | Clic | Dónde cae |
+|---|---|---|
+| 1 | «Finanzas», en la tarjeta **Administración y Finanzas** de Mi trabajo | **`/finanzas/egresos` — «Egresos contables»** |
+| 2 | el icono **«Crédito»** del menú lateral | `/finanzas/cartera` — «Crédito de clientes» |
+| 3 | el segmento **«Por autorizar»** | `/finanzas/cartera/por-autorizar`, y **la bandeja se ve** |
+
+**Pero el camino tiene cuatro problemas, y el primero es el que importa:**
+
+| # | Sev | Qué pasa | Medido |
+|---|---|---|---|
+| 13 | 🟠 | ⭐ **Mi trabajo NO dice que hay pedidos esperando.** El registro de colas de la portada (`libs/trade/src/lib/users/me-work.ts`) tiene **24 bandejas**, dos de ellas apuntan a `/finanzas/cartera` — «clientes con saldo vencido» y «clientes sobre su línea» — y **ninguna es «pedidos por autorizar»**. O sea: Crédito y cobranza tiene que **acordarse** de entrar; nadie le avisa que hoy hay **15 pedidos por $216,750.96** esperando su decisión. La pantalla promete «N pedidos esperan tu decisión» y ese N **no existe donde la persona empieza su día** | lectura del registro + conteo en prod |
+| 14 | 🟠 | El clic 1 aterriza en **«Egresos contables»**, el libro contable del espacio, que no es trabajo de ese rol. El landing del espacio Finanzas no lleva a quien entra a lo suyo | en vivo |
+| 15 | 🟡 | El clic 2 es un **icono sin rótulo a la vista**: el menú mide **64 px** y sólo se abre a 256 al pasar el mouse. El rótulo existe como nombre accesible (un lector de pantalla y el teclado sí lo alcanzan), pero a la vista hay que adivinar el icono | en vivo |
+| 16 | 🟡 | El módulo se llama **«Crédito»** en el menú y en la miga, y **«Crédito de clientes»** en el título y en el árbol de permisos: **dos nombres del mismo módulo** | en vivo |
+| 17 | 🟠 | **El buscador de la portada no la encuentra.** Tecleando «autorizar» o «crédito» en «Buscar módulo o pendiente…» las tarjetas **no se filtran** y no aparece ningún resultado que lleve a la bandeja | en vivo |
+
+⚠️ El aviso «Algo falló en esta pantalla» que sale en las capturas es **artefacto de la medición** (el doble
+responde `{}` a toda llamada que no sea la bandeja), no un defecto de la pantalla.
+
+**Lo que se propone, y le toca decidir al PM:** una cola **«Pedidos de telemarketing por autorizar»** en el
+registro de la portada, con `ruta: '/finanzas/cartera/por-autorizar'` y `anyOf: [FINANCE_RECEIVABLES_VER]` (el
+permiso que gatea esa ruta, regla dura 1 del registro). ⚠️ Dos cosas antes de construirla: la portada tiene
+presupuesto de **menos de 1 segundo** con 24 colas, y el conteo **tiene que cuadrar con la pantalla** — si la
+cola repite las condiciones de la regla en otro SQL, son dos implementaciones del mismo número y divergen (el
+caso de los 21 `docker exec` de `pgprod.sh`, con otro sombrero). Mide **sólo** el universo de «esperan»: `CREADO`
+· ni viejo · ni ruta vecinal · ni contado · sin decisión vigente en la bitácora. Los otros tres hallazgos (14,
+15 y 17) son del espacio Finanzas, del menú y del buscador: **no son de esta pantalla** y van a quien lleve esas
+piezas.
 
 **Qué revisa Crédito y cobranza al autorizar a mano** (lo que el panel pone en «Para decidir», según el caso):
 
@@ -628,6 +666,7 @@ construirla pasa GP a 🔨. Si se abre, **reemplaza a E2 como siguiente etapa**.
 | 2026-11-23 | ⭐ **Hallazgo: rechazar no servía de nada.** La bandeja leía sólo el ODS, y rechazar **no cambia nada en Kepler**, así que el pedido rechazado volvía al día siguiente idéntico, como si nadie lo hubiera visto — y «N pedidos esperan tu decisión» habría contado decisiones ya tomadas (ley 0 del estándar). Lo encontró leer el camino completo antes de encender los botones, no una compuerta. **GP.A.4b** lo cierra | Claude |
 | 2026-11-23 | **GP.A.4b 🧪 y GP.A.5 🔨: el panel decide y la bandeja sabe lo decidido.** Motivo obligatorio, Autorizar y Rechazar conectados al `POST`, el doble clic no decide dos veces, y Autorizar apagado **con el nombre de la sucursal** mientras la escritura esté apagada. El tope del día deja de ser un cero dibujado. 22 ✔ contra Postgres real (SQL leído del servicio, con la migración aplicada en la base local), 28 de motor y pantalla, **4 mutantes en rojo**. `ngc --noEmit` encontró un `[maxlength]` que `check:pantalla` no ve (NG8002): corregido. ⚠️ Sin validación visual. **Falta para encender: el permiso GP.A.0d (lo corre el PM), el ensayo con ROLLBACK, la bandera y el interruptor de una sucursal piloto** | Claude |
 | 2026-11-23 | **Auditoría de la pantalla, pedida por Edgar antes de encender** (§3.6c, con `auditoria-diseno` y `modern-web-guidance`). Nueve defectos **de lo que yo mismo había escrito ese día**, ninguno visto por una compuerta: el campo de motivo **ilegible en oscuro** (1.04:1, por un token inventado), **«Ya decidiste» contando lo que autorizó la regla**, **se perdía lo tecleado** (el panel ya traía `[sucio]` sin usar), el aviso del resultado **inerte** para un lector dentro de un `aria-modal`, los botones apagados sin explicar, `aria-invalid` en `true` desde que abre, el foco saltando a otro pedido, ~800 filas pintadas de una vez y sin entrada en el diccionario. Todo corregido; `check:pantalla` pasa a **«cumple las 10 reglas»**. Veredicto: **🟠 pasa con deuda** (borde del campo a 1.27:1, deuda de la suite). ⚠️ **Dos instrumentos fallaron:** `check:tokens` dio verde sobre el archivo **sin commitear**, y `ngc` volvió a cazar acentos graves dentro del `template`. Nueva contradicción nº 13 en `VALORES.md` (botón deshabilitado contra botón vivo), resuelta con el híbrido | Claude |
+| 2026-11-23 | **¿Se llega sin escribir la dirección?** (§3.6e, pedido de Edgar). Medido en vivo con los **78 permisos reales** del rol: **sí, en 3 clics** —Finanzas → el icono «Crédito» → «Por autorizar»—, pero ⭐ **«Mi trabajo» no avisa que hay pedidos esperando**: el registro de la portada tiene 24 colas, dos apuntan a Cartera (vencido y sobre su línea) y **ninguna es ésta**, así que los 15 pedidos de hoy ($216,750.96) sólo los ve quien se acuerde de entrar. Además, el clic en «Finanzas» aterriza en «Egresos contables», el menú lateral son iconos sin rótulo (64 px), el módulo se llama «Crédito» ahí y «Crédito de clientes» en la pantalla, y el buscador de la portada **no encuentra** «autorizar». La capa **Alcance** baja a 🟠. Propuesta de la cola, con sus dos condiciones (presupuesto de la portada y que el conteo cuadre con la pantalla), en §3.6e: **la decide el PM** | Claude |
 | 2026-11-19 | Nace el anexo. Auditoría en prod (sólo lectura): qué es autorizar, la pantalla de Kepler columna por columna, telemarketing de 60 días, los 782 pedidos de Zamora Centro, lo que la Suite ya tiene | Claude, a pedido de Edgar |
 | 2026-11-19 | Edgar decide D-A3 (automático dentro del límite, siempre avisando) y pide la ficha de crédito. Medido: el «Monto por Cobrar» de Kepler sigue a los pedidos abiertos, no al saldo; la regla simulada autoriza 19.8 % (control: 185 con el límite a la mitad); 70 % del importe se autorizó excedido; 37 buenos pagadores concentran $5.66 M de excedidos; $3.1 M vencido a más de 45 días. Nuevos GP.A.3 a GP.A.8 y D-A6, D-A7 | Claude |
 | 2026-11-19 | Edgar decide D-A2 (Crédito y cobranza; si no, Dirección General), D-A4 (evitar los pedidos viejos) y D-A7 (Crédito y cobranza puede regresar un autorizado solo), y pide el aviso de renovar o subir el crédito y un análisis externo. Medido: 73 de 366 clientes con RFC propio, 0 en listas del SAT; el RFC genérico aparece en la lista 69 (falso positivo controlado). Nuevos §3.4, §3.5, GP.A.6b a GP.A.6d y D-A8 a D-A10 | Claude |
