@@ -45,6 +45,10 @@ export interface MitadResuelta<T> {
 export interface CentroResuelto {
   /** El texto tal cual lo guarda el sistema actual. */
   readonly centro: string;
+  /** La clave con la que se buscó, ya resuelto cualquier alias declarado. */
+  readonly claveCanonica: string;
+  /** ⭐ La clave original cuando se aplicó un alias; `null` si no hizo falta. Deja el rastro. */
+  readonly aliasAplicado: string | null;
   readonly sitio: MitadResuelta<CodigoDeSitio>;
   readonly area: MitadResuelta<CodigoDeArea>;
   /** ⭐ Sólo cuando las DOS mitades están establecidas. Una propuesta sin confirmar no resuelve. */
@@ -71,11 +75,39 @@ export function areaSegunElNombre(centro: string): CodigoDeArea | null {
   return null;
 }
 
-/** Dos escrituras del mismo centro no son dos centros. Medido: `Marcadotecnia` ≠ `Mercadotecnia`. */
+/**
+ * Normaliza la escritura de un centro: acentos, espacios y mayúsculas. **Nada más.**
+ *
+ * ⛔ No corrige errores de dedo a propósito: `Marcadotecnia` y `Mercadotecnia` salen distintos
+ * porque un error de dedo y un centro realmente distinto **se ven igual** desde acá. Unirlos es una
+ * decisión con dueño, y para eso está `ALIAS_DECLARADOS`.
+ */
 export function claveDeCentro(centro: string): string {
   if (typeof centro !== 'string') throw new CentroInvalido(`centro: se esperaba texto, llegó ${JSON.stringify(centro)}`);
   return centro.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 }
+
+/**
+ * ⭐ Centros que **una persona declaró** que son el mismo. Clave mal escrita → clave buena.
+ * Cada entrada lleva quién lo decidió y cuándo: un alias sin dueño es una corrección inventada.
+ *
+ *  · `Marcadotecnia` → `Mercadotecnia` — **Edgar, 2026-11-23** («sí, es la misma»). Medido: la
+ *    escritura mala aparece en 1 recibo y la buena en 4, la misma semana.
+ */
+export const ALIAS_DECLARADOS: ReadonlyMap<string, string> = new Map([
+  [claveDeCentro('Marcadotecnia'), claveDeCentro('Mercadotecnia')],
+]);
+
+/**
+ * ⭐ Áreas que **una persona confirmó**, por encima de lo que digan el nombre, el reloj o la Suite.
+ *
+ *  · `Morelia Vecinal` → `ruta_vecinal` — **Edgar, 2026-11-23** («morelia vecinal es rv»). Resuelve
+ *    la contradicción medida: el nombre decía vecinal y `identity.users` decía `ruta_directa` en 3
+ *    personas. ⭐ Gana el nombre, y queda registrado por qué.
+ */
+export const AREAS_CONFIRMADAS: ReadonlyMap<string, CodigoDeArea> = new Map([
+  [claveDeCentro('Morelia Vecinal'), 'ruta_vecinal'],
+]);
 
 /** El sitio que se DERIVÓ midiendo dónde checa la gente de ese centro. */
 export interface SitioDerivado {
@@ -90,22 +122,37 @@ export interface SitioDerivado {
 export const CONSENSO_MINIMO = 0.7;
 export const BASE_MINIMA = 2;
 
+export interface CatalogoDeCentros {
+  /** Lo medido: clave de centro → sitio derivado de dónde checa su gente. */
+  readonly derivados: ReadonlyMap<string, SitioDerivado>;
+  /** Lo que una persona confirmó. Por default, `AREAS_CONFIRMADAS`. */
+  readonly areasConfirmadas?: ReadonlyMap<string, CodigoDeArea>;
+  /** Escrituras que alguien declaró equivalentes. Por default, `ALIAS_DECLARADOS`. */
+  readonly alias?: ReadonlyMap<string, string>;
+}
+
 /**
  * Parte un centro del sistema actual en sus dos mitades, **sin inventar ninguna**.
  *
- * @param derivados lo medido: centro (por `claveDeCentro`) → sitio derivado.
- * @param areasConfirmadas lo que RH ya confirmó: centro → área. Lo que no esté acá queda
- *        `propuesto` si el nombre la sugiere, y `pendiente` si ni eso.
+ * El área se resuelve por precedencia, y cada escalón deja dicho de dónde vino:
+ *  1. **confirmada por una persona** → `derivado` (manda sobre todo lo demás);
+ *  2. **leída del nombre** del centro → `propuesto` (espera confirmación);
+ *  3. nada → `pendiente`.
+ *
+ * ⛔ El rol del usuario y la sección del reloj **NO entran acá**: medido el 2026-11-23, concuerdan
+ * con el área declarada sólo el 45.7 % y el 60.7 % de las veces. Sirven para **poblar**
+ * `areasConfirmadas` con revisión humana, no para resolver solos.
  */
-export function resuelveCentro(
-  centro: string,
-  derivados: ReadonlyMap<string, SitioDerivado>,
-  areasConfirmadas: ReadonlyMap<string, CodigoDeArea> = new Map(),
-): CentroResuelto {
+export function resuelveCentro(centro: string, cat: CatalogoDeCentros): CentroResuelto {
   if (typeof centro !== 'string' || !centro.trim()) {
     throw new CentroInvalido(`centro: se esperaba un texto no vacío, llegó ${JSON.stringify(centro)}`);
   }
-  const k = claveDeCentro(centro);
+  const { derivados } = cat;
+  const areasConfirmadas = cat.areasConfirmadas ?? AREAS_CONFIRMADAS;
+  const alias = cat.alias ?? ALIAS_DECLARADOS;
+
+  const cruda = claveDeCentro(centro);
+  const k = alias.get(cruda) ?? cruda;
 
   const d = derivados.get(k);
   let sitio: MitadResuelta<CodigoDeSitio>;
@@ -132,6 +179,8 @@ export function resuelveCentro(
 
   return {
     centro,
+    claveCanonica: k,
+    aliasAplicado: k !== cruda ? cruda : null,
     sitio,
     area,
     completo: sitio.procedencia === 'derivado' && area.procedencia === 'derivado',
@@ -153,13 +202,12 @@ export interface CoberturaDelCatalogo {
  */
 export function cubreElUniverso(
   universo: readonly { readonly centro: string; readonly personas: number }[],
-  derivados: ReadonlyMap<string, SitioDerivado>,
-  areasConfirmadas: ReadonlyMap<string, CodigoDeArea> = new Map(),
+  cat: CatalogoDeCentros,
 ): CoberturaDelCatalogo {
   let personas = 0, conSitio = 0, conArea = 0, completas = 0;
   const pendientes: { centro: string; personas: number; motivo: string }[] = [];
   for (const u of universo) {
-    const r = resuelveCentro(u.centro, derivados, areasConfirmadas);
+    const r = resuelveCentro(u.centro, cat);
     personas += u.personas;
     if (r.sitio.procedencia === 'derivado') conSitio += u.personas;
     if (r.area.procedencia === 'derivado') conArea += u.personas;

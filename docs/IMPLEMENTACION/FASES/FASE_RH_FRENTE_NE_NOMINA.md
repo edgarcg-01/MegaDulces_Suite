@@ -223,36 +223,82 @@ uso). Miden lo mismo —por eso coinciden tanto— **pero se contradicen en 1 de
 ninguno de los dos manda solo. ⚠️ `department_code` está lleno en **204 de 284 usuarios activos
 (71.8 %)**, no en el 16 % que sugiere el padrón completo (ése arrastra 983 registros muertos).
 
-### 8.2 Las 7 contradicciones, una por una
+### 8.2 ⛔⛔ La mitad de los «enlaces» eran a usuarios MUERTOS
 
-| centro de nómina | el nombre dice | la Suite dice | personas |
-|---|---|---|---:|
-| Morelia Vecinal | `ruta_vecinal` | `ruta_directa` | 3 |
-| Canindo TLMK | `telemarketing` | `mayoreo` | 1 |
-| Morelia Abastos TLMK | `telemarketing` | `ruta_vecinal` | 1 |
-| PHidalgo TLMK | `telemarketing` | `mayoreo` | 1 |
-| PHidalgo TLMK | `telemarketing` | `tienda` | 1 |
+Al mirar de cerca a la gente sin área apareció lo que la tapaba: de las **204 personas ligadas a un
+usuario de la Suite, 106 (52 %) ligan con un usuario INACTIVO** — los 106 con `role_name =
+`sin_acceso`` y **ninguno** con área. No son usuarios de la Suite: son fichas que sólo cargan a una
+persona.
 
-### 8.3 Lo que queda pendiente, con su motivo
+⭐ **De los 98 que ligan con un usuario ACTIVO, 96 (98 %) SÍ tienen área.** El campo nunca estuvo
+vacío: lo que contaba mal era mezclar registros vivos con muertos — el mismo defecto que
+`[NE.0.10]` ya había medido en el padrón del sistema viejo («activo» no significa nada).
 
-| qué falta | centros | personas |
-|---|---|---:|
-| **sin sitio derivable** (nadie de ahí checa en un sitio conocido) | Direccion · RD Zamora · Morelia TLMK · Promotoria Morelia | 6 |
-| **consenso de sitio por debajo del 70 %** | PHidalgo Staff (67 %) · Compras (50 %) | 9 |
-| **sin área en ninguna de las dos fuentes** | Logistica · Yurecuaro · Logistica Carga · Mercadotecnia · Promotoras · Compras · Promotoria Morelia | 27 |
-| **el mismo centro escrito de dos formas** | `Marcadotecnia` (1) vs `Mercadotecnia` (4) | 5 |
+### 8.3 ⭐⭐ Los que no tienen área son los PROMOTORES, y la Suite ya tiene su área
 
-⛔ **El gate de `[NE.0.6]` —«ninguna persona del universo sin sitio y sin área»— NO está cumplido**,
-y `cubreElUniverso()` en [`libs/hr/src/lib/nomina/centro.ts`](../../../libs/hr/src/lib/nomina/centro.ts)
-lo mide en cada corrida en vez de darlo por bueno.
+| señal | medido |
+|---|---:|
+| usuarios activos sin `department_code` | **80** |
+| de esos, con `role_name = 'promotor'` | **79** |
+| perfiles del reloj con `is_promoter = true` | **117** |
+| de esos 117, cuántos tienen `department_code` | **0** |
 
-### 8.4 Las tres preguntas para RH
+El departamento **`promotoria_marca` ya existe** en `identity.departments` (alta del 2026-10-12) y
+**nunca se le asignó a nadie**. ⭐ Una sola regla —*`is_promoter` ⇒ `promotoria_marca`*— cierra el
+hueco más grande, y no es una suposición: es el único grupo del padrón con **cero** áreas asignadas
+y con una bandera propia que lo identifica.
 
-1. **¿`Morelia Vecinal` es ruta vecinal o ruta directa?** Es la única contradicción con más de una
-   persona, y cambia a qué área se le imputa el costo.
-2. **¿Qué área tienen los 27 sin ninguna?** En particular `Logistica` (8) y `Yurecuaro` (5).
-3. **¿`Marcadotecnia` y `Mercadotecnia` son el mismo centro?** Si sí, cuál es la escritura buena.
-   ⛔ El sistema **no** lo decide solo: un error de dedo y un centro distinto se ven igual.
+### 8.4 El puente que faltaba entre los tres registros
 
-⚠️ **NO MEDIDO:** el sitio de las 6 personas que no checan; si los 50 sin candidato en la Suite
-cambiarían alguna mayoría de centro.
+`hr.person_site_profiles` (1,087 filas) guarda `site_code` + `person_code` + **`report_section`**, y
+se liga con el usuario por **`hr.device_enrollments.device_user_id = person_site_profiles.person_code`**
+→ **1,049 usuarios**. ⚠️ La columna `device_enrollments.person_code` **no sirve** para esto: está
+llena en 38 de 1,267.
+
+Con ese puente, la cobertura del área sobre las 204 ligadas:
+
+| fuente | cubre |
+|---|---:|
+| `identity.users.department_code` | 96 |
+| `report_section` del reloj | 162 |
+| ⭐ **una u otra** | **202 (99.0 %)** |
+| sin ninguna | 2 |
+
+### 8.5 ⚠️ Pero ninguna de las cuatro fuentes manda: se contradicen entre sí
+
+| fuente del área | concuerda con `department_code` | azar |
+|---|---:|---:|
+| el sufijo del **nombre del centro** | 21 de 28 (**75.0 %**) | 4.8 % |
+| el **`report_section`** del reloj | 17 de 28 (**60.7 %**) | 4.7 % |
+| el **`role_name`** del usuario | 53 de 116 (**45.7 %**) | — |
+
+Las tres miden lo mismo —por eso le ganan tanto al azar— **y las tres discrepan**. Ejemplos medidos:
+el reloj dice `FINANZAS` donde la Suite dice `credito_cobranza`, `tesoreria`, `prevencion_auditoria`
+y `cajas`; el rol dice `cajero` donde la Suite dice `tienda`.
+
+⛔ Y **`report_section` arrastra el mismo defecto que estamos arreglando**: mezcla sitio y área en un
+solo texto (`CEDIS`, `YURECUARO`, `SUC.PADRE HIDALGO` son **lugares**; `MERCADOTECNIA`, `COMPRAS`,
+`TELEMARKETING` son **áreas**). No se puede adoptar tal cual: hay que partirlo, igual que al de
+nómina.
+
+→ **Conclusión que no cambia:** el área se **decide**, no se deriva. Lo que sí cambió es que ahora
+hay una regla que resuelve el bloque más grande sin preguntar, y la lista de lo que queda es corta.
+
+### 8.6 Decisiones ya tomadas
+
+| qué | quién y cuándo | dónde vive |
+|---|---|---|
+| `Morelia Vecinal` es **ruta vecinal** (no `ruta_directa`, como decía la Suite en 3 personas) | **Edgar, 2026-11-23** | `AREAS_CONFIRMADAS` en `centro.ts` |
+| `Marcadotecnia` y `Mercadotecnia` son **el mismo centro** | **Edgar, 2026-11-23** | `ALIAS_DECLARADOS` en `centro.ts` |
+
+### 8.7 Lo que todavía falta
+
+| qué falta | centros / personas |
+|---|---|
+| **sitio sin derivar** (nadie de ahí checa) | Direccion (3) · RD Zamora (1) · Morelia TLMK (1) · Promotoria Morelia (1) |
+| **consenso de sitio flojo** | PHidalgo Staff (67 %) · Compras (50 %) |
+| **área sin ninguna fuente** | 2 personas |
+| **aplicar la regla del promotor** en prod | 117 perfiles |
+
+⚠️ **NO MEDIDO:** si los 50 sin candidato en la Suite cambiarían alguna mayoría de centro; si los
+106 inactivos deberían reactivarse o migrar a `hr.employees` (hoy en 0 filas).

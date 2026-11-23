@@ -9,6 +9,8 @@
  * Centros reales; ninguna persona nombrada.
  */
 import {
+  ALIAS_DECLARADOS,
+  AREAS_CONFIRMADAS,
   areaSegunElNombre,
   BASE_MINIMA,
   CentroInvalido,
@@ -66,14 +68,51 @@ describe('dos escrituras del mismo centro no son dos centros', () => {
 
   it('⛔ pero NO inventa que un error de dedo es el mismo centro', () => {
     // Medido: «Marcadotecnia» (1 persona) y «Mercadotecnia» (4) conviven en la misma semana.
-    // Son el mismo centro en la vida real, y esto NO lo puede decidir solo: lo decide RH.
+    // La normalización sola NO los une: un error de dedo y un centro distinto se ven igual.
     expect(claveDeCentro('Marcadotecnia')).not.toBe(claveDeCentro('Mercadotecnia'));
+  });
+});
+
+describe('los alias y las áreas que una PERSONA decidió', () => {
+  it('⭐⭐ el alias declarado une las dos escrituras, y deja rastro de que se aplicó', () => {
+    // Edgar, 2026-11-23: «3. si, es la misma».
+    expect(ALIAS_DECLARADOS.get(claveDeCentro('Marcadotecnia'))).toBe(claveDeCentro('Mercadotecnia'));
+
+    const derivados = new Map([[claveDeCentro('Mercadotecnia'), derivado('corporativo', 1, 4)]]);
+    const r = resuelveCentro('Marcadotecnia', { derivados });
+    expect(r.claveCanonica).toBe(claveDeCentro('Mercadotecnia'));
+    expect(r.aliasAplicado).toBe(claveDeCentro('Marcadotecnia'));
+    // ⭐ y por eso hereda el sitio derivado del centro bueno, que sola no tendría
+    expect([r.sitio.valor, r.sitio.procedencia]).toEqual(['corporativo', 'derivado']);
+  });
+
+  it('un centro sin alias no inventa uno, y lo dice con un null, no con el mismo valor', () => {
+    const derivados = new Map([[claveDeCentro('Mercadotecnia'), derivado('corporativo', 1, 4)]]);
+    expect(resuelveCentro('Mercadotecnia', { derivados }).aliasAplicado).toBeNull();
+  });
+
+  it('⭐⭐ «Morelia Vecinal» es ruta_vecinal porque una persona lo decidió, no porque lo diga el nombre', () => {
+    // Edgar, 2026-11-23: «morelia vecinal es rv». Medido antes: el nombre decía vecinal y la Suite
+    // decía ruta_directa en 3 personas. La decisión gana, y queda con procedencia establecida.
+    expect(AREAS_CONFIRMADAS.get(claveDeCentro('Morelia Vecinal'))).toBe('ruta_vecinal');
+    const derivados = new Map([[claveDeCentro('Morelia Vecinal'), derivado('morelia-abastos', 1, 8)]]);
+    const r = resuelveCentro('Morelia Vecinal', { derivados });
+    expect([r.area.valor, r.area.procedencia]).toEqual(['ruta_vecinal', 'derivado']);
+    expect(r.completo).toBe(true);
+  });
+
+  it('⛔ y sin esa decisión, el mismo centro NO estaría resuelto', () => {
+    // Control: la prueba de arriba podría pasar sola por el sufijo «Vecinal». No pasa: sin la
+    // confirmación, el área nace sólo PROPUESTA y el centro no resuelve.
+    const derivados = new Map([[claveDeCentro('Morelia Vecinal'), derivado('morelia-abastos', 1, 8)]]);
+    const r = resuelveCentro('Morelia Vecinal', { derivados, areasConfirmadas: new Map() });
+    expect([r.area.valor, r.area.procedencia, r.completo]).toEqual(['ruta_vecinal', 'propuesto', false]);
   });
 });
 
 describe('resolver un centro, declarando de dónde viene cada mitad', () => {
   it('⭐⭐ un área leída del nombre nace PROPUESTA, no establecida', () => {
-    const r = resuelveCentro('Morelia Abastos TLMK', DERIVADOS);
+    const r = resuelveCentro('Morelia Abastos TLMK', { derivados: DERIVADOS, areasConfirmadas: new Map() });
     expect([r.sitio.valor, r.sitio.procedencia]).toEqual(['morelia-abastos', 'derivado']);
     expect([r.area.valor, r.area.procedencia]).toEqual(['telemarketing', 'propuesto']);
     expect(r.area.nota).toMatch(/RH/);
@@ -83,19 +122,19 @@ describe('resolver un centro, declarando de dónde viene cada mitad', () => {
 
   it('⭐ y cuando RH la confirma, entonces sí', () => {
     const confirmadas = new Map([[claveDeCentro('Morelia Abastos TLMK'), 'telemarketing']]);
-    const r = resuelveCentro('Morelia Abastos TLMK', DERIVADOS, confirmadas);
+    const r = resuelveCentro('Morelia Abastos TLMK', { derivados: DERIVADOS, areasConfirmadas: confirmadas });
     expect([r.area.procedencia, r.completo]).toEqual(['derivado', true]);
   });
 
   it('⭐ RH manda sobre el nombre cuando se contradicen', () => {
     // Medido: «Morelia Vecinal» tiene 3 personas que la Suite marca ruta_directa.
     const confirmadas = new Map([[claveDeCentro('Morelia Abastos TLMK'), 'ruta_directa']]);
-    const r = resuelveCentro('Morelia Abastos TLMK', DERIVADOS, confirmadas);
+    const r = resuelveCentro('Morelia Abastos TLMK', { derivados: DERIVADOS, areasConfirmadas: confirmadas });
     expect(r.area.valor).toBe('ruta_directa');
   });
 
   it('⛔ un consenso flojo NO resuelve el sitio: queda pendiente y dice por qué', () => {
-    const r = resuelveCentro('PHidalgo Staff', DERIVADOS);
+    const r = resuelveCentro('PHidalgo Staff', { derivados: DERIVADOS, areasConfirmadas: new Map() });
     expect(r.sitio.valor).toBeNull();
     expect(r.sitio.procedencia).toBe('pendiente');
     expect(r.sitio.nota).toMatch(/consenso 67 %/);
@@ -103,21 +142,21 @@ describe('resolver un centro, declarando de dónde viene cada mitad', () => {
   });
 
   it('⛔ 100 % sobre UNA persona no es un consenso', () => {
-    const r = resuelveCentro('Promotoras', DERIVADOS);
+    const r = resuelveCentro('Promotoras', { derivados: DERIVADOS, areasConfirmadas: new Map() });
     expect([r.sitio.valor, r.sitio.procedencia]).toEqual([null, 'pendiente']);
     expect(r.sitio.nota).toMatch(/1 persona/);
     expect(BASE_MINIMA).toBe(2);
   });
 
   it('un centro que nadie checa queda pendiente, no en blanco', () => {
-    const r = resuelveCentro('Direccion', DERIVADOS);
+    const r = resuelveCentro('Direccion', { derivados: DERIVADOS, areasConfirmadas: new Map() });
     expect([r.sitio.procedencia, r.area.procedencia]).toEqual(['pendiente', 'pendiente']);
     expect(r.sitio.nota).toBeTruthy();
     expect(r.area.nota).toBeTruthy();
   });
 
   it('rechaza un centro vacío', () => {
-    expect(() => resuelveCentro('   ', DERIVADOS)).toThrow(CentroInvalido);
+    expect(() => resuelveCentro('   ', { derivados: DERIVADOS, areasConfirmadas: new Map() })).toThrow(CentroInvalido);
   });
 });
 
@@ -130,7 +169,7 @@ describe('el gate: ninguna persona sin sitio y sin área', () => {
   ];
 
   it('⭐⭐ hoy NO pasa, y la función lo dice en vez de redondear', () => {
-    const c = cubreElUniverso(UNIVERSO, DERIVADOS);
+    const c = cubreElUniverso(UNIVERSO, { derivados: DERIVADOS, areasConfirmadas: new Map() });
     expect(c.personas).toBe(42);
     expect(c.conSitio).toBe(32); // Morelia Abastos + su TLMK
     expect(c.conArea).toBe(0); // ninguna confirmada todavía
@@ -139,7 +178,7 @@ describe('el gate: ninguna persona sin sitio y sin área', () => {
   });
 
   it('⭐ y entrega la lista de trabajo con el motivo de cada pendiente', () => {
-    const c = cubreElUniverso(UNIVERSO, DERIVADOS);
+    const c = cubreElUniverso(UNIVERSO, { derivados: DERIVADOS, areasConfirmadas: new Map() });
     expect(c.pendientes).toHaveLength(4);
     const ph = c.pendientes.find((p) => p.centro === 'PHidalgo Staff');
     expect(ph?.personas).toBe(7);
@@ -154,7 +193,7 @@ describe('el gate: ninguna persona sin sitio y sin área', () => {
       [claveDeCentro('PHidalgo Staff'), 'administracion'],
       [claveDeCentro('Direccion'), 'direccion_zona'],
     ]);
-    const c = cubreElUniverso(UNIVERSO, DERIVADOS, confirmadas);
+    const c = cubreElUniverso(UNIVERSO, { derivados: DERIVADOS, areasConfirmadas: confirmadas });
     expect(c.conArea).toBe(42);
     expect(c.completas).toBe(32); // siguen faltando los sitios de PHidalgo Staff y Direccion
     expect(c.pendientes.map((p) => p.centro).sort()).toEqual(['Direccion', 'PHidalgo Staff']);
