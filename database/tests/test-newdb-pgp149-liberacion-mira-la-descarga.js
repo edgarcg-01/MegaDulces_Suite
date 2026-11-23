@@ -69,6 +69,8 @@ function servicio(trx) {
       const cuenta = async (bank, label) => (await trx('finance.bank_accounts')
         .insert({ tenant_id: T, bank, account_label: label, kind: 'bank', active: true }).returning('*'))[0];
       const bbva = await cuenta('BBVA', 'PRUEBA-149-1'), stdr = await cuenta('SANTANDER', 'PRUEBA-149-2');
+      // [PGP.202] Activa, sin descarga nunca y sin pagos de Kepler desde ella: DORMIDA. No detiene al pago sin cuenta.
+      const dormida = await cuenta('SANTANDER', 'PRUEBA-202-DORMIDA');
       let n = 0;
       const archivo = async (c, desde, hasta) => (await trx('finance.bank_statement_files').insert({
         tenant_id: T, bank_account_id: c.id, bank: c.bank.toLowerCase(), file_sha1: `pgp149-${n++}`, date_from: desde, date_to: hasta,
@@ -89,11 +91,13 @@ function servicio(trx) {
         { id: '00000000-0000-4000-8000-000000149003', monto: 2222.22, lot_date: '2099-05-10', cuenta: null },    // 3 (Santander no llega al 13)
         { id: '00000000-0000-4000-8000-000000149004', monto: 3333.33, lot_date: '2099-05-10', cuenta: bbva.id }, // 4 (preparado en BBVA)
         { id: '00000000-0000-4000-8000-000000149005', monto: 780012.56, lot_date: '2099-05-10', cuenta: null },  // 5 placebo +$100
+        { id: '00000000-0000-4000-8000-000000202006', monto: 1234.57, lot_date: '2099-05-05', cuenta: dormida.id }, // 6 [PGP.202] preparado EN la dormida
       ];
       const t = new Map((await trx.raw(Q.SQL_SALIDA_DE_BANCO, Q.paramsSalidaDeBanco(T, HOY, pagos))).rows.map((r) => [r.id, r]));
       const w = (i) => Q.testigoDelBanco(t.get(pagos[i].id));
       ok(w(0) === true, '1. la salida que sólo está en la descarga del banco cuenta como salida (antes: «no salió»)');
-      ok(w(1) === false, '2. sin salida y con la descarga cubriendo esos días: «no salió»');
+      ok(w(1) === false, '2. sin salida y con la descarga cubriendo esos días: «no salió» — [PGP.202] la cuenta dormida no lo detiene');
+      ok(w(5) === null && t.get(pagos[5].id).cubierto === false, '6b. [PGP.202] ⛔ preparado EN la cuenta dormida: NO MEDIDO (se conserva)');
       ok(w(2) === null && t.get(pagos[2].id).cubierto === false, '3. ⛔ sin salida y una cuenta activa sin descarga de esos días: NO MEDIDO (se conserva)');
       ok(w(3) === false, '4. preparado en una cuenta cubierta: la atrasada no lo detiene');
       ok(t.get(pagos[4].id).salio === false, '5. placebo: el mismo importe +$100 no casa con nada');

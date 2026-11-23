@@ -40,6 +40,26 @@ export function sqlDescargaNoDevuelta(a = 's'): string {
 /** Cómo nombra el banco la devolución de una transferencia (Santander, BBVA, Banorte). */
 export const RX_DEVOLUCION = 'DEVUEL|DEVOL|DEV\\. DEPOSITO|RECHAZ';
 
+/** `[PGP.202]` Cuántos días sin un pago de Kepler desde una cuenta sin descarga la vuelven «dormida». */
+export const DIAS_CUENTA_DORMIDA = 90;
+
+/**
+ * `[PGP.202]` **Una cuenta DORMIDA no impide decir «no salió».** Un pago que nadie preparó (sin cuenta, casi todos) sólo
+ * se da por «no salió» si la descarga cubre esos días en TODAS las cuentas de banco activas (`[PGP.149]`). Una cuenta
+ * activa a la que nunca se le subió descarga dejaba así «sin medir» a todos los pagos para siempre: medido el
+ * 2026-11-23, una sola cuenta así (sin descarga nunca, el libro parado desde agosto, CERO pagos de Kepler desde ella en
+ * 2026; control, la cuenta de cheques: 226 pagos en noviembre) frenaba todas las liberaciones desde el 19-nov.
+ * Dormida = sin descarga nunca Y sin un pago de Kepler (`kdxe` abono, `c22` = la cuenta) en `DIAS_CUENTA_DORMIDA` días.
+ * ⛔ Sólo cuenta para los pagos SIN cuenta preparada: el que alguien preparó EN esa cuenta sigue sin poder medirse.
+ * Fragmento para el SELECT agrupado por la cuenta `ba` (con el `max(f.date_to)` de sus archivos); ~20 ms en prod.
+ */
+export function sqlCuentaDormida(ba = 'ba', hasta = 'max(f.date_to)'): string {
+  return `(${hasta} IS NULL AND NOT EXISTS (
+            SELECT 1 FROM kepler_ods.kdxe k
+             WHERE k.c3 = 'D' AND btrim(k.c1) = k.sucursal AND btrim(k.c22) = btrim(${ba}.account_label)
+               AND k.c7 >= (now() AT TIME ZONE 'America/Mexico_City')::date - ${DIAS_CUENTA_DORMIDA}))`;
+}
+
 /**
  * Las salidas de las cuentas de banco desde 3 días antes del pago más viejo hasta hoy (una fecha futura es un
  * error de captura del estado de cuenta, no una salida). Sin las devueltas (`[PGP.201]`). El concepto viaja para
@@ -130,11 +150,12 @@ SELECT s.id::text AS id, s.bank_account_id::text AS cuenta_id, to_char(s.movemen
 
 /**
  * Hasta qué día cubre la descarga cada cuenta de banco activa: el fin del periodo del archivo más nuevo, no el
- * último movimiento (un día sin movimientos también está cubierto). Null = nunca se ha subido. Parámetros: `[tenant]`.
+ * último movimiento (un día sin movimientos también está cubierto). Null = nunca se ha subido. `[PGP.202]` `dormida`:
+ * no cuenta para los pagos sin cuenta preparada (`sqlCuentaDormida`). Parámetros: `[tenant]`.
  */
 export const SQL_COBERTURA_DE_LA_DESCARGA = `
 SELECT ba.id::text AS cuenta_id, coalesce(nullif(btrim(ba.alias), ''), ba.bank || ' ' || ba.account_label) AS cuenta,
-       to_char(max(f.date_to), 'YYYY-MM-DD') AS hasta
+       to_char(max(f.date_to), 'YYYY-MM-DD') AS hasta, ${sqlCuentaDormida('ba')} AS dormida
   FROM finance.bank_accounts ba
   LEFT JOIN finance.bank_statement_files f ON f.bank_account_id = ba.id AND f.tenant_id = ba.tenant_id
  WHERE ba.tenant_id = ? AND ba.kind = 'bank' AND ba.active

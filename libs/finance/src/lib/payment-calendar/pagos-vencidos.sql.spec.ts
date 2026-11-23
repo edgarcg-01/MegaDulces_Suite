@@ -1,6 +1,32 @@
 import {
   SQL_ES_CHEQUE_EMITIDO, SQL_LIBERADOS_QUE_SALIERON, SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, notaReabierto, paramsSalidaDeBanco, testigoDelBanco,
 } from './pagos-vencidos.sql';
+import { SQL_COBERTURA_DE_LA_DESCARGA, sqlCuentaDormida } from './pago-por-el-banco.sql';
+
+/**
+ * `[PGP.202]` La cuenta dormida (sin descarga nunca y sin pagos de Kepler desde ella en 90 días) no frena el «no salió» del
+ * pago sin cuenta preparada; el preparado en ella sigue sin poder afirmarse. Medido contra prod el 2026-11-23 (sólo
+ * lectura): una cuenta así frenaba todas las liberaciones; la consulta de la cuenta tarda ~20 ms.
+ */
+describe('[PGP.202] la cuenta dormida en la cobertura del banco', () => {
+  it('la liberación y la pantalla usan EL MISMO fragmento, sin parámetros nuevos', () => {
+    expect(SQL_SALIDA_DE_BANCO).toContain(`${sqlCuentaDormida('ba')} AS dormida`);
+    expect(SQL_COBERTURA_DE_LA_DESCARGA).toContain(`${sqlCuentaDormida('ba')} AS dormida`);
+    expect(sqlCuentaDormida()).not.toContain('?');
+    expect((SQL_COBERTURA_DE_LA_DESCARGA.match(/\?/g) ?? []).length).toBe(1);
+  });
+
+  it('la dormida sólo se salta para el pago SIN cuenta; con cuenta preparada se mira esa, dormida o no', () => {
+    expect(SQL_SALIDA_DE_BANCO).toContain('((p.cuenta IS NULL AND NOT c.dormida) OR c.id = p.cuenta)');
+  });
+
+  it('dormida exige las dos cosas: sin descarga nunca Y sin pago de Kepler desde la cuenta', () => {
+    const f = sqlCuentaDormida('ba');
+    expect(f).toMatch(/^\(max\(f\.date_to\) IS NULL AND NOT EXISTS \(/);
+    expect(f).toContain(`k.c3 = 'D'`);
+    expect(f).toContain('btrim(k.c22) = btrim(ba.account_label)');
+  });
+});
 
 /**
  * `[PGP.173]` La lectura de los vencidos trae si el pago es un cheque emitido. El predicado contra Postgres real corre en
@@ -34,9 +60,12 @@ describe('[PGP.149] el testigo del banco de la liberación', () => {
   it('los parámetros van en el orden y la cantidad de los «?» de la consulta', () => {
     const p = paramsSalidaDeBanco('t', '2026-11-18', [{ id: 'a', monto: 1, lot_date: '2026-11-10', cuenta: null }]);
     expect(p).toHaveLength((SQL_SALIDA_DE_BANCO.match(/\?/g) ?? []).length);
-    // cobertura · libro · descarga · [PGP.201] pago partido · cubierto
-    expect(p.slice(0, 8)).toEqual(['t', 't', '2026-11-18', 't', '2026-11-18', 't', '2026-11-18', '2026-11-18']);
-    expect(p.slice(8)).toEqual([['a'], [1], ['2026-11-10'], [null]]);
+    // [PGP.202] los pagos primero (los grupos se calculan una vez para la ventana de todos) · cobertura · grupos ·
+    // libro · descarga · el grupo de cada pago · cubierto
+    expect(p.slice(0, 4)).toEqual([['a'], [1], ['2026-11-10'], [null]]);
+    expect(p.slice(4)).toEqual(['t', 't', '2026-11-18', 't', '2026-11-18', 't', '2026-11-18', '2026-11-18', '2026-11-18']);
+    expect(SQL_SALIDA_DE_BANCO).toContain('cobertura AS MATERIALIZED');
+    expect(SQL_SALIDA_DE_BANCO).toContain('grupos AS MATERIALIZED');
     expect((SQL_LIBERADOS_QUE_SALIERON.match(/\?/g) ?? []).length).toBe(1);
   });
 

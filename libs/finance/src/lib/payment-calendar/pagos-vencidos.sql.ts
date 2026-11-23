@@ -1,11 +1,11 @@
 /**
- * `[PGP.117]` Las dos lecturas de la liberación a la semana. Viven aparte del servicio para que el
+ * `[PGP.117]` Las dos lecturas de la liberación (desde `[PGP.202]`, al día siguiente). Viven aparte del servicio para que el
  * texto que corre en producción sea el MISMO que se mide contra prod (se importa, no se copia).
  * La regla está en `@megadulces/contracts` (`decidirVencido`); el cierre de Kepler es `SQL_CIERRE_KEPLER`.
  */
 import { DIAS_ANTES_BANCO, DIAS_PARA_LIBERAR, TOLERANCIA_BANCO } from '@megadulces/contracts';
 import type { Knex } from 'knex';
-import { sqlDescargaNoDevuelta, sqlLibroNoDevuelta } from './pago-por-el-banco.sql';
+import { sqlCuentaDormida, sqlDescargaNoDevuelta, sqlLibroNoDevuelta } from './pago-por-el-banco.sql';
 
 /**
  * `[PGP.173]` **Qué es un cheque emitido**, mientras la chequera no viva en la Suite (`[PGP.167]`): un pago con
@@ -34,8 +34,7 @@ export const SQL_PENDIENTES_VENCIDOS = `
 
 /**
  * ¿Salió del banco un importe igual al del pago (±$1) desde 3 días antes de su día hasta hoy? Y si no salió,
- * ¿se puede afirmar? Parámetros, en el orden del texto:
- * `[tenant, tenant, hoy, tenant, hoy, hoy, ids (uuid[]), montos (numeric[]), días (date[]), cuentas (uuid[])]`.
+ * ¿se puede afirmar? Parámetros: los de `paramsSalidaDeBanco`, en su orden (los pagos primero).
  * Una fila por pago: `salio` y `cubierto`.
  * Cualquier movimiento sirve, aunque ya esté conciliado con otra cosa: el ruido sólo CONSERVA.
  *
@@ -46,14 +45,33 @@ export const SQL_PENDIENTES_VENCIDOS = `
  * (`bank_statement_lines`), y **«no salió» sólo se afirma si la descarga cubre esos días**: de la cuenta preparada, o
  * de TODAS las de banco activas si nadie la preparó. Si no cubre, `cubierto = false` y el pago se conserva
  * (`banco_sin_medir`): lo que no se pudo medir no se libera.
+ * `[PGP.202]` Para el pago que nadie preparó no cuentan las cuentas DORMIDAS (`sqlCuentaDormida`); el que alguien
+ * preparó en una cuenta dormida sigue sin poder afirmarse.
+ *
+ * `[PGP.202]` La cobertura y los pagos partidos se calculan UNA vez (`MATERIALIZED`), no por pago: con 35 pagos la
+ * consulta tardaba 733 ms en prod (la cobertura, con su lectura de Kepler, ~210 ms; los grupos, ~350 ms). Cada grupo
+ * es de un solo día, así que filtrarlo después por la ventana de cada pago da lo mismo que agruparlo dentro de ella.
  */
 export const SQL_SALIDA_DE_BANCO = `
-  WITH cobertura AS (
-    SELECT ba.id, max(f.date_to) AS hasta
+  WITH p AS MATERIALIZED (
+    SELECT * FROM unnest(?::uuid[], ?::numeric[], ?::date[], ?::uuid[]) AS p(id, monto, dia, cuenta)),
+  cobertura AS MATERIALIZED (
+    SELECT ba.id, max(f.date_to) AS hasta, ${sqlCuentaDormida('ba')} AS dormida
       FROM finance.bank_accounts ba
       LEFT JOIN finance.bank_statement_files f ON f.bank_account_id = ba.id AND f.tenant_id = ba.tenant_id
      WHERE ba.tenant_id = ? AND ba.kind = 'bank' AND ba.active
-     GROUP BY ba.id)
+     GROUP BY ba.id),
+  -- [PGP.201] El pago partido: varias salidas de la misma cuenta y día con la misma referencia que suman el importe.
+  grupos AS MATERIALIZED (
+    SELECT z.movement_date, z.total FROM (
+      SELECT g.bank_account_id, g.movement_date, substring(btrim(g.concept) FROM '([0-9]{6,})\\s*$') AS ref,
+             sum(g.amount_out) AS total, count(*) AS n
+        FROM finance.bank_movements g
+       WHERE g.tenant_id = ? AND g.deleted_at IS NULL AND g.amount_out > 0
+         AND g.movement_date BETWEEN (SELECT min(dia) FROM p) - ${DIAS_ANTES_BANCO} AND ?::date
+         AND ${sqlLibroNoDevuelta('g')}
+       GROUP BY 1, 2, 3) z
+     WHERE z.ref IS NOT NULL AND z.ref !~ '^0+$' AND z.n >= 2)
   SELECT p.id::text AS id,
          EXISTS (
            SELECT 1 FROM finance.bank_movements b
@@ -69,31 +87,23 @@ export const SQL_SALIDA_DE_BANCO = `
               AND s.movement_date BETWEEN p.dia - ${DIAS_ANTES_BANCO} AND ?::date
               AND ${sqlDescargaNoDevuelta('s')}
          ) OR EXISTS (
-           -- [PGP.201] El pago partido: varias salidas de la misma cuenta y día con la misma referencia que suman el importe.
-           SELECT 1 FROM (
-             SELECT g.bank_account_id, g.movement_date, substring(btrim(g.concept) FROM '([0-9]{6,})\\s*$') AS ref,
-                    sum(g.amount_out) AS total, count(*) AS n
-               FROM finance.bank_movements g
-              WHERE g.tenant_id = ? AND g.deleted_at IS NULL AND g.amount_out > 0
-                AND g.movement_date BETWEEN p.dia - ${DIAS_ANTES_BANCO} AND ?::date
-                AND ${sqlLibroNoDevuelta('g')}
-              GROUP BY 1, 2, 3) z
-            WHERE z.ref IS NOT NULL AND z.ref !~ '^0+$' AND z.n >= 2 AND abs(z.total - p.monto) < ${TOLERANCIA_BANCO}
+           SELECT 1 FROM grupos z
+            WHERE abs(z.total - p.monto) < ${TOLERANCIA_BANCO} AND z.movement_date BETWEEN p.dia - ${DIAS_ANTES_BANCO} AND ?::date
          ) AS salio,
          NOT EXISTS (
            SELECT 1 FROM cobertura c
-            WHERE (p.cuenta IS NULL OR c.id = p.cuenta)
+            WHERE ((p.cuenta IS NULL AND NOT c.dormida) OR c.id = p.cuenta)
               AND (c.hasta IS NULL OR c.hasta < least(p.dia + ${DIAS_ANTES_BANCO}, ?::date))
          ) AS cubierto
-    FROM unnest(?::uuid[], ?::numeric[], ?::date[], ?::uuid[]) AS p(id, monto, dia, cuenta)`;
+    FROM p`;
 
 /** Los parámetros de `SQL_SALIDA_DE_BANCO`, en su orden (para que el servicio y la medición no se equivoquen). */
 export function paramsSalidaDeBanco(tenantId: string, hoy: string, pagos: readonly { id: string; monto: number; lot_date: string; cuenta: string | null }[]): Knex.RawBinding[] {
-  // cobertura · libro · descarga · `[PGP.201]` pago partido · cubierto · los pagos
-  return [tenantId, tenantId, hoy, tenantId, hoy, tenantId, hoy, hoy,
-    pagos.map((p) => p.id), pagos.map((p) => p.monto), pagos.map((p) => p.lot_date),
+  // los pagos · cobertura · `[PGP.201]` los grupos · libro · descarga · el grupo de cada pago · cubierto
+  return [pagos.map((p) => p.id), pagos.map((p) => p.monto), pagos.map((p) => p.lot_date),
     // pg recibe el arreglo con sus null (uuid[]); el tipo de knex no contempla null dentro de un arreglo.
-    pagos.map((p) => p.cuenta) as unknown as string[]];
+    pagos.map((p) => p.cuenta) as unknown as string[],
+    tenantId, tenantId, hoy, tenantId, hoy, tenantId, hoy, hoy, hoy];
 }
 
 /** `salio` gana; si no salió, sólo se afirma con la descarga cubriendo esos días. */

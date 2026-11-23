@@ -263,6 +263,8 @@ export interface CoberturaDeLaDescarga {
   cuenta_id: string;
   cuenta: string;
   hasta: string | null;
+  /** `[PGP.202]` Sin descarga nunca y sin pagos de Kepler desde ella en 90 días: no cuenta para el pago sin cuenta preparada. */
+  dormida?: boolean;
 }
 
 const masDias = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
@@ -274,7 +276,7 @@ const masDias = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) 
  * - **Los pagados también reclaman.** Un pago que Kepler o el libro ya dieron por pagado sigue siendo dueño de su
  *   salida; si un pendiente por el mismo importe la reclama también, es `no_decide`, no `salio`.
  * - **«Sin salida» no es «no se pagó»**: se dice qué cuentas no cubren los días de la ventana (sólo la preparada,
- *   si alguien la preparó; si no, todas las de banco).
+ *   si alguien la preparó; si no, todas las de banco menos las dormidas, `[PGP.202]`).
  * Sólo lee. El resultado trae únicamente los pendientes con día ≤ hoy.
  */
 export function segunLaDescarga(
@@ -292,7 +294,7 @@ export function segunLaDescarga(
       out.set(p.id, { estado: 'salio', fecha: d.fecha, cuenta_id: d.cuenta_id, cuenta: alias.get(d.cuenta_id) ?? 'cuenta sin nombre', importe: d.importe });
     } else if (d.estado === 'sin_salida') {
       const necesita = [masDias(p.dia, VENTANA_BANCO_DIAS), hoy].sort()[0];
-      const cuentas = p.cuenta_planeada ? cobertura.filter((c) => c.cuenta_id === p.cuenta_planeada) : cobertura;
+      const cuentas = p.cuenta_planeada ? cobertura.filter((c) => c.cuenta_id === p.cuenta_planeada) : cobertura.filter((c) => !c.dormida);
       const sinCubrir = cuentas.filter((c) => !c.hasta || c.hasta < necesita).map((c) => ({ cuenta: c.cuenta, hasta: c.hasta }));
       out.set(p.id, { estado: 'sin_salida', revisadas: cuentas.length - sinCubrir.length, sin_cubrir: sinCubrir });
     } else {
