@@ -234,19 +234,38 @@ persona.
 vacío: lo que contaba mal era mezclar registros vivos con muertos — el mismo defecto que
 `[NE.0.10]` ya había medido en el padrón del sistema viejo («activo» no significa nada).
 
-### 8.3 ⭐⭐ Los que no tienen área son los PROMOTORES, y la Suite ya tiene su área
+### 8.3 Los que no tienen área son los PROMOTORES — pero casi ninguno cobra en la nómina
 
-| señal | medido |
-|---|---:|
-| usuarios activos sin `department_code` | **80** |
-| de esos, con `role_name = 'promotor'` | **79** |
-| perfiles del reloj con `is_promoter = true` | **117** |
-| de esos 117, cuántos tienen `department_code` | **0** |
+⚠️ **Corregido el mismo día, antes de escribir nada en prod.** La primera lectura decía que una
+regla *`is_promoter` ⇒ `promotoria_marca`* cerraba el hueco más grande. **Falso**, y por dos razones
+distintas que sólo aparecen al contar bien:
 
-El departamento **`promotoria_marca` ya existe** en `identity.departments` (alta del 2026-10-12) y
-**nunca se le asignó a nadie**. ⭐ Una sola regla —*`is_promoter` ⇒ `promotoria_marca`*— cierra el
-hueco más grande, y no es una suposición: es el único grupo del padrón con **cero** áreas asignadas
-y con una bandera propia que lo identifica.
+| regla candidata | usuarios que tocaría | **de esos, ACTIVOS** |
+|---|---:|---:|
+| `is_promoter` del perfil del reloj | 117 | **0** |
+| `role_name = 'promotor'` | 79 | **79** |
+| ambas a la vez | — | **0** |
+
+⛔ **Son conjuntos DISJUNTOS.** Los 117 del reloj son todos usuarios muertos; la regla que toca
+gente viva es la del **rol**, no la de la bandera.
+
+⭐ **El control de la regla del rol sale limpio:** de todos los usuarios sin área sólo hay tres
+grupos — `sin_acceso` (982, **0 activos**), `promotor` (79, **todos activos**) y `servicio` (1).
+Barre exactamente a los promotores y a nadie más.
+
+⛔⛔ **Pero la regla NO se puede aplicar, por dos cosas medidas:**
+
+1. **No hay testigo de cuál es su área.** Nadie con rol `promotor` tiene departamento, y
+   `promotoria_marca` **no lo tiene NADIE** (alta del 2026-10-12, cero usuarios). El único indicio
+   en los datos apunta al revés: el rol hermano `promotor_ruta` está mapeado a **`ruta_directa`**
+   (16 activos) y **`ruta_vecinal`** (1), no a `promotoria_marca`.
+2. **Casi no son gente de la nómina.** De los **79 promotores activos, sólo 2 aparecen** en la
+   semana de nómina, los dos en el centro `Promotoras`. El resto cobra fuera de la nómina semanal,
+   igual que las vecinales.
+
+→ **Consecuencia para este frente:** el hueco de área de los promotores es un problema de calidad de
+datos de la Suite, **no un bloqueo de `[NE.0.6]`**. Sobre el universo que importa —las 254 personas
+de la nómina— el faltante de área es de **2 personas**, no de 27.
 
 ### 8.4 El puente que faltaba entre los tres registros
 
@@ -291,14 +310,19 @@ hay una regla que resuelve el bloque más grande sin preguntar, y la lista de lo
 | `Morelia Vecinal` es **ruta vecinal** (no `ruta_directa`, como decía la Suite en 3 personas) | **Edgar, 2026-11-23** | `AREAS_CONFIRMADAS` en `centro.ts` |
 | `Marcadotecnia` y `Mercadotecnia` son **el mismo centro** | **Edgar, 2026-11-23** | `ALIAS_DECLARADOS` en `centro.ts` |
 
-### 8.7 Lo que todavía falta
+### 8.7 Lo que todavía falta, sobre el universo que importa
 
-| qué falta | centros / personas |
-|---|---|
-| **sitio sin derivar** (nadie de ahí checa) | Direccion (3) · RD Zamora (1) · Morelia TLMK (1) · Promotoria Morelia (1) |
-| **consenso de sitio flojo** | PHidalgo Staff (67 %) · Compras (50 %) |
-| **área sin ninguna fuente** | 2 personas |
-| **aplicar la regla del promotor** en prod | 117 perfiles |
+| qué falta | centros / personas | de quién depende |
+|---|---|---|
+| **sitio sin derivar** (nadie de ahí checa) | Direccion (3) · RD Zamora (1) · Morelia TLMK (1) · Promotoria Morelia (1) | RH |
+| **consenso de sitio flojo** | PHidalgo Staff (67 %) · Compras (50 %) | RH |
+| **área sin ninguna fuente** | **2 personas** | RH |
+| **confirmar el área propuesta** de los centros con sufijo (TLMK · RD · Staff) | — | RH |
+
+⛔ **Ya NO está en esta lista** la «regla del promotor»: medido, tocaría a 79 usuarios activos de los
+cuales **sólo 2 están en la nómina**, y no hay testigo de cuál es su área (§8.3). Es deuda de
+calidad de datos de la Suite, con dueño distinto.
 
 ⚠️ **NO MEDIDO:** si los 50 sin candidato en la Suite cambiarían alguna mayoría de centro; si los
-106 inactivos deberían reactivarse o migrar a `hr.employees` (hoy en 0 filas).
+106 inactivos ligados deberían reactivarse o migrar a `hr.employees` (hoy en 0 filas); cuál es el
+área real de los 79 promotores.
