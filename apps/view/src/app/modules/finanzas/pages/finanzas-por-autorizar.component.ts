@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
-import { TableModule } from 'primeng/table';
+import { TableModule, Table } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
@@ -156,11 +156,13 @@ export function esperaDe(p: PedidoPorAutorizar): string {
           </div>
         }
 
-        <!-- Paginado sólo cuando la lista lo pide: «aparte» trae ~800 pedidos muertos (medido en prod el
-             2026-11-23) y pintarlos todos traba el desplazamiento. La del día (15 hoy) se ve entera, sin
-             paginador: la maqueta aprobada no cambia. La cifra de arriba sigue siendo recorrible (Cruce 1). -->
-        <p-table [value]="lista()" selectionMode="single" dataKey="folio" size="small" [rowHover]="true"
-                 [paginator]="lista().length > 50" [rows]="50" [alwaysShowPaginator]="false"
+        <!-- «Aparte» trae ~800 pedidos muertos (medido en prod el 2026-11-23) y pintarlos todos traba el
+             desplazamiento. El paginador existe SIEMPRE y se esconde solo con 50 filas o menos
+             (alwaysShowPaginator=false): activarlo en caliente dejaba «1–1 de 1» con 120 filas en la lista
+             —PrimeNG no recalcula totalRecords al encenderlo—, medido en pantalla viva el 2026-11-23.
+             La del día (15 hoy) se sigue viendo entera y la maqueta aprobada no cambia. -->
+        <p-table #tabla [value]="lista()" selectionMode="single" dataKey="folio" size="small" [rowHover]="true"
+                 [paginator]="true" [rows]="50" [alwaysShowPaginator]="false"
                  currentPageReportTemplate="{first}–{last} de {totalRecords}" [showCurrentPageReport]="true"
                  class="surf-table surf-table--plain surf-table--sticky dt-stack" (onRowSelect)="abrir($any($event).data)">
           <ng-template #header>
@@ -318,6 +320,11 @@ export function esperaDe(p: PedidoPorAutorizar): string {
     /* La negativa no lleva el color de acción (Von Restorff): se distingue, no compite. */
     .pa-rechazar { --p-button-outlined-primary-color: var(--bad-soft-fg); }
     .pa-acciones { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+    /* Con el dedo, la decisión y «Siguiente pedido» tienen que ser alcanzables: medido en un iPhone 13
+       emulado el 2026-11-23, los botones daban 35 y 28 px de alto contra los 44 que pide el estándar. */
+    @media (pointer: coarse) {
+      .pa-acciones button, .pa-siguiente button { min-height: var(--tap-min, 44px); }
+    }
     .pa-siguiente { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: var(--sp-3); }
   `],
 })
@@ -348,6 +355,7 @@ export class FinanzasPorAutorizarComponent implements OnInit {
   /** Lo que contestó la última decisión, dentro del panel (el toast de afuera no llega a un lector dentro de un modal). */
   readonly resultado = signal('');
   private readonly campoMotivo = viewChild<ElementRef<HTMLTextAreaElement>>('campoMotivo');
+  private readonly tabla = viewChild<Table>('tabla');
 
   /** Se conserva para la plantilla y las pruebas que ya existían. */
   readonly verAparte = computed(() => this.vista() === 'aparte');
@@ -432,6 +440,12 @@ export class FinanzasPorAutorizarComponent implements OnInit {
 
   verLista(cual: string): void {
     this.vista.set(cual === 'aparte' || cual === 'decididos' ? cual : 'pendientes');
+    // Cambiar de lista vuelve a la primera página Y recalcula el total: sin esto el paginador se queda
+    // con el conteo de la lista anterior y publica «1–1 de 1» sobre 120 filas (medido en vivo, 2026-11-23).
+    // En PrimeNG 22 son signals (`ModelSignal`), no números: asignarlos directo compila con `ngc` y
+    // revienta en el bundle del dev server (TS2322), que fue quien lo cazó.
+    const t = this.tabla();
+    if (t) { t.first.set(0); t.totalRecords.set(this.lista().length); }
   }
 
   tituloVacio(): string {

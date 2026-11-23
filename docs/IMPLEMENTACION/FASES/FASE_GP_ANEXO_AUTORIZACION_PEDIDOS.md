@@ -456,11 +456,60 @@ accesibilidad se gana. Queda anotado para que lo arbitre el PM.
 | **Comprensión** | ✓ | diccionario versionado; cada frase dice lo que pasa en Kepler y lo que no |
 | **Sencillez** | 🟡 | una sola acción primaria, las condiciones plegadas; el panel sigue en ~6 controles y ~8 cifras visibles |
 | **Respeto** | ✓ | estado sucio, un clic = una escritura, edad del dato a la vista, y el error conserva lo tecleado. **INP NO MEDIDO** |
-| **Accesibilidad** | 🟠 | todo el texto pasa AA en claro y oscuro (lo más bajo, 5.00:1). **✗ el borde del campo** (`--border-color`: 1.27:1 claro, 1.19:1 oscuro; WCAG 1.4.11 pide 3) — es deuda de toda la suite, y con `pTextarea` lo pone el tema: se mide en pantalla viva. **NO MEDIDO**: `forced-colors`, 44 px en táctil, teclado real, zoom 400 %, reflujo a 320 px, lector de pantalla |
+| **Accesibilidad** | 🟠 | todo el texto pasa AA en claro y oscuro (lo más bajo, 5.00:1). **✗ el borde del campo**, medido en vivo: **1.48:1** en claro y **2.29:1** en oscuro, contra los 3:1 de WCAG 1.4.11 — es el borde de **todos** los campos de la suite (lo pone el tema), así que subirlo es una decisión de `tokens.css`: **queda para el PM**. Lo demás quedó medido en el nivel A (§3.6d); sigue **NO MEDIDO** un lector de pantalla real |
 
 **🟠 Pasa con deuda.** No hay ✗ en veracidad ni nada que pierda trabajo, así que **no bloquea**; lo de
-accesibilidad se cierra en la fase. ⛔ **Lo que sí falta antes de decir que el Paso 1 está listo es el nivel A**:
-ver la pantalla con datos, en claro y oscuro, recorrerla con teclado y medir el borde real del campo.
+accesibilidad se cierra en la fase.
+
+#### 3.6d Nivel A — la pantalla viva, con datos (2026-11-23)
+
+> **Autorizado por Edgar**: se levantó **sólo el servidor del frontend** (`nx serve view --port 4201`, ninguna
+> base de por medio) y se midió con Playwright, que respondía la bandeja con datos sembrados y **devolvía 403 a
+> toda petición que no fuera GET**: en esta medición no se escribió nada, en ningún lado. El guion arranca con
+> un control (que la pantalla pinte los pedidos sembrados) y **la primera corrida lo falló por una aserción mía**
+> —el rótulo se pinta en mayúsculas—, no por la pantalla: se corrigió el instrumento, no la medición.
+
+**Lo que el nivel A confirmó** (lo que el nivel C sólo podía suponer):
+
+| Qué | Medido |
+|---|---|
+| El campo en oscuro | fondo `#09090B`, texto `#FEFEFE` → **19.73:1**. El defecto de 1.04:1 quedó cerrado |
+| `aria-invalid` | nace en **`false`**; tras pulsar sin motivo pasa a `true`, **el foco entra al campo** y el error queda listado en `aria-describedby` |
+| Cerrar con algo escrito | `Esc` **pregunta**: «¿Descartar lo que capturaste? · El motivo que escribiste no se guarda.» |
+| Foco | queda **atrapado** en el panel y cicla campo → Autorizar → Rechazar → Siguiente → Cerrar → condiciones |
+| Alto Contraste de Windows | el campo conserva su borde y el botón toma los colores del sistema |
+| Reflujo | **sin scroll horizontal** a 390 px ni a 320 px; con el texto al 200 % nada se corta |
+| Celular | el campo sube a **16 px** (iOS no hace zoom solo) y la fila se apila a 152 px |
+| Marco | **354 px de 900** antes de la primera fila (39 %); 19 controles en la primera pantalla; el panel, 6 controles y 13 cifras |
+
+**Lo que el nivel A ENCONTRÓ, y el nivel C no podía ver:**
+
+| # | Capa | Qué estaba mal | Arreglo, ya verificado en vivo |
+|---|---|---|---|
+| 10 | **Veracidad** | El paginador que acababa de poner decía **«1–1 de 1» con 120 filas en la lista**: PrimeNG no recalcula `totalRecords` al cambiar de lista. Un rótulo que miente, introducido por la corrección nº 8 | El paginador existe siempre, se esconde solo con 50 filas o menos, y al cambiar de lista se le fija la página 1 y el total. Ahora dice **«1–50 de 120»**, y con la lista del día (1 fila) **no se ve** |
+| 11 | Accesibilidad | Con **puntero grueso** (iPhone 13 emulado), Autorizar y Rechazar medían **35 px** de alto y «Siguiente pedido» **28 px**, contra los **44** que pide el estándar. Los tokens suben las filas, no los botones de PrimeNG | `min-height: var(--tap-min)` en `@media (pointer: coarse)`. Los cuatro botones del panel miden ya **44 px** |
+| 12 | *(instrumento)* | **`ngc -p apps/view/tsconfig.app.json --noEmit` no vio un `TS2322`** del componente (`t.first = 0` donde PrimeNG 22 pide `t.first.set(0)`), y el bundle del dev server sí. **Control: el error se puso a propósito y `ngc` siguió dando 0 coincidencias.** Sospecha: con `"types": []` y `moduleResolution: bundler` el tipo de `Table` se resuelve como `any`. Pendiente para quien cuide las compuertas | se arregló el código; **el hueco del instrumento queda abierto y declarado** |
+
+⛔ **Dos notas de método, que valen más que los hallazgos:**
+
+1. El defecto 10 **lo introdujo una corrección de la auditoría anterior** y sólo se ve con la lista cargada. Es
+   el argumento de la skill en una línea: *auditar la plantilla no es auditar la pantalla*.
+2. Ya van **tres instrumentos** que dieron verde sobre algo roto en esta sola fase: `check:tokens` (sobre
+   cambios sin commitear), `check:pantalla` («tipa» no ve la plantilla) y ahora **`ngc --noEmit`**, que era
+   justamente el que la memoria del proyecto recomienda para lo que los otros dos no ven. El que sí los cazó
+   fue **el bundle del dev server** — el mismo builder que corre el CI.
+
+**El proceso, de punta a punta** (§5 paso 6, con el botón apretado y un guardado que falla): con el motivo
+escrito, Autorizar manda la decisión; el `POST` lo bloqueó el candado del propio guion (403) y la pantalla
+**conservó lo tecleado**, dijo el problema **dentro del panel** y dejó el botón vivo para reintentar.
+
+**Lo que sigue ✗ y es deuda de toda la suite, no de esta pantalla:** el **borde del campo**, medido en vivo —
+`#D4D4D8` sobre blanco da **1.48:1** en claro y `#52525B` sobre el panel **2.29:1** en oscuro, contra los 3:1 de
+WCAG 1.4.11. Es el borde de **todos** los campos de la suite (lo pone el tema de PrimeNG): subirlo es una
+decisión de `tokens.css`, no un parche de esta pantalla. **Queda para el PM.**
+
+**NO MEDIDO todavía:** lector de pantalla real (NVDA/JAWS), e **INP** — el número que salió (446 ms) incluye una
+espera del propio guion, así que no se puede citar.
 
 **Qué revisa Crédito y cobranza al autorizar a mano** (lo que el panel pone en «Para decidir», según el caso):
 
