@@ -5,6 +5,7 @@ import { Observable, of, throwError } from 'rxjs';
 import type { BandejaAutorizacion, DecisionVigente, PedidoPorAutorizar, ResultadoAutorizacion, ResultadoDecisionPedido } from '@megadulces/contracts';
 import { FinanzasPorAutorizarComponent, datoDe, etiquetaDe, fraseDe, hechosDe } from './finanzas-por-autorizar.component';
 import { AutorizacionPedidosService } from '../autorizacion-pedidos.service';
+import { CarteraService } from '../cartera.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 
@@ -35,8 +36,18 @@ const bandeja = (pendientes: PedidoPorAutorizar[], aparte: PedidoPorAutorizar[] 
 describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
   /** Lo que mandó el panel al servidor, para probar la decisión sin base. */
   let enviado: Array<{ sucursal: string; serie: number; folio: string; accion: string; motivo: string }>;
+  /** `[GP.A.5c]` A quién se le pidió el auxiliar: sirve para probar que NO se pide al abrir el panel. */
+  let detallePedido: Array<[string, string]>;
+  /** Dos facturas: una vencida vieja y una al corriente, para probar el orden. */
+  const DETALLE = {
+    hoy: '2026-11-23', saldo: 20_000, vencido: 12_000, partidas: [
+      { doc_label: 'Fac', folio: 'F-1', vencimiento: '2026-11-30', saldo_documento: 8_000, vencida: false, dias_vencido: null },
+      { doc_label: 'Fac', folio: 'F-2', vencimiento: '2026-08-14', saldo_documento: 12_000, vencida: true, dias_vencido: 101 },
+    ],
+  };
   function crear(b: BandejaAutorizacion, opts: { puede?: boolean; resultado?: ResultadoDecisionPedido } = {}) {
     enviado = [];
+    detallePedido = [];
     const api = {
       bandeja: () => of(b),
       decidir: (p: PedidoPorAutorizar, accion: string, motivo: string) => {
@@ -51,6 +62,13 @@ describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
         provideRouter([]),
         { provide: AutorizacionPedidosService, useValue: api },
         { provide: AuthService, useValue: { user: () => ({ permissions: {} }) } },
+        {
+          provide: CarteraService,
+          useValue: {
+            detalle: (s: string, c: string) => { detallePedido.push([s, c]); return of(DETALLE); },
+            estadoCuentaPdf: () => of(new Blob(['%PDF'], { type: 'application/pdf' })),
+          },
+        },
         { provide: PermissionsService, useValue: { isAdmin: () => true, has$: () => computed(() => opts.puede ?? true) } },
       ],
     });
@@ -227,6 +245,45 @@ describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
   it('negativo: sin la cifra en cero — si nadie decidió nada, no aparece la lista', () => {
     const f = crear(bandeja([ped('1', 'A', [])]));
     expect(f.componentInstance.cifras().map((x) => x.label)).not.toContain('Ya decididos');
+  });
+
+  // ── `[GP.A.5c]` El desglose: nada se pide al abrir el panel, todo al abrirlo ─────────────────
+  it('⭐ las facturas NO se piden al abrir el panel: sólo al abrir el desglose', () => {
+    const f = crear(bandeja([ped('1', 'A', [{ condicion: 3, texto: 'tiene vencido' }])]));
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
+    f.detectChanges();
+    expect(detallePedido).toEqual([]);          // ⛔ el control: abrir el panel no pide nada
+    expect(c.detalle()).toBeNull();
+
+    c.abrirFacturas(c.lista()[0], true);
+    expect(detallePedido).toEqual([['08', 'C1']]);
+    expect(c.detalle()?.partidas.length).toBe(2);
+    // Las vencidas primero, y entre ellas la más vieja arriba.
+    expect(c.facturas().map((x) => x.folio)).toEqual(['F-2', 'F-1']);
+  });
+
+  it('negativo: cerrar el desglose no vuelve a pedir, y el mismo cliente no se pide dos veces', () => {
+    const f = crear(bandeja([ped('1', 'A', [])]));
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
+    c.abrirFacturas(c.lista()[0], true);
+    c.abrirFacturas(c.lista()[0], false);
+    c.abrirFacturas(c.lista()[0], true);
+    expect(detallePedido).toHaveLength(1);
+  });
+
+  it('⭐ «Para decidir» arranca por lo vencido: es lo que más pesa y el corte es de 3 hechos', () => {
+    const p = ped('1', 'x', [{ condicion: 3, texto: 'tiene vencido' }], { otros_pedidos: 7_500 });
+    p.resultado.numeros.vencido_fuera_de_gracia = 83_552.8;
+    p.resultado.numeros.dias_vencido_max = 111;
+    expect(hechosDe(p)[0]).toBe('Debe $83,552.80 vencidos, lo más viejo de hace 111 días.');
+  });
+
+  it('negativo: sin vencido, «Para decidir» no inventa el hecho', () => {
+    const p = ped('1', 'x', []);
+    p.resultado.numeros.vencido_fuera_de_gracia = 0;
+    expect(hechosDe(p).some((h) => h.includes('vencidos'))).toBe(false);
   });
 
   it('⛔ sin el permiso no hay botones de decisión, y se dice dónde se hace', () => {

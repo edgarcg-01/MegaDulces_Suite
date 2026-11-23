@@ -15,6 +15,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CarteraSegmentsComponent } from '../cartera-segments.component';
+import { CarteraService, type CarteraDetalle } from '../cartera.service';
 import { AutorizacionPedidosService } from '../autorizacion-pedidos.service';
 
 /** Las condiciones de la regla, en el orden del anexo EA §3.1, como las lee Crédito y cobranza. */
@@ -58,6 +59,9 @@ export function fraseDe(p: PedidoPorAutorizar): string {
   return motivosDelCliente(p)[0]?.texto ?? 'cumple todo: se autorizaría solo con la autorización automática encendida';
 }
 
+/** Cuántas facturas se pintan en el panel: el resto está en el estado de cuenta. */
+const FACTURAS_EN_EL_PANEL = 12;
+
 const fmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
 export const dinero = (n: number) => fmt.format(n);
 
@@ -84,6 +88,14 @@ export function datoDe(p: PedidoPorAutorizar): string | null {
 export function hechosDe(p: PedidoPorAutorizar): string[] {
   const h: string[] = [];
   const pg = p.pago;
+  // `[GP.A.5c]` Lo vencido va PRIMERO: es lo que más pesa al decidir y la lista se corta a 3 hechos.
+  // Medido el 2026-11-23: de los 12 clientes que esperaban, 9 tenían TODO su saldo vencido y el panel
+  // no lo decía — salían el historial de pago y los otros pedidos, y lo vencido quedaba fuera del corte.
+  const venc = p.resultado.numeros.vencido_fuera_de_gracia;
+  const dias = p.resultado.numeros.dias_vencido_max;
+  if (venc != null && venc > 0) {
+    h.push(`Debe ${dinero(venc)} vencidos${dias ? `, lo más viejo de hace ${dias} días` : ''}.`);
+  }
   if (pg.facturas_pagadas > 0) {
     let t = `Pagó ${pg.facturas_pagadas} ${pg.facturas_pagadas === 1 ? 'factura' : 'facturas'}`;
     if (pg.mediana_dias != null) t += `; suele pagar a ${pg.mediana_dias} días` + (p.plazo_dias ? ` con plazo de ${p.plazo_dias}` : '');
@@ -223,6 +235,46 @@ export function esperaDe(p: PedidoPorAutorizar): string {
             </section>
           }
 
+          <!-- [GP.A.5c] Nada de esto se pide al abrir el panel: la llamada sale cuando la persona abre el
+               desglose (Edgar, 2026-11-23: «que al dar clic tenga la accesibilidad de ver esa información; lo
+               que evitamos es que al cargar la interfaz suelte mucha información»). -->
+          <details class="pa-detalles" (toggle)="abrirFacturas(p, $any($event.target).open)">
+            <summary>Ver sus facturas{{ p.saldo_cartera ? ' · ' + dinero(p.saldo_cartera) : '' }}</summary>
+            @if (cargandoDetalle()) {
+              <p class="pa-tenue">Buscando sus facturas…</p>
+            } @else if (errorDetalle()) {
+              <p class="pa-error"><i class="pi pi-exclamation-circle" aria-hidden="true"></i> {{ errorDetalle() }}</p>
+            } @else if (detalle(); as d) {
+              <p class="pa-tenue">
+                {{ d.partidas.length }} vivas · {{ dinero(d.saldo) }} de saldo
+                @if (d.vencido > 0) { · <strong>{{ dinero(d.vencido) }} vencido</strong> }
+              </p>
+              <table class="pa-facturas">
+                <caption class="sr-only">Facturas con saldo de {{ p.cliente_nombre || p.cliente }}</caption>
+                <thead>
+                  <tr><th scope="col">Documento</th><th scope="col">Vence</th><th scope="col" class="comm-num">Saldo</th><th scope="col" class="comm-num">Días</th></tr>
+                </thead>
+                <tbody>
+                  @for (f of facturas(); track f.folio) {
+                    <tr [class.pa-f-vencida]="f.vencida">
+                      <td>{{ f.doc_label }} {{ f.folio }}</td>
+                      <td>{{ f.vencimiento ?? 'sin fecha' }}</td>
+                      <td class="comm-num">{{ dinero(f.saldo_documento) }}</td>
+                      <td class="comm-num">{{ f.vencida && f.dias_vencido ? f.dias_vencido : '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              @if (facturasDeMas() > 0) {
+                <p class="pa-tenue">Y {{ facturasDeMas() }} más, de las más nuevas. El estado de cuenta las trae todas.</p>
+              }
+              <button pButton type="button" class="p-button-outlined p-button-sm" [disabled]="bajandoPdf()" (click)="verEstadoDeCuenta(p)">
+                <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
+                <span class="p-button-label">{{ bajandoPdf() ? 'Abriendo…' : 'Ver estado de cuenta' }}</span>
+              </button>
+            }
+          </details>
+
           <details class="pa-detalles">
             <summary>Ver las condiciones</summary>
             <ul class="pa-conds">
@@ -315,6 +367,13 @@ export function esperaDe(p: PedidoPorAutorizar): string {
     /* Fondo, borde y anillo de foco los pone pTextarea (el tema). Acá sólo el ancho y el alto mínimo. */
     .pa-motivo-input { width: 100%; resize: vertical; font-size: var(--fs-sm); }
     .pa-error { margin: 0; font-size: var(--fs-xs); color: var(--bad-soft-fg); display: flex; gap: var(--sp-1); align-items: center; }
+    .pa-facturas { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); margin: var(--sp-2) 0; }
+    .pa-facturas th { text-align: left; font-weight: 600; color: var(--text-muted); padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--border-color); }
+    .pa-facturas td { padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--border-color); }
+    .pa-facturas .comm-num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    /* Vencida: palabra y número lo dicen (la columna «Días»); el color no es el único portador. */
+    .pa-f-vencida td { color: var(--text-main); }
+    .pa-f-vencida .comm-num:last-child { color: var(--bad-soft-fg); font-weight: 600; }
     .pa-resultado:empty { display: none; }
     .pa-resultado { margin: 0; font-size: var(--fs-sm); color: var(--text-main); background: var(--surface-2); border-radius: var(--r-sm); padding: var(--sp-2) var(--sp-3); }
     /* La negativa no lleva el color de acción (Von Restorff): se distingue, no compite. */
@@ -333,6 +392,7 @@ export class FinanzasPorAutorizarComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly toast = inject(MessageService);
   private readonly permisos = inject(PermissionsService);
+  private readonly cartera = inject(CarteraService);
 
   readonly data = signal<BandejaAutorizacion | null>(null);
   readonly loading = signal(true);
@@ -354,6 +414,21 @@ export class FinanzasPorAutorizarComponent implements OnInit {
   readonly motivoInvalido = computed(() => this.intento() && !this.motivo().trim());
   /** Lo que contestó la última decisión, dentro del panel (el toast de afuera no llega a un lector dentro de un modal). */
   readonly resultado = signal('');
+  /** `[GP.A.5c]` El auxiliar del cliente, pedido SÓLO al abrir el desglose. */
+  readonly detalle = signal<CarteraDetalle | null>(null);
+  readonly cargandoDetalle = signal(false);
+  readonly errorDetalle = signal<string | null>(null);
+  readonly bajandoPdf = signal(false);
+  private pedidoDelDetalle = '';
+  /** Las vencidas primero y las más viejas arriba: es el orden en que se cobran. */
+  readonly facturas = computed(() => {
+    const d = this.detalle();
+    if (!d) return [];
+    return [...d.partidas]
+      .sort((a, b) => Number(b.vencida) - Number(a.vencida) || (a.vencimiento ?? '').localeCompare(b.vencimiento ?? ''))
+      .slice(0, FACTURAS_EN_EL_PANEL);
+  });
+  readonly facturasDeMas = computed(() => Math.max(0, (this.detalle()?.partidas.length ?? 0) - FACTURAS_EN_EL_PANEL));
   private readonly campoMotivo = viewChild<ElementRef<HTMLTextAreaElement>>('campoMotivo');
   private readonly tabla = viewChild<Table>('tabla');
 
@@ -452,6 +527,40 @@ export class FinanzasPorAutorizarComponent implements OnInit {
     if (this.vista() === 'aparte') return 'No hay pedidos viejos';
     if (this.vista() === 'decididos') return 'Todavía no se ha decidido ninguno';
     return 'Ningún pedido espera tu decisión';
+  }
+
+  /**
+   * `[GP.A.5c]` Trae el auxiliar del cliente **cuando se abre el desglose**, no antes, y una sola vez por
+   * pedido. Reusa `CarteraService.detalle` —el mismo que ya usa la ficha de Cartera—: la cifra del panel y
+   * la de la ficha salen de la misma lectura, no de dos.
+   */
+  abrirFacturas(p: PedidoPorAutorizar, abierto: boolean): void {
+    const llave = `${p.sucursal}|${p.cliente}`;
+    if (!abierto || (this.pedidoDelDetalle === llave && this.detalle())) return;
+    this.pedidoDelDetalle = llave;
+    this.detalle.set(null);
+    this.errorDetalle.set(null);
+    this.cargandoDetalle.set(true);
+    this.cartera.detalle(p.sucursal, p.cliente).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.detalle.set(d); this.cargandoDetalle.set(false); },
+      error: () => { this.errorDetalle.set('No se pudieron leer sus facturas.'); this.cargandoDetalle.set(false); },
+    });
+  }
+
+  /** `[GP.A.5c]` El documento como lo ve el cliente, desde donde se decide. El endpoint pide JWT: viaja como blob. */
+  verEstadoDeCuenta(p: PedidoPorAutorizar): void {
+    if (this.bajandoPdf()) return;
+    this.bajandoPdf.set(true);
+    this.cartera.estadoCuentaPdf(p.sucursal, p.cliente).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (blob) => {
+        this.bajandoPdf.set(false);
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank', 'noopener');
+        // Se suelta después de que el navegador lo abrió: revocarlo de inmediato deja la pestaña en blanco.
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      },
+      error: () => { this.bajandoPdf.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo', detail: 'No se pudo abrir el estado de cuenta.', life: 6000 }); },
+    });
   }
 
   /** `[GP.A.2]` La sucursal del pedido tiene encendida la escritura en Kepler (`kepler_push_switch`, tipo autorizacion). */
