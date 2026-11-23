@@ -3,12 +3,14 @@
  * Edgar, 2026-11-12: «después de una semana hay que quitar lo que no se haya pagado, pero dejar logs
  * de lo ocurrido».
  *
- * `[PGP.202]` **Ya no a la semana: al día siguiente de su día**, en cuanto los testigos lo permiten. Edgar,
- * 2026-11-23: «cuando una factura no se pagó y ya se pasó el día de pagos, quitémosla automáticamente pero
- * dejemos el registro». El día siguiente es el mínimo, no la fecha: el banco tiene que CUBRIR la ventana del
- * pago (hasta 3 días después de su día, o hasta hoy) para afirmar «no salió», así que en la práctica sale el día
- * en que la descarga lo confirma. Medido (prod, pagos ejecutados por el banco desde oct, 137): el dinero salió el
- * mismo día 120 veces, uno después 16 y dos después 1; ninguno más tarde. La ventana de 3 días los cubre a todos.
+ * `[PGP.202]` → `[PGP.204]` **La semana se queda.** El 2026-11-23 se bajó a un día (pedido de Edgar: «cuando una
+ * factura no se pagó y ya se pasó el día de pagos, quitémosla automáticamente pero dejemos el registro») y el mismo
+ * día se regresó, con la medición: de 225 pagos que SÍ se pagaron (1-oct a 20-nov), 4 salieron del banco por OTRO
+ * importe que el programado (dos parciales de ~$1M y ~$425k, uno junto con otra factura en un cheque, uno en efectivo
+ * de Caja General) y Tesorería los capturó en Kepler 3 a 6 días después de su día: ningún testigo los veía. Con un
+ * día se habrían liberado los 4 (y sus facturas, ofrecido otra vez); con 3, 2; con 6 o 7, ninguno. En 1 de cada 3
+ * pagos Tesorería captura en Kepler 5 o 6 días después. Lo que se quita al día siguiente es la VISTA del pago
+ * vencido (`[PGP.205]`), no el apartado de sus facturas.
  *
  * ── Por qué ────────────────────────────────────────────────────────────────────────────────
  * Un pago pendiente APARTA el saldo de sus facturas: mientras siga `pending`, la lista de deuda no
@@ -39,10 +41,11 @@
 import type { CierreKeplerPago } from './cierre-kepler.contract';
 
 /**
- * Días después del día programado a partir de los cuales un pago sin testigo se libera. `[PGP.202]` Era 7; ahora el
- * día siguiente. La espera que hace falta la pone la cobertura del banco (`banco_sin_medir`), no un reloj.
+ * Días después del día programado a partir de los cuales un pago sin testigo se libera. ⛔ `[PGP.204]` No bajarlo
+ * sin un testigo que vea el pago por OTRO importe (parcial, junto con otra factura, efectivo): con 1 día se habrían
+ * liberado 4 pagos ya pagados de 225 medidos; con 6 o 7, ninguno (Tesorería captura en Kepler hasta 6 días después).
  */
-export const DIAS_PARA_LIBERAR = 1;
+export const DIAS_PARA_LIBERAR = 7;
 /** Holgura del banco: el dinero puede salir unos días antes del día programado. */
 export const DIAS_ANTES_BANCO = 3;
 /** Tolerancia del importe del banco contra el del pago. */
