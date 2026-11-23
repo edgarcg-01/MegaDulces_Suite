@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — Finanzas › Cartera: la ficha del cliente, igual que su estado de cuenta (CXC.51 · 2026-11-23 · en código, sin soltar)
+- Las facturas van de la más reciente a la más antigua, como en el PDF que se le envía al cliente.
+- Una línea con el resumen del periodo elegido: saldo al inicio + facturado − cobros − notas y devoluciones = saldo en facturas. Lo que no cuadra se dice en ámbar.
+- Junto al saldo, el próximo vencimiento y cuánto vence ese día.
 ### Changed — El estado de cuenta del cliente se lee como el de un banco (CXC.50 · 2026-11-23 · en código, sin soltar)
 - Las facturas, abiertas y pagadas, van de la más reciente a la más antigua. Lo vencido sigue arriba, en la tarjeta «Vencido» y la antigüedad del saldo.
 - Nuevo «Resumen del periodo», como el de un estado de cuenta bancario: saldo al inicio + facturas del periodo − pagos recibidos − notas de crédito, devoluciones y ajustes = saldo de sus facturas al corte, y de ahí el saldo total. Sale de las mismas facturas y abonos, sin otra fuente; lo que no cuadra se imprime como «Diferencia sin explicar» y los abonos fechados después del corte van en su propio renglón.

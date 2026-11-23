@@ -473,13 +473,15 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
       cliente: { ...DET.cliente, vendedor: '501', vendedor_nombre: '501 Victor Manuel Zalapa Barri' },
       partidas: [
         PART('F-ABIERTA', {}),
-        PART('F-PAG-RECIENTE', { saldada: true, vencida: false, saldo_documento: 0, importe: 250, fecha: '2026-10-01', pagada_el: '2026-10-10' }),
-        PART('F-PAG-VIEJA', { saldada: true, vencida: false, saldo_documento: 0, importe: 999, fecha: '2026-03-01', pagada_el: '2026-03-20' }),
+        PART('F-PAG-RECIENTE', { saldada: true, vencida: false, saldo_documento: 0, importe: 250, fecha: '2026-10-01', pagada_el: '2026-10-10',
+          aplicaciones: [{ tipo: 'cobro', label: 'Cobro', folio: 'K1', fecha: '2026-10-10', monto: 250 }] }),
+        PART('F-PAG-VIEJA', { saldada: true, vencida: false, saldo_documento: 0, importe: 999, fecha: '2026-03-01', pagada_el: '2026-03-20',
+          aplicaciones: [{ tipo: 'cobro', label: 'Cobro', folio: 'K2', fecha: '2026-03-20', monto: 999 }] }),
       ],
     } as unknown as CarteraDetalle;
 
-    function armar(estadoCuentaPdf = vi.fn(() => NEVER)) {
-      detalle = vi.fn(() => of(D47));
+    function armar(estadoCuentaPdf = vi.fn(() => NEVER), datos: CarteraDetalle = D47) {
+      detalle = vi.fn(() => of(datos));
       const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: new Date().toISOString() }));
       configurar();
       TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
@@ -528,6 +530,26 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
       c.enviarAlVendedor(D47);
       // No es un contacto con el cliente: no se registra como tal.
       expect(registrarContacto).not.toHaveBeenCalled();
+    });
+
+    it('[CXC.50] como el PDF: la más nueva primero, el resumen del periodo y el próximo vencimiento', () => {
+      // La API las manda de la más vieja a la más nueva (ORDER BY fecha asc): así llegan aquí.
+      const { f, c } = armar(undefined, { ...D47, partidas: [...D47.partidas].reverse() } as CarteraDetalle);
+      c.verSaldadas.set(true);
+      f.detectChanges();
+      const txt = document.body.querySelector('.ct-det-table')?.textContent || '';
+      expect(txt.indexOf('F-ABIERTA')).toBeLessThan(txt.indexOf('F-PAG-RECIENTE'));
+      // inicial: F-PAG-VIEJA (999) pagada antes del periodo → 0; dentro: 100 + 250 facturado, 250 cobrado → 100.
+      expect(c.resumenEC()).toMatchObject({ desde: '2026-08-17', inicial: 0, facturado: 350, n_facturas: 2, cobros: 250, n_cobros: 1, saldo_facturas: 100, diferencia: 0 });
+      const r = () => document.body.querySelector('[data-testid="resumen-periodo"]')?.textContent?.replace(/\s+/g, ' ') || '';
+      expect(r()).toContain('Al 2026-08-17');
+      expect(r()).toContain('− cobros (1)');
+      expect(r()).not.toContain('sin explicar');
+      expect(document.body.querySelector('[data-testid="prox-vence"]')).toBeNull(); // la única abierta ya venció
+      // Con «toda la historia» no hay saldo anterior: se dice con «—», no con un cero.
+      c.periodoEC.set('todo');
+      f.detectChanges();
+      expect(r()).toContain('Desde el inicio —');
     });
 
     it('al cliente con un periodo que no es el de su enlace, el mensaje lleva la liga de ese periodo', () => {

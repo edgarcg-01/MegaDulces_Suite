@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
-import { MESES_ESTADO_CUENTA_POR_DEFECTO, pagadaEnPeriodo, restarMeses } from '@megadulces/contracts';
+import { MESES_ESTADO_CUENTA_POR_DEFECTO, masNuevaPrimero, pagadaEnPeriodo, proximoVencimiento, restarMeses, resumenPeriodo } from '@megadulces/contracts';
 import { esc, htmlAPdf, money } from '../shared/chromium-pdf';
 import { CustomerLedgerService } from './customer-ledger.service';
 import { CustomerDepositsService } from '../collection-deposits/customer-deposits.service';
@@ -46,56 +46,6 @@ export function antiguedad(partidas: PartidaEC[]): { etiqueta: string; monto: nu
     t[i].monto = Math.round((t[i].monto + p.saldo_documento) * 100) / 100;
   }
   return t;
-}
-
-export interface ResumenPeriodoEC {
-  /** `null` = el periodo abarca todo el registro: no hay saldo anterior que declarar. */
-  inicial: number | null;
-  facturado: number; n_facturas: number;
-  cobros: number; n_cobros: number;
-  notas: number; n_notas: number;
-  /** El saldo de las facturas al corte (suma de `saldo_documento`), el que sale de Kepler. */
-  saldo_facturas: number;
-  /** Abonos que Kepler fecha DESPUÉS del corte (medido: un cliente de la sucursal 02 con 14-dic-2026, año mal
-   *  capturado). Ya bajaron el saldo, así que se restan con su nombre en vez de quedar «sin explicar». */
-  posteriores: number; n_posteriores: number;
-  /** inicial + facturado − cobros − notas − posteriores − saldo_facturas. Cero cuando todo cuadra; si no, se imprime. */
-  diferencia: number;
-}
-
-/**
- * `[CXC.50]` El resumen del periodo, como el de un estado de cuenta bancario: saldo al inicio + lo facturado −
- * lo pagado = el saldo al corte. Se DERIVA de las facturas y sus aplicaciones de Kepler (`kdm5`), sin otra fuente:
- * medido en prod el 2026-11-23, 21,574 de 21,575 facturas cumplen `saldo = importe − sus aplicaciones`, y con el
- * periodo de 3 meses cuadran 1,607 de 1,609 clientes (uno trae abonos fechados después del corte —van en su
- * renglón— y otro una factura de $0 con $17,100 aplicados). Lo que no cuadre sale en `diferencia`, nunca se
- * reparte en silencio. Cobros (cobro, cobro CFDI) aparte de notas de crédito, devoluciones y ajustes.
- */
-export function resumenPeriodo(partidas: PartidaEC[], hoy: string, desde: string | null): ResumenPeriodoEC {
-  const r2 = (n: number) => Math.round(n * 100) / 100;
-  const antes = (f?: string | null) => desde != null && !!f && f < desde;
-  const dentro = (f?: string | null) => !!f && (desde == null || f >= desde) && f <= hoy;
-  let inicial = 0, facturado = 0, cobros = 0, notas = 0, posteriores = 0, nF = 0, nC = 0, nN = 0, nP = 0, saldo = 0;
-  for (const p of partidas) {
-    saldo += Number(p.saldo_documento) || 0;
-    if (antes(p.fecha)) inicial += p.importe;
-    else if (dentro(p.fecha) && p.importe) { facturado += p.importe; nF++; } // la de $0 (cancelada) no cuenta
-    for (const a of p.aplicaciones || []) {
-      const m = Number(a.monto) || 0;
-      if (antes(a.fecha)) inicial -= m;
-      else if (dentro(a.fecha)) {
-        if (a.tipo === 'cobro') { cobros += m; nC++; } else { notas += m; nN++; }
-      } else if (a.fecha && a.fecha > hoy) { posteriores += m; nP++; }
-    }
-  }
-  const out = {
-    inicial: desde == null ? null : r2(inicial), facturado: r2(facturado), n_facturas: nF,
-    cobros: r2(cobros), n_cobros: nC, notas: r2(notas), n_notas: nN, saldo_facturas: r2(saldo),
-    posteriores: r2(posteriores), n_posteriores: nP, diferencia: 0,
-  };
-  const d = r2((out.inicial ?? 0) + out.facturado - out.cobros - out.notas - out.posteriores - out.saldo_facturas);
-  out.diferencia = Math.abs(d) > 0.005 ? d : 0;
-  return out;
 }
 
 /**
@@ -200,17 +150,13 @@ export class EstadoCuentaClienteDocument {
     const c = det.cliente;
     // `[CXC.50]` La más NUEVA primero (Edgar, 2026-11-23: «debería ver sus facturas nuevas»). Lo vencido no se
     // pierde al fondo: lo dicen arriba la tarjeta «Vencido» y la antigüedad, y cada fila su «Vencida · N días».
-    const porFecha = (a: PartidaEC, b: PartidaEC) =>
-      String(b.fecha ?? '').localeCompare(String(a.fecha ?? '')) || b.folio_digital.localeCompare(a.folio_digital);
-    const abiertas = det.partidas.filter((p) => !p.saldada).sort(porFecha);
+    // El orden, el resumen y el próximo vencimiento viven en `@megadulces/contracts`: la ficha de Cartera usa los mismos.
+    const abiertas = det.partidas.filter((p) => !p.saldada).sort(masNuevaPrimero);
     // `[CXC.47]` Las pagadas del periodo, con lo que las pagó: el cliente ve también lo que ya quedó saldado.
-    const pagadas = det.partidas.filter((p) => pagadaEnPeriodo(p, desde)).sort(porFecha);
+    const pagadas = det.partidas.filter((p) => pagadaEnPeriodo(p, desde)).sort(masNuevaPrimero);
     const rp = resumenPeriodo(det.partidas, det.hoy, desde);
     // Como la «fecha límite de pago» de una tarjeta: el siguiente vencimiento y cuánto vence ese día.
-    const proxVence = abiertas.filter((p) => !p.vencida && p.vencimiento).map((p) => p.vencimiento as string).sort()[0] ?? null;
-    const montoProx = proxVence
-      ? Math.round(abiertas.filter((p) => !p.vencida && p.vencimiento === proxVence).reduce((s, p) => s + p.saldo_documento, 0) * 100) / 100
-      : 0;
+    const prox = proximoVencimiento(det.partidas);
     const totPagado = Math.round(pagadas.reduce((s, p) => s + p.importe, 0) * 100) / 100;
     // Cada cobro o nota que Kepler aplicó a la factura, debajo de ella: «todo a detalle» (Edgar, 2026-11-20).
     const subfilas = (p: PartidaEC, cols: number) => (p.aplicaciones || []).map((a) => {
@@ -328,7 +274,7 @@ tr.apl td{padding:.6mm 1.5mm .6mm 5mm;border-bottom:1px dotted var(--line);font-
   <div class="${det.vencido > 0 ? 'bad' : ''}"><div class="l">Vencido</div><div class="v">${money(det.vencido)}</div>
     <div class="s">${nVencidas} factura${nVencidas === 1 ? '' : 's'}</div></div>
   <div><div class="l">Por vencer</div><div class="v">${money(porVencer)}</div>
-    ${proxVence ? `<div class="s">Próximo vencimiento: ${fechaCorta(proxVence)} · ${money(montoProx)}</div>` : ''}</div>
+    ${prox ? `<div class="s">Próximo vencimiento: ${fechaCorta(prox.fecha)} · ${money(prox.monto)}</div>` : ''}</div>
   ${det.saldo_a_favor > 0 ? `<div><div class="l">Saldo a su favor</div><div class="v">${money(det.saldo_a_favor)}</div></div>` : ''}
 </div>
 <h2>Resumen del periodo</h2>

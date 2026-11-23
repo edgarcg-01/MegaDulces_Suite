@@ -1977,6 +1977,13 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       «con fecha posterior al corte») y uno de la 00 con una factura de $0 y $17,100 aplicados («Diferencia sin
       explicar», impresa). (3) «Próximo vencimiento: fecha · monto» en la tarjeta «Por vencer». Pruebas 24/24; dos mutantes
       (orden ascendente; no restar los abonos previos) en rojo. Sin validación visual del PDF.
+- [ ] **[CXC.51]** 🧪 (en código, sin soltar) **Lo mismo en la ficha de Cartera que ve Crédito y Cobranza** (Edgar,
+      2026-11-23: «hagamos lo mismo con lo que ve crédito y cobranza»). Facturas de la más NUEVA a la más vieja, línea
+      «Resumen del periodo» (mismo periodo que el PDF) y «próx. vence fecha · monto» junto al saldo. ⭐ El resumen, el
+      orden y el próximo vencimiento pasan a `@megadulces/contracts` (`resumenPeriodo`, `masNuevaPrimero`,
+      `proximoVencimiento`) y el PDF los importa de ahí: UNA función, lo que Crédito ve es lo que el cliente recibe
+      (ADR-056). Pruebas: PDF 24/24, contrato 3/3, ficha 40/40; mutante (sin el orden en la ficha) en rojo; `ngc` 0
+      errores; `check:pantalla` 0 fallas nuevas. Sin validación visual.
 - [ ] **[CC.21.1]** 🧪 **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
 - [x] **[CC.21.1]** ✅ (en prod el 2026-11-18, `bbd1d0131`) **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
       · **Aviso en vivo al llegar el banco, sin migración:** Bancos ya emite `pg_notify('bancos_movimientos')` al cargar el

@@ -1,5 +1,6 @@
 import 'reflect-metadata';
-import { antiguedad, EstadoCuentaClienteDocument, resolverDesde, resumenPeriodo, type DetalleEC } from './estado-cuenta-cliente.document';
+import { resumenPeriodo } from '@megadulces/contracts';
+import { antiguedad, EstadoCuentaClienteDocument, resolverDesde, type DetalleEC } from './estado-cuenta-cliente.document';
 import { FinanceCustomerLedgerModule } from './finance-customer-ledger.module';
 import { CustomerLedgerController } from './customer-ledger.controller';
 import { CustomerLedgerService } from './customer-ledger.service';

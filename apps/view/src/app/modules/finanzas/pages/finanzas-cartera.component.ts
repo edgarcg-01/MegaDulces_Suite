@@ -38,7 +38,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CarteraSegmentsComponent } from '../cartera-segments.component';
 import { mensajeEstadoCuenta, mensajeVendedor, pdfPublicoDelEnlace, type PeriodoMensaje } from '../estado-cuenta-mensaje';
-import { MESES_ESTADO_CUENTA_POR_DEFECTO, PERIODOS_ESTADO_CUENTA, dateFromDelPeriodo, pagadaEnPeriodo, type PeriodoEstadoCuenta } from '@megadulces/contracts';
+import { MESES_ESTADO_CUENTA_POR_DEFECTO, PERIODOS_ESTADO_CUENTA, dateFromDelPeriodo, masNuevaPrimero, pagadaEnPeriodo, proximoVencimiento, resumenPeriodo, type PeriodoEstadoCuenta } from '@megadulces/contracts';
 import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarPdf } from '../../../shared/util/abrir-pdf';
 import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 
@@ -407,6 +407,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
             <span>Saldo <b>{{ money(det.saldo) }}</b></span>
             @if (det.vencido > 0) { <span class="ct-venc-num">Vencido <b>{{ money(det.vencido) }}</b></span> }
             @if (det.saldo_a_favor > 0) { <span class="ct-favor">A favor <b>{{ money(det.saldo_a_favor) }}</b></span> }
+            @if (proxVence(); as pv) { <span class="muted" data-testid="prox-vence">próx. vence <b>{{ pv.fecha }}</b> · {{ money(pv.monto) }}</span> }
             @if (det.dias_pago_prom != null) { <span class="muted" [title]="det.n_pagos + ' facturas pagadas'">paga a <b>{{ det.dias_pago_prom }}d</b></span> }
             <!-- [CXC.47] Edgar, 2026-11-20: el estado de cuenta muestra pagadas y no pagadas, y se elige el tiempo. El
                  periodo recorta SÓLO las pagadas (las abiertas salen todas) y es el mismo para esta tabla, el PDF y
@@ -424,6 +425,19 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
               <span class="muted" data-testid="sin-pagadas">Sin pagadas en el periodo</span>
             }
           </div>
+          <!-- [CXC.50] Edgar, 2026-11-23: lo que ve Crédito, igual que el estado de cuenta del cliente: el resumen del
+               periodo como el de un banco, con la misma función que el PDF (lo que se ve es lo que se envía). -->
+          @if (resumenEC(); as r) {
+            <p class="ct-resumen" data-testid="resumen-periodo">
+              <span class="muted">{{ r.desde ? 'Al ' + r.desde : 'Desde el inicio' }}</span> {{ r.inicial == null ? '—' : money(r.inicial) }}
+              <span class="muted">+ facturado ({{ r.n_facturas }})</span> {{ money(r.facturado) }}
+              <span class="muted">− cobros ({{ r.n_cobros }})</span> {{ money(r.cobros) }}
+              <span class="muted">− notas y devoluciones ({{ r.n_notas }})</span> {{ money(r.notas) }}
+              @if (r.posteriores) { <span class="ct-resumen-dif">− con fecha posterior al corte ({{ r.n_posteriores }}) {{ money(r.posteriores) }}</span> }
+              @if (r.diferencia) { <span class="ct-resumen-dif">· diferencia sin explicar {{ money(r.diferencia) }}</span> }
+              <span class="muted">=</span> <b>{{ money(r.saldo_facturas) }}</b> <span class="muted">en facturas</span>
+            </p>
+          }
           <!-- [CXC.48] Edgar, 2026-11-20: los teléfonos se corrigen aquí, donde se usan para enviar. El del cliente se
                escribe EN KEPLER, en cada sucursal donde está dado de alta (un cambio hecho en una sucursal no llega a
                las otras: medido); el del vendedor se guarda en la Suite (Kepler no tiene dónde). -->
@@ -804,6 +818,8 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-csv-aviso { display: flex; gap: .35rem; align-items: center; margin: 0 0 .75rem; font-size: var(--fs-xs); color: var(--text-muted); }
     .ct-det-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; font-size: .85rem; margin-bottom: .8rem; }
     .ct-det-saldos { display: flex; gap: 1rem; }
+    .ct-resumen { flex-basis: 100%; margin: .25rem 0 0; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+    .ct-resumen-dif { color: var(--warn-soft-fg); }
     .ct-det-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
     .ct-det-table th, .ct-det-table td { padding: .4rem .6rem; text-align: left; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
     .ct-det-table th { color: var(--text-muted); font-weight: 600; }
@@ -967,12 +983,24 @@ export class FinanzasCarteraComponent implements OnInit {
   });
   readonly importePagadoPeriodo = computed(() =>
     Math.round(this.pagadasPeriodo().reduce((s, p) => s + p.importe, 0) * 100) / 100);
+  /** `[CXC.50]` La más NUEVA primero, como el PDF que se le envía al cliente (la misma regla, de contracts). */
   readonly partidasVisibles = computed(() => {
     const p = this.detalle()?.partidas || [];
-    if (!this.verSaldadas()) return p.filter((x) => !x.saldada);
+    if (!this.verSaldadas()) return p.filter((x) => !x.saldada).sort(masNuevaPrimero);
     const pagadas = new Set(this.pagadasPeriodo());
-    return p.filter((x) => !x.saldada || pagadas.has(x));
+    return p.filter((x) => !x.saldada || pagadas.has(x)).sort(masNuevaPrimero);
   });
+  /**
+   * `[CXC.50]` El resumen del periodo, el mismo del PDF: saldo al inicio + facturado − cobros − notas = saldo de las
+   * facturas al corte. Lo que no cuadra (abonos fechados después del corte, diferencia sin explicar) se dice.
+   */
+  readonly resumenEC = computed(() => {
+    const det = this.detalle();
+    const df = this.dateFromEC();
+    if (!det || !df) return null;
+    return { ...resumenPeriodo(det.partidas, det.hoy, df === 'todo' ? null : df), desde: df === 'todo' ? null : df };
+  });
+  readonly proxVence = computed(() => proximoVencimiento(this.detalle()?.partidas || []));
   /** El periodo elegido, para los mensajes: su nombre y la liga pública al PDF de ESE periodo. */
   readonly periodoMensaje = computed<PeriodoMensaje | null>(() => {
     const df = this.dateFromEC();
