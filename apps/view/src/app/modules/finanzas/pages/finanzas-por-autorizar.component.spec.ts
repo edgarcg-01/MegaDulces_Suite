@@ -21,6 +21,7 @@ const ped = (folio: string, nombre: string, motivos: ResultadoAutorizacion['moti
   cliente: 'C' + folio, cliente_nombre: nombre, es_contado: false, ruta_vecinal: false, importe: 18_420.5, resultado: res(motivos),
   limite: 25_000, plazo_dias: 15, por_cobrar_kepler: 12_760.9, saldo_cartera: 12_760.9, otros_pedidos: 0,
   pago: { facturas_pagadas: 23, mediana_dias: 14, a_tiempo: 20, peor_atraso: 16 },
+  otros_pedidos_detalle: [],
   decision: null,
   ...o,
 });
@@ -40,7 +41,14 @@ describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
   let detallePedido: Array<[string, string]>;
   /** Dos facturas: una vencida vieja y una al corriente, para probar el orden. */
   const DETALLE = {
-    hoy: '2026-11-23', saldo: 20_000, vencido: 12_000, saldo_a_favor: 0, partidas: [
+    hoy: '2026-11-23', saldo: 20_000, vencido: 12_000, saldo_a_favor: 0,
+    cliente: { telefono: '3511234567', cliente_nombre: 'A', limite_credito: 25_000 },
+    abonos: [
+      { doc_label: 'Pago', folio: 'P-9', fecha: '2026-10-02', importe: 5_000 },
+      { doc_label: 'Pago', folio: 'P-8', fecha: '2026-09-11', importe: 3_000 },
+    ],
+    compromisos: [],
+    partidas: [
       { doc_label: 'Fac', folio: 'F-1', folio_digital: 'UD0801-1', fecha: '2026-11-15', vencimiento: '2026-11-30', saldo_documento: 8_000, vencida: false, saldada: false, dias_vencido: null, aplicaciones: [] },
       { doc_label: 'Fac', folio: 'F-2', folio_digital: 'UD0801-2', fecha: '2026-07-30', vencimiento: '2026-08-14', saldo_documento: 12_000, vencida: true, saldada: false, dias_vencido: 101, aplicaciones: [] },
     ],
@@ -282,6 +290,71 @@ describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
     expect(liga.textContent).toContain('Ver su estado de cuenta completo');
     // El botón del PDF salió del panel: con él se fue el window.open que abrir-pdf documenta como bloqueado.
     expect(Array.from(el(f).querySelectorAll('button')).some((b) => /pdf|estado de cuenta/i.test(b.textContent ?? ''))).toBe(false);
+  });
+
+  // ── `[GP.A.5d]` Todo lo que pidió Crédito, de la MISMA llamada y sólo al abrir cada bloque ───
+  it('⭐ lo vencido por antigüedad sale de las partidas ya leídas, y los tramos vacíos no se pintan', () => {
+    const f = crear(bandeja([ped('1', 'A', [])]));
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
+    c.abrirFacturas(c.lista()[0], true);
+    // F-2 lleva 101 días vencida ($12,000); F-1 está al corriente. Sólo el tramo «más de 90» tiene algo.
+    expect(c.aging()).toEqual([{ rotulo: 'más de 90', alto: true, monto: 12_000 }]);
+  });
+
+  it('⭐ los últimos pagos, los más nuevos primero, y lo que no cabe se dice', () => {
+    const f = crear(bandeja([ped('1', 'A', [])]));
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
+    c.abrirFacturas(c.lista()[0], true);
+    expect(c.abonos().map((x) => x.folio)).toEqual(['P-9', 'P-8']);
+    expect(c.abonosDeMas()).toBe(0);
+  });
+
+  it('⛔ sin promesa de pago NO se inventa: la tabla está vacía en toda la base y el panel lo dice', () => {
+    const f = crear(bandeja([ped('1', 'A', [])]));
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
+    c.abrirFacturas(c.lista()[0], true);
+    f.detectChanges();
+    expect(c.compromiso()).toBeNull();
+    expect(el(f).textContent).toContain('Sin promesa de pago registrada');
+  });
+
+  it('el teléfono se ve sin abrir nada, para llamarle antes de decidir', () => {
+    const f = crear(bandeja([ped('1', 'A', [])]));
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
+    c.abrirFacturas(c.lista()[0], true);
+    f.detectChanges();
+    expect(c.telefono()).toBe('3511234567');
+    expect(el(f).textContent).toContain('3511234567');
+  });
+
+  it('⭐ los otros pedidos se abren con su folio: ya viajaban en la bandeja, sin llamada nueva', () => {
+    const f = crear(bandeja([ped('1', 'A', [], {
+      otros_pedidos: 7_500,
+      otros_pedidos_detalle: [
+        { serie: 1, folio: '0001900', fecha: '2026-11-20', importe: 5_000 },
+        { serie: 1, folio: '0001880', fecha: '2026-11-12', importe: 2_500 },
+      ],
+    })]));
+    const c = f.componentInstance;
+    c.abrir(c.lista()[0]);
+    f.detectChanges();
+    const t = el(f).textContent ?? '';
+    expect(t).toContain('Sus otros pedidos sin facturar');
+    expect(t).toContain('0001900');
+    expect(t).toContain('$5,000.00');
+    // ⛔ Y no se pidió nada para mostrarlos.
+    expect(detallePedido).toEqual([]);
+  });
+
+  it('negativo: sin otros pedidos, el bloque no existe', () => {
+    const f = crear(bandeja([ped('1', 'A', [])]));
+    f.componentInstance.abrir(f.componentInstance.lista()[0]);
+    f.detectChanges();
+    expect(el(f).textContent).not.toContain('Sus otros pedidos sin facturar');
   });
 
   it('negativo: cerrar el desglose no vuelve a pedir, y el mismo cliente no se pide dos veces', () => {

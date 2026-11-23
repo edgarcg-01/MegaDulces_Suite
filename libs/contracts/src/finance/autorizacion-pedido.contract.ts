@@ -327,6 +327,11 @@ export interface PedidoPorAutorizar {
   /** Lo que el cliente debe según la cartera de la Suite; la diferencia con Kepler va al panel («lo que Kepler no dice»). */
   saldo_cartera: number | null;
   otros_pedidos: number | null;
+  /**
+   * `[GP.A.5d]` Cuáles son esos otros pedidos. Ya se leían para sumarlos; se publican para que el total se
+   * pueda abrir (Edgar, 2026-11-23: la información completa, pero sólo cuando la pidan).
+   */
+  otros_pedidos_detalle: { serie: number; folio: string; fecha: string; importe: number }[];
   pago: PagoDelCliente;
   /**
    * `[GP.A.4b]` La última decisión de la Suite sobre ESTE pedido que sigue en pie. `null` = nadie decidió aquí

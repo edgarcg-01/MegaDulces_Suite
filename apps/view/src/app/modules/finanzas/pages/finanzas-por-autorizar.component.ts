@@ -62,6 +62,8 @@ export function fraseDe(p: PedidoPorAutorizar): string {
 
 /** Cuántas facturas se pintan en el panel: el resto está en el estado de cuenta. */
 const FACTURAS_EN_EL_PANEL = 12;
+/** Y cuántos de sus últimos pagos: lo demás está en su estado de cuenta. */
+const ABONOS_EN_EL_PANEL = 6;
 
 const fmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
 export const dinero = (n: number) => fmt.format(n);
@@ -225,6 +227,10 @@ export function esperaDe(p: PedidoPorAutorizar): string {
             @if (diferencia(p); as dif) {
               <p class="pa-nota">Kepler cuenta {{ dinero(dif) }} más que la cartera de la Suite. Suelen ser facturas de ticket sin abono aplicado.</p>
             }
+            <!-- El teléfono no se pliega: es un dato de una línea y sirve para llamarle antes de decidir. -->
+            @if (telefono(); as tel) {
+              <p class="pa-tenue">Teléfono en {{ p.sucursal_nombre }}: <span class="pa-tel">{{ tel }}</span></p>
+            }
           </section>
 
           @if (hechos(p).length) {
@@ -270,6 +276,14 @@ export function esperaDe(p: PedidoPorAutorizar): string {
                   }
                 </tbody>
               </table>
+              @if (aging(); as ag) {
+                <p class="pa-aging">
+                  <span class="sr-only">Lo vencido por antigüedad: </span>
+                  @for (t of ag; track t.rotulo) {
+                    <span class="pa-tramo" [class.pa-tramo--alto]="t.alto">{{ t.rotulo }} <b>{{ dinero(t.monto) }}</b></span>
+                  }
+                </p>
+              }
               <!-- El estado de cuenta completo se VE, no se descarga: la ficha del cliente es el estado de
                    cuenta en pantalla (CXC.50/CXC.51) y abre en este cliente por el enlace profundo de CXC.26.
                    El PDF vive allá, que es donde se usa para enviárselo al cliente. -->
@@ -280,6 +294,50 @@ export function esperaDe(p: PedidoPorAutorizar): string {
               </a>
             }
           </details>
+
+          <!-- Los dos bloques salen del MISMO detalle que las facturas: abrirlos no pide nada nuevo. -->
+          @if ((p.pago.facturas_pagadas > 0) || detalle()) {
+            <details class="pa-detalles" (toggle)="abrirFacturas(p, $any($event.target).open)">
+              <summary>Cómo ha pagado{{ p.pago.facturas_pagadas ? ' · ' + p.pago.facturas_pagadas + ' facturas' : '' }}</summary>
+              @if (detalle(); as d) {
+                @if (d.abonos.length) {
+                  <table class="pa-facturas">
+                    <caption class="sr-only">Sus últimos pagos</caption>
+                    <thead><tr><th scope="col">Pago</th><th scope="col">Fecha</th><th scope="col" class="comm-num">Monto</th></tr></thead>
+                    <tbody>
+                      @for (a of abonos(); track a.folio) {
+                        <tr><td>{{ a.doc_label }} {{ a.folio }}</td><td>{{ a.fecha ?? 'sin fecha' }}</td><td class="comm-num">{{ dinero(a.importe) }}</td></tr>
+                      }
+                    </tbody>
+                  </table>
+                  @if (abonosDeMas() > 0) { <p class="pa-tenue">Y {{ abonosDeMas() }} pagos más, en su estado de cuenta.</p> }
+                } @else {
+                  <p class="pa-tenue">No tiene pagos registrados en la cartera.</p>
+                }
+                @if (compromiso(); as c) {
+                  <p class="pa-nota">Prometió pagar {{ dinero(c.monto) }} el {{ c.fecha }}{{ c.estado ? ' · ' + c.estado : '' }}.</p>
+                } @else {
+                  <p class="pa-tenue">Sin promesa de pago registrada. Se registran en la ficha del cliente.</p>
+                }
+              } @else if (cargandoDetalle()) { <p class="pa-tenue">Buscando sus pagos…</p> }
+            </details>
+          }
+
+          @if ((p.otros_pedidos ?? 0) > 0) {
+            <details class="pa-detalles">
+              <summary>Sus otros pedidos sin facturar · {{ dinero(p.otros_pedidos ?? 0) }}</summary>
+              <table class="pa-facturas">
+                <caption class="sr-only">Otros pedidos del cliente que todavía no se facturan</caption>
+                <thead><tr><th scope="col">Pedido</th><th scope="col">Fecha</th><th scope="col" class="comm-num">Importe</th></tr></thead>
+                <tbody>
+                  @for (o of p.otros_pedidos_detalle; track o.folio) {
+                    <tr><td>{{ o.folio }}</td><td>{{ o.fecha }}</td><td class="comm-num">{{ dinero(o.importe) }}</td></tr>
+                  }
+                </tbody>
+              </table>
+              <p class="pa-tenue">Cuentan contra su crédito aunque Kepler todavía no los facture.</p>
+            </details>
+          }
 
           <details class="pa-detalles">
             <summary>Ver las condiciones</summary>
@@ -377,6 +435,10 @@ export function esperaDe(p: PedidoPorAutorizar): string {
     .pa-facturas th { text-align: left; font-weight: 600; color: var(--text-muted); padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--border-color); }
     .pa-facturas td { padding: var(--sp-1) var(--sp-2); border-bottom: 1px solid var(--border-color); }
     .pa-ec { margin-bottom: var(--sp-2); }
+    .pa-aging { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin: 0 0 var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
+    .pa-tramo b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-main); font-weight: 600; }
+    .pa-tramo--alto b { color: var(--bad-soft-fg); }
+    .pa-tel { font-family: var(--font-mono); }
     .pa-mal-num { color: var(--bad-soft-fg); }
     .pa-ec-liga { display: inline-flex; gap: var(--sp-1); align-items: center; font-size: var(--fs-sm); color: var(--action); text-decoration: none; }
     .pa-ec-liga:hover, .pa-ec-liga:focus-visible { text-decoration: underline; }
@@ -440,6 +502,38 @@ export class FinanzasPorAutorizarComponent implements OnInit {
   readonly facturasDeMas = computed(() => Math.max(0, (this.detalle()?.partidas.length ?? 0) - FACTURAS_EN_EL_PANEL));
   /** El siguiente vencimiento de lo que está al corriente, con la misma función que la ficha y el PDF. */
   readonly proximo = computed(() => { const d = this.detalle(); return d ? proximoVencimiento(d.partidas) : null; });
+  /**
+   * `[GP.A.5d]` Lo vencido repartido por antigüedad, de las mismas partidas que ya se leyeron. Sólo los
+   * tramos que tienen algo: un tramo en cero no es información, es un renglón más que leer.
+   */
+  readonly aging = computed(() => {
+    const d = this.detalle();
+    if (!d) return null;
+    const tramos = [
+      { rotulo: '1 a 30 días', desde: 1, hasta: 30, alto: false },
+      { rotulo: '31 a 60', desde: 31, hasta: 60, alto: false },
+      { rotulo: '61 a 90', desde: 61, hasta: 90, alto: true },
+      { rotulo: 'más de 90', desde: 91, hasta: Infinity, alto: true },
+    ];
+    const r = tramos.map((t) => ({
+      rotulo: t.rotulo, alto: t.alto,
+      monto: Math.round(d.partidas
+        .filter((x) => x.vencida && x.dias_vencido != null && x.dias_vencido >= t.desde && x.dias_vencido <= t.hasta)
+        .reduce((s, x) => s + x.saldo_documento, 0) * 100) / 100,
+    })).filter((t) => t.monto > 0);
+    return r.length ? r : null;
+  });
+  /** Sus últimos pagos, los más nuevos primero. */
+  readonly abonos = computed(() => {
+    const d = this.detalle();
+    if (!d) return [];
+    return [...d.abonos].sort((a, b) => String(b.fecha ?? '').localeCompare(String(a.fecha ?? ''))).slice(0, ABONOS_EN_EL_PANEL);
+  });
+  readonly abonosDeMas = computed(() => Math.max(0, (this.detalle()?.abonos.length ?? 0) - ABONOS_EN_EL_PANEL));
+  /** La promesa de pago vigente, si la hay. ⚠️ Medido el 2026-11-23: la tabla está VACÍA en toda la base. */
+  readonly compromiso = computed(() => this.detalle()?.compromisos?.[0] ?? null);
+  /** El teléfono del cliente en esta sucursal, para llamarle antes de decidir (CXC.48). */
+  readonly telefono = computed(() => this.detalle()?.cliente?.telefono ?? null);
   private readonly campoMotivo = viewChild<ElementRef<HTMLTextAreaElement>>('campoMotivo');
   private readonly tabla = viewChild<Table>('tabla');
 

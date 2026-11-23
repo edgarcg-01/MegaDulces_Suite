@@ -151,10 +151,10 @@ export function armarBandeja(l: LecturaBandeja, p: ParametrosAutorizacion): Band
     // Los OTROS pedidos abiertos del cliente de los últimos `abiertosHorizonteDias` (no `pedidoViejoDias`: un
     // AUTORIZADO sin surtir de hace una semana sí compromete crédito): un pedido muerto de hace meses no le come el crédito
     // a uno nuevo (Kepler tampoco los suma; los viejos se listan aparte, condición 7).
-    const otros = (abiertosPor.get(k) ?? [])
+    const otrosPedidos = (abiertosPor.get(k) ?? [])
       .filter((a) => !(a.serie === x.serie && a.folio === x.folio))
-      .filter((a) => { const d = diasDesde(a.fecha, l.hoy); return d != null && d <= p.abiertosHorizonteDias; })
-      .reduce((s, a) => s + a.importe, 0);
+      .filter((a) => { const d = diasDesde(a.fecha, l.hoy); return d != null && d <= p.abiertosHorizonteDias; });
+    const otros = otrosPedidos.reduce((s, a) => s + a.importe, 0);
     const suyas = facturasPor.get(k) ?? [];
     const vivas: FacturaDelCliente[] = suyas.filter((f) => f.saldo > SALDO_CERO)
       .map((f) => ({ saldo: f.saldo, importe: f.importe, vencimiento: f.vencimiento }));
@@ -188,6 +188,10 @@ export function armarBandeja(l: LecturaBandeja, p: ParametrosAutorizacion): Band
       por_cobrar_kepler: x.por_cobrar,
       saldo_cartera: Math.round(vivas.reduce((s, f) => s + f.saldo, 0) * 100) / 100,
       otros_pedidos: Math.round(otros * 100) / 100,
+      // `[GP.A.5d]` Los mismos que suman arriba, para que el total se pueda abrir. Del más nuevo al más viejo.
+      otros_pedidos_detalle: otrosPedidos
+        .map((a) => ({ serie: a.serie, folio: a.folio.trim(), fecha: a.fecha, importe: a.importe }))
+        .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.folio.localeCompare(a.folio)),
       pago: pagoDelCliente(suyas, x.plazo),
       decision: decisionPor.get(`${x.sucursal}|${x.serie}|${x.folio.trim()}`) ?? null,
     };
