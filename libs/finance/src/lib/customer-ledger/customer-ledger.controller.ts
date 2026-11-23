@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, TenantContextService, requestOrigin } from '@megadulces/platform-core';
 import type { RequestConCabeceras } from '@megadulces/platform-core';
 import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
+import type { VentaVendedorResp } from '@megadulces/contracts';
 // ⚠️ `import type`: con `emitDecoratorMetadata` + `isolatedModules`, un tipo usado en la firma de
 // un método decorado tiene que entrar así o el compilador lo rechaza (TS1272).
 import type { PorDiaResp, ContactoRegistrado } from './customer-ledger.service';
@@ -56,8 +57,11 @@ export class CustomerLedgerController {
     @Query('search') search?: string,
     @Query('sort') sort?: 'saldo' | 'vencido',
     @Query('limit') limit?: string,
+    /** `[CXC.53]` El periodo del Resumen (venta, DSO, pago): AAAA-MM-DD; sin ellos, los últimos 90 días. */
+    @Query('period_from') period_from?: string,
+    @Query('period_to') period_to?: string,
   ) {
-    const q: CarteraQuery = { sucursal, cliente, vendedor, grupo, zona, cuenta, from, to, incluir_saldados, search, sort, limit: limit ? Number(limit) : undefined };
+    const q: CarteraQuery = { sucursal, cliente, vendedor, grupo, zona, cuenta, from, to, incluir_saldados, search, sort, limit: limit ? Number(limit) : undefined, period_from, period_to };
     return this.svc.cartera(q);
   }
 
@@ -108,7 +112,7 @@ export class CustomerLedgerController {
   @Get('venta-vendedor')
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
   @ApiOperation({ summary: 'Venta facturada en Kepler por (sucursal, vendedor) entre date_from y date_to (AAAA-MM-DD, hasta 366 días).' })
-  ventaVendedor(@Query('date_from') dateFrom?: string, @Query('date_to') dateTo?: string) {
+  ventaVendedor(@Query('date_from') dateFrom?: string, @Query('date_to') dateTo?: string): Promise<VentaVendedorResp> {
     return this.svc.ventaVendedor({ date_from: dateFrom, date_to: dateTo });
   }
 

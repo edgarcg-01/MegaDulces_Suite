@@ -8,7 +8,7 @@ import {
   FRESHNESS_UNKNOWN,
   skusDeCodigoDeBarras,
 } from '@megadulces/platform-core';
-import type { Freshness } from '@megadulces/contracts';
+import type { Freshness, VentaVendedorResp } from '@megadulces/contracts';
 import { RESTO_TOLERADO, SALDO_CERO } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 
@@ -65,6 +65,9 @@ export interface CarteraQuery {
   search?: string;
   sort?: 'saldo' | 'vencido'; // priorización: default saldo; 'vencido' = cola de cobranza
   limit?: number;
+  /** `[CXC.53]` El periodo del Resumen (venta, DSO, pago). AAAA-MM-DD; sin ellos, los últimos 90 días. */
+  period_from?: string;
+  period_to?: string;
 }
 
 interface Bucket { por_vencer: number; d0_30: number; d31_60: number; d61_90: number; d90_plus: number; }
@@ -156,6 +159,18 @@ export const VENTA_VENDEDOR_MAX_DIAS = 366;
  * mal escrito, el rango al revés, el que pasa de hoy y el de más de `VENTA_VENDEDOR_MAX_DIAS` días.
  */
 export function rangoVentaVendedor(hoy: string, dateFrom?: string | null, dateTo?: string | null): { desde: string; hasta: string } {
+  return rangoPeriodo(hoy, dateFrom, dateTo, VENTA_VENDEDOR_DIAS);
+}
+
+/** `[CXC.53]` El periodo del Resumen de Cartera sin fechas: 90 días, la base con la que nació el DSO. */
+export const RESUMEN_PERIODO_DIAS = 90;
+
+/**
+ * `[CXC.53]` Un periodo AAAA-MM-DD validado; sin fechas, los últimos `porDefectoDias` días hasta hoy. La MISMA regla
+ * para la venta por vendedor y para el Resumen: lo mal escrito, al revés, posterior a hoy o de más de
+ * `VENTA_VENDEDOR_MAX_DIAS` días se rechaza. Lo que devuelve es seguro para ir como literal `DATE '…'` en un SQL.
+ */
+export function rangoPeriodo(hoy: string, dateFrom: string | null | undefined, dateTo: string | null | undefined, porDefectoDias: number): { desde: string; hasta: string } {
   const valida = (v: string, campo: string) => {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
     const d = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
@@ -167,7 +182,7 @@ export function rangoVentaVendedor(hoy: string, dateFrom?: string | null, dateTo
   const to = (dateTo ?? '').trim();
   const from = (dateFrom ?? '').trim();
   const hasta = to ? valida(to, 'date_to') : valida(hoy, 'hoy');
-  const desde = from ? valida(from, 'date_from') : new Date(hasta.getTime() - (VENTA_VENDEDOR_DIAS - 1) * dia);
+  const desde = from ? valida(from, 'date_from') : new Date(hasta.getTime() - (porDefectoDias - 1) * dia);
   if (iso(hasta) > hoy) throw new BadRequestException(`date_to (${iso(hasta)}) es posterior a hoy (${hoy}).`);
   if (desde > hasta) throw new BadRequestException(`date_from (${iso(desde)}) es posterior a date_to (${iso(hasta)}).`);
   const dias = Math.round((hasta.getTime() - desde.getTime()) / dia) + 1;
@@ -456,8 +471,12 @@ export class CustomerLedgerService {
    * éste. Lo más caro de la pirámide es el `jsonb_agg` de `aplicaciones`, que **sólo usa el
    * drill** y la lista paga en cada request.
    */
-  private async agregado(trx: Knex.Transaction, tenantId: string, q: CarteraQuery, fuente?: FuenteCartera): Promise<Record<string, any>> { // eslint-disable-line @typescript-eslint/no-explicit-any -- fila cruda del SQL; ya era any
+  private async agregado(trx: Knex.Transaction, tenantId: string, q: CarteraQuery, fuente?: FuenteCartera, periodo?: { desde: string; hasta: string }): Promise<Record<string, any>> { // eslint-disable-line @typescript-eslint/no-explicit-any -- fila cruda del SQL; ya era any
     const rel = (fuente ?? (await this.fuenteCartera(trx))).rel;
+    // `[CXC.53]` El periodo del Resumen como literales: ya los validó `rangoPeriodo` (AAAA-MM-DD que existe), así que
+    // no pueden inyectar nada, y no mueven el orden de los `?` de abajo. Sin periodo, los 90 días de siempre.
+    const pDesde = periodo ? `DATE '${periodo.desde}'` : `(h.d - ${RESUMEN_PERIODO_DIAS - 1})`;
+    const pHasta = periodo ? `DATE '${periodo.hasta}'` : 'h.d';
     // Dos juegos de filtros: el de la pantalla y el MISMO sin el tipo de cuenta. El segundo
     // alimenta `por_tipo_universo` (ver abajo); sus binds se repiten en su lugar del SQL.
     const cond: string[] = [];
@@ -571,7 +590,8 @@ export class CustomerLedgerService {
           count(*) FILTER (WHERE ${PARTIDA_RESTO_SQL})::int AS n_restos,
           round(avg(d.dias_pago) FILTER (WHERE d.dias_pago IS NOT NULL), 1) AS dias_pago_prom,
           count(d.dias_pago)::int AS n_pagos,
-          round(COALESCE(sum(d.importe) FILTER (WHERE d.fecha >= h.d - 90), 0), 2) AS ventas_90d
+          -- [CXC.53] Lo facturado a crédito EN EL PERIODO del Resumen (antes, fijo: 90 días).
+          round(COALESCE(sum(d.importe) FILTER (WHERE d.fecha BETWEEN ${pDesde} AND ${pHasta}), 0), 2) AS ventas_periodo
         FROM sel d CROSS JOIN h GROUP BY 1, 2
       ),
       vend AS (
@@ -604,7 +624,8 @@ export class CustomerLedgerService {
             'promedio', round(avg(d.dias_pago)::numeric, 1),
             'mediana', round(percentile_cont(0.5) WITHIN GROUP (ORDER BY d.dias_pago)::numeric, 1),
             'tarde_30d', count(*) FILTER (WHERE d.dias_pago > 30)::int)
-           FROM sel d WHERE d.dias_pago IS NOT NULL) AS pago,
+           -- [CXC.53] Las facturas que se TERMINARON de pagar en el periodo (fecha + días de pago), no toda la historia.
+           FROM sel d CROSS JOIN h WHERE d.dias_pago IS NOT NULL AND d.fecha + d.dias_pago BETWEEN ${pDesde} AND ${pHasta}) AS pago,
         COALESCE((SELECT jsonb_agg(jsonb_build_object(
             'sucursal', v.sucursal, 'code', v.vendedor, 'nombre', n.nombre,
             'saldo', v.saldo, 'vencido', v.vencido, 'n_clientes', v.n_clientes))
@@ -660,7 +681,9 @@ export class CustomerLedgerService {
     return this.tk.run(async (trx) => {
       // [CXC.21] UNA decisión de fuente para toda la respuesta: la tabla por evento o la vista.
       const fuente = await this.fuenteCartera(trx);
-      const a = await this.agregado(trx, tenantId, q, fuente);
+      // [CXC.53] El periodo del Resumen (venta, DSO, pago), validado ANTES de tocar la pirámide.
+      const periodo = rangoPeriodo(await this.hoy(trx), q.period_from, q.period_to, RESUMEN_PERIODO_DIAS);
+      const a = await this.agregado(trx, tenantId, q, fuente, periodo);
       const freshness = await this.freshness(trx, fuente);
       const contactos = await this.ultimosContactos(trx, tenantId);
       const hoy: string = a.hoy;
@@ -697,7 +720,7 @@ export class CustomerLedgerService {
         // El "a favor" se cuenta ANTES del corte: son clientes con saldo 0 que la tabla no lista,
         // y si se contaran después el KPI diría 0 justo cuando hay dinero del cliente sin aplicar.
         if (saldo_a_favor > 0.005) { kpi.total_a_favor += saldo_a_favor; kpi.n_a_favor += 1; }
-        ventas90 += M2(g.ventas_90d);
+        ventas90 += M2(g.ventas_periodo);
 
         if (saldo <= 0.005 && q.incluir_saldados !== '1') continue;
 
@@ -769,15 +792,19 @@ export class CustomerLedgerService {
       const topCli = porCliente.sort((x, y) => y.saldo - x.saldo);
       const top10 = topCli.slice(0, 10).map((c) => ({ ...c, saldo: r2(c.saldo) }));
       const top10Suma = top10.reduce((s, c) => s + c.saldo, 0);
-      const ventasDiarias = ventas90 / 90;
+      // [CXC.53] El DSO divide entre los días DEL PERIODO elegido (antes, 90 fijos).
+      const diasPeriodo = Math.round((Date.parse(periodo.hasta) - Date.parse(periodo.desde)) / 86400000) + 1;
+      const ventasDiarias = ventas90 / diasPeriodo;
 
       const resumen = {
         hoy,
+        /** `[CXC.53]` Lo que sigue al periodo: la venta, el DSO y el pago. El resto es foto de HOY. */
+        periodo: { desde: periodo.desde, hasta: periodo.hasta, dias: diasPeriodo },
         saldo_total: kpi.total_saldo, vencido_total: kpi.total_vencido,
         pct_vencido: kpi.total_saldo > 0 ? Math.round((kpi.total_vencido / kpi.total_saldo) * 1000) / 10 : 0,
         // DSO sobre venta a CRÉDITO (lo único que engorda esta cartera), no sobre la venta total.
         dso: ventasDiarias > 0 ? Math.round(kpi.total_saldo / ventasDiarias) : null,
-        ventas_90d: r2(ventas90), n_clientes: kpi.n_clientes,
+        ventas_periodo: r2(ventas90), n_clientes: kpi.n_clientes,
         pago: a.pago && Number(a.pago.n) > 0
           ? {
               n: Number(a.pago.n),
@@ -939,7 +966,7 @@ export class CustomerLedgerService {
    * escrita, un rango al revés, uno que termina después de hoy o uno de más de `VENTA_VENDEDOR_MAX_DIAS` días: un
    * periodo que cayera en silencio en el default daría una cifra que nadie pidió.
    */
-  async ventaVendedor(q: { date_from?: string; date_to?: string }) {
+  async ventaVendedor(q: { date_from?: string; date_to?: string }): Promise<VentaVendedorResp> {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const hoy = await this.hoy(trx);

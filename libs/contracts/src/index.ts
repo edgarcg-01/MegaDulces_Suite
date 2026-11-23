@@ -120,6 +120,7 @@ export * from './http/proveedor-selector.contract';
 export * from './http/deuda-programable.contract';
 export * from './http/warehouse-orders.contract';
 export * from './http/autoabasto-pedido.contract';
+export * from './http/autoabasto-ordenes';
 // [AB.27] La mesa de Autoabasto sobre la cuenta única del renglón.
 export * from './http/autoabasto-mesa.contract';
 // [AB.40] El motor único de cantidad (tope de 45 días) para Autoabasto y Compras.
@@ -188,7 +189,7 @@ export * from './http/revision-gps.contract';
 export * from './http/cierre-viaje.contract';
 // [FCU] Costo por unidad: lo que hacía la hoja «TRANSPORTES 2026», con pantalla.
 export * from './http/costo-unidad.contract';
-// [FCT] El viaje TM: venta de Kepler + costo capturado en Logística (la hoja «RENTABILIDAD TLMKT»).
+// [FCT] El viaje TM: venta de Kepler + costo del cierre de Logística (la hoja «RENTABILIDAD TLMKT»).
 export * from './http/tlmk-viajes.contract';
 // [EMB.56] La guía de reparto: la hoja de ruta del chofer, sin importes.
 export * from './http/guia-reparto.contract';
@@ -246,6 +247,7 @@ export * from './finance/importe-con-letra';
 export * from './finance/cheque-impreso';
 // `[PGP.118]` Anticipos a proveedor: el submódulo de Deuda con proveedores.
 export * from './finance/anticipos.contract';
+export * from './finance/venta-vendedor.contract';
 // `[PGP.155]` A una cuenta sin CLABE se transfiere sólo desde una cuenta nuestra del mismo banco.
 export * from './finance/mismo-banco.contract';
 // `[PGP.157]` Dónde se entrega el efectivo, y el anticipo autorizado que Caja General tiene por entregar.
