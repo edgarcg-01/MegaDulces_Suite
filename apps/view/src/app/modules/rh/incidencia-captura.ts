@@ -5,9 +5,10 @@
  * misma captura se use desde el renglón del día en la ficha de la persona, sin salir de ella (como en Mega Talento):
  * una sola regla de qué pide cada tipo, no dos copias.
  *
- * ⚠️ Lo que se propone por día (`sugerenciasDelDia`) es un ORDEN de opciones, no una regla: el servidor valida igual y la
- * persona elige. Es una propuesta de desarrollo para probarla con RH; la equivalencia con los nombres de Mega Talento
- * («Tráfico», «Cita médica», «Personal», «No registrada») está pendiente con RH (D1).
+ * Lo que se propone por día (`sugerenciasDelDia`) es un ORDEN de opciones, no una regla: el servidor valida igual y la
+ * persona elige. `[RH.18.3]` Lo contestó RH (D1, 2026-11-23): qué tipo usan para lo que en Mega Talento era «Tráfico»,
+ * «Cita médica», «Personal» y «No registrada» (lo más frecuente; según el caso puede cambiar), y que el tipo NO venga
+ * elegido: lo eligen ellas.
  */
 import type { HrCapturaIncidenciaBody, HrDiaAsistencia } from '@megadulces/contracts';
 import { hoyEnMexico } from './rh.service';
@@ -41,8 +42,8 @@ export const notaObligatoria = (tipo: string): boolean => tipo in NOTA_OBLIGATOR
 export const etiquetaNota = (tipo: string): string => NOTA_OBLIGATORIA[tipo] ?? 'Nota (folio, motivo)';
 export const conAutorizacion = (tipo: string): boolean => CON_AUTORIZACION.has(tipo);
 
-/** Un formulario vacío: la persona y el día, si se saben; el tipo, el que se pida (Vacaciones, el de siempre). */
-export function formNuevo(persona = '', desde = '', tipo = 'vacaciones'): FormCaptura {
+/** Un formulario vacío: la persona y el día, si se saben. `[RH.18.3]` Sin tipo: lo elige RH (antes arrancaba en Vacaciones). */
+export function formNuevo(persona = '', desde = '', tipo = ''): FormCaptura {
   return {
     person_code: persona, incident_type: tipo, date_from: desde || hoyEnMexico(), date_to: '',
     note: '', horas: '', entrada: '', reason: '', authorized_by_name: '', deliver: false, minutos: '',
@@ -83,16 +84,29 @@ export function cuerpoCaptura(f: FormCaptura, site: string): HrCapturaIncidencia
   };
 }
 
-const AUSENCIA = ['permiso_con_goce', 'permiso_sin_goce', 'vacaciones', 'incapacidad', 'falta_injustificada'];
-const POR_VENIR = ['vacaciones', 'permiso_con_goce', 'permiso_sin_goce', 'descanso', 'cambio_descanso'];
+/**
+ * `[RH.18.3]` Cómo le dicen RH a cada tipo en Mega Talento (D1, 2026-11-23): se muestra junto al tipo y se encuentra
+ * tecleándolo. «Tráfico» → Horario distinto · «Cita médica» → Incapacidad · «Personal» → Permiso sin goce · «No
+ * registrada» (vino y no checó) → Otros.
+ */
+export const COMO_LE_DICEN: Readonly<Record<string, string>> = {
+  horario_distinto: 'tráfico', incapacidad: 'cita médica', permiso_sin_goce: 'personal', otros: 'no registrada',
+};
+/** La etiqueta con su nombre de Mega Talento, si tiene: «Incapacidad · cita médica». */
+export const etiquetaConAlias = (tipo: string, etiqueta: string): string => (COMO_LE_DICEN[tipo] ? `${etiqueta} · ${COMO_LE_DICEN[tipo]}` : etiqueta);
+
+const AUSENCIA = ['permiso_sin_goce', 'incapacidad', 'otros', 'vacaciones', 'permiso_con_goce', 'falta_injustificada'];
+const POR_VENIR = ['vacaciones', 'permiso_sin_goce', 'permiso_con_goce', 'descanso', 'cambio_descanso'];
 
 /**
- * `[RH.18.1]` Los tipos que tienen sentido para ESE día, el más probable primero. Sólo ordena: los 19 siguen a un clic.
- *  · no vino (falta, sin dato, sin checadas que medir) → permisos, vacaciones, incapacidad, falta injustificada;
+ * `[RH.18.1]` Los tipos que tienen sentido para ESE día, el más usado primero. Sólo ordena: los 19 siguen a un clic.
+ * `[RH.18.3]` Con lo que contestó RH (D1):
+ *  · no vino (falta, sin dato, sin checadas que medir) → permiso sin goce («personal»), incapacidad («cita médica»),
+ *    otros («no registrada»: vino y no checó), vacaciones, permiso con goce, falta injustificada;
  *  · un día que no ha llegado → vacaciones, permisos, descanso;
- *  · una sola checada → horario distinto (la otra hora la pone RH);
+ *  · una sola checada → otros («no registrada»), horario distinto;
  *  · se pasó de la comida o del desayuno → comida / desayuno distintos;
- *  · llegó tarde o salió antes → horario distinto, uso de horas extra, permiso;
+ *  · llegó tarde o salió antes → horario distinto («tráfico»), otros, permiso sin goce;
  *  · descanso → cambio de descanso, visita fuera;
  *  · un día normal → horario distinto, visita fuera, uso de horas extra.
  */
@@ -100,13 +114,13 @@ export function sugerenciasDelDia(d: HrDiaAsistencia | undefined, fecha: string,
   if (!d) return fecha > hoy ? POR_VENIR : AUSENCIA;
   switch (d.estado) {
     case 'falta': case 'sin_dato': return AUSENCIA;
-    case 'marca_faltante': return ['horario_distinto', 'permiso_con_goce', 'otros'];
+    case 'marca_faltante': return ['otros', 'horario_distinto'];
     case 'descanso': return ['cambio_descanso', 'visita_fuera', 'otros'];
     case 'justificado': return ['otros', 'horario_distinto'];
     default: {
       if ((d.comidaExcesoMin ?? 0) > 0) return ['comida_distinta', 'horario_distinto', 'horas_extra'];
       if ((d.desayunoExcesoMin ?? 0) > 0) return ['desayuno_distinto', 'horario_distinto', 'horas_extra'];
-      if ((d.atrasoMin ?? 0) > 0 || (d.salidaAntesMin ?? 0) > 0) return ['horario_distinto', 'horas_extra', 'permiso_con_goce'];
+      if ((d.atrasoMin ?? 0) > 0 || (d.salidaAntesMin ?? 0) > 0) return ['horario_distinto', 'otros', 'permiso_sin_goce'];
       return ['horario_distinto', 'visita_fuera', 'horas_extra'];
     }
   }
@@ -119,18 +133,19 @@ const hhmm = (h: string | null | undefined): string => {
 };
 
 /**
- * `[RH.18.1]` El formulario de un día: la persona y la fecha puestas, el tipo más probable ya elegido y, para corregir en
- * vez de teclear, lo que checó ese día: entrada, salida y comida para «Horario distinto», y los minutos que tomó para
- * «Comida / Desayuno distintos». ⛔ Con una sola checada no se adivina si fue entrada o salida: se deja vacío.
+ * `[RH.18.1]` El formulario de un día: la persona y la fecha puestas y, para corregir en vez de teclear, lo que checó ese
+ * día: entrada, salida y comida para «Horario distinto», y los minutos que tomó para «Comida / Desayuno distintos».
+ * `[RH.18.3]` El tipo NO viene elegido (lo eligen ellas, D1). ⛔ Con una sola checada no se adivina si fue entrada o
+ * salida: se deja vacío.
  */
-export function formDelDia(persona: string, fecha: string, d: HrDiaAsistencia | undefined, hoy: string, tipos: string[]): FormCaptura {
-  const sug = sugerenciasDelDia(d, fecha, hoy).filter((t) => !tipos.length || tipos.includes(t));
-  const f = formNuevo(persona, fecha, sug[0] ?? 'vacaciones');
+export function formDelDia(persona: string, fecha: string, d: HrDiaAsistencia | undefined): FormCaptura {
+  const f = formNuevo(persona, fecha);
   if (!d || d.estado === 'marca_faltante') return f;
   f.entrada = hhmm(d.entrada);
   f.salida = hhmm(d.salida);
   if (d.comidaMin != null) f.comidaDia = String(d.comidaMin);
-  if (f.incident_type === 'comida_distinta' && d.comidaMin != null) f.minutos = String(d.comidaMin);
-  if (f.incident_type === 'desayuno_distinto' && d.desayunoMin != null) f.minutos = String(d.desayunoMin);
+  // Los minutos de la pausa que se pasó (la comida antes que el desayuno): sirven si eligen «Comida / Desayuno distintos».
+  if ((d.comidaExcesoMin ?? 0) > 0 && d.comidaMin != null) f.minutos = String(d.comidaMin);
+  else if ((d.desayunoExcesoMin ?? 0) > 0 && d.desayunoMin != null) f.minutos = String(d.desayunoMin);
   return f;
 }

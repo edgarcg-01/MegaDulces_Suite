@@ -736,8 +736,8 @@ export class RhAsistenciaComponent {
   soloEsta(p: HrPersonaAsistencia): void { this.cerrar(); this.est.verSolo(p.codigo); }
 
   /**
-   * `[RH.18.1]` (E1) La incidencia se captura AQUÍ, debajo del día, sin salir de la ficha: la persona y la fecha puestas, los
-   * tipos de ese día arriba y el más probable ya elegido. Antes cerraba la ficha y abría el panel de Incidencias, que
+   * `[RH.18.1]` (E1) La incidencia se captura AQUÍ, debajo del día, sin salir de la ficha: la persona y la fecha puestas y los
+   * tipos de ese día arriba (`[RH.18.3]` sin elegir: lo eligen ellas). Antes cerraba la ficha y abría el panel de Incidencias, que
    * arrancaba en Vacaciones. Sin día (el botón de abajo): hoy, si está en el periodo; si no, el primer día.
    * Tocar el mismo día otra vez la cierra.
    */
@@ -757,7 +757,7 @@ export class RhAsistenciaComponent {
   private abrirCaptura(p: HrPersonaAsistencia, fecha: string): void {
     const d = diasPorFecha(p).get(fecha);
     const hoy = this.est.hoy();
-    const form = formDelDia(p.codigo, fecha, d, hoy, this.tiposInc().map((t) => t.tipo));
+    const form = formDelDia(p.codigo, fecha, d);
     this.capturaForm.set(form);
     this.captura.set({ codigo: p.codigo, fecha, sugeridos: sugerenciasDelDia(d, fecha, hoy), deLoChecado: !!form.entrada });
   }

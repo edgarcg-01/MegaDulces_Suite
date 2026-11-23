@@ -7,7 +7,7 @@ import { ButtonModule } from 'primeng/button';
 import type { HrIncidenciaDto, HrTipoIncidenciaDto } from '@megadulces/contracts';
 import { RhService, rhError } from '../rh.service';
 import { firmaHoras, horasTexto } from '../reporte-formato';
-import { type FormCaptura, conAutorizacion, cuerpoCaptura, deUnDia, etiquetaNota, notaObligatoria } from '../incidencia-captura';
+import { type FormCaptura, conAutorizacion, cuerpoCaptura, deUnDia, etiquetaConAlias, etiquetaNota, notaObligatoria } from '../incidencia-captura';
 
 interface GrupoTipos { label: string; items: HrTipoIncidenciaDto[]; }
 
@@ -16,10 +16,11 @@ interface GrupoTipos { label: string; items: HrTipoIncidenciaDto[]; }
  * la ficha de la persona, debajo del renglón del día (E1: sin salir de la ficha, como en Mega Talento).
  *
  * Las cinco preguntas (`diseno` §0b):
- *  1. Qué ve: el tipo (desde el día: los que tienen sentido arriba, el más probable ya elegido), las fechas y sólo los
- *     campos que pide ESE tipo. Un botón principal: Guardar.
+ *  1. Qué ve: el tipo (desde el día: los que tienen sentido arriba; `[RH.18.3]` ninguno elegido, lo eligen ellas, y cada uno
+ *     con su nombre de Mega Talento), las fechas y sólo los campos que pide ESE tipo. Un botón principal: Guardar.
  *  2. Qué no ve: desde la ficha, el número de la persona (ya se sabe quién es: se dice su nombre).
- *  3. Accesibilidad: Enter guarda; «Horario distinto» llega con lo que checó ese día para corregir, no para teclear.
+ *  3. Accesibilidad: el tipo se busca tecleando (también «tráfico» o «personal»); Enter guarda; «Horario distinto» llega con
+ *     lo que checó ese día para corregir, no para teclear.
  *  4. Ligada a: el mismo endpoint y la misma calificación que el panel de Incidencias (lo capturado cuenta cuando lo
  *     califica otra persona, salvo que quien captura también califique y no la entregue).
  *  5. Le toca: capturar. Calificar y cerrar la semana siguen en el panel.
@@ -43,9 +44,10 @@ interface GrupoTipos { label: string; items: HrTipoIncidenciaDto[]; }
         <label>Tipo
           @if (grupos(); as g) {
             <p-select [options]="g" [group]="true" optionGroupLabel="label" optionGroupChildren="items" optionLabel="etiqueta" optionValue="tipo"
-                      name="tipo" [(ngModel)]="f.incident_type" appendTo="body" placeholder="Elige el tipo" ariaLabel="Tipo de incidencia" />
+                      [filter]="true" filterBy="etiqueta" name="tipo" [(ngModel)]="f.incident_type" appendTo="body" placeholder="Elige el tipo" ariaLabel="Tipo de incidencia" />
           } @else {
-            <p-select [options]="tipos()" optionLabel="etiqueta" optionValue="tipo" name="tipo" [(ngModel)]="f.incident_type" appendTo="body" placeholder="Elige el tipo" ariaLabel="Tipo de incidencia" />
+            <p-select [options]="conAlias()" optionLabel="etiqueta" optionValue="tipo" [filter]="true" filterBy="etiqueta"
+                      name="tipo" [(ngModel)]="f.incident_type" appendTo="body" placeholder="Elige el tipo" ariaLabel="Tipo de incidencia" />
           }
         </label>
         <label>Desde <input pInputText type="date" name="desde" [(ngModel)]="f.date_from" required /></label>
@@ -103,7 +105,8 @@ interface GrupoTipos { label: string; items: HrTipoIncidenciaDto[]; }
         }
         @if (error(); as e) { <p class="ci-ancho ci-error" role="alert">{{ e }}</p> }
         <div class="ci-btns">
-          <p-button type="submit" label="Guardar" [loading]="ocupado()" [disabled]="!site()" />
+          <!-- [RH.18.3] Sin tipo no se guarda: nada viene elegido, así que Guardar espera a que lo elijan. -->
+          <p-button type="submit" label="Guardar" [loading]="ocupado()" [disabled]="!site() || !f.incident_type" />
           <p-button label="Cancelar" [text]="true" severity="secondary" [disabled]="ocupado()" (onClick)="cancelar()" />
         </div>
       </form>
@@ -153,9 +156,12 @@ export class RhCapturaIncidenciaComponent {
   readonly etiquetaNota = etiquetaNota;
   readonly conAutorizacion = conAutorizacion;
 
+  /** `[RH.18.3]` Cada tipo con su nombre de Mega Talento («Incapacidad · cita médica»): se ve y se encuentra tecleándolo. */
+  readonly conAlias = computed<HrTipoIncidenciaDto[]>(() => this.tipos().map((t) => ({ ...t, etiqueta: etiquetaConAlias(t.tipo, t.etiqueta) })));
+
   /** Con sugeridos: «Para este día» arriba, «Todos los tipos» abajo. Sin ellos, la lista plana de siempre. */
   readonly grupos = computed<GrupoTipos[] | null>(() => {
-    const tipos = this.tipos();
+    const tipos = this.conAlias();
     const sug = this.sugeridos();
     const arriba = sug.map((s) => tipos.find((t) => t.tipo === s)).filter((t): t is HrTipoIncidenciaDto => !!t);
     if (!arriba.length) return null;
@@ -182,7 +188,7 @@ export class RhCapturaIncidenciaComponent {
   guardar(): void {
     const f = this.form();
     const site = this.site();
-    if (!f || !site || this.ocupado()) return;
+    if (!f || !site || !f.incident_type || this.ocupado()) return;
     this.ocupado.set(true);
     this.error.set(null);
     this.api.capturar(cuerpoCaptura(f, site)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({

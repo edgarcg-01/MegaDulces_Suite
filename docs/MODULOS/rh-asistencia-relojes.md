@@ -15,6 +15,13 @@ Y en la ficha, a quien tiene acceso a la Suite le **desaparecían** departamento
 | `RH.18.1` | Ficha → se cierra → panel de Incidencias → elegir tipo (empieza en Vacaciones) → teclear número y horas | «+ Incidencia» abre el formulario **debajo de ese día**, en la misma ficha: su nombre (no su número), ese día, y arriba «Para este día» con el tipo más probable ya elegido (falta → permiso; llegó tarde → horario distinto; se pasó de la comida → comida distinta; día que no ha llegado → vacaciones). «Horario distinto» llega con la entrada, salida y comida que **checó**, para corregir en vez de teclear. También en «solo esta persona». Guardar dice si ya cuenta y recalcula la semana |
 | `RH.18.2` | Con acceso: los tres campos no aparecían | «Tiene acceso a la Suite: su departamento, puesto y sucursal deciden lo que ve, por eso los cambia Sistemas en Administración › Personas», con liga a Personas sólo para quien la puede abrir (`USUARIOS_VER`) |
 
+| `RH.18.3` | El tipo más probable ya venía elegido; los nombres de Mega Talento no aparecían | RH contestó la D1 (2026-11-23): «Tráfico» → Horario distinto (o Otros) · «Cita médica» → Incapacidad · «Personal» → Permiso sin goce · «No registrada» (vino y no checó) → Otros; «según el caso cambia, pero ésas son las más frecuentes»; y el tipo **no** debe venir elegido: «prefieren elegirlo ellas». Ahora: **nada viene elegido** (tampoco en el panel, que arrancaba en Vacaciones) y Guardar espera al tipo; «Para este día» ordena con esas respuestas (no vino → Permiso sin goce, Incapacidad, Otros; llegó tarde → Horario distinto, Otros; una sola checada → Otros); cada tipo muestra su nombre de Mega Talento («Incapacidad · cita médica») y la lista se filtra tecleando, así que escribir «tráfico» encuentra Horario distinto |
+
+⚠️ **Para confirmar con RH:** «Cita médica → Incapacidad» venía con la nota «sólo con incapacidad del IMSS». Una cita sin
+papel del IMSS capturada como incapacidad puede no cuadrar en nómina: por eso Incapacidad se **sugiere**, no se elige, y los
+permisos siguen a la vista. «Tráfico» lo contestaron «a o d» (la «d» era «otro», sin decir cuál): se sugieren Horario
+distinto y Otros.
+
 **Cómo se implementó.** La captura vivía dentro del panel de Incidencias; salió a `incidencia-captura.ts` (el formulario,
 lo que se manda y qué se propone por día) y a la pieza `app-rh-captura-incidencia`, que usan **el panel y la ficha**: una
 sola regla de qué pide cada tipo, no dos copias (ADR-056). El renglón del día (`app-rh-persona-dias`) abre debajo lo que
@@ -23,8 +30,7 @@ calificación (lo capturado cuenta cuando lo califica otra persona).
 
 **Por qué así.**
 - **Proponer no es decidir.** El tipo de arriba es un orden de opciones; los 19 siguen a un clic y el servidor valida igual.
-  Las reglas de qué se propone son una propuesta de desarrollo para probar con RH. ⚠️ La equivalencia con los nombres de
-  Mega Talento («Tráfico», «Cita médica», «Personal», «No registrada») sigue pendiente con RH (D1).
+  El orden sale de lo que contestó RH (D1, `RH.18.3`) y se afina en una sola función (`sugerenciasDelDia`).
 - **No adivinar.** Con una sola checada no se sabe si fue entrada o salida: «Horario distinto» llega vacío. Y un tipo que
   el catálogo no trae no se elige.
 - **Dar la razón, no sólo el bloqueo.** El servidor ya rechazaba el cambio con esa frase (D2 de Edgar); ahora la pantalla
