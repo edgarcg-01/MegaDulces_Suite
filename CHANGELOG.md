@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Conciliación bancaria: un pareo viejo ya no aparta documentos que su corrida no podía ver (BFU.7.5 · 2026-11-23)
+- Tras el corte del 1 de octubre cada sucursal reinició sus folios, y pareos de enero guardados sin sucursal dejaban sin conciliar documentos de octubre y noviembre con el mismo folio — los cheques de nómina entre ellos, que además salían como «Kepler no lo tiene».
+- Ahora un pareo de otro mes sólo aparta los documentos que su corrida alcanzaba (el mes ±45 días); lo que se libera queda declarado en el resultado de la conciliación.
 ### Added — Venta y clientes › Alta de clientes: fotos y capturas se leen con IA (ALC.4 · 2026-11-22, ENCENDIDA en prod)
 - El alta acepta de 1 a 4 archivos del mismo cliente: la constancia en PDF, fotos de la constancia, capturas de Wincaja o de otro sistema, la foto de una etiqueta con sus datos. En el celular, «Tomar foto».
 - El PDF del SAT se sigue leyendo sin IA. Lo demás lo lee la IA, que sólo copia: el sistema revisa el RFC y la CURP con su dígito verificador y busca régimen, uso de CFDI y forma de pago en el catálogo del SAT. Lo que no cuadra o es dudoso se avisa junto a su casilla; «tarjeta», sin decir si es de crédito o de débito, se pregunta.

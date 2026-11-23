@@ -129,6 +129,16 @@ const { buildClaimIndex, claimVerdict } = LLAVE;
     const otraCuenta = buildClaimIndex([{ suc: null, dt: 'X-D-26', folio: '0000119', cuenta: '0011' }]);
     ok(claimVerdict(otraCuenta, doc) === null, 'una fila histórica de OTRA cuenta no alcanza a bloquear (la clave ya desambigua)');
 
+    // 6b ⛔ `[BFU.7.5]` — una reclamación sólo aparta lo que su corrida ALCANZABA (mes ±45 días). Tras el corte del
+    //    1-oct-2026 cada sucursal reinició sus folios en 1: el cheque de nómina de noviembre (sucursal 01, X-D-25
+    //    folio 27, cuenta 2169) quedaba apartado por un pareo de ENERO sin sucursal con el mismo tipo, folio y cuenta.
+    const cheque = { sucursal: '01', doc_tipo: 'X-D-25', folio: '0000027', clave: '2169', fecha: '2026-11-11' };
+    const enero = buildClaimIndex([{ suc: null, dt: 'X-D-25', folio: '0000027', cuenta: '2169', period: '2026-01' }]);
+    ok(claimVerdict(enero, cheque) === null, '[BFU.7.5] un pareo de enero sin sucursal ya NO aparta el documento de noviembre');
+    ok(LLAVE.claimFueraDeAlcance(enero, cheque) === true, '[BFU.7.5] …y se declara como liberado por alcance (no desaparece)');
+    const octubre = buildClaimIndex([{ suc: null, dt: 'X-D-25', folio: '0000027', cuenta: '2169', period: '2026-10' }]);
+    ok(claimVerdict(octubre, cheque) === 'parcial', '[BFU.7.5] dentro del alcance (octubre ±45 días) SIGUE bloqueando');
+
     // Mutación de la premisa: si la llave exacta dejara de mirar la sucursal, el bloque 5
     // tendría que caerse. Se comprueba que la función no ignora el campo.
     ok(LLAVE.claimKeyExacta('08', 'X-D-26', '0000119', '4176') !== LLAVE.claimKeyExacta('00', 'X-D-26', '0000119', '4176'),

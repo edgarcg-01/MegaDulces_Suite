@@ -5,7 +5,7 @@ import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
 import { BancosGateway } from './bancos.gateway';
-import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key';
+import { buildClaimIndex, claimFueraDeAlcance, claimVerdict, type ClaimRow } from './recon-claim-key';
 import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
 import { aplicarMotorDeCategoria } from './estado-de-cuenta/motor-de-categoria.aplicar';
 import { compileRules, classifyWith, normKey } from './classify-rules';
@@ -1962,16 +1962,22 @@ export class FinanceBankService {
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('m.tenant_id', tenantId).andWhereNot('st.period', period).whereNull('bm.deleted_at')
         .distinct('m.kepler_sucursal as suc', 'm.kepler_doc_tipo as dt', 'm.kepler_doc_folio as folio',
-          'm.kepler_cuenta as cuenta');
+          'm.kepler_cuenta as cuenta', 'st.period as period');
       // Llave exacta (sucursal conocida) y llave parcial (filas históricas sin sucursal). La
       // parcial se CONSERVA a propósito: tirarla abriría el doble-cobro que el candado existe
       // para cerrar. Lo que sí se hace es DECLARAR cuánto bloquea (ADR-056), para que el residuo
       // tenga nombre y monto en vez de desaparecer.
-      const claims = buildClaimIndex(claimedRows as ClaimRow[]);
+      // [BFU.7.5] Cada reclamación lleva el periodo de su corrida: sólo aparta documentos que esa corrida alcanzaba
+      // (mes ±OVERLAP_DAYS). Un pareo de enero sin sucursal ya no aparta el cheque de noviembre con el mismo folio.
+      const claims = buildClaimIndex(claimedRows as ClaimRow[], OVERLAP_DAYS);
       let yaCasadosOtroPeriodo = 0, bloqueadosPorLlaveParcial = 0, montoLlaveParcial = 0;
+      let liberadosPorAlcance = 0, montoLiberadoPorAlcance = 0;
       for (const p of kepAll) {
         const via = claimVerdict(claims, p);
-        if (!via) continue;
+        if (!via) {
+          if (claimFueraDeAlcance(claims, p)) { liberadosPorAlcance++; montoLiberadoPorAlcance += p.importe; }
+          continue;
+        }
         p.used = true; yaCasadosOtroPeriodo++;
         if (via === 'parcial') { bloqueadosPorLlaveParcial++; montoLlaveParcial += p.importe; }
       }
@@ -2273,6 +2279,12 @@ export class FinanceBankService {
           docs: bloqueadosPorLlaveParcial,
           monto: Math.round(montoLlaveParcial * 100) / 100,
           nota: 'Bloqueados contra matches viejos sin kepler_sucursal. Re-concilia los periodos anteriores para que la llave quede exacta.',
+        },
+        // [BFU.7.5] Homónimos reclamados por corridas que NO alcanzaban este documento (su folio se repite tras el corte
+        // del 1-oct, o en otro año): se liberan, y se declaran con nombre y monto.
+        claimed_fuera_de_alcance: {
+          docs: liberadosPorAlcance,
+          monto: Math.round(montoLiberadoPorAlcance * 100) / 100,
         },
         dry_run: !!dryRun,
         diff,
