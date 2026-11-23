@@ -9,7 +9,8 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 import { GoodsReceiptExpedienteService, enPares } from './goods-receipt-expediente.service';
 import { REGLA_EXPEDIENTE } from './expediente-verdict';
 import { fechaDeCalendario } from './fecha-de-calendario';
-import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila } from '@megadulces/contracts';
+import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, MismaFactura } from '@megadulces/contracts';
+import { armarMismaFactura, citaFactura } from './misma-factura';
 import { cuadraDentroDeTolerancia, evidenciaCuadra, sqlEvidenciaCuadra, paqueteSoloHojaKepler, MENSAJE_SOLO_HOJA_KEPLER } from '@megadulces/contracts';
 import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
@@ -2232,10 +2233,77 @@ export class GoodsReceiptProofsService {
             .orderBy('changed_at', 'asc')
             .select('status_from', 'status_to', 'motivo_codigo', 'motivo', 'changed_by', 'changed_at')
         : [];
+      // `[RE.85]` La misma factura citada por otras entradas del proveedor: la cadena, con el motivo de cada movimiento.
+      const misma_factura = await this.mismaFactura(trx, tenantId, entrada);
       return {
         entrada: { ...entrada, monto: Number(entrada.monto), origen: sucursal === '00' ? 'oficinas' : 'sucursal' },
-        lineas, deposits: depSigned, cedis_twins, history, redirigido_de,
+        lineas, deposits: depSigned, cedis_twins, history, redirigido_de, misma_factura,
       };
+    });
+  }
+
+  /**
+   * `[RE.85]` Si la referencia de la entrada nombra una factura (`0-F-319`) y otra entrada del mismo proveedor
+   * en la misma sucursal la cita también: las entradas, las devoluciones y notas que Kepler les aplicó (la vista
+   * de ajustes, el mismo primitivo de RE.64), lo descontado por devolución renglón por renglón (para reconocer
+   * lo que vuelve a entrar) y el CFDI ligado a alguna. Medido en prod (CEDIS 0010302): ~300 ms las tres
+   * lecturas; sólo corre en las entradas que citan una factura compartida (22 en 90 días).
+   */
+  private async mismaFactura(
+    trx: Knex.Transaction, tenantId: string,
+    e: { sucursal: string; folio: string; proveedor_code: string | null; referencia: string | null },
+  ): Promise<MismaFactura | null> {
+    if (!e.proveedor_code || !e.referencia || !citaFactura(e.referencia)) return null;
+    const entradas = (await trx('analytics.erp_goods_receipts')
+      .where({ tenant_id: tenantId, sucursal: e.sucursal, proveedor_code: e.proveedor_code, referencia: e.referencia })
+      .whereNull('dup_of_folio')
+      .orderBy([{ column: 'receipt_date' }, { column: 'folio' }])
+      .select('folio', 'concepto', trx.raw(`to_char(receipt_date, 'YYYY-MM-DD') AS fecha`), trx.raw('monto::float8 AS monto'))) as
+      Array<{ folio: string; concepto: string | null; fecha: string | null; monto: number }>;
+    if (entradas.length < 2) return null;
+    const folios = entradas.map((x) => x.folio);
+    // Las devoluciones (X-D-40) y notas (X-D-55) aplicadas a esas entradas: por `kdxf` o porque la nombran (c39).
+    const ajustes = (await trx.raw(
+      `SELECT v.kepler_c4 AS tipo, v.folio, to_char(v.adjustment_date, 'YYYY-MM-DD') AS fecha, v.monto::float8 AS monto,
+              v.motivo, v.entrada_folio,
+              (SELECT btrim(x.c9) FROM kepler_ods.kdxf x
+                WHERE x.sucursal = v.sucursal AND x.c1 = v.kepler_c1 AND x.c2 = v.kepler_c10 AND x.c4 = v.kepler_c4
+                  AND x.c5 = v.kepler_c5 AND x.c6 = v.kepler_c6 AND x.c7 = '20' LIMIT 1) AS aplicada_a
+         FROM analytics.v_purchase_adjustments v
+        WHERE v.sucursal = ? AND v.proveedor_code = ? AND v.grupo <> 'traslado'
+          AND (v.entrada_folio = ANY(?) OR EXISTS (
+                SELECT 1 FROM kepler_ods.kdxf x
+                 WHERE x.sucursal = v.sucursal AND x.c1 = v.kepler_c1 AND x.c2 = v.kepler_c10 AND x.c4 = v.kepler_c4
+                   AND x.c5 = v.kepler_c5 AND x.c6 = v.kepler_c6 AND x.c7 = '20' AND btrim(x.c9) = ANY(?)))`,
+      [e.sucursal, e.proveedor_code, folios, folios])).rows as
+      Array<{ tipo: '40' | '55'; folio: string; fecha: string | null; monto: number; motivo: string | null; entrada_folio: string | null; aplicada_a: string | null }>;
+    const devs = ajustes.filter((a) => a.tipo === '40').map((a) => a.folio);
+    const renglonesDev = devs.length
+      ? ((await trx.raw(
+          `SELECT btrim(d.c6) AS folio, btrim(d.c8) AS sku, btrim(d.c10) AS nombre, d.c9::float8 AS cantidad, btrim(d.c11) AS unidad
+             FROM kepler_ods.kdm2 d
+            WHERE d.sucursal = ? AND d.c1 = ? AND d.c2 = 'X' AND d.c3 = 'D' AND btrim(d.c4::text) = '40' AND btrim(d.c6) = ANY(?)`,
+          [e.sucursal, e.sucursal, devs])).rows as Array<{ folio: string; sku: string | null; nombre: string | null; cantidad: number; unidad: string | null }>)
+      : [];
+    // Los renglones de TODAS las entradas de la cadena: el motivo deducido acompaña a cada una, se vea desde donde se vea.
+    const renglonesEntradas = (await trx('analytics.erp_goods_receipt_lines')
+      .where({ tenant_id: tenantId, sucursal: e.sucursal }).whereIn('folio', folios)
+      .select('folio', 'sku', 'nombre', 'unidad', trx.raw('cantidad::float8 AS cantidad'))) as
+      Array<{ folio: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: number }>;
+    const renglones: Record<string, Array<{ sku: string | null; nombre: string | null; cantidad: number; unidad: string | null }>> = {};
+    for (const r of renglonesEntradas) (renglones[r.folio] ??= []).push({ sku: r.sku, nombre: r.nombre, cantidad: Number(r.cantidad), unidad: r.unidad });
+    // El CFDI: el que el expediente liga a alguna de las entradas (la primera con liga), no uno buscado por folio.
+    const lote = await this.expediente.calcularLote(trx, tenantId, folios.map((folio) => ({ sucursal: e.sucursal, folio })));
+    const conCfdi = folios.map((f) => lote.get(`${e.sucursal}/${f}`)?.cfdi).find((c) => !!c) ?? null;
+    return armarMismaFactura({
+      referencia: e.referencia, folioEsta: e.folio, entradas,
+      ajustes: ajustes.map((a) => ({
+        tipo: a.tipo, folio: a.folio, fecha: a.fecha, monto: Number(a.monto), motivo: a.motivo,
+        entrada_folio: a.aplicada_a ?? a.entrada_folio,
+        renglones: renglonesDev.filter((r) => r.folio === a.folio).map((r) => ({ sku: r.sku, nombre: r.nombre, cantidad: Number(r.cantidad), unidad: r.unidad })),
+      })),
+      renglones,
+      cfdi: conCfdi ? { uuid: conCfdi.uuid, serie: conCfdi.serie, folio: conCfdi.folio, total: Number(conCfdi.total) } : null,
     });
   }
 

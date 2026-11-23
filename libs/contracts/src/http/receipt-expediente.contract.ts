@@ -322,3 +322,41 @@ export function textoMotivoIdentificacion(m: IdentificacionMotivo): string {
     case 'importe_no_cuadra': return 'Se halló por el folio del proveedor, pero el importe no cuadra: confirma el total';
   }
 }
+
+/**
+ * `[RE.85]` **La misma factura, citada por varias entradas.** Una entrada de Kepler nombra en su referencia
+ * (`kdm1.c11`, «0-F-319») la factura del proveedor. Cuando OTRA entrada del mismo proveedor cita la misma, el
+ * panel muestra la cadena completa: las entradas, las devoluciones y notas que Kepler les aplicó, y lo que neta
+ * contra el CFDI. El caso (CEDIS, PAF, factura GDL/319): la entrada 0010129 la registra completa, la devolución
+ * 0000209 descuenta una caja que faltó, y la 0010302 vuelve a cargar esa caja cuando llega, sin factura propia.
+ *
+ * ⛔ **Cada movimiento dice POR QUÉ se hizo** (Edgar, 2026-11-23). `motivo_origen`:
+ *  · `kepler`   — el motivo que escribió quien capturó (sin la condición de pago que lo antecede);
+ *  · `derivado` — Kepler no trae motivo y se dedujo del dato (lo que entró es lo que se descontó antes);
+ *  · `sin_motivo` — ni lo uno ni lo otro: se DECLARA, nunca se deja en blanco.
+ */
+export interface MovimientoDeFactura {
+  tipo: 'entrada' | 'devolucion' | 'nota';
+  folio: string;
+  fecha: string | null;
+  /** Lo que mueve la deuda con el proveedor: + la entrada, − la devolución o nota. */
+  importe: number;
+  motivo: string | null;
+  motivo_origen: 'kepler' | 'derivado' | 'sin_motivo';
+  /** La entrada que se está viendo. */
+  es_esta: boolean;
+  /** Devolución o nota: la entrada a la que Kepler la aplicó. */
+  aplicada_a: string | null;
+}
+
+export interface MismaFactura {
+  /** La referencia tal como la trae Kepler («0-F-319»). */
+  referencia: string;
+  movimientos: MovimientoDeFactura[];
+  /** Σ entradas − Σ devoluciones y notas: lo que Kepler debe por esta factura. */
+  neto_kepler: number;
+  /** El CFDI ligado a alguna de las entradas (el primero con liga); `null` = ninguna tiene CFDI ligado. */
+  cfdi: { uuid: string; serie: string | null; folio: string | null; total: number } | null;
+  /** `neto_kepler − cfdi.total`; `null` sin CFDI. */
+  diferencia: number | null;
+}

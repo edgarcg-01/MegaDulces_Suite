@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import type { AvisoSucursal, DevueltasResumen, EntradasSinOcResumen, ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, IdentificacionEntrada, IdentificarLectura, ReceiptExpediente } from '@megadulces/contracts';
+import type { AvisoSucursal, DevueltasResumen, EntradasSinOcResumen, ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, IdentificacionEntrada, IdentificarLectura, MismaFactura, ReceiptExpediente } from '@megadulces/contracts';
 
 /**
  * CC (extensión) — cliente de Comprobantes de Orden de Entrada (proyecto Compras).
@@ -610,6 +610,8 @@ export interface EntradaDetail {
   redirigido_de?: { sucursal: string; folio: string } | null;
   /** RE.13.2 — cadena de decisiones (quién subió, quién devolvió y por qué, quién validó). */
   history?: ProofHistoryEntry[];
+  /** `[RE.85]` La misma factura citada por otras entradas del proveedor; `null` si sólo ésta la cita. */
+  misma_factura?: MismaFactura | null;
 }
 
 export interface AttachReceipt {

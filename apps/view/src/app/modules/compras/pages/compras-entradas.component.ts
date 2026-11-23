@@ -24,6 +24,7 @@ import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ComprasEntradaExpedienteComponent } from './compras-entrada-expediente.component';
+import { ComprasEntradaMismaFacturaComponent } from '../components/entrada-misma-factura.component';
 import { ComprasCapturaLoteComponent } from './compras-captura-lote.component';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { esImagen, prepararArchivos } from '../imagenes-a-pdf';
@@ -99,7 +100,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
   standalone: true,
   imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, SelectModule,
     DatePickerModule,
-    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent, ComprasEntradaExpedienteComponent, ComprasCapturaLoteComponent, MultiSelectModule,
+    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent, ComprasEntradaExpedienteComponent, ComprasEntradaMismaFacturaComponent, ComprasCapturaLoteComponent, MultiSelectModule,
     LoadStateComponent, EntityInspectorComponent, PageTabsComponent, SidePeekComponent, DocViewerComponent,
     FreshnessPillComponent, ContextHelpComponent, TableDensityComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1206,6 +1207,9 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
         }
 
         <app-compras-entrada-expediente class="cb-expediente" [sucursal]="d.entrada.sucursal" [folio]="d.entrada.folio" (cargado)="expedientePanel.set($event)" />
+
+        <!-- [RE.85] La misma factura citada por otras entradas: la cadena, con el motivo de cada movimiento. -->
+        <app-compras-entrada-misma-factura class="cb-expediente" [data]="d.misma_factura" />
 
         <!-- RE.2 — ajustes que EXPLICAN el descuadre (devoluciones / notas de crédito / descuentos del proveedor) -->
         @if (explains().length || cuadre(d).tone !== 'ok') {
