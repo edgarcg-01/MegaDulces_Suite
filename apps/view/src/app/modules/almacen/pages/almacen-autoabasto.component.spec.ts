@@ -207,7 +207,7 @@ describe('[AB.29] Enviar a Compras', () => {
       omitidos: [], le_llega_a: ['yajaira arizbeth gonzalez'] }));
     const { f, c } = montar(conCasos(), { enviar });
     expect(c.porEnviar().ids).toEqual(['p-falta']);
-    c.abrirEnvio();
+    c.abrirEnvio('sucursal');
     c.notaEnvio.set('  viene promoción  ');
     c.enviar();
     expect(enviar).toHaveBeenCalledWith({ warehouse_id: 'w-01', product_ids: ['p-falta'], nota: 'viene promoción' });
@@ -244,9 +244,11 @@ describe('[AB.29] Enviar a Compras', () => {
     const { c } = montar(conCasos());
     c.edicion.set({ 'p-falta': { cantidad: 7, motivo: null, guardando: false, guardado: false, error: null, desde: null } });
     expect(c.sinGuardar()).toBe(1);
-    expect(c.porQueNoEnviar()).toContain('Espera a que se guarden tus cambios');
-    c.abrirEnvio();
-    expect(c.envioAbierto()).toBe(false);
+    // [PQ.143] Apaga los DOS: se manda lo guardado, sea a la sucursal o a Compras.
+    expect(c.porQueNoEnviar('sucursal')).toContain('Espera a que se guarden tus cambios');
+    expect(c.porQueNoEnviar('compras')).toContain('Espera a que se guarden tus cambios');
+    c.abrirEnvio('sucursal');
+    expect(c.envioAbierto()).toBeNull();
   });
 
   it('lo ya mandado no entra al pedido, un aviso dice cuántos son, y en «Todos» se ve con su porqué', () => {
@@ -342,13 +344,73 @@ describe('[AB.43] una sola acción principal; los papeles en un botón', () => {
     grupo([linea({ product_id: 'p-9', sku: '11111', surte: { tipo: 'proveedor', clave: 's-1', nombre: 'MONDELEZ' } })], { tipo: 'proveedor', clave: 's-1', nombre: 'MONDELEZ' }),
   ] });
 
-  it('⛔ un solo botón primario en toda la pantalla (Enviar a Compras); sin «Aceptar grupo» ni PDF por grupo', () => {
+  /**
+   * ⛔ [PQ.143] DEROGA la parte de [AB.29] que exigía «un solo botón». Eran DOS actos en momentos
+   * distintos (Edgar, 2026-11-22): el pedido a la sucursal sale cuando la tienda lo necesita y
+   * desde ADR-127 se escribe en el ERP; la compra va con el calendario de compras y casi nunca
+   * está lista — en el pedido real de Morelia Madero los tres proveedores estaban bajo su mínimo.
+   * Con un botón único, pedirle a la matriz obligaba a mandar también esas compras.
+   *
+   * ⭐ Lo que NO cambia: Von Restorff (DESIGN §10.5) — una sola PRIMARIA. La diaria es primaria;
+   * «Enviar a Compras» es secundaria (outlined). Y siguen sin existir acciones por grupo.
+   */
+  it('⛔ dos acciones, UNA sola primaria: la diaria; Compras queda secundaria', () => {
     const { f } = montar(dosOrigenes());
     const el = f.nativeElement as HTMLElement;
-    const primarios = Array.from(el.querySelectorAll('button.p-button')).filter((b) => !b.classList.contains('p-button-outlined') && !b.classList.contains('p-button-text'));
-    expect(primarios.map((b) => (b.textContent || '').trim())).toEqual(['Enviar a Compras']);
+    const botones = Array.from(el.querySelectorAll('button.p-button'));
+    const primarios = botones.filter((b) => !b.classList.contains('p-button-outlined') && !b.classList.contains('p-button-text'));
+    expect(primarios).toHaveLength(1);
+    const diaria = (primarios[0].textContent || '').replace(/\s+/g, ' ').trim();
+    expect(diaria).toContain('Pedir a CEDIS');   // la sucursal, por NOMBRE
+    expect(diaria).toContain('1');               // y su conteo, visible sin pasar el mouse
+    // «Enviar a Compras» existe, y es secundaria.
+    const compras = botones.find((b) => (b.textContent || '').includes('Enviar a Compras'));
+    expect(compras).toBeTruthy();
+    expect(compras!.classList.contains('p-button-outlined')).toBe(true);
     expect(texto(f)).not.toContain('Aceptar grupo');
     expect(el.querySelectorAll('.ab-ghead button')).toHaveLength(0);
+  });
+
+  it('⛔ cada botón manda SÓLO lo suyo: el traspaso no arrastra la compra', () => {
+    const { c } = montar(dosOrigenes());
+    expect(c.aSucursal().ids).toEqual(['p-1']);
+    expect(c.aCompras().ids).toEqual(['p-9']);
+    expect(c.porEnviar().ids).toHaveLength(2);   // el pedido entero sigue siendo la suma
+  });
+
+  it('⛔ el envío a la sucursal NO manda los productos del proveedor', () => {
+    const enviar = vi.fn(() => of({ requisiciones: [], omitidos: [], le_llega_a: [] }));
+    const { c } = montar(dosOrigenes(), { enviar });
+    c.abrirEnvio('sucursal');
+    c.enviar();
+    expect(enviar).toHaveBeenCalledWith(expect.objectContaining({ product_ids: ['p-1'] }));
+  });
+
+  it('⛔ y el envío a Compras NO manda los del traspaso', () => {
+    const enviar = vi.fn(() => of({ requisiciones: [], omitidos: [], le_llega_a: [] }));
+    const { c } = montar(dosOrigenes(), { enviar });
+    c.abrirEnvio('compras');
+    c.enviar();
+    expect(enviar).toHaveBeenCalledWith(expect.objectContaining({ product_ids: ['p-9'] }));
+  });
+
+  it('la sucursal se NOMBRA en el botón, nunca se numera (PM, 2026-10-22)', () => {
+    const { c } = montar(dosOrigenes());
+    expect(c.etiquetaPedir()).toBe('Pedir a CEDIS');
+    expect(c.etiquetaPedir()).not.toContain('00');
+  });
+
+  /** ⛔ Un botón sin renglones se APAGA con su motivo; esconderlo haría creer que no existe el camino. */
+  it('⛔ sin renglones de proveedor, «Enviar a Compras» sigue visible y apagado con su motivo', () => {
+    // Un pedido con un solo origen: la matriz. No hay nada que pedirle a un proveedor.
+    const { f, c } = montar(RESP([], { puede_ajustar: true, grupos: [grupo([linea()])] }));
+    expect(c.aCompras().renglones).toBe(0);
+    expect(c.porQueNoEnviar('compras')).toContain('proveedor');
+    expect(c.porQueNoEnviar('sucursal')).toBeNull();
+    const el = f.nativeElement as HTMLElement;
+    const compras = Array.from(el.querySelectorAll('button.p-button')).find((b) => (b.textContent || '').includes('Enviar a Compras'));
+    expect(compras).toBeTruthy();
+    expect((compras as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('«PDF» ofrece el pedido completo, cada origen por su nombre y el reporte del almacén', () => {

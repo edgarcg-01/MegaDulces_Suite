@@ -102,6 +102,21 @@ interface Edicion {
   desde: number | null;
 }
 
+/**
+ * `[PQ.143]` **Los dos actos que cierra esta pantalla**, y que pasan en momentos distintos
+ * (Edgar, 2026-11-22). No son dos formas de lo mismo:
+ *
+ *  · `'sucursal'` — pedirle a la sucursal que surte. Es el acto diario: 44.9 pedidos por día
+ *    activo en la red, y desde ADR-127 **se escribe en el ERP al enviarlo**, sin pasar por Compras.
+ *  · `'compras'` — pedirle a un proveedor. Va con el **calendario de compras** y casi nunca está
+ *    listo: en el pedido real de Morelia Madero del 2026-11-22, los tres proveedores estaban por
+ *    debajo de su mínimo de compra. Sigue siendo una requisición que Compras aprueba.
+ *
+ * Con un botón único, pedirle a la matriz obligaba a mandar también esas compras — o a esperar el
+ * traspaso hasta que la compra juntara.
+ */
+type DestinoEnvio = 'sucursal' | 'compras';
+
 @Component({
   selector: 'app-almacen-autoabasto',
   standalone: true,
@@ -132,13 +147,31 @@ interface Edicion {
           </button>
           <p-menu #menuPdf [model]="opcionesPdf()" [popup]="true" appendTo="body" />
           @if (data()?.puede_ajustar) {
-            <!-- [AB.29] La acción principal: lo que falta por pedir sale como requisición a Compras. -->
+            <!--
+              [PQ.143] DOS acciones, porque son dos actos que pasan en momentos distintos (Edgar,
+              2026-11-22). El pedido a la sucursal que surte sale cuando la tienda lo necesita —44.9
+              por día activo en la red— y desde ADR-127 se escribe en el ERP al enviarlo. La compra
+              al proveedor va con el calendario de compras y casi nunca está lista: en el pedido real
+              de Morelia Madero los tres proveedores estaban por debajo de su mínimo. Con un botón
+              único, pedirle a la matriz obligaba a mandar también esas compras.
+              ⛔ Deroga «un solo botón primario» de [AB.29], que era una regla de limpieza visual.
+              Von Restorff sigue: UNA sola primaria — la diaria —, la otra secundaria.
+            -->
+            <button pButton type="button" class="p-button-sm p-button-outlined"
+                    (click)="abrirEnvio('compras')" [disabled]="loading() || enviando() || !!porQueNoEnviar('compras')"
+                    [pTooltip]="porQueNoEnviar('compras') ?? 'Manda a Compras lo que le falta por pedir a un proveedor: una requisición por proveedor, para que la aprueben.'"
+                    tooltipPosition="bottom">
+              <span class="p-button-icon p-button-icon-left pi pi-shopping-cart" aria-hidden="true"></span>
+              <span class="p-button-label">Enviar a Compras</span>
+              @if (aCompras().renglones) { <span class="ab-btn-n">{{ aCompras().renglones }}</span> }
+            </button>
             <button pButton type="button" class="p-button-sm"
-                    (click)="abrirEnvio()" [disabled]="loading() || enviando() || !porEnviar().renglones || sinGuardar() > 0"
-                    [pTooltip]="porQueNoEnviar() ?? 'Manda a Compras lo que te falta por pedir: una requisición por origen, para que la aprueben.'"
+                    (click)="abrirEnvio('sucursal')" [disabled]="loading() || enviando() || !!porQueNoEnviar('sucursal')"
+                    [pTooltip]="porQueNoEnviar('sucursal') ?? 'Pide a la sucursal que te surte lo que te falta. Queda hecho en su almacén al confirmar.'"
                     tooltipPosition="bottom">
               <span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span>
-              <span class="p-button-label">Enviar a Compras</span>
+              <span class="p-button-label">{{ etiquetaPedir() }}</span>
+              @if (aSucursal().renglones) { <span class="ab-btn-n">{{ aSucursal().renglones }}</span> }
             </button>
           }
         </div>
@@ -545,13 +578,19 @@ interface Edicion {
         }
       </app-load-state>
 
-      <!-- [AB.29] Confirmar el envío: qué sale, a quién se le pide y quién lo aprueba. -->
-      <p-dialog [visible]="envioAbierto()" (visibleChange)="envioAbierto.set($event)" [modal]="true"
-                [style]="{ width: '34rem' }" [breakpoints]="{ '40rem': '95vw' }" header="Enviar a Compras" [dismissableMask]="!enviando()">
-        @let pe = porEnviar();
+      <!-- [PQ.143] Confirmar el envío. Un diálogo por destino: lo que sale, a quién, y qué pasa al confirmar. -->
+      <p-dialog [visible]="!!envioAbierto()" (visibleChange)="$event || envioAbierto.set(null)" [modal]="true"
+                [style]="{ width: '34rem' }" [breakpoints]="{ '40rem': '95vw' }"
+                [header]="envioAbierto() === 'compras' ? 'Enviar a Compras' : etiquetaPedir()" [dismissableMask]="!enviando()">
+        @let pe = porEnviarDe(envioAbierto() ?? 'sucursal');
         <p class="ab-env-p">
-          Se mandan <strong>{{ pe.renglones }} {{ pe.renglones === 1 ? 'producto' : 'productos' }}</strong> que te faltan por pedir,
-          en {{ pe.grupos.length }} {{ pe.grupos.length === 1 ? 'requisición' : 'requisiciones' }} (una por a quién se le pide):
+          @if (envioAbierto() === 'compras') {
+            Se mandan <strong>{{ pe.renglones }} {{ pe.renglones === 1 ? 'producto' : 'productos' }}</strong> que te faltan por pedir,
+            en {{ pe.grupos.length }} {{ pe.grupos.length === 1 ? 'requisición' : 'requisiciones' }} (una por proveedor):
+          } @else {
+            Se piden <strong>{{ pe.renglones }} {{ pe.renglones === 1 ? 'producto' : 'productos' }}</strong> que te faltan,
+            en {{ pe.grupos.length }} {{ pe.grupos.length === 1 ? 'pedido' : 'pedidos' }} (uno por sucursal):
+          }
         </p>
         <ul class="ab-env-l">
           @for (eg of pe.grupos; track eg.llave) {
@@ -563,15 +602,24 @@ interface Edicion {
           }
         </ul>
         <p class="ab-env-p ab-dim">
-          Van con las cantidades que dejaste y sólo lo marcado en «¿Hasta dónde pides?». Le llegan a Compras para
-          aprobarlas o rechazarlas con motivo; mientras tanto no se vuelven a pedir.
+          Van con las cantidades que dejaste y sólo lo marcado en «¿Hasta dónde pides?».
+          @if (envioAbierto() === 'compras') {
+            Le llegan a Compras para aprobarlas o rechazarlas con motivo; mientras tanto no se vuelven a pedir.
+          } @else {
+            <!-- [PQ.138] No hay aprobación de por medio: al confirmar, el pedido queda hecho en el almacén que surte. -->
+            Al confirmar, el pedido <strong>queda hecho</strong> en el almacén que te surte: no pasa por Compras.
+            Mientras esté abierto no se vuelven a pedir.
+          }
         </p>
-        <label class="ab-env-lab" for="ab-env-nota">Nota para Compras <span class="ab-dim">(opcional)</span></label>
+        <label class="ab-env-lab" for="ab-env-nota">
+          {{ envioAbierto() === 'compras' ? 'Nota para Compras' : 'Nota para quien te surte' }}
+          <span class="ab-dim">(opcional)</span>
+        </label>
         <textarea pTextarea id="ab-env-nota" class="ab-env-nota" rows="3" maxlength="500"
                   [ngModel]="notaEnvio()" (ngModelChange)="notaEnvio.set($event)"
                   placeholder="Por ejemplo: viene una promoción la otra semana"></textarea>
         <ng-template #footer>
-          <button pButton type="button" class="p-button-sm p-button-text" (click)="envioAbierto.set(false)" [disabled]="enviando()">
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="envioAbierto.set(null)" [disabled]="enviando()">
             <span class="p-button-label">Cancelar</span>
           </button>
           <button pButton type="button" class="p-button-sm" (click)="enviar()" [disabled]="enviando() || !pe.renglones">
@@ -584,7 +632,8 @@ interface Edicion {
       <p class="ab-foot">
         Falta neta = objetivo − existencia − lo que ya viene (pedido abierto a la matriz de 7 días o menos y embarque sin
         recibir). Lo que Compras planeó y todavía no está en Kepler se muestra, pero no se resta. Tu pedido se guarda en la
-        Suite con cada ajuste; «Enviar a Compras» lo manda como requisición para que la aprueben.
+        Suite con cada ajuste. «{{ etiquetaPedir() }}» lo escribe como pedido en el almacén que te surte;
+        «Enviar a Compras» lo manda como requisición de compra, para que la aprueben.
       </p>
 
       <!-- [AB.41] Venta por mes del producto (la pieza compartida; el globo lo pone esta pantalla). -->
@@ -726,6 +775,9 @@ interface Edicion {
     .ab-env-l li:first-child { border-top: 0; }
     .ab-env-lab { display: block; margin: var(--sp-1) 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
     .ab-env-nota { width: 100%; }
+    /* [PQ.143] El conteo va EN el boton, no solo en el tooltip: lo que manda cada uno se ve sin pasar el mouse. */
+    .ab-btn-n { margin-left: var(--sp-2); padding: 0 var(--sp-2); border-radius: var(--r-pill);
+      background: var(--overlay-selected); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); line-height: 1.6; }
   `],
 })
 export class AlmacenAutoabastoComponent {
@@ -865,7 +917,8 @@ export class AlmacenAutoabastoComponent {
   /** Error de una acción que no debe tapar el pedido (p. ej. guardar posiciones). */
   readonly aviso = signal<string | null>(null);
   /** `[AB.29]` Enviar a Compras: el diálogo, la nota, el envío en curso y lo que contestó el servidor. */
-  readonly envioAbierto = signal(false);
+  /** `[PQ.143]` Cuál de los dos envíos está abierto. `null` = ninguno. */
+  readonly envioAbierto = signal<DestinoEnvio | null>(null);
   readonly notaEnvio = signal('');
   readonly enviando = signal(false);
   readonly enviado = signal<AutoabastoEnviarResponse | null>(null);
@@ -1375,36 +1428,74 @@ export class AlmacenAutoabastoComponent {
     return { grupos, renglones: grupos.reduce((s, g) => s + g.renglones, 0), ids: grupos.flatMap((g) => g.ids) };
   });
 
-  /** `[AB.29]` Por qué el botón está apagado, dicho en el botón. `null` = se puede enviar. */
-  porQueNoEnviar(): string | null {
+  /** `[PQ.143]` La parte del pedido que va a UN destino. Los grupos ya vienen partidos por origen. */
+  porEnviarDe(destino: DestinoEnvio) {
+    const tipo = destino === 'sucursal' ? 'matriz' : 'proveedor';
+    const grupos = this.porEnviar().grupos.filter((g) => g.tipo === tipo);
+    return { grupos, renglones: grupos.reduce((s, g) => s + g.renglones, 0), ids: grupos.flatMap((g) => g.ids) };
+  }
+
+  /** Lo que se le pide a la sucursal que surte. */
+  readonly aSucursal = computed(() => this.porEnviarDe('sucursal'));
+  /** Lo que se le pide a los proveedores, por Compras. */
+  readonly aCompras = computed(() => this.porEnviarDe('compras'));
+
+  /**
+   * `[PQ.143]` El texto del botón diario. La sucursal se **nombra**, nunca se numera
+   * (PM, 2026-10-22): «07» no le dice a nadie que es Morelia Madero.
+   */
+  readonly etiquetaPedir = computed(() => {
+    const g = this.aSucursal().grupos;
+    if (g.length === 1) return `Pedir a ${warehouseName(g[0].nombre)}`;
+    if (g.length > 1) return `Pedir a ${g.length} sucursales`;
+    return 'Pedir a la sucursal';
+  });
+
+  /**
+   * `[PQ.143]` Por qué ese botón está apagado, dicho en el botón. `null` = se puede enviar.
+   * ⛔ Un botón sin renglones **no se esconde**: se apaga con su motivo. Esconderlo haría creer que
+   * ese camino no existe.
+   */
+  porQueNoEnviar(destino: DestinoEnvio): string | null {
     const n = this.sinGuardar();
     if (n > 0) return `Espera a que se guarden tus cambios (${n} ${n === 1 ? 'renglón' : 'renglones'}): se manda lo guardado.`;
-    if (!this.porEnviar().renglones) return 'No te falta nada por pedir con lo que tienes marcado.';
+    if (!this.porEnviarDe(destino).renglones) {
+      return destino === 'sucursal'
+        ? 'No te falta nada que pedirle a otra sucursal con lo que tienes marcado.'
+        : 'No te falta nada que pedirle a un proveedor con lo que tienes marcado.';
+    }
     return null;
   }
 
-  abrirEnvio(): void {
-    if (this.porQueNoEnviar()) return;
+  abrirEnvio(destino: DestinoEnvio): void {
+    if (this.porQueNoEnviar(destino)) return;
     this.notaEnvio.set('');
-    this.envioAbierto.set(true);
+    this.envioAbierto.set(destino);
   }
 
-  /** `[AB.29]` El botón se apaga en el primer clic (idempotencia visual); el servidor además tiene su candado. */
+  /**
+   * `[AB.29]` El botón se apaga en el primer clic (idempotencia visual); el servidor además tiene su candado.
+   * ⛔ `[PQ.143]` Manda **sólo** los productos del destino abierto: mandar los dos juntos es lo que
+   * esta fase vino a separar.
+   */
   enviar(): void {
     const id = this.warehouseId();
-    const ids = this.porEnviar().ids;
-    if (!id || !ids.length || this.enviando()) return;
+    const destino = this.envioAbierto();
+    const ids = destino ? this.porEnviarDe(destino).ids : [];
+    if (!id || !destino || !ids.length || this.enviando()) return;
     this.enviando.set(true);
     this.svc.enviar({ warehouse_id: id, product_ids: ids, nota: this.notaEnvio().trim() || null }).subscribe({
       next: (r) => {
         this.enviando.set(false);
-        this.envioAbierto.set(false);
+        this.envioAbierto.set(null);
         this.enviado.set(r);
-        this.cargar(); // lo mandado pasa a «Lo pediste a Compras» y aparece en «Lo que te va a llegar»
+        this.cargar(); // lo mandado deja de proponerse y aparece en «Lo que te va a llegar»
       },
       error: (e) => {
         this.enviando.set(false);
-        this.aviso.set(e?.error?.message ?? 'No se pudo mandar a Compras. Intenta de nuevo.');
+        this.aviso.set(e?.error?.message ?? (destino === 'sucursal'
+          ? 'No se pudo mandar el pedido. Intenta de nuevo.'
+          : 'No se pudo mandar a Compras. Intenta de nuevo.'));
       },
     });
   }

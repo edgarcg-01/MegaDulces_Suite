@@ -183,6 +183,7 @@ contra piezas, así que «hecho» puede estar subcontado.
 | 2026-11-09 | **PQ.115 en código**: migración `20261109140626_pq115_v_traspasos_ciclo.js` (`analytics.v_traspasos_ciclo`) y prueba `test-newdb-pq115-traspasos-ciclo.js` (escenario sintético con ROLLBACK, control negativo sin origen en la llave). El SQL exacto de la migración, como vista temporal en prod: 3,767 filas = 3,767 pedidos de Kepler, 0 duplicados, 0 sin tenant, 140–240 ms. Dos lecciones: (1) con `LEFT JOIN` el planificador estimaba ~1 fila por pieza y tardaba 6.2 s (> 2 min sin `MATERIALIZED`; esa consulta se canceló en prod); apilar y agrupar por llave es lineal. (2) La recepción se liga por origen (`c10`). **NO MEDIDO:** la prueba no corrió en local (sin Docker); corre en `pruebas-db` del CI. **Falta:** aplicar la migración (lo hace el carril de despliegue) y, ya aplicada, que Autoabasto lea la vista (corrige AB.45) |
 | 2026-11-22 | **Edgar: «el bloqueo funcional es que el informe no tiene a dónde llegar»**. Decisiones D1–D4 y **ADR-127** (deroga las decisiones 1 y 2 de ADR-100): el pedido de sucursal lo decide la sucursal y la Suite lo escribe como `U-D-40` en el Kepler del origen; el de proveedor sigue como requisición. Medición de la operación real (4,213 pedidos a mano en 90 días, red, cadencia, ventana horaria) y de las piezas: el sink de traspaso **ya existe y está en prod**, apagado en 9 de 9. Items **PQ.134–PQ.142** en §7.4. ⚠️ D1 (`CREADO`) queda abierta otra vez: 0 de 5,621 pedidos de sucursal de 365 días nacieron así, y donde el estado existe se pudre (§7.2) |
 | 2026-11-22 | **PQ.135, PQ.136 y PQ.137 en código.** PQ.136/137: «Lo que te va a llegar» dejaba de pintar un pedido **cancelado** —de 170 documentos a 61 en las 9 sucursales, 109 eran cancelados; Morelia Madero 111 → 29— y `CREADO` entra en la lista de abiertos; la regla vive en `libs/contracts` y las tres consultas la comparten (ADR-056). PQ.135: el renglón del traspaso se escribe completo (`c51`, `c28`) y el estado inicial pasa a ser un parámetro validado (`[DT5]`). De paso, el ensayo contra el Kepler vivo estaba roto desde PQ.19 (mandaba las líneas sin factor de caja) y se saltaba en silencio por falta de plantilla. Nueve mutantes muertos |
+| 2026-11-22 | **[PQ.143] dos actos, dos botones** (pedido de Edgar). «Pedir a <la sucursal, por nombre>» como acción diaria —que desde PQ.138 escribe en el ERP— y «Enviar a Compras» como secundaria, que va con el calendario de compras. Cada uno manda SOLO lo suyo, con su conteo en el boton y su motivo cuando esta apagado. Deroga el «un solo boton primario» de AB.29, que era limpieza visual y nunca se midio contra la operacion; Von Restorff sigue (una sola primaria). Lo que lo decide: en el pedido real de Morelia Madero los TRES proveedores estaban bajo su minimo de compra, asi que un boton unico obligaba a mandar compras que el proveedor rechazaria. Las cinco preguntas, en §9.2 |
 | 2026-11-22 | **[PQ.139] el origen se puede cambiar, y lo valida el servidor**: `origen_code` opcional — ausente, manda el que propone el motor y el default no cuesta una consulta. La lista blanca (activo · no camión · con `kepler_code` · distinto del destino) vive en el servicio, no en la pantalla, y rechaza diciendo cuál falló. Elegir origen funde los renglones de sucursal en UN pedido y no toca los de proveedor. 18/18 con 7 mutantes muertos. **Falta el selector en la pantalla (C3)**, y la lista de almacenes que hoy devuelve el backend no trae `kepler_code` ni `active`: ofrecería orígenes que el servidor rechazaría |
 | 2026-11-22 | **[PQ.138] el pedido de sucursal sale al ERP al enviarlo**, no al aprobarlo: `soltarPedidoDeSucursal` aprueba y empuja, en serie, fuera de transacción y sin lanzar; cada pedido vuelve con su folio de Kepler o con el motivo. La compra a proveedor NO se suelta (4 mutantes muertos). ⭐ Al medirlo apareció **por qué nunca llegó nada**: las 360 requisiciones de traspaso aprobadas fallaron TODAS en el interruptor, apagado desde el 28-oct por una razón ya resuelta (§8.8) — no por la plantilla ni por el código. Y el item se corrigió en dos puntos: **no hace falta migración** (las columnas `kepler_*` y la idempotencia ya existen en `purchase_requisitions`; duplicarlas violaría ADR-056) y **el borrador no se cierra** (contradice a `[DT8]`: el pedido se manda parcial varias veces al día) |
 | 2026-11-22 | **D1 cerrada por Edgar: `AUTORIZADO`** — *«seguimos el modelo de Kepler»*. El documento nace donde caen los 4,182 capturados a mano y la revisión del origen se muda al **borrador de la Suite**. En el código: `estadosIniciales` pasa de dos opciones a **una puerta** (`CREADO` entre los rechazados, 5 mutantes muertos); `WAREHOUSE_ORDER_ABIERTOS` conserva `CREADO` pero **por tolerancia de lectura**, declarado en cero; caen la condición de PQ.136 (nombrar quién autoriza) y el «cierra D1» de PQ.140. Los dos hallazgos de §8.4 quedan **anotados, no abiertos** (§8.7) — y el del sugerido trae su razón: *«nunca se hizo la configuración del sugerido, y es donde nace la necesidad del módulo de Autoabasto»* |
@@ -451,3 +452,69 @@ son deuda olvidada: son trabajo que espera su turno, y acá está lo que haría 
 |---|---|---|---|
 | **La recepción que no se captura** | 35 embarques de traspaso de 90 días llevan más de 11 días sin su `U-A-50`, con un desfase normal de 1 día y p90 de 4. El faltante **en tránsito** no lo ve ninguna pantalla: sólo se ve cruzando el embarque con la recepción, y el documento que lo cierra (`U-D-90`) tiene **dos** usos en toda la historia | Una medición por pareja de sucursales y preguntarle a las dos qué pasó con cada embarque: el ODS no distingue «no se capturó» de «no llegó» | Es un frente propio (toca almacén y contraloría, no Autoabasto) y PQ ya está en curso |
 | **El sugerido dentro de Kepler** | La columna «Cant. Sug» del renglón, vacía en los 85,436 renglones de 90 días. **Nunca se configuró, y de ahí nace Autoabasto** (§8.4d) | Arbitrar qué columna de `kdm2` es, capturando un valor a mano en el servidor vivo y viendo cuál cambia. Hasta entonces **no se escribe** | El módulo primero tiene que llegar al documento (PQ.138); escribir el sugerido en el ERP es el paso siguiente, no el primero |
+
+---
+
+## 9. Anexo T.4 — Dos actos, dos botones (`[PQ.143]`, 2026-11-22)
+
+**Lo que lo abre, de Edgar:** *«operacionalmente suceden en momentos muy distintos el pedido a la
+sucursal principal y los pedidos a los proveedores; esos van más ligados al calendario de compras.
+Dividir el botón operacionalmente es necesario»*.
+
+### 9.1 Por qué un solo botón dejó de servir
+
+Hasta hoy `/almacen/autoabasto` tenía **un** botón, «Enviar a Compras», y mandaba todo junto. Esa
+decisión (`[AB.29]`) venía de unificar dos pantallas que mostraban la misma cuenta, y su razón era
+de **limpieza visual**: una sola acción primaria, sin «Aceptar grupo» ni PDF por grupo. Nunca se
+midió contra la **operación**.
+
+Tres cosas la desmienten, y la tercera es la que decide:
+
+1. **Ya no es verdad lo que dice.** Desde ADR-127 el pedido a otra sucursal no va a Compras: sale
+   al ERP. En el pedido real de Morelia Madero del 2026-11-22, **555 de 596 renglones** (93 %) y
+   **$597 K de $680 K** (88 %) son traspaso. El botón nombraba el destino del 7 %.
+2. **Los dos actos tienen ritmos distintos.** Medido en 90 días: **2,291 pedidos a sucursal**
+   (44.9 por día activo) contra **721 a proveedor** (14.7). Y la compra tiene su propio carril de
+   planeación, `commercial.v_purchase_calendar_proposal`.
+3. ⭐ **El que decide: hoy no se puede mandar uno sin el otro, y la compra casi nunca está lista.**
+   En ese mismo pedido, los **tres** proveedores estaban por debajo de su mínimo de compra — uno
+   con el 13 % de lo que el proveedor exige, otro con el 22 %, otro con el 14 %. El traspaso, en
+   cambio, estaba listo. Con un botón único, pedirle a Morelia Abastos obliga a mandar tres
+   compras que el proveedor va a rechazar, **o** a esperar el traspaso hasta que la compra junte.
+   *(Esto se midió sobre una captura de la pantalla viva, no sobre un censo: 3 de 3 proveedores de
+   ese pedido. Que la pantalla ya traiga construido el aviso «el proveedor pide un mínimo de $X»
+   dice que el caso es conocido y frecuente, pero **cuántos pedidos están así no está medido**.)*
+
+⛔ Lo que esto **deroga**: la parte de `[AB.29]` que exige *un solo botón primario en toda la
+pantalla*. La regla de Von Restorff (`DESIGN.md` §10.5) sigue viva y por eso **sólo uno de los dos
+es primario**; el otro es secundario. Lo que cae es la idea de que haya una sola acción, porque
+**no hay un solo acto**.
+
+### 9.2 Las cinco preguntas, por escrito (`diseno` §0b)
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| **1** | **¿Qué ve al entrar, y en qué orden?** | Lo mismo que hoy —cuánto falta y a quién se le pide—, y ahora **dos acciones separadas**: primero *pedir a la sucursal que surte* (el acto diario, 93 % del pedido), después *enviar a Compras* (el acto del calendario). El orden es el de la frecuencia, no el del código |
+| **2** | **¿Qué NO ve?** | Nada nuevo se agrega a la vista. Se **parte** una acción que ya estaba; el conteo de cada botón sustituye al único de hoy. Un botón sin renglones **no se esconde**: se apaga con su motivo, para que no parezca que el camino no existe |
+| **3** | **¿Qué accesibilidad necesita?** | El destino se dice **por nombre de sucursal**, nunca por código (`| sucursal`). Cada botón lleva su conteo visible, no sólo en el tooltip. El resultado del envío trae el **folio del documento de Kepler** o el motivo, y el motivo no vive sólo en un `title` |
+| **4** | **¿Está ligada a otro proceso?** | Sí, a dos distintos, y es justo el punto. El traspaso liga al **pedido `U-D-40`** del ERP (su folio vuelve en la respuesta y se muestra). La compra liga a la **requisición** y al **calendario de compras**. Hoy la pantalla no distinguía las ligas porque no distinguía los actos |
+| **5** | **¿Este proceso la debe ver?** | Sí las dos: la sucursal decide ambas cosas desde su mesa. Lo que cambia es **quién recibe** cada una — la sucursal que surte, o Compras |
+
+**La prueba de la frase:** *¿qué le pido hoy a cada quien para que a mi almacén no le falte?* — la
+pregunta ya era plural («a cada quien»); lo que faltaba era que la **acción** también lo fuera.
+
+**Jerarquía (`DESIGN.md` §Q.5), sin cambios:** primario = cuántos productos faltan y cuánto vale lo
+que se pide · secundario = el pedido por origen con «A pedir» · terciario = mínimo, reorden, máximo.
+
+### 9.3 Lo que se construye
+
+| Pieza | Qué dice | Cuándo se apaga, y con qué motivo |
+|---|---|---|
+| **Botón primario** | «Pedir a **Morelia Abastos**» + conteo. Con más de un origen: «Pedir a 2 sucursales» | sin renglones de traspaso · con cambios sin guardar |
+| **Botón secundario** (outlined) | «Enviar a Compras» + conteo | sin renglones de proveedor · con cambios sin guardar |
+| **Diálogo del traspaso** | lo que sale y a qué sucursal, y que **queda hecho** allá al confirmar (no hay aprobación de por medio) | — |
+| **Diálogo de Compras** | las requisiciones, una por proveedor, y que **le llegan a Compras** para aprobarlas | — |
+| **Resultado** | por grupo: el folio del pedido en Kepler, o el motivo por el que no salió | — |
+
+⚠️ **Lo que NO se toca:** la cuenta del renglón, el motor, «¿Hasta dónde pides?», los grupos y el
+PDF. Esto parte una acción; no cambia ningún número.
