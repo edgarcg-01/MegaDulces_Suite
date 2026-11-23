@@ -32,6 +32,7 @@ import { cerrarTraspasosNoEjecutados } from './traspaso-no-ejecutado';
 import { limpiarComprasSinDocumento, INICIO_ENVIO_AUTOMATICO } from './compra-sin-documento';
 import { bajoReorden, cumplimientoSoloCompra, frenadoPorReorden, segunReorden } from './faltante';
 import { FICHA_KEPLER_SQL } from './ficha-kepler';
+import { proveedorPedibleSql } from './proveedor-no-pedible';
 import { leerRequisicionEnReplica, type RequisicionEnReplica } from './kepler-requisicion-replica';
 import { leerCancelacionKeplerDeRequisicion } from './oc-cancelacion.service';
 import { lectorColumnaOpcional, RQ_COLUMNAS_OPCIONALES, type RqColumnaOpcional } from './rq-columnas-opcionales';
@@ -3928,6 +3929,8 @@ export class CommercialReplenishmentService {
         // MUY vencido (dejó de comprar, ej. GONAC PH 7 semanas) cae fuera y se esconde justo cuando
         // más urge — dejando solo el traspaso chico. El piso lo mantiene visible como vencido.
         `rc.last_delivery_date >= CURRENT_DATE - GREATEST(rc.cadence_days*2, 60)::int`,
+        // `[PQ.145]` El proveedor que Kepler marcó «no usar» no se ofrece (ver proveedor-no-pedible.ts).
+        proveedorPedibleSql('sup'),
       ];
       const binds: Record<string, unknown> = { t: tenantId };
       if (whIds) {
@@ -4050,6 +4053,8 @@ export class CommercialReplenishmentService {
         `rc.tenant_id = :t`,
         `rc.cadence_days IS NOT NULL`,
         `rc.last_delivery_date >= CURRENT_DATE - GREATEST(rc.cadence_days*2, 60)::int`,
+        // `[PQ.145]` Mismo corte que `worklist`: las dos vistas del Ciclo listan los mismos canales.
+        proveedorPedibleSql('sup'),
       ];
       const binds: Record<string, unknown> = { t: tenantId };
       if (whIds) {
@@ -4344,6 +4349,9 @@ export class CommercialReplenishmentService {
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .where('rp.tenant_id', tenantId)
+        // `[PQ.145]` Fuera del selector el proveedor que Kepler marcó «no usar»: el selector es
+        // una INVITACIÓN a pedirle a alguien, y no se invita a pedirle a un proveedor muerto.
+        .andWhereRaw(proveedorPedibleSql('sup'))
         // `[RA-DYN.U3]` El monto minimo viaja al lado del de cajas, que ya estaba aca (RA-PRO.66).
         // Es dato del PROVEEDOR: ponerlo en cada fila del workbook lo repetiria ~33 mil veces.
         // `[RA.CAP]` `code` viaja para poder cruzar al acreedor de Kepler y mostrar lo que YA se le
