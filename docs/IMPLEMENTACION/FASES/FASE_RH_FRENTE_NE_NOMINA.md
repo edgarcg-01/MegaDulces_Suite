@@ -119,7 +119,7 @@ estaría uniendo personas por su nombre escrito.
 | NE.0.4 | **Llave de persona**: `hr.employees` poblada con `employee_code` propio + RFC/CURP/NSS, y ligada a `identity.users` y a la ficha del reloj | ⬜ ⚠️ espera a `[RH.1.4]` | el empate por nombre (73.7 %) como punto de partida; se cierra cuando no queda nadie sin llave |
 | NE.0.5 | **Los que no se pudieron ligar**: 25.1 % sin ningún candidato (de ellos, 2 de cada 3 sí traen RFC) y 3 que ligan con un usuario **inactivo**. Uno por uno: alta pendiente, persona que no checa, o registro muerto | 🔨 lista lista | lista nominal en el anexo privado, para RH |
 | NE.0.6 | **Partir el centro en dos**: sitio físico y área. Mapeo propuesto y medido: 17 de 34 centros caen en un sitio del reloj; los otros 17 (72 personas) son áreas, no lugares | 🔨 propuesta lista | `hr.attendance_sites` (12 sitios, ya con su almacén del ERP) + el área de `identity.users` |
-| NE.0.7 | Vista `derive-no-copy` del histórico de la nómina del Access, **sólo lectura**, para no perder la serie desde 2011 al apagar la base | ⬜ | totales por semana contra el Access vivo |
+| NE.0.7 | **Conservar la serie desde 2011** al apagar el Access: 159,068 recibos en 819 semanas, como snapshot **congelado** con su suma de control por semana. ⛔ NO puede ser una vista `derive-no-copy` — la serie no está en Kepler ni en Postgres (§9) | 🔨 diseño medido | las 819 semanas contra el Access vivo, y `contpaqi_ods` como testigo independiente del 74.8 % |
 
 ### C1 · Dominio
 
@@ -326,3 +326,124 @@ calidad de datos de la Suite, con dueño distinto.
 ⚠️ **NO MEDIDO:** si los 50 sin candidato en la Suite cambiarían alguna mayoría de centro; si los
 106 inactivos ligados deberían reactivarse o migrar a `hr.employees` (hoy en 0 filas); cuál es el
 área real de los 79 promotores.
+
+---
+
+## 9. `[NE.0.7]` La serie desde 2011 — qué se conserva, y lo que la medición cambió del plan
+
+**Medido el 2026-11-23**, sólo lectura sobre el `.mdb` vivo y sobre prod (`system_identifier`
+verificado). Las cifras de dinero van al **anexo privado**: este documento es público.
+
+### 9.1 ⛔ La línea del tracker estaba mal: esto no puede ser una vista `derive-no-copy`
+
+`derive-no-copy` es una **vista sobre `kepler_ods`**. Esta serie no está en Kepler ni en Postgres:
+vive en un `.mdb` de un servidor que se va a apagar. **No hay de qué derivar.** La regla 1 contempla
+el caso —tabla real **sólo** para datos propios o **snapshots**—, y un sistema que se retira es
+exactamente eso. Tampoco choca con «ningún cron, ningún importer»: **corre una vez, a mano, y la
+tabla queda congelada**; ningún proceso la vuelve a escribir.
+
+### 9.2 Lo que hay
+
+**159,068 recibos, 819 semanas, del 2011-02-11 al 2026-11-13.**
+
+- **721 de las 819 semanas caen en viernes** (92 en sábado, 6 en otros días)
+- mediana de **223 recibos por semana** (mínimo 5, máximo 317)
+- **ninguna fila borrada**: `Eliminado` está en cero en los 159,068
+- el `ID` del sistema viejo es **único** en los 159,068 → es la llave del recibo
+
+### 9.3 ⭐ El histórico está CONGELADO — lo que hace legítima una sola pasada
+
+| | |
+|---|---|
+| años con **cero** filas tocadas más de 60 días después de su semana | **14 de 16** |
+| peor retraso en esos 14 años | 7 a 30 días |
+| excepciones | **2015** (331 filas, 322 de ellas más de un año después) y **2020** (6 filas) |
+
+337 de 159,068 filas (**0.21 %**) se tocaron tarde. Por eso el snapshot se puede sacar de una sola
+pasada — y por eso igual lleva **su suma de control por semana**: es lo que permite probar, años
+después, que la tabla congelada sigue diciendo lo que decía el Access.
+
+### 9.4 ⚠️ Pero la serie NO es pareja: lo citable sin asterisco empieza en 2016
+
+La llave *(semana, almacén, persona)* debería ser única y **se repite en 887 combinaciones**:
+
+| era | llaves repetidas | recibos afectados |
+|---|---:|---:|
+| 2012 | 567 | **1,699 — el 42 % del año** |
+| 2015 | 161 | 322 |
+| 2011 | 90 | 180 |
+| las 241 sin fecha | 41 | 230 |
+| 2019 · 2020 · 2021 · 2023 | 28 en total | 56 |
+| ⭐ **2016 · 2017 · 2018 · 2022 · 2024 · 2025 · 2026** | **0** | **0** |
+
+⭐ Y las 322 de 2015 son **exactamente las mismas** que se tocaron más de un año después: 2015 se
+volvió a capturar en diciembre de 2016. → **Se conserva todo**, pero la serie que se cita sin nota
+arranca en **2016**.
+
+### 9.5 Las 241 filas sin fecha son recibos reales, no basura
+
+Están **pagadas y finalizadas**, y su fecha se recupera de `FinalizadaFecha`. ⛔ Un
+`WHERE FechaRealNomina IS NOT NULL` las tiraría en silencio, y lo que se llevaría no es poca cosa
+(monto en el anexo). La tabla las conserva con una bandera que declara que la fecha **se recuperó**.
+
+### 9.6 ⭐⭐ Tres cuartas partes de la serie YA tienen testigo en producción
+
+`contpaqi_ods.v_nomina_pago_periodo` ya existe en prod: **287,994 filas, del 2016-12-31 al
+2026-11-18**, todas con `curp_hash` y **semanales** (276,158 pagadas en viernes). Misma cadencia que
+el Access.
+
+| tramo de la serie del Access | recibos | |
+|---|---:|---|
+| 2011-02 → 2016-12, más las 241 sin fecha | **40,071 (25.2 %)** | existe **sólo** en el Access |
+| 2017 → 2026 | **118,997 (74.8 %)** | tiene un **testigo independiente** en prod |
+
+⚠️ **El testigo lo es de la PERSONA y la SEMANA, no del importe:** los universos no coinciden
+(ContPAQi cubre más gente y más conceptos que la nómina operativa semanal). La relación entre los
+dos importes ya está medida y es otra —el sistema viejo trabaja en **bruto** y el banco dispersa el
+**neto** de ContPAQi—; eso es `[NE.0.3]`, no esto.
+
+⛔ **Consecuencia de diseño (regla 2 — no copiar lo que ya existe):** el **puesto** no se guarda
+aquí. El recibo del Access no lo trae —`Puesto` vacío en **158,887 de 159,068 (99.9 %)**— y
+`v_nomina_pago_periodo` sí trae `position` y `department`. El puesto histórico se **lee de ahí**.
+
+### 9.7 La forma de la tabla
+
+Una fila por recibo, en `hr.*`:
+
+- **llave**: el `ID` del sistema viejo (único en los 159,068), con su origen declarado
+- **la semana**, con bandera de si la fecha se recuperó de `FinalizadaFecha` (§9.5)
+- **la persona** (`Numero`, lleno en el 100 %) y el **centro tal como se escribió** (`Almacen` 100 %;
+  `Sucursal` falta en 177 — 0.11 %), más el **sitio y el área** que resuelve
+  [`centro.ts`](../../../libs/hr/src/lib/nomina/centro.ts) en columnas aparte: el texto original no
+  se pisa, y cada mitad llega con su procedencia
+- **el dinero en centavos enteros** y el **sobre al billete**, denominación por denominación
+- ⭐ **el renglón original completo como `jsonb`**: son 105 columnas, 35 de ellas vacías en la
+  muestra, y varias cambian de tipo entre tablas hermanas (`DiasATrabajar` es texto en una y número
+  en la otra). Lo medido va tipado; **lo demás se guarda crudo**, para que nadie tenga que volver a
+  un `.mdb` apagado por una columna que no previmos
+- una tabla hermana con **la suma de control por semana** (recibos y totales): es lo que hace
+  verificable el congelamiento
+
+**Peso:** del orden de 300 MB en crudo. En una base de 54 GB cuya tabla más grande pasa de 5 GB, no
+es un problema de espacio.
+
+### 9.8 El gate y su prueba negativa
+
+- **Gate:** las **819 semanas** cuadran, recibo por recibo y peso por peso, contra el Access vivo —
+  **cero diferencias**— y las 118,997 del tramo 2017→2026 encuentran a su persona en
+  `contpaqi_ods` por `curp_hash`, con el faltante **declarado**, no rellenado.
+- **Prueba negativa** (regla 12): alterar la suma de control de una semana sobre una copia y
+  verificar que el gate se pone **rojo**. Sin ese rojo visto, el gate es una intención.
+
+### 9.9 Lo que falta decidir
+
+| decisión | de quién |
+|---|---|
+| **cuándo** corre la única pasada — es una escritura pesada, va fuera de horario hábil (regla 9) | Edgar |
+| si 2011-2015 entra con su nota o queda fuera de lo citable (§9.4) | Edgar |
+| **quién puede leer la serie**: trae el sueldo de cada persona con su nombre, 16 años hacia atrás | Edgar / RH |
+| qué pasa con el **resto del `.mdb`** al apagarlo: 43 tablas —compras, gastos, ventas diarias, conciliación—, de las que este frente toca 6 | Edgar |
+
+⚠️ **NO MEDIDO:** si `0 T Colaboradores` guarda algo histórico que el recibo no traiga (hoy parece
+sólo el estado actual de cada persona); si las 1,336 marcas de `ID` que faltan en la secuencia son
+bajas del sistema viejo o nunca existieron; cuánto del resto del `.mdb` tiene dueño en la Suite.
