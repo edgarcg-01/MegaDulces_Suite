@@ -1,8 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 3107 KB, 15413 líneas, 78 secciones.
-> **Índice navegable** — 3125 KB, 15441 líneas, 78 secciones.
-> **Índice navegable** — 3127 KB, 15443 líneas, 78 secciones.
+> **Índice navegable** — 3133 KB, 15445 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -12,231 +10,81 @@
 | 91 | 98 | 15 | Tracker de Progreso |
 | 99 | 199 | 287 | 📊 Estado global de fases |
 | 200 | 226 | 1 | 🚦 Estado por item (granular) |
-| 227 | 4391 | 788 | 🎯 EN PROGRESO |
-| 4408 | 4445 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 4446 | 4479 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 4480 | 4564 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 4565 | 4668 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 4669 | 4735 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 4736 | 4839 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 4840 | 4923 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 4924 | 5093 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 5094 | 5156 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 5157 | 5229 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 5230 | 5281 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 5282 | 6206 | 210 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 6207 | 6220 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 6221 | 6245 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 6246 | 6268 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 6269 | 6307 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 6308 | 7109 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 7110 | 7294 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 7295 | 7337 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 7338 | 7415 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 7416 | 7509 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 7510 | 7645 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 7646 | 7662 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 7663 | 7716 | 97 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 7717 | 7784 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 7785 | 8037 | 20 | Fase CH — Checadores / Control de asistencia |
-| 8038 | 8103 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 8104 | 8131 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 8132 | 8298 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 8299 | 8327 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
-| 8328 | 8731 | 192 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 8732 | 8794 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 8795 | 8924 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 8925 | 8987 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 8988 | 9148 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 9149 | 9219 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 9220 | 9268 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 9269 | 9301 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 9302 | 9858 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 9859 | 9990 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 9991 | 10044 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 10045 | 10084 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 10085 | 10137 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 10138 | 10204 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 10205 | 10367 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 10368 | 10651 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 10652 | 10819 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 10820 | 13250 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 13251 | 13259 | 1 | Fase RR — Ventas por ruta |
-| 13260 | 13579 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 13580 | 13590 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 13591 | 13611 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 13612 | 13622 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 13623 | 13634 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 13635 | 13694 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 13695 | 14122 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 14123 | 14137 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 14138 | 14179 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14180 | 14346 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14347 | 14378 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14379 | 14668 | 63 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14669 | 14738 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14739 | 14747 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14748 | 14808 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14815 | 14824 | 1 | 📝 Convenciones |
-| 14825 | 14862 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14863 | 14881 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14882 | 14934 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14935 | 15339 | 107 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15340 | 15370 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15371 | 15392 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15393 | 15426 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15427 | 15475 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15476 | 15503 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
-| 227 | 4407 | 802 | 🎯 EN PROGRESO |
-| 4424 | 4461 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 4462 | 4495 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 4496 | 4580 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 4581 | 4684 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 4685 | 4751 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 4752 | 4855 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 4856 | 4939 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 4940 | 5109 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 5110 | 5172 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 5173 | 5245 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 5246 | 5297 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 5298 | 6234 | 214 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 6235 | 6248 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 6249 | 6273 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 6274 | 6296 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 6297 | 6335 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 6336 | 7137 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 7138 | 7322 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 7323 | 7365 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 7366 | 7443 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 7444 | 7537 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 7538 | 7673 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 7674 | 7690 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 7691 | 7743 | 95 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 7744 | 7811 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 7812 | 8064 | 20 | Fase CH — Checadores / Control de asistencia |
-| 8065 | 8130 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 8131 | 8158 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 8159 | 8325 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 8326 | 8354 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
-| 8355 | 8758 | 192 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 8759 | 8821 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 8822 | 8951 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 8952 | 9014 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 9015 | 9175 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 9176 | 9246 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 9247 | 9295 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 9296 | 9328 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 9329 | 9885 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 9886 | 10017 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 10018 | 10071 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 10072 | 10111 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 10112 | 10164 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 10165 | 10231 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 10232 | 10394 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 10395 | 10678 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 10679 | 10846 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 10847 | 13277 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 13278 | 13286 | 1 | Fase RR — Ventas por ruta |
-| 13287 | 13606 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 13607 | 13617 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 13618 | 13638 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 13639 | 13649 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 13650 | 13661 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 13662 | 13721 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 13722 | 14149 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 14150 | 14164 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 14165 | 14206 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14207 | 14373 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14374 | 14405 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14406 | 14695 | 63 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14696 | 14765 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14766 | 14774 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14775 | 14835 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14842 | 14851 | 1 | 📝 Convenciones |
-| 14852 | 14889 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14890 | 14908 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14909 | 14961 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14962 | 15367 | 108 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15368 | 15398 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15399 | 15420 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15421 | 15454 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15455 | 15503 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15504 | 15531 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
-| 227 | 4409 | 805 | 🎯 EN PROGRESO |
-| 4426 | 4463 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 4464 | 4497 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 4498 | 4582 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 4583 | 4686 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 4687 | 4753 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 4754 | 4857 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 4858 | 4941 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 4942 | 5111 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 5112 | 5174 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 5175 | 5247 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 5248 | 5299 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 5300 | 6236 | 214 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 6237 | 6250 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 6251 | 6275 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 6276 | 6298 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 6299 | 6337 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 6338 | 7139 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 7140 | 7324 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 7325 | 7367 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 7368 | 7445 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 7446 | 7539 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 7540 | 7675 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 7676 | 7692 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 7693 | 7745 | 95 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 7746 | 7813 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 7814 | 8066 | 20 | Fase CH — Checadores / Control de asistencia |
-| 8067 | 8132 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 8133 | 8160 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 8161 | 8327 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 8328 | 8356 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
-| 8357 | 8760 | 192 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 8761 | 8823 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 8824 | 8953 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 8954 | 9016 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 9017 | 9177 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 9178 | 9248 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 9249 | 9297 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 9298 | 9330 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 9331 | 9887 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 9888 | 10019 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 10020 | 10073 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 10074 | 10113 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 10114 | 10166 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 10167 | 10233 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 10234 | 10396 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 10397 | 10680 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 10681 | 10848 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 10849 | 13279 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 13280 | 13288 | 1 | Fase RR — Ventas por ruta |
-| 13289 | 13608 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 13609 | 13619 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 13620 | 13640 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 13641 | 13651 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 13652 | 13663 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 13664 | 13723 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 13724 | 14151 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 14152 | 14166 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 14167 | 14208 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14209 | 14375 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14376 | 14407 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14408 | 14697 | 63 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14698 | 14767 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14768 | 14776 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14777 | 14837 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14844 | 14853 | 1 | 📝 Convenciones |
-| 14854 | 14891 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14892 | 14910 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14911 | 14963 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14964 | 15369 | 108 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15370 | 15400 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15401 | 15422 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15423 | 15456 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15457 | 15505 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15506 | 15533 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 227 | 4410 | 809 | 🎯 EN PROGRESO |
+| 4427 | 4464 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 4465 | 4498 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 4499 | 4583 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 4584 | 4687 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 4688 | 4754 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 4755 | 4858 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 4859 | 4942 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 4943 | 5112 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 5113 | 5175 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 5176 | 5248 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 5249 | 5300 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 5301 | 6237 | 214 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 6238 | 6251 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 6252 | 6276 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 6277 | 6299 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 6300 | 6338 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 6339 | 7140 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 7141 | 7325 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 7326 | 7368 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 7369 | 7446 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 7447 | 7540 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 7541 | 7676 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 7677 | 7693 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 7694 | 7747 | 97 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 7748 | 7815 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 7816 | 8068 | 20 | Fase CH — Checadores / Control de asistencia |
+| 8069 | 8134 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 8135 | 8162 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 8163 | 8329 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 8330 | 8358 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
+| 8359 | 8762 | 192 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 8763 | 8825 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 8826 | 8955 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 8956 | 9018 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 9019 | 9179 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 9180 | 9250 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 9251 | 9299 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 9300 | 9332 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 9333 | 9889 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 9890 | 10021 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 10022 | 10075 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 10076 | 10115 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 10116 | 10168 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 10169 | 10235 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 10236 | 10398 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 10399 | 10682 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 10683 | 10850 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 10851 | 13281 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 13282 | 13290 | 1 | Fase RR — Ventas por ruta |
+| 13291 | 13610 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 13611 | 13621 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 13622 | 13642 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 13643 | 13653 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 13654 | 13665 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 13666 | 13725 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 13726 | 14153 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 14154 | 14168 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 14169 | 14210 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 14211 | 14377 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14378 | 14409 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14410 | 14699 | 63 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14700 | 14769 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14770 | 14778 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14779 | 14839 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14846 | 14855 | 1 | 📝 Convenciones |
+| 14856 | 14893 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14894 | 14912 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14913 | 14965 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14966 | 15371 | 108 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15372 | 15402 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15403 | 15424 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15425 | 15458 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15459 | 15507 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15508 | 15535 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -593,6 +441,7 @@ Pedido de Edgar (2026-11-17): *«hagamos que nada se capture a mano»*. Firmó D
 - [ ] **[PGP.203]** ⬜ **La factura que no se pagó dentro de un pago pagado a medias sale sola** — 2026-11-23, de `[PGP.202]` (el pedido de Edgar habla de «una factura», no de un pago). **Por qué (medido en prod, sólo lectura):** 4 pagos pendientes de días pasados (del 26-oct al 13-nov) tienen parte de sus facturas pagadas en Kepler y el resto sin pagar; la regla los conserva enteros para siempre (`kepler_en_parte`): ni se dan por pagados ni sus facturas sin pagar vuelven a la lista. **Propuesta:** al día siguiente de su día, la parte pagada queda pagada y ligada a su documento de Kepler, y cada factura sin pagar se quita del pago con su registro en la bitácora (qué factura, cuánto, por qué). **Decide Edgar:** (a) automático, como `[PGP.202]`; (b) que lo resuelva una persona con un botón. **Capa:** C1 · **¿Escribe?** sí → prueba con base real.
 - [ ] **[PGP.204]** 🧪 **en código 2026-11-23 · sin soltar** — **La liberación vuelve a esperar la semana: con un día se habrían soltado pagos ya pagados** — 2026-11-23, el mismo día de `[PGP.202]`. **Medido (prod, sólo lectura), sobre los 225 pagos que SÍ se pagaron con su día del 1-oct al 20-nov:** 203 salieron del banco por su importe exacto (±$1, del día −3 al +3; control +$100: 0), 7 fueron cheques con número (nunca se liberan) y un pago partido lo ve `[PGP.201]`. Quedan 4 que salieron por OTRO importe que el programado —dos parciales (de ~$1.1M salió $1M exacto; de ~$825k, ~$426k), uno junto con otra factura en un cheque por más, y uno en efectivo de Caja General— y que Tesorería capturó en Kepler 3 a 6 días después de su día (`kdm1.c68`): ningún testigo los veía. Con espera de 1 día se habrían liberado los 4; de 3, 2; de 6 o 7, ninguno. En 1 de cada 3 pagos ligados Tesorería captura en Kepler 5 o 6 días después. La descarga del banco no trae el beneficiario salvo en una cuenta (Santander 2169), así que hoy no hay testigo por proveedor. **Hecho:** `DIAS_PARA_LIBERAR` 1 → 7; se quedan de `[PGP.202]` la cuenta dormida, el oyente del banco y la consulta optimizada. **Pruebas:** 305 del Calendario y 20 de la regla; con el umbral en 1 la prueba nueva se pone roja (3 fallan). **Fuera de alcance, con nombre:** lo que Edgar pidió («quitarla al pasar el día») va como VISTA en `[PGP.205]`; un testigo del banco por beneficiario (cuenta destino en el concepto de BBVA y Banorte) sería el que permita bajar la espera.
 - [ ] **[PGP.205]** ⬜ **Al día siguiente, el pago que no se pagó sale de la vista del Calendario como «vencido sin pagar»; sus facturas se sueltan a la semana** — Edgar, 2026-11-23 («sí, hazlo», sobre la propuesta medida en `[PGP.204]`). **Por qué:** el Calendario no debe seguir mostrando como «por pagar hoy» lo que ya pasó sin pagarse, pero soltar sus facturas antes de la semana libera pagos que sí se pagaron por otro importe (4 de 225 medidos). **Qué:** desde el día siguiente a su día, el pago pendiente sin testigo de pago deja de pintarse entre los pagos del día y aparece en «vencido sin pagar» con su registro (día, importe, qué dicen Kepler y el banco); sus facturas siguen apartadas hasta que lo libere `[PGP.117]` a la semana, o lo pague el banco o Kepler. **Capa:** C2 (estado derivado, sin columna nueva) + C3 (skill `diseno`, cinco preguntas por escrito) · **¿Escribe?** no (sólo cambia lo que se ve).
+- [ ] **[PGP.206]** 🧪 **en código 2026-11-23 · enviado (#607), sin merge** — **Lo pagado en la Suite que Kepler ya aplicó no se resta dos veces: el resto de la factura vuelve al Calendario** — Francisco, 2026-11-23: *«esta factura presenta un saldo porque se hizo por error una nota de crédito, y no la puedo traer a la Suite para agregarla al programa de pagos»*. **Para:** Planeación de pagos, Tesorería · **Por qué (medido en prod, sólo lectura):** INDULMI (`CI008`), Morelia Abastos `20-0000095`, $33,188.98: Tesorería la pagó con $27,578.05 (Kepler `26-0001077`, 14-nov) descontando la devolución ($2,805.35) y una nota de crédito ($2,805.58) hecha por error y luego cancelada; Kepler aplicó la transferencia y la factura quedó debiendo $2,805.35. Para la deuda de Kepler el disponible era `pendiente de Kepler − reservado − pagado`, y el pendiente YA descontaba la transferencia: 2,805.35 − 27,578.05 < 0 → la factura no salía en «Agregar facturas» y el alta la rechazaba; el estado de cuenta decía «Kepler aún no la aplica: no la vuelvas a programar» porque el pago no estaba ligado (`[PGP.132]` sólo liga cuando TODAS las facturas del pago quedaron saldadas). El mismo hueco escondía a Charly `0008428` ($472,501.51: la otra mitad de una factura de $945,003.02), Canel's `0009786` ($7,947.26) y Pepsico `0009751` ($964.05), y le quitaba $47,472 a Arrendamex `0001685`. **Capa:** C1 (la regla) + C2 (lista y alta) + C3 (un rótulo) · **¿Escribe?** no: sólo lee (el alta valida con el mismo cálculo). **Hecho:** UNA regla, `pago-ya-en-kepler.sql.ts` (`sqlEjecutadoYaEnKepler`): pago ligado → su documento vivo, con dinero, entre las aplicaciones de la factura; sin ligar → Kepler le aplicó con dinero al menos su neto desde que se armó el pago, sin contar documentos ligados a otro pago de la misma factura; con dos o más pagos ejecutados sin ligar en la misma factura no se adivina (hoy: 0). Lo que no casa, sigue restando: se esconde de más, nunca se ofrece dos veces. El descuento al pagar (`[PGP.91]`) sigue apartando hasta su nota. La usan la lista del Calendario (sólo en las ~20 filas con pago ejecutado), el alta (`loadObligationRow`) y el estado de cuenta (`SQL_PROGRAMADO`: el motor ya no compara folios por su cuenta); en la pantalla, «Kepler ya la aplicó» sin «(pago )» cuando no hay folio ligado. **Antes/después (prod, sólo lectura: el servicio real en una transacción READ ONLY):** cambian 11 de 3,211 facturas de Kepler: las 5 de arriba (INDULMI −24,772.70 → 2,805.35) y 6 restos de centavos ($0.02–$0.74, ya ligados) que quedan como las otras 217 facturas vivas que deben ≤ $1 (esconder restos en el Calendario es otra decisión); los 16 pagos ejecutados que Kepler todavía no tiene siguen restando (CD031 `0009775` disponible 0; CD015 `0000220` −51,618.81). La lista por default tarda 1.4–1.9 s antes y después: sin cambio medible. **Pruebas:** 7 contra Postgres real (`payment-calendar.it.spec.ts`, bloque `[PGP.206]`: INDULMI se ofrece y se programa, ni un centavo más; ⛔ Kepler sin el pago, dinero anterior a armarlo, transferencia cancelada, ligado a otro documento, descuento pendiente de nota, dos pagos sin ligar) + 2 del motor del estado de cuenta; 341 unitarias del Calendario y del estado de cuenta en verde; 6 mutantes en rojo (regla ignorada, sin la fecha de armado, sin excluir cancelados, sin la guarda de dos sin ligar, alta con el pagado de antes, estado de cuenta sin la bandera). **NO MEDIDO:** un pago reprogramado cuya transferencia Kepler registró antes de moverlo (cuenta desde que se movió: sigue restando, como antes). **Deuda declarada:** el estado de cuenta no resta el descuento al pagar de un pago que Kepler ya tiene (ya pasaba con los ligados; 3 renglones ejecutados con descuento en total). **Propuesta para el anexo CL (`[PGP.198]`):** R11 «toda deuda viva de Kepler que ningún pago vivo cubre se puede programar», el espejo de R10. **Falta:** CI + merge + soltar; ver a INDULMI en «Agregar facturas».
 - [ ] **[PGP.190.1]** 🧪 **en código 2026-11-21 · sin enviar** — **La lista de cuentas de origen ya no sale vacía en silencio** — Francisco (2026-11-21) vio «Sin opciones» en «Cuenta de origen» al partir un pago en transferencias, con cuentas activas en el catálogo (medido en prod, sólo lectura: la consulta de `/origin-accounts` las devuelve). Causa: la lista se pedía una sola vez al entrar a la pantalla y, si esa petición fallaba, quedaba vacía toda la sesión sin decirlo (regla 11) — afecta igual al selector normal y al de cada transferencia. Arreglo: se vuelve a pedir al abrir «Preparar pago» si no llegó; el selector dice «Cargando las cuentas…» / «No se pudieron leer las cuentas» / «No hay cuentas de origen activas» en lugar de «Sin opciones»; y el error se dice en el diálogo con «Reintentar». **Verificado:** `ngc` de la vista limpio; `check:pantalla -- finanzas-calendario-pagos` 0 fallas nuevas. **NO MEDIDO:** la causa exacta del fallo en su sesión (sin acceso a los registros de la API); sin validación visual.
 
 ### Fase PGP — Anexo CH: el cheque nace, se imprime y se sigue en la Suite · 2026-11-19 · plan en [`FASE_PGP_ANEXO_CHEQUES`](FASES/FASE_PGP_ANEXO_CHEQUES.md)

@@ -225,10 +225,13 @@ export interface ProgramadoCrudo {
   referencia: string | null;
   /** `payment_allocations.kepler_payment_folio`: el pago de Kepler ligado, si ya se ligó. */
   kepler_folio: string | null;
+  /**
+   * `[PGP.206]` Ejecutado y Kepler ya tiene ese dinero en ESTA factura (`sqlEjecutadoYaEnKepler`, la misma regla
+   * del Calendario): ligado y su documento vivo entre las aplicaciones, o sin ligar y Kepler le aplicó con dinero
+   * al menos su neto desde que se armó el pago.
+   */
+  en_kepler: boolean | null;
 }
-
-/** Folios de Kepler comparables: sin espacios ni ceros a la izquierda (`0016796` = `16796`). */
-const folioComparable = (f: string | null | undefined): string => (f ?? '').trim().replace(/^0+(?=.)/, '');
 
 /**
  * `[ECA.8]` **Cada factura dice en qué pago del Calendario está.**
@@ -261,16 +264,15 @@ export function adjuntarProgramado(documentos: AcreedorDocumento[], filas: Progr
       banco: f.banco,
       referencia: f.referencia?.trim() || null,
       kepler_folio: f.kepler_folio?.trim() || null,
-      aplicado_en_kepler: false,
+      // Un pago ejecutado que Kepler YA tiene en esta factura ya está dentro de su saldo: no se resta otra vez.
+      // `[PGP.206]` Lo decide la consulta con la regla del Calendario. Antes se comparaba aquí sólo el folio
+      // LIGADO, y un pago sin ligar (INDULMI 0000095) decía «Kepler aún no la aplica» con la transferencia a la vista.
+      aplicado_en_kepler: f.estado === 'executed' && f.en_kepler === true,
     });
     porDoc.set(k, lista);
   }
   for (const d of documentos) {
     const p = porDoc.get(clave(d.sucursal, d.tipo_doc, d.sub, d.folio)) ?? [];
-    // Revisión independiente: un pago ejecutado que Kepler YA aplicó a esta factura ya está dentro
-    // de su saldo. Se reconoce porque su folio ligado aparece entre las aplicaciones vivas de Kepler.
-    const aplicados = new Set(d.aplicaciones.filter((a) => !a.cancelado).map((a) => folioComparable(a.folio)));
-    for (const x of p) x.aplicado_en_kepler = x.estado === 'ejecutado' && !!x.kepler_folio && aplicados.has(folioComparable(x.kepler_folio));
     d.programado = p.sort((x, y) => x.fecha.localeCompare(y.fecha));
   }
 }

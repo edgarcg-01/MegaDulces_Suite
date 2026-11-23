@@ -207,7 +207,7 @@ describe('[ECA.8] programado en el Calendario', () => {
   const p = (folio: string, over: Partial<ProgramadoCrudo> = {}): ProgramadoCrudo => ({
     sucursal: '00', tipo_doc: '10', sub: '1', folio, allocation_id: 'a-13', fecha: '2026-11-13', estado: 'pending',
     cubierto: '1856.00', facturas_en_pago: '5', total_pago: '7888.00', creado_por: 'tesoreria_prueba',
-    pagado_el: null, metodo: null, banco: null, referencia: null, kepler_folio: null, ...over,
+    pagado_el: null, metodo: null, banco: null, referencia: null, kepler_folio: null, en_kepler: false, ...over,
   });
 
   it('la factura programada lleva su día; la que no, va vacía', () => {
@@ -247,7 +247,7 @@ describe('[ECA.8] programado en el Calendario', () => {
   it('ejecutada y YA aplicada en Kepler: no se resta dos veces de lo que falta programar', () => {
     // Factura de $1,000 pagada en parte ($600) desde el Calendario; Kepler aplicó la transferencia 0016796.
     const { documentos } = armarEstado([A('0009001', '1000')], [ap('0009001', '26', '0016796', '600', '2026-11-05')], HOY);
-    adjuntarProgramado(documentos, [p('0009001', { tipo_doc: '20', estado: 'executed', cubierto: '600', pagado_el: '2026-11-05', kepler_folio: '16796' })], HOY);
+    adjuntarProgramado(documentos, [p('0009001', { tipo_doc: '20', estado: 'executed', cubierto: '600', pagado_el: '2026-11-05', kepler_folio: '16796', en_kepler: true })], HOY);
     expect(documentos[0].saldo).toBe(400);
     expect(documentos[0].programado[0].aplicado_en_kepler).toBe(true);
     expect(calendarioDe(documentos).sin_programar).toBe(400);
@@ -258,6 +258,27 @@ describe('[ECA.8] programado en el Calendario', () => {
     adjuntarProgramado(documentos, [p('0009001', { tipo_doc: '20', estado: 'executed', cubierto: '600', pagado_el: '2026-11-05', kepler_folio: '0016796' })], HOY);
     expect(documentos[0].programado[0].aplicado_en_kepler).toBe(false);
     expect(calendarioDe(documentos).sin_programar).toBe(300);
+  });
+
+  it('[PGP.206] ejecutada SIN ligar que Kepler ya tiene (INDULMI 0000095): lo que queda se puede programar', () => {
+    // $33,188.98 − devolución $2,805.35 − transferencia $27,578.05 − nota $0.23 (la nota de $2,805.58 se canceló).
+    const { documentos } = armarEstado([A('0000095', '33188.98')], [
+      ap('0000095', '40', '0000005', '2805.35', '2026-09-30'), ap('0000095', '55', '0000016', '2805.58', '2026-10-01', true),
+      ap('0000095', '26', '0001077', '27578.05', '2026-11-14'), ap('0000095', '55', '0000131', '0.23', '2026-11-19'),
+    ], HOY);
+    adjuntarProgramado(documentos, [p('0000095', {
+      tipo_doc: '20', fecha: '2026-11-13', estado: 'executed', cubierto: '27578.05', pagado_el: '2026-11-19', en_kepler: true,
+    })], HOY);
+    expect(documentos[0].saldo).toBe(2805.35);
+    expect(documentos[0].programado[0]).toEqual(expect.objectContaining({ aplicado_en_kepler: true, kepler_folio: null }));
+    expect(calendarioDe(documentos).sin_programar).toBe(2805.35);
+  });
+
+  it('[PGP.206] PRUEBA NEGATIVA: un pago PENDIENTE nunca cuenta como «ya en Kepler», diga lo que diga la consulta', () => {
+    const { documentos } = armarEstado([A('0009001', '1000')], [], HOY);
+    adjuntarProgramado(documentos, [p('0009001', { tipo_doc: '20', estado: 'pending', fecha: '2026-11-25', cubierto: '600', en_kepler: true })], HOY);
+    expect(documentos[0].programado[0].aplicado_en_kepler).toBe(false);
+    expect(calendarioDe(documentos).sin_programar).toBe(400);
   });
 
   it('PRUEBA NEGATIVA: un pago cancelado o rebotado no aparece ni aparta nada', () => {
