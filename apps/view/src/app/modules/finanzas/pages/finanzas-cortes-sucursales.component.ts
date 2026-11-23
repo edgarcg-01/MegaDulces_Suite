@@ -193,16 +193,19 @@ const conSigno = (x: number): string => (x > 0.005 ? `+${money(x)}` : money(x));
  * con los dos lados): en 22 el cajón da igual y sólo cambia el reparto entre billetes y monedas (hay
  * $20 de las dos); en 43 Kepler trae dentro de su cajón los créditos y cheques; y lo que Kepler retiró
  * y nadie contó se toma como bueno (CSU.16). Ninguno de esos es una diferencia de dinero.
+ * `cajon` es `null` cuando el cajero no contó el cierre: los retiros se comparan igual (probado en
+ * local el 2026-11-23: Padre Hidalgo, caja 2-128, contó $1,000 más en retiros y no se marcaba).
  */
-function lecturaCajon(a: CorteArqueo): { cajon: 'igual' | 'reparto' | 'documentos' | 'difiere'; retirado: 'igual' | 'sin_contar' | 'difiere' } | null {
+function lecturaCajon(a: CorteArqueo): { cajon: 'igual' | 'reparto' | 'documentos' | 'difiere' | null; retirado: 'igual' | 'sin_contar' | 'difiere' } | null {
   const d = a.declaracion_cajero, k = a.desglose_kepler;
-  if (!d || !k || d.cajon === null) return null;
+  if (!d || !k) return null;
+  const dRet = d.retiros - k.retirado;
+  const retirado = dRet <= -1 ? 'sin_contar' : dRet >= 1 ? 'difiere' : 'igual';
+  if (d.cajon === null) return { cajon: null, retirado };
   const dCaj = d.cajon - (k.billetes + k.monedas);
   const dBil = d.cajon_billetes === null ? 0 : d.cajon_billetes - k.billetes;
-  const dRet = d.retiros - k.retirado;
   const cajon = Math.abs(dCaj) < 1 ? (Math.abs(dBil) >= 1 ? 'reparto' : 'igual')
     : d.documentos > 0 && Math.abs(dCaj + d.documentos) < 1 ? 'documentos' : 'difiere';
-  const retirado = dRet <= -1 ? 'sin_contar' : dRet >= 1 ? 'difiere' : 'igual';
   return { cajon, retirado };
 }
 
@@ -246,9 +249,13 @@ export function partesDelEfectivo(a: CorteArqueo): ParteEfectivo[] {
 export function lecturaDelEfectivo(a: CorteArqueo): string | null {
   const l = lecturaCajon(a);
   const d = a.declaracion_cajero, k = a.desglose_kepler;
-  if (!l || !d || !k || d.cajon === null) return null;
+  if (!l || !d || !k) return null;
   const frases: string[] = [];
-  const dCaj = d.cajon - (k.billetes + k.monedas);
+  if (d.cajon === null) {
+    frases.push('El cajero no contó el cajón al cerrar.');
+    if (l.retirado === 'igual') frases.push('Lo retirado coincide.');
+  }
+  const dCaj = (d.cajon ?? 0) - (k.billetes + k.monedas);
   if (l.cajon === 'reparto') frases.push('El cajón da lo mismo; sólo cambia el reparto entre billetes y monedas.');
   else if (l.cajon === 'documentos') frases.push(`Kepler cuenta dentro de su cajón los ${money(d.documentos)} de créditos y cheques; sin ellos, el cajón da lo mismo.`);
   else if (l.cajon === 'difiere') {
@@ -527,7 +534,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                       <!-- [CSU.18] Con devoluciones pagadas del cajon, el esperado se pinta NETO: las dos
                            diferencias de abajo son contra el neto, y el bruto contra el desglose se leia
                            como un faltante que no existe (Madero 1-48: $221.23 = sus dos devoluciones). -->
-                      <tr><td>Efectivo@if (c.devoluciones_total > 0) { <span class="muted">neto de devoluciones</span> }</td><td class="ta-r num">{{ money(a.efectivo_esperado - c.devoluciones_total) }}</td><td class="ta-r num cs-strong">{{ d?.efectivo == null ? '—' : money(d.efectivo) }}</td><td class="ta-r num">{{ a.conteo_fisico === null ? '—' : money(a.conteo_fisico) }}</td></tr>
+                      <tr><td>Efectivo@if (c.devoluciones_total > 0) { <span class="muted"> neto de devoluciones</span> }</td><td class="ta-r num">{{ money(a.efectivo_esperado - c.devoluciones_total) }}</td><td class="ta-r num cs-strong">{{ d?.efectivo == null ? '—' : money(d.efectivo) }}</td><td class="ta-r num">{{ a.conteo_fisico === null ? '—' : money(a.conteo_fisico) }}</td></tr>
                       <!-- [CSU.24] El efectivo, parte por parte: dónde se separan el cajero y Kepler. Suman el
                            renglón de arriba de cada lado. El sistema no espera por parte: esa celda va vacía. -->
                       @for (p of partesEfectivo(); track p.etiqueta) {

@@ -407,7 +407,7 @@
 - **Qué:** el renglón «Efectivo» del cuadre se abre en billetes y monedas del cajón, créditos y cheques, y retirado en el turno, cajero y Kepler lado a lado, con una frase que dice dónde se separan. Sin endpoint nuevo.
 - **Lección:** la diferencia más visible no siempre es dinero. Medido en noviembre: el mismo cajón repartido distinto entre billetes y monedas, los créditos dentro del cajón de Kepler y lo retirado que nadie contó parecían «diferencias»; marcarlas habría mandado a buscar faltantes que no existen. Se rotula lo que es, y sólo se marca lo que difiere de verdad.
 - **También:** el peso de CSU.23 se midió en prod (+132 KB comprimida por mes, lo estimado). La lentitud de la pantalla desde el 17-nov coincide con una subida de toda la API; la causa de sus picos queda NO MEDIDA.
-- **Pendiente:** validación visual. 🧪, no en prod.
+- **Probado en local** el mismo día, con un corte real de cada caso. La prueba encontró lo que las pruebas unitarias no: cuando el cajero contó retiros pero no el cierre, la diferencia en los retiros no se marcaba. Corregido. 🧪, no en prod.
 
 ## 2026-11-22 — `[PQ.3.14]` ✅ y `[PQ.3.18]` el embudo de llenado del Calendario de compras: dinero y operaciones no ordenan igual
 

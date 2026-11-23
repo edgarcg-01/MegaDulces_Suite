@@ -88,8 +88,16 @@ describe('[CSU.24] el efectivo, parte por parte', () => {
     expect(lecturaDelEfectivo(sinKepler)).toBeNull();
     const sinCierre = arq(decl({ cajon: null, cajon_billetes: null, cajon_monedas: null, efectivo: null }), kep());
     expect(partesDelEfectivo(sinCierre).slice(0, 2).map((x) => x.cajero)).toEqual([null, null]);
-    expect(lecturaDelEfectivo(sinCierre)).toBeNull();
+    expect(partesDelEfectivo(sinCierre).some((x) => x.difiere)).toBe(false);
+    expect(lecturaDelEfectivo(sinCierre)).toBe('El cajero no contó el cajón al cerrar. Lo retirado coincide.');
     expect(partesDelEfectivo(arq(null, null))).toEqual([]);
+  });
+
+  it('⭐ sin cierre del cajero, los retiros se comparan igual (probado en local: contó $1,000 más y no se marcaba)', () => {
+    const a = arq(decl({ cajon: null, cajon_billetes: null, cajon_monedas: null, efectivo: null, retiros: 9000, retiros_n: 2 }), kep({ retirado: 8000 }));
+    const p = partesDelEfectivo(a);
+    expect(p.filter((x) => x.difiere).map((x) => x.etiqueta)).toEqual(['Retirado en el turno · 2 retiros']);
+    expect(lecturaDelEfectivo(a)).toBe('El cajero no contó el cajón al cerrar. El cajero contó $1,000.00 más en retiros de lo que Kepler registra.');
   });
 
   it('sin retiros de ningún lado no se pinta un renglón de $0 contra $0', () => {
