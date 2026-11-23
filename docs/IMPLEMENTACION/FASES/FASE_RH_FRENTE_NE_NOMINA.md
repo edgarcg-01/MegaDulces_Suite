@@ -14,8 +14,9 @@
 ```
 OBJETIVO: que la nómina deje de calcularse y entregarse en un Access de un servidor
           compartido, sin perder lo que ese sistema sí hace bien.
-MÉTRICA:  personas de la nómina semanal identificables en la Suite (usuario + ficha de reloj)
-          HOY (2026-11-23, medido): 69.9 % — piso, por empate de nombre exacto
+MÉTRICA:  personas de la nómina semanal ligables a un usuario de la Suite, sin ambigüedad
+          HOY (2026-11-23, medido): 73.7 % ligables · 1.2 % liga con usuario inactivo
+                                     25.1 % sin ningún candidato · 0 % ambiguo
           META: 100 % con llave propia (no por nombre) para el cierre de C0
 CAPA TOPE: C0 (no se sube de capa hasta que el padrón tenga llave)
 ÁREA:      RH
@@ -53,9 +54,27 @@ mudarlo. Medido el 2026-11-20 y el 2026-11-23 (detalle y cifras en el anexo priv
 
 **El cuello, medido:** el padrón de la nómina y el padrón de la Suite **no comparten llave**. La
 Suite identifica a la persona por `(sitio, código del reloj)`; el Access, por un número propio de 4
-dígitos. Hoy sólo empatan **por nombre escrito igual**, y así empata el **69.9 %**. `hr.employees`
-está **en 0 filas**, y ninguna tabla de `hr.*` ni de `identity.*` guarda RFC, CURP ni NSS: ese dato
-sólo existe fuera de la Suite.
+dígitos. Hoy sólo se pueden unir **por el nombre escrito**, y así se liga el **73.7 %** sin
+ambigüedad. `hr.employees` está **en 0 filas**, y ninguna tabla de `hr.*` ni de `identity.*` guarda
+RFC, CURP ni NSS: ese dato sólo existe fuera de la Suite.
+
+⚠️ **Corrección de la primera medición (mismo día).** El primer empate dio 69.9 % contando como
+acierto a quien coincidía con **más de un** usuario. Un nombre que empata con varios **no es un
+empate**. Resuelto el duplicado, el número real es **73.7 % ligable y 0 % ambiguo**: más alto y, esta
+vez, sostenible. La ambigüedad no eran homónimos — eran **registros de usuario duplicados e
+inactivos**: hay 158 nombres repetidos entre los usuarios con ficha de reloj y **ninguno** tiene dos
+registros activos, así que basta preferir el activo.
+
+**Dos hallazgos más de C0, del mismo corte:**
+
+- **El centro del Access mezcla dos cosas distintas**: dónde trabaja la persona y a qué área
+  pertenece. De los 34 centros con nómina, **17 corresponden a un sitio físico** del reloj (a veces
+  varios al mismo: la sucursal, su área de telemarketing, su ruta directa y su staff) y **17 no son
+  lugares sino áreas** (Finanzas, Sistemas, Contabilidad, Dirección, RRHH, Compras, Mantenimiento,
+  Logística, promotoría y rutas), con 72 personas. La Suite ya separa las dos cosas —sitio del reloj
+  por un lado, área por otro—, así que al migrar **esa columna se parte en dos**; no se copia.
+- **Tres personas cobran en la nómina y su usuario de la Suite está inactivo.** No es ambigüedad:
+  es una contradicción entre dos registros que hay que resolver a mano.
 
 ---
 
@@ -84,9 +103,9 @@ estaría uniendo personas por su nombre escrito.
 | NE.0.1 | **Medir el padrón de la nómina**: universo, cobertura de RFC/CURP/NSS, y cuántos ya tienen ficha de reloj en la Suite | ✅ 2026-11-23 | Access ↔ `hr.device_enrollments` ↔ `identity.users`; cifras en el anexo privado |
 | NE.0.2 | **Acceso de sólo lectura a ContPAQi Nóminas** (`contpaqi_nom`), acotado a las columnas no sensibles | ⬜ ⚠️ bloqueado | — |
 | NE.0.3 | **De dónde sale el importe que se dispersa por banco**: cerrar la hipótesis de que es el neto oficial del periodo, persona por persona, una semana real | ⬜ | el archivo de dispersión de esa semana contra el neto de ContPAQi |
-| NE.0.4 | **Llave de persona**: `hr.employees` poblada con `employee_code` propio + RFC/CURP/NSS, y ligada a `identity.users` y a la ficha del reloj | ⬜ | el empate por nombre (69.9 %) como piso; se cierra cuando no queda nadie sin llave |
-| NE.0.5 | **El 30 % sin ficha de reloj**: decidir uno por uno si es alta pendiente, persona que no checa, o registro muerto | ⬜ | RH, con la lista del anexo |
-| NE.0.6 | **Sanear el catálogo de centros**: hoy el mismo centro está escrito de varias formas y un bloque queda sin centro | ⬜ | contra los centros del ERP y los sitios del reloj |
+| NE.0.4 | **Llave de persona**: `hr.employees` poblada con `employee_code` propio + RFC/CURP/NSS, y ligada a `identity.users` y a la ficha del reloj | ⬜ ⚠️ espera a `[RH.1.4]` | el empate por nombre (73.7 %) como punto de partida; se cierra cuando no queda nadie sin llave |
+| NE.0.5 | **Los que no se pudieron ligar**: 25.1 % sin ningún candidato (de ellos, 2 de cada 3 sí traen RFC) y 3 que ligan con un usuario **inactivo**. Uno por uno: alta pendiente, persona que no checa, o registro muerto | 🔨 lista lista | lista nominal en el anexo privado, para RH |
+| NE.0.6 | **Partir el centro en dos**: sitio físico y área. Mapeo propuesto y medido: 17 de 34 centros caen en un sitio del reloj; los otros 17 (72 personas) son áreas, no lugares | 🔨 propuesta lista | `hr.attendance_sites` (12 sitios, ya con su almacén del ERP) + el área de `identity.users` |
 | NE.0.7 | Vista `derive-no-copy` del histórico de la nómina del Access, **sólo lectura**, para no perder la serie desde 2011 al apagar la base | ⬜ | totales por semana contra el Access vivo |
 
 ### C1 · Dominio
@@ -163,4 +182,6 @@ no se publica en ninguna pantalla general.
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-11-20 | Levantamiento: se encontró que el sistema ya existe en Access y que las dos mitades del pago no comparten número. Documento **sacado del repo** por ser público | Claude |
-| 2026-11-23 | Medido el padrón: universo de la nómina semanal, cobertura de RFC/CURP/NSS y **69.9 %** ya identificable en la Suite. Confirmado que los dos padrones **no comparten llave**. Frente abierto como parte de RH (cupo: 9 🔨 contra 4) | Claude |
+| 2026-11-23 | Medido el padrón: universo de la nómina semanal, cobertura de RFC/CURP/NSS, y confirmado que los dos padrones **no comparten llave**. Frente abierto como parte de RH (cupo: 9 🔨 contra 4) | Claude |
+| 2026-11-23 | Empate rehecho y **métrica corregida de 69.9 % a 73.7 %**: el primer número contaba como acierto a quien coincidía con más de un usuario. La ambigüedad eran registros duplicados e inactivos, no homónimos; preferir el activo la lleva a 0 %. Quedan **65 sin candidato** y **3 con usuario inactivo** como lista de trabajo de RH | Claude |
+| 2026-11-23 | Medido el catálogo de centros: **17 de 34 son sitios físicos, 17 son áreas**. Conclusión de diseño: la columna se parte en dos al migrar, no se copia | Claude |
