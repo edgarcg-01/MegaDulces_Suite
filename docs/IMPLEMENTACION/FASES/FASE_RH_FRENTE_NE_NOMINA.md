@@ -114,7 +114,7 @@ estaría uniendo personas por su nombre escrito.
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
 | NE.0.1 | **Medir el padrón de la nómina**: universo, cobertura de RFC/CURP/NSS, y cuántos ya tienen ficha de reloj en la Suite | ✅ 2026-11-23 | Access ↔ `hr.device_enrollments` ↔ `identity.users`; cifras en el anexo privado |
-| NE.0.2 | **Acceso de sólo lectura a ContPAQi Nóminas** (`contpaqi_nom`), acotado a las columnas no sensibles | ⬜ ⚠️ bloqueado | — |
+| NE.0.2 | **Acceso de sólo lectura a ContPAQi Nóminas**, acotado a las columnas no sensibles | ✅ 2026-11-23 — **ya existía** | las dos vistas de `contpaqi_ods` (287,994 filas, sólo hashes) las lee `app_runtime`; `contpaqi_nom` sigue cerrado (§10) |
 | NE.0.3 | **De dónde sale el importe que se dispersa por banco**: cerrar la hipótesis de que es el neto oficial del periodo, persona por persona, una semana real | ⬜ | el archivo de dispersión de esa semana contra el neto de ContPAQi |
 | NE.0.4 | **Llave de persona**: `hr.employees` poblada con `employee_code` propio + RFC/CURP/NSS, y ligada a `identity.users` y a la ficha del reloj | ⬜ ⚠️ espera a `[RH.1.4]` | el empate por nombre (73.7 %) como punto de partida; se cierra cuando no queda nadie sin llave |
 | NE.0.5 | **Los que no se pudieron ligar**: 25.1 % sin ningún candidato (de ellos, 2 de cada 3 sí traen RFC) y 3 que ligan con un usuario **inactivo**. Uno por uno: alta pendiente, persona que no checa, o registro muerto | 🔨 lista lista | lista nominal en el anexo privado, para RH |
@@ -447,3 +447,54 @@ es un problema de espacio.
 ⚠️ **NO MEDIDO:** si `0 T Colaboradores` guarda algo histórico que el recibo no traiga (hoy parece
 sólo el estado actual de cada persona); si las 1,336 marcas de `ID` que faltan en la secuencia son
 bajas del sistema viejo o nunca existieron; cuánto del resto del `.mdb` tiene dueño en la Suite.
+
+---
+
+## 10. `[NE.0.2]` Ya no está bloqueado: la superficie segura de ContPAQi existe y la API la lee
+
+**Medido el 2026-11-23** en pg-prod (`system_identifier` verificado), al diseñar `[NE.0.7]`.
+
+El item estaba anotado como **⚠️ bloqueado**, esperando a que alguien con `postgres` corriera el
+script de grants. **Ya se corrió**, y nadie lo anotó:
+
+| | |
+|---|---|
+| `contpaqi_ods.v_nomina_pago_periodo` | **287,994 filas**, 2016-12-31 → 2026-11-18, semanal |
+| `contpaqi_ods.v_nomina_empleado` | 1,736 personas |
+| lo que exponen | `curp_hash` y `rfc_hash` —**md5, nunca la CURP ni el RFC en claro**—, periodo, días pagados, percepciones, deducciones, neto, `department` y `position` |
+| quién puede leerlas | **`app_runtime` (la API), `dev_ro` y las cuentas personales** |
+| `contpaqi_nom` (el schema crudo) | **sigue cerrado**: ni la API ni los devs tienen `USAGE` |
+
+⛔ **Cómo se midió, porque el método importa:** `information_schema.role_table_grants` **no dice
+quién puede leer** — ahí sólo aparecía `dev_ro`, y de ahí salió una primera lectura equivocada. Lo
+que responde la pregunta es **`has_table_privilege('app_runtime', …, 'SELECT')`**, que resuelve
+herencia y `PUBLIC`. El control negativo lo confirma: la misma consulta sobre la tabla **cruda**
+`contpaqi_nom.add_nomina` devuelve «permission denied for schema» — la consulta sí distingue, y el
+candado del schema sensible sigue puesto.
+
+⚠️ **Y lo aplicado no era el archivo del repo.** Al comparar la vista desplegada contra
+[`ops/prod/grants/ne02_contpaqi_nom_lectura_minima.sql`](../../../ops/prod/grants/ne02_contpaqi_nom_lectura_minima.sql):
+
+| | en el repo | en producción |
+|---|---:|---:|
+| columnas de `v_nomina_pago_periodo` | 7 | **14** |
+| llave de empate en esa vista | **ninguna** | `curp_hash` |
+| desglose del CFDI (percepciones, otros pagos, deducciones) | el archivo prometía **no** exponerlo | **sí se expone** |
+| los dos `COMMENT ON VIEW` | sí | **no llegaron** |
+| `v_nomina_empleado` | 8 columnas | **idéntica** |
+
+Dos consecuencias, las dos medidas:
+
+1. ⛔ **El archivo ya no se podía volver a correr**: `CREATE OR REPLACE VIEW` no puede quitarle
+   columnas a una vista existente, así que la versión de 7 columnas habría fallado contra prod.
+2. ⭐ **Quien lo aplicó lo mejoró**: le puso la llave que faltaba, y la puso **por CURP** —que es la
+   correcta: por RFC empatan 0 de 229, por CURP 217 de 238— no por el `rfc` de ContPAQi, que no es
+   el RFC.
+
+→ El archivo quedó **reescrito para decir exactamente lo que corre en prod**, con el aviso de que el
+desglose del CFDI sí se expone. Un archivo de ops que describe algo distinto de lo que hay es peor
+que no tenerlo: el que lo lea va a creerle.
+
+→ **Qué destraba:** `[NE.0.3]` (de dónde sale el importe que se dispersa por banco) se puede medir
+**y además llevar a producto**, porque la vista la lee la propia API. Lo que sigue necesitando
+autorización es cualquier columna **fuera** de esas dos vistas.
