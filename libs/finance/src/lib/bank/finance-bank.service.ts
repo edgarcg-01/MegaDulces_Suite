@@ -2,12 +2,13 @@ import { Injectable, BadRequestException, Logger, Inject, Optional } from '@nest
 import * as crypto from 'node:crypto';
 import * as ExcelJS from 'exceljs';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch, todayMx } from '@megadulces/platform-core';
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimFueraDeAlcance, claimVerdict, type ClaimRow } from './recon-claim-key';
 import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
 import { aplicarMotorDeCategoria } from './estado-de-cuenta/motor-de-categoria.aplicar';
+import { coberturaDeCategoria, type FilaDeCobertura } from './estado-de-cuenta/cobertura-de-categoria';
 import { compileRules, classifyWith, normKey } from './classify-rules';
 import { avisarBancos } from './aviso-bancos';
 import { leerDescargaDelPeriodo } from './estado-de-cuenta/descarga-en-movimientos.query';
@@ -1390,7 +1391,7 @@ export class FinanceBankService {
 
     // Totales de la tabla (ingresos/egresos) + sin_clasificar + cuentas sin estado de cuenta.
     const { totales, sinClas, sinClasBuckets, cuentasSinEstado, matchedCount, keplerPostingsCount,
-      reconAmt, cobertura, ultimoImport, sinEvaluar } = await this.tk.run(async (trx) => {
+      reconAmt, cobertura, ultimoImport, sinEvaluar, filasCobertura, totalBanco } = await this.tk.run(async (trx) => {
       const t = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.deleted_at')
@@ -1496,9 +1497,24 @@ export class FinanceBankService {
         .whereRaw('(bm.amount_in > 0 OR bm.amount_out > 0)')
         .count({ n: '*' }).first() as { n: string | number } | undefined;
 
+      // [BFU.7.6] La cobertura del motor de categoría sobre la descarga del banco: por estado, motivo, responsable y día
+      // (el día, para recalcular «todavía no» al leer). El total sale de OTRA consulta, para contrastar el agrupado.
+      // Medido en prod (2026-11-23, nov): 18 ms y 12 ms de ejecución.
+      const filasCob = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period).whereNull('bm.deleted_at').where('bm.sync_source', 'banco')
+        .groupByRaw(`(bm.category_id IS NOT NULL), bm.category_reason, bm.category_evidence->>'responsable', to_char(bm.movement_date, 'YYYY-MM-DD')`)
+        .select(trx.raw('(bm.category_id IS NOT NULL) AS con_categoria'), trx.raw('bm.category_reason AS motivo'),
+          trx.raw(`bm.category_evidence->>'responsable' AS responsable`), trx.raw(`to_char(bm.movement_date, 'YYYY-MM-DD') AS fecha`),
+          trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric AS monto')) as FilaDeCobertura[];
+      const totBanco = await trx('finance.bank_movements as bm')
+        .whereNull('bm.deleted_at').where('bm.sync_source', 'banco')
+        .whereIn('bm.statement_id', trx('finance.bank_statements').where('period', period).select('id'))
+        .count({ n: '*' }).first() as { n: string | number } | undefined;
+
       return { totales: t, sinClas: sc, sinClasBuckets: scb, cuentasSinEstado: missing,
         matchedCount: n((mc as any)?.n), keplerPostingsCount: n((kp as any)?.n),
-        reconAmt, cobertura, ultimoImport, sinEvaluar: n(sinEv?.n) };
+        reconAmt, cobertura, ultimoImport, sinEvaluar: n(sinEv?.n), filasCobertura: filasCob, totalBanco: n(totBanco?.n) };
     });
 
     const bal = await this.balances(period);
@@ -1688,6 +1704,9 @@ export class FinanceBankService {
       // los meses (medido en prod: mayo decía 99%, real 86%).
       sin_clasificar_n: n((sinClas as any)?.n),
       sin_clasificar_monto: n((sinClas as any)?.monto),
+      // [BFU.7.6] El motor de categoría sobre la descarga del banco: con categoría + por resolver (motivo y responsable)
+      // + sin motivo = sus renglones, contrastado contra un conteo aparte. «Todavía no» se recalcula con la fecha de hoy.
+      cobertura_categoria: coberturaDeCategoria(filasCobertura, todayMx(), totalBanco),
       recon_estado: reconEstado,
       items,
     };

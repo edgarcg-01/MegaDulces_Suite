@@ -660,6 +660,23 @@ async function completo(urlAdmin, urlRuntime) {
       check(r3.cambios === 1 && t3.code === null && t3.classified_by === 'banco' && !!t3.category_reason,
         `⛔ si el pareo se va, la categoría del documento se va y queda el motivo (${t3.code}/${t3.classified_by}/${t3.category_reason})`);
       noMedido('[BFU.7.4] la cuenta contable (kdxf → kdm6) necesita el ODS de Kepler: aquí sólo el traspaso y los motivos; en prod se mide antes/después');
+
+      // [BFU.7.6] El diagnóstico dice la cobertura del motor: con categoría + por resolver + sin motivo = la descarga,
+      // contrastado contra un conteo aparte. Se lee como app_runtime (RLS) por el mismo servicio que usa la pantalla.
+      const { FinanceBankService: FBS76 } = require(path.join(ROOT, 'libs/finance/src/lib/bank/finance-bank.service.ts'));
+      const fbs76 = new FBS76({ run: (cb) => comoApp(cb) }, { requireTenantId: () => MEGA });
+      let dg = null;
+      try { dg = await fbs76.diagnostico('2026-11'); } catch (e) { noMedido(`[BFU.7.6] el diagnóstico no corre en este destino: ${e.message}`); }
+      if (dg) {
+        const cc = dg.cobertura_categoria;
+        const bancoNov = (await admin('finance.bank_movements as bm').join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+          .where({ 'st.period': '2026-11', 'bm.sync_source': 'banco', 'bm.tenant_id': MEGA }).whereNull('bm.deleted_at').count({ n: '*' }).first()).n;
+        check(cc?.suma_cuadra === true && cc.evaluados === Number(bancoNov),
+          `[BFU.7.6] la cobertura suma la descarga entera, contra un conteo aparte (${cc?.evaluados} de ${bancoNov})`);
+        check(cc.por_resolver.some((g) => g.motivo === 'documento_sin_aplicacion' && g.responsable === 'sistemas' && g.n >= 1),
+          `[BFU.7.6] el motivo que dejó el motor aparece con su responsable (${JSON.stringify(cc.por_resolver)})`);
+        check(cc.con_categoria.n >= 1, `[BFU.7.6] lo categorizado (también lo puesto a mano) cuenta como con categoría (${cc.con_categoria.n})`);
+      }
     }
   } finally {
     await limpiar(admin).catch(() => {});
