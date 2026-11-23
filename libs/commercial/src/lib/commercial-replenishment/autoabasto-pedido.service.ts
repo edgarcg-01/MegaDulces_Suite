@@ -4,7 +4,9 @@ import { TenantKnexService, TenantContextService, MX_TZ, toMxDateKey, branchKeyS
 import {
   armarRenglon,
   surteDe,
+  ORIGEN_NO_VALIDO_MSG,
   type AutoabastoEnvioKepler,
+  type OrigenNoValido,
   estatusVigenteSql,
   WAREHOUSE_ORDER_ABIERTOS_SQL,
   coberturaAutoabasto,
@@ -565,6 +567,51 @@ export class AutoabastoPedidoService {
     return { renglones: filas };
   }
 
+  /**
+   * `[PQ.139]` · D2 (Edgar, 2026-11-22) — **De qué almacén se pide.**
+   *
+   * El default no se teclea: sin `origen_code`, manda el que propone el motor, que es el almacén
+   * principal de esa sucursal. Esto sólo corre cuando alguien eligió OTRO, y entonces el servidor
+   * decide si ese otro sirve. La pantalla puede ofrecer la lista que quiera: la lista blanca vive
+   * acá, porque un cliente no es un lugar donde poner un permiso.
+   *
+   * ⛔ Cada condición existe por lo que rompería, y el orden es el de lectura para quien eligió mal:
+   *   · borrado o inexistente → no hay nada que pedir;
+   *   · `active = false` → nadie opera ahí;
+   *   · `kind = 'truck'` → un camión de ruta tiene existencia y hasta tope de reabasto, así que
+   *     aparece en las listas del módulo; **no surte a una tienda**;
+   *   · sin `kepler_code` → no hay servidor al que escribirle. Es el mismo freno que `pushToKepler`
+   *     aplica después, adelantado a donde la persona todavía puede corregirlo (allá el pedido ya
+   *     estaría escrito y sólo quedaría el motivo en `kepler_error`);
+   *   · el mismo almacén → pedirse a sí mismo.
+   *
+   * ⚠️ Lo que **no** se valida, a propósito: si el origen tiene existencia. ADR-127 §4 lo midió —el
+   * CEDIS surtió 1,123 SKU distintos en 30 días y sólo el 24.3 % tiene existencia hoy, porque es
+   * cruce y no bodega—: una compuerta por existencia bloquearía tres cuartas partes de lo que de
+   * verdad surte. La existencia se **muestra**, no frena.
+   */
+  private async origenElegido(tenantId: string, almacen: Almacen, code: string | null | undefined)
+    : Promise<{ id: string; code: string; name: string } | null> {
+    const pedido = String(code ?? '').trim();
+    if (!pedido) return null;
+    const w = await this.tk.run(async (trx: Knex.Transaction) => trx('commercial.warehouses')
+      .where({ tenant_id: tenantId, code: pedido }).whereNull('deleted_at')
+      .first('id', 'code', 'name', 'active', 'kind', 'kepler_code')) as
+      { id: string; code: string; name: string; active: boolean | null; kind: string | null; kepler_code: string | null } | undefined;
+
+    const falla: OrigenNoValido | null =
+      !w ? 'no_existe'
+        : w.active === false ? 'inactivo'
+          : String(w.kind ?? '').trim() === 'truck' ? 'es_camion'
+            : !String(w.kepler_code ?? '').trim() ? 'sin_kepler'
+              : w.id === almacen.id ? 'es_el_mismo'
+                : null;
+    if (falla) {
+      throw new BadRequestException(`No se puede pedir a «${pedido}»: ${ORIGEN_NO_VALIDO_MSG[falla]}.`);
+    }
+    return { id: w!.id, code: w!.code, name: w!.name };
+  }
+
   async enviar(almacen: Almacen, area: string, req: AutoabastoEnviarRequest): Promise<AutoabastoEnviarResponse> {
     const tenantId = this.tenantCtx.requireTenantId();
     const ids = [...new Set((Array.isArray(req?.product_ids) ? req.product_ids : [])
@@ -572,6 +619,18 @@ export class AutoabastoPedidoService {
     if (!ids.length) throw new BadRequestException('Elige al menos un producto para mandar a Compras.');
     if (ids.length > 2000) throw new BadRequestException('Son demasiados productos para un solo envío (máximo 2,000).');
     const nota = String(req?.nota ?? '').trim().slice(0, 500);
+
+    // `[PQ.139]` · D2 — de qué almacén se pide. Se valida ANTES de armar nada: si el origen no
+    // sirve, no tiene sentido recalcular la mesa entera para después rechazar.
+    const elegido = await this.origenElegido(tenantId, almacen, req?.origen_code);
+    /**
+     * El origen elegido manda sobre los renglones que van a OTRA SUCURSAL, y sólo sobre ésos: a un
+     * proveedor se le pide donde se le pide. Fundir todos los de sucursal en uno es lo que Kepler
+     * pide —un `U-D-40` sale de UNA sucursal— y lo que `insertRequisition` ya exige.
+     */
+    const surteEfectivo = (s: SurteRenglon): SurteRenglon => (elegido && s.tipo === 'matriz'
+      ? { tipo: 'matriz', clave: elegido.code, nombre: elegido.name }
+      : s);
 
     const { renglones } = await this.armarAlmacen(almacen, area);
     const porId = new Map(renglones.map((r) => [r.linea.product_id, r]));
@@ -582,7 +641,8 @@ export class AutoabastoPedidoService {
       if (!r) { omitidos.push({ product_id: id, motivo: 'No le falta a esta sucursal' }); continue; }
       const porque = motivoNoEnviable(r.linea);
       if (porque) { omitidos.push({ product_id: id, motivo: porque }); continue; }
-      const llave = `${r.linea.surte.tipo}:${r.linea.surte.clave ?? ''}`;
+      const s = surteEfectivo(r.linea.surte);
+      const llave = `${s.tipo}:${s.clave ?? ''}`;
       const g = grupos.get(llave);
       if (g) g.push(r); else grupos.set(llave, [r]);
     }
@@ -590,7 +650,7 @@ export class AutoabastoPedidoService {
       throw new BadRequestException(`Ninguno de los productos se puede mandar a Compras: ${omitidos[0]?.motivo ?? 'no le faltan'}.`);
     }
 
-    const matrices = [...grupos.values()].map((g) => g[0].linea.surte).filter((s) => s.tipo === 'matriz').map((s) => String(s.clave));
+    const matrices = [...grupos.values()].map((g) => surteEfectivo(g[0].linea.surte)).filter((s) => s.tipo === 'matriz').map((s) => String(s.clave));
     const { origenes, costos, leLlegaA } = await this.tk.run(async (trx: Knex.Transaction) => {
       const ws: Array<{ id: string; code: string }> = matrices.length
         ? await trx('commercial.warehouses').where({ tenant_id: tenantId }).whereIn('code', matrices).whereNull('deleted_at').select('id', 'code')
@@ -609,7 +669,7 @@ export class AutoabastoPedidoService {
     const dtos: CreateRequisitionDto[] = [];
     const surtes: SurteRenglon[] = [];
     for (const g of grupos.values()) {
-      const s = g[0].linea.surte;
+      const s = surteEfectivo(g[0].linea.surte);
       const origenId = s.tipo === 'matriz' ? origenes.get(String(s.clave)) ?? null : null;
       if (s.tipo === 'matriz' && !origenId) {
         for (const r of g) omitidos.push({ product_id: r.linea.product_id, motivo: `No se encontró su matriz (${s.clave}) entre los almacenes` });

@@ -763,7 +763,44 @@ export interface AutoabastoEnviarRequest {
   product_ids: string[];
   /** Nota para Compras (opcional). */
   nota?: string | null;
+  /**
+   * `[PQ.139]` · D2 (Edgar, 2026-11-22) — **De qué almacén se pide**, por su `code`. Ausente = el
+   * que propone el motor, que es el almacén principal de esa sucursal: el default no se teclea.
+   *
+   * Sólo manda sobre los renglones que se piden a OTRA SUCURSAL; los de proveedor no lo miran.
+   * Elegir origen **funde** todos esos renglones en un solo pedido, que es justo lo que Kepler
+   * exige: un `U-D-40` sale de una sucursal, no de varias.
+   *
+   * ⛔ El servidor lo valida contra una lista blanca (`ORIGEN_NO_VALIDO`): existe, está activo, no
+   * es un camión de ruta, tiene `kepler_code` y no es el destino. Un origen inválido **no se
+   * corrige en silencio**: se rechaza diciendo cuál falló.
+   */
+  origen_code?: string | null;
 }
+
+/**
+ * `[PQ.139]` Por qué un almacén NO puede ser el origen de un pedido de sucursal. El orden es el de
+ * la comprobación, y cada uno existe por lo que rompería:
+ *
+ *  · `no_existe`   — no está, o está borrado.
+ *  · `inactivo`    — `active = false`: nadie opera ahí.
+ *  · `es_camion`   — `kind = 'truck'`. Un camión de ruta tiene existencia y hasta tope de
+ *                    reabasto, así que aparece en las listas; pero no surte a una tienda.
+ *  · `sin_kepler`  — sin `kepler_code` no hay a qué servidor escribirle: es el mismo freno que
+ *                    `pushToKepler` aplica después, adelantado a donde la persona puede corregirlo.
+ *  · `es_el_mismo` — pedirse a sí mismo.
+ */
+export const ORIGEN_NO_VALIDO = ['no_existe', 'inactivo', 'es_camion', 'sin_kepler', 'es_el_mismo'] as const;
+export type OrigenNoValido = typeof ORIGEN_NO_VALIDO[number];
+
+/** El mensaje que ve quien eligió mal. Dice qué pasó, no un código. */
+export const ORIGEN_NO_VALIDO_MSG: Record<OrigenNoValido, string> = {
+  no_existe: 'no existe o está dado de baja',
+  inactivo: 'está inactivo',
+  es_camion: 'es un camión de ruta, no una bodega que surta',
+  sin_kepler: 'no tiene sucursal de Kepler asignada: no se le puede escribir el pedido',
+  es_el_mismo: 'es este mismo almacén',
+};
 
 /**
  * `[PQ.138]` · ADR-127 — **Qué pasó con este pedido en el ERP.** Lo que la sucursal necesita saber
