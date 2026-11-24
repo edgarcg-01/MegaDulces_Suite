@@ -26,6 +26,10 @@ los de junio–octubre. Kepler por el ODS (`analytics.kepler_bank_movements`, `a
 7. **Las compras con tarjeta son sobre todo combustible y casetas**: gasto de la flotilla, de Logística. Y 35 renglones
    de comisión de AMEX están categorizados como compra.
 8. **Hoy 9 roles pueden gestionar Bancos y 2 sólo verlo**; los demás tienen el permiso en falso.
+9. **El pendiente se reparte por cuenta, no por sucursal**: la cuenta no dice de qué sucursal es un depósito, pero sí
+   quién lo captura (las dos personas principales de la cuenta aciertan 90 %; placebo 23 %).
+10. **El plazo de captura ya existe en el motor, pero los depósitos no llegan a él**: el motor los vuelve «cobranza»
+    antes. Arreglarlo es que ese respaldo ceda, no construir otro plazo.
 
 ---
 
@@ -192,21 +196,62 @@ Sí. El depósito de préstamo del 20-nov sigue en «cobranza» (`classified_by 
 (BFU.7.10, «depósito que no es venta») está en código de otra sesión y no ha llegado a prod. Al llegar, noviembre se
 re-clasifica con corrida en seco y respaldo (regla de Bancos).
 
+## P13. ¿A quién le llega un depósito sin documento? Por cuenta, no por sucursal
+
+D18 dice «el pendiente va a quien lo captura en Kepler», pero un depósito sin documento no dice de qué sucursal es. Se
+midió qué llave lo dice, aprendiendo de los depósitos casados con `U-A-5`/`U-A-7` de los 30 días anteriores al 1-nov y
+probando con los 1,526 de noviembre; el placebo es la respuesta de otra llave al azar:
+
+| Llave | Qué predice | Acierta | Placebo |
+|---|---|---:|---:|
+| La «sucursal» del movimiento (`bank_movements.sucursal`) | la sucursal de Kepler | 23 % (96 % donde es firme, que es el 12 % de los depósitos) | 5 % |
+| La cuenta de banco | la sucursal de Kepler | 29 % | 12 % |
+| La cuenta de banco | quién captura (el primero) | 75 % | 23 % |
+| La cuenta de banco | quién captura (los dos primeros) | 90 % | — |
+
+- `bank_movements.sucursal` **no es la sucursal de Kepler**: es la sucursal BANCARIA donde se hizo el depósito, y viene
+  vacía en 352 de los 565 depósitos sin documento de noviembre.
+- Varias sucursales depositan en la misma cuenta, pero los depósitos de una cuenta los captura la misma persona, o las
+  mismas dos.
+- Con 60 días de historia: 72 % / 90 % (placebo 22 %). Se queda en 30: sigue los relevos de personal (Zamora Centro, P6).
+
+**Consecuencia:** el pendiente se reparte **por cuenta**: va a las dos personas que capturan los depósitos de esa cuenta.
+BFU.4.5.10 se rehízo así antes de soltarse (15 cuentas, 12 usuarios de Kepler, 112 ms). ⚠️ Se aprendió de los
+depósitos que SÍ casaron; los que no casan (cortes de terminal, sobre todo) pueden repartirse distinto. Lo dirá el
+primer mes de uso: cuántos pendientes reasigna la persona que los recibe.
+
+## P14. ¿El plazo de captura ya existe?
+
+Sí, y no alcanza a los depósitos. El motor (BFU.7.4) ya tiene el plazo de 5 días hábiles («Kepler todavía no lo
+tiene» → «Kepler no lo tiene», recalculado al leer) y la pista «Kepler lo tiene en otra cuenta». Pero a un depósito sin
+documento el motor lo categoriza como cobranza **por ser depósito** (el respaldo «depósito») antes de llegar al plazo y
+a la pista: en noviembre, **565 depósitos** (386 dentro del plazo, 179 vencidos) quedan en «cobranza» y ninguno pasa
+por «todavía no» ni por «en otra cuenta».
+
+Además, 246 movimientos de principios de noviembre vienen de archivos subidos (`sync_source = 'upload'`), de antes de
+que empezara la descarga de su cuenta. No se enciman con la descarga (una relevó a la otra por fecha), pero el motor no
+los evalúa (sólo lee `banco`): quedan fuera de su universo. Entre ellos hay 163 depósitos «cobranza» y **4 retiros
+«cobranza»**: categoría contra la dirección del dinero, de una regla vieja, que el candado de BFU.7.10 no va a ver.
+
+**Consecuencia:** BFU.4.5.9 y BFU.4.5.11 no son un plazo ni una pista nuevos (ADR-056: un primitivo). Son que el
+respaldo «depósito» ceda a los que ya existen. Viven en `motor-de-categoria.ts`, que otra sesión tiene a medias
+(BFU.7.10): se hacen cuando ésa se commitee.
+
 ---
 
 ## Lo que cambia en el plan
 
 | # | Cambio | Por qué (respuesta) | Item |
 |---|---|---|---|
-| 1 | Un depósito sin documento es pendiente **después de 7 días naturales**; antes, «Kepler todavía no lo tiene» | P3, P4 | BFU.4.5.9 |
-| 2 | El responsable de los depósitos de una sucursal **se deriva** de quién captura sus `U-A-5`; el cobro a cliente, de quién captura `U-A-7` | P1, P6 | BFU.4.5.10 |
-| 3 | «En otra cuenta» también para depósitos → Tesorería | P5 | BFU.4.5.11 |
+| 1 | Un depósito sin documento pasa por el plazo que el motor **ya tiene** (5 días hábiles, unos 7 naturales); antes, «Kepler todavía no lo tiene». El respaldo «depósito» cede | P3, P4, P14 | BFU.4.5.9 |
+| 2 | El responsable de un depósito **se deriva por cuenta**: las dos personas que capturan en Kepler los depósitos de esa cuenta | P1, P6, P13 | BFU.4.5.10 |
+| 3 | «En otra cuenta» también para depósitos → Tesorería: la pista existe, falta que el respaldo ceda | P5, P14 | BFU.4.5.11 |
 | 4 | Vocabulario: comisión de AMEX es comisión bancaria; gasolinera y caseta son gasto logístico | P7 | BFU.7.11 |
 | 5 | La bandeja no promete «propuesta de cliente»; sólo la muestra en el puñado que la tiene | P2 | BFU.4.5.3 (cerrado) |
 
 ## Lo que sigue sin respuesta (de Edgar o de Sistemas)
 
-1. El par «usuario de Kepler → usuario de la Suite» de los 10 que capturan depósitos y cobros (P6).
+1. El par «usuario de Kepler → usuario de la Suite» de los 12 que hoy capturan los depósitos de las 15 cuentas (P6, P13).
 2. De quién es la venta de TikTok y si pasa por Kepler (P8).
 3. Por qué `marketing` y `gerente_compras` gestionan Bancos (P9).
 4. D15: ¿se le quita a Crédito y Cobranza la vista de saldos que hoy tiene? (P9)
