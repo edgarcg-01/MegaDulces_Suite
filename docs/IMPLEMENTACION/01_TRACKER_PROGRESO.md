@@ -1982,7 +1982,6 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       aviso, y `ngc` no lo ve (un atributo fijo no es un enlace). Pasan a `<span class="p-button-label">`. Lo trajo CXC.41
       (17-nov) y frenaba `check-primeng-api` en el pre-push de todo el equipo (24 contra el techo de 21; ahora 19). Prueba
       7b: ningún `pButton` de la ficha sin texto; el mutante (`label=` de vuelta) la pone roja.
-- [ ] **[CXC.50]** 🧪 (en código, sin soltar) **El estado de cuenta del cliente, con la calidad del de un banco** (Edgar,
 - [x] **[CXC.50]** ✅ (en prod el 2026-11-23, `bcbbebbd3`; /api/health lo sirve) **El estado de cuenta del cliente, con la calidad del de un banco** (Edgar,
       2026-11-23: «debería ver sus facturas nuevas, como el estado de cuenta de un banco»). (1) Abiertas y pagadas, de la
       más NUEVA a la más vieja. (2) «Resumen del periodo» como el bancario: saldo al inicio + facturado − cobros − notas/
@@ -1999,6 +1998,35 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       `proximoVencimiento`) y el PDF los importa de ahí: UNA función, lo que Crédito ve es lo que el cliente recibe
       (ADR-056). Pruebas: PDF 24/24, contrato 3/3, ficha 40/40; mutante (sin el orden en la ficha) en rojo; `ngc` 0
       errores; `check:pantalla` 0 fallas nuevas. Sin validación visual.
+- [ ] **[CXC.52]** 🧪 (en código, sin soltar) **Cartera › Resumen: la venta de cada vendedor, con su total** (Edgar,
+      2026-11-23: «agreguemos aquí el total de venta de cada vendedor»). Columna «Venta» en «Cartera por vendedor»: lo
+      FACTURADO en Kepler con esa clave (contado + crédito, `kdm1.c16`, U-D 8/10/12 no canceladas, con el cutover de cada
+      sucursal) por (sucursal, clave) — la clave sola nombra a otra persona según la plaza. Endpoint propio
+      `GET /finance/receivables/venta-vendedor?date_from&date_to` (hasta 366 días; lo mal escrito se rechaza). Cruce de dos
+      implementaciones: 30 días $63.78 M por cabecera contra $64.10 M por renglón (0.5 %, el descuento de documento).
+      `mv_kepler_sales_daily` es más rápida pero suma ANTES del descuento (+2 % por vendedor) y llega hasta ayer: Edgar eligió
+      la exacta. Medido: 26 de 83 vendedores con cartera vendieron en 30 días; casi toda la cartera grande está en Oficinas
+      (00), que dejó de facturar el 1-oct → «—» (sin venta con esa clave), no $0. Renglón «Total · N vendedores» (todos, no
+      los 10 visibles; sin clientes, que se contarían dos veces; oculto con uno solo). Tiempo: 30 días 0.29 s, 3 meses 0.8 s
+      (el cutover como CASE: unirlo llevaba 30 días de 0.3 a 1.5 s). Servicio 114/114, pantalla 41/41; mutantes (venta por
+      clave sin sucursal; contar antes del cutover; «—» cuando la lectura falló) en rojo. Sin validación visual.
+- [ ] **[CXC.52.1]** ⬜ **El índice de la venta por vendedor** (`ix_kdm1_venta_vendedor`, parcial U-D, INCLUDE de las
+      columnas que lee la consulta). La migración `20261123171332` llegó a `main` el 2026-11-23 sin aplicarse y se SACÓ el
+      2026-11-24 (08:11, horario hábil): una migración pendiente congela el despliegue de todos y un `CREATE INDEX
+      CONCURRENTLY` sobre `kdm1` (810 MB, el carril la reescribe cada 2 s) no va en horario. Vuelve en la noche, se aplica
+      con la receta de `entrega` §5 y se mide 3 meses / un año antes y después. Sin garantía: sólo el 56 % de `kdm1` está
+      «todo visible»; si un año no baja de 500 ms, lo siguiente es un agregado diario por vendedor.
+- [ ] **[CXC.53]** 🧪 (en código, sin soltar) **Todo el Resumen de Cartera sigue UN periodo** (Edgar, 2026-11-23: «que
+      todo el resumen se haga dinámico»). Selector en el encabezado: 30 días, 90 (default: la base de siempre del DSO), este
+      mes, mes anterior o rango. Siguen al periodo la venta a crédito y el DSO (con los días del periodo), la mediana y los
+      pagos a más de 30 días (de lo que se terminó de pagar en el periodo), la venta por vendedor y la tendencia (recortada;
+      dice desde cuándo hay fotos). Lo que es foto de HOY (vencido, top-10, proyección, saldo por vendedor y zona) lo dice:
+      el saldo de una fecha pasada no se reconstruye exacto (medido contra las fotos diarias: 1–10 % de desvío por sucursal).
+      `cartera()` recibe `period_from`/`period_to` (literales ya validados; `ventas_90d` → `ventas_periodo`). Antes/después
+      con 90 días, toda la cartera: mediana de pago 3 → 19 días (de toda la historia a lo pagado en 90 días), pagos a más de 30
+      días 1,880 → 1,055, base del DSO $116.1 M (91 días) → $113.0 M (90). ⚠️ El backend llegó a `main` dentro de
+      `a9a843a95` (otra sesión commiteó el árbol compartido) sin su front; el front sale aquí y nada se soltó entre medio.
+      Periodo 3/3, servicio 114/114, pantalla 41/41; mutante (la cartera sin el periodo) en rojo. Sin validación visual.
 - [ ] **[CC.21.1]** 🧪 **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
 - [x] **[CC.21.1]** ✅ (en prod el 2026-11-18, `bbd1d0131`) **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
       · **Aviso en vivo al llegar el banco, sin migración:** Bancos ya emite `pg_notify('bancos_movimientos')` al cargar el

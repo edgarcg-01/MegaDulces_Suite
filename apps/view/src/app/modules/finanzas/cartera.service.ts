@@ -73,7 +73,9 @@ export interface CarteraFiltros { sucursales: SucursalOpt[]; grupos: string[]; z
 export interface SinDocumento { monto: number; clientes: number }
 
 export interface CarteraResumen {
-  hoy: string; saldo_total: number; vencido_total: number; pct_vencido: number; dso: number | null; ventas_90d: number; n_clientes: number;
+  hoy: string; saldo_total: number; vencido_total: number; pct_vencido: number; dso: number | null; ventas_periodo: number; n_clientes: number;
+  /** `[CXC.53]` El periodo al que siguen la venta, el DSO y el pago; lo demás es foto de hoy. */
+  periodo: { desde: string; hasta: string; dias: number };
   pago: { n: number; promedio: number; mediana: number; tarde_30d: number } | null;
   concentracion: { top10_pct: number; top10: { cliente_code: string; saldo: number }[] };
   proyeccion: { vencido: number; d0_7: number; d8_15: number; d16_30: number; d30_plus: number; sin_fecha: number };
@@ -275,6 +277,8 @@ export interface Compromiso { id: string; monto_prometido: number; fecha_promesa
 export interface CarteraQuery {
   sucursal?: string; cliente?: string; vendedor?: string; grupo?: string; zona?: string; cuenta?: string; from?: string; to?: string;
   incluir_saldados?: string; search?: string; sort?: 'saldo' | 'vencido'; limit?: number;
+  /** `[CXC.53]` El periodo del Resumen (venta, DSO, pago); sin ellos, el servidor usa 90 días. */
+  period_from?: string; period_to?: string;
 }
 
 /** `[CXC.SKU.1]` Un renglón de documento que tocó el producto buscado. */
