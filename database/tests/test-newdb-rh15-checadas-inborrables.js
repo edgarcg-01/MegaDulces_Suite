@@ -27,7 +27,7 @@ const salir = () => { console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} no me
 (async () => {
   const knex = require('knex')(require('../knexfile-newdb.js').development);
   const REVERTIR = new Error('revertir');
-  try { await knex.raw('SELECT 1'); } catch (e) { noMedido(`sin base: ${e.message}`); await knex.destroy().catch(() => {}); return salir(); }
+  try { await knex.raw('SELECT 1'); } catch (e) { noMedido(`sin base: ${e.message}`); await knex.destroy().catch(() => undefined); return salir(); }
   try {
     await knex.transaction(async (trx) => {
       if (!(await trx.raw(`SELECT to_regclass('hr.attendance_logs') t`)).rows[0].t) { noMedido('la base no tiene hr.attendance_logs'); throw REVERTIR; }
@@ -82,7 +82,7 @@ const salir = () => { console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} no me
   } catch (e) {
     if (e !== REVERTIR) { fail++; console.log('  ✗ error inesperado:', e && e.message); }
   } finally {
-    await knex.destroy().catch(() => {});
+    await knex.destroy().catch(() => undefined);
   }
   salir();
 })();
