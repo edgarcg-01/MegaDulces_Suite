@@ -7,7 +7,7 @@
  *   (1) las columnas existen (la migración 20261123175931 corrió);
  *   (2) ninguna categoría activa queda MUDA (sin área y sin `owner_note`);
  *   (3) ningún área apunta a un departamento que no existe en el tenant (colgada);
- *   (4) la partición: cada movimiento cae en un área o en «sin área» declarada, y la suma es el total;
+ *   (4) la partición: cada movimiento cae en un área o en «Otros» (área nula con su razón), y la suma es el total;
  *   (5) en una base LOCAL (la del CI), dentro de una transacción que se deshace: re-correr el `up` no cambia nada, no pisa
  *       un área puesta después a mano, y el `down` se niega a deshacer si alguien la cambió.
  * NEGATIVAS de (2) y (3) con filas sintéticas: un gate sin prueba negativa es una intención.
@@ -69,7 +69,7 @@ const areasColgadas = (cats, deps) => cats.filter((c) => c.owner_department_code
     if (!tot.n) noMedido('(4) no hay movimientos en esta base');
     else {
       const parts = await q(`
-        SELECT COALESCE(mc.owner_department_code, '(sin área)') area,
+        SELECT COALESCE(mc.owner_department_code, 'Otros') area,
                count(*)::int n,
                count(*) FILTER (WHERE mc.id IS NOT NULL AND mc.owner_department_code IS NULL
                                   AND COALESCE(btrim(mc.owner_note), '') = '')::int mudos

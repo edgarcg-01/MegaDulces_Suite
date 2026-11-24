@@ -8,14 +8,14 @@
  * el motor de categoría hoy dice «responsable: el área» sin decir cuál (`motor-de-categoria.ts`, BFU.4.5.2 lo resuelve
  * con esta columna). Se extiende el catálogo que existe; no se copia nada.
  *
- * Una categoría sin departamento que la reciba **no se asigna a uno inventado**: queda con el área nula y la pregunta
- * escrita en `owner_note` (el parámetro dice qué le falta). Mientras, la asigna Tesorería (BFU.4.5).
+ * Una categoría sin departamento que la reciba **no se asigna a uno inventado**: queda con el área nula, que se lee
+ * «Otros» (Edgar, 2026-11-24), y la razón escrita en `owner_note`. Sus pendientes los atiende Tesorería (BFU.4.5).
  *
  * ── Lo medido antes (sólo lectura, pg-prod 7688376744939610156, 2026-11-23) ──────────────────────────────────
  *  · Los 9 departamentos del mapa existen en `identity.departments` del tenant; no hay «Comercial» ni «Dirección».
  *  · Noviembre 1–23, 3,934 movimientos, simulando este mapa: Cobranza 1,978 · Contabilidad 1,164 · Tesorería 273 (+65
  *    sin categoría, que también son suyos) · Compras 184 · RH 68 · Logística 47 · Administración 32 · Mercadotecnia 4 ·
- *    Sistemas 2 · **sin área 117** (gasto de venta 115, gasto de dirección 2; todos con documento de Kepler). Suma = 3,934.
+ *    Sistemas 2 · **Otros 117** (gasto de venta 115, gasto de dirección 2; todos con documento de Kepler). Suma = 3,934.
  *  · `finance.movement_categories` tiene un solo tenant.
  *
  * Aditiva e idempotente: dos columnas nulas, y sólo llena las que siguen nulas (un cambio hecho después en Admin no se
@@ -42,13 +42,14 @@ const MAPA = [
   ['traslado_valores', 'tesoreria'],
 ];
 
-// Lo que no tiene a quién ir: la pregunta queda en la fila.
-const POR_DEFINIR = [
-  ['gasto_venta', 'Por definir: no hay departamento «Comercial» en identity.departments. Mientras, la asigna Tesorería.'],
-  ['comisiones_venta', 'Por definir: no hay departamento «Comercial» en identity.departments. Mientras, la asigna Tesorería.'],
-  ['gasto_direccion', 'Por definir: no hay departamento «Dirección» en identity.departments. Mientras, la asigna Tesorería.'],
-  ['otros_gastos', 'Por definir: «otros gastos» no dice de qué área es. Mientras, la asigna Tesorería.'],
-  ['ingreso_devolucion', 'Por definir: ¿devolución de proveedor (Compras) o de cliente (Cobranza)? Mientras, la asigna Tesorería.'],
+// Sin departamento que la reciba: van a «Otros» (Edgar, 2026-11-24: «pongámoslos en otros»). La razón queda en la fila.
+const DECIDIO = 'Edgar, 2026-11-24: «pongámoslos en otros»';
+const OTROS = [
+  ['gasto_venta', `Otros: no hay departamento «Comercial» en identity.departments (${DECIDIO}). Sus pendientes los atiende Tesorería.`],
+  ['comisiones_venta', `Otros: no hay departamento «Comercial» en identity.departments (${DECIDIO}). Sus pendientes los atiende Tesorería.`],
+  ['gasto_direccion', `Otros: no hay departamento «Dirección» en identity.departments (${DECIDIO}). Sus pendientes los atiende Tesorería.`],
+  ['otros_gastos', `Otros: «otros gastos» no dice de qué área es (${DECIDIO}). Sus pendientes los atiende Tesorería.`],
+  ['ingreso_devolucion', `Otros: puede ser de proveedor (Compras) o de cliente (Cobranza) (${DECIDIO}). Sus pendientes los atiende Tesorería.`],
 ];
 
 exports.up = async function up(knex) {
@@ -61,7 +62,7 @@ exports.up = async function up(knex) {
     await knex.raw(`ALTER TABLE finance.movement_categories ADD COLUMN owner_note text`);
   }
   await knex.raw(`COMMENT ON COLUMN finance.movement_categories.owner_department_code IS
-    '[BFU.4.5.1] Área que explica los movimientos de esta categoría (identity.departments.code). Nula = por definir; la asigna Tesorería.'`);
+    '[BFU.4.5.1] Área que explica los movimientos de esta categoría (identity.departments.code). Nula = «Otros» (sin departamento; owner_note dice por qué); sus pendientes los atiende Tesorería.'`);
 
   for (const [code, dep] of MAPA) {
     await knex.raw(`
@@ -72,7 +73,7 @@ exports.up = async function up(knex) {
          AND EXISTS (SELECT 1 FROM identity.departments d
                       WHERE d.tenant_id = mc.tenant_id AND d.code = :dep AND d.deleted_at IS NULL)`, { code, dep });
   }
-  for (const [code, note] of POR_DEFINIR) {
+  for (const [code, note] of OTROS) {
     await knex.raw(`
       UPDATE finance.movement_categories
          SET owner_note = :note, updated_at = now()
