@@ -268,6 +268,9 @@ el área **confirma** donde ya trabaja; la liga definitiva sigue siendo el docum
 **Maqueta** (privada de Edgar; pedirle acceso): <https://claude.ai/artifact/8LH7qxe7zeJjRZxvgmCqLH> — Cuentas por
 área, la bandeja de Cobranza, el cobro dentro del estado de cuenta del cliente y el parámetro categoría → área.
 
+**Investigación** (2026-11-24, doce preguntas con su medición y placebo): [`FASE_CB_ANEXO_BFU_INVESTIGACION_AREAS.md`](FASE_CB_ANEXO_BFU_INVESTIGACION_AREAS.md).
+Leerla antes de construir cualquier item de BFU.4.5.
+
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
 | BFU.4.5.1 | C0 · **Área dueña por categoría como parámetro**: columna en `finance.movement_categories` hacia `identity.departments` (se extiende, no se copia); Tesorería la cambia en Admin. **🔨 2026-11-23:** migración `20261123175931` (`owner_department_code` + `owner_note`; 32 categorías con área, 5 en «Otros» con su razón en la fila: no hay departamento «Comercial» ni «Dirección»; Edgar, 2026-11-24: «pongámoslos en otros») y candado `test-newdb-bank-area-duena.js`; simulado en prod: 3,934 de noviembre se reparten en 9 áreas + 117 en «Otros» (todos con documento de Kepler) | 🔨 | Cada movimiento del mes cae en un área; la suma por área = el total del mes |
@@ -278,6 +281,9 @@ el área **confirma** donde ya trabaja; la liga definitiva sigue siendo el docum
 | BFU.4.5.6 | C3 · **Bancos › Cuentas: «Quién explica cada peso»** por área (= BFU.7.7) | ⬜ | Pantalla viva + `diseno` §0b; suma por área = total |
 | BFU.4.5.7 | C3 · **Bandeja de Cobranza en «Mi trabajo»** (confirmar · es otro cliente · no es cobranza) y el cobro en banco dentro del estado de cuenta del cliente. Después Tesorería; Compras y RH sólo ven (D14) | ⬜ | Pendientes de Cobranza antes/después; e2e con el payload de la pantalla |
 | BFU.4.5.8 | C1 · **Apagar los mecanismos sin uso** que la bandeja reemplace (D17), uno por uno | ⬜ | 0 usos medidos al apagar cada uno; nada se borra |
+| BFU.4.5.9 | C1 · **Un depósito sin documento es pendiente después de 7 días naturales**; antes es «Kepler todavía no lo tiene» (8 de cada 10 documentos se capturan en ese plazo; [investigación](FASE_CB_ANEXO_BFU_INVESTIGACION_AREAS.md) P3–P4) | ⬜ | Mutante: sin el plazo, la bandeja de noviembre sube de ~190 a 453 |
+| BFU.4.5.10 | C0 · **El responsable de los depósitos de cada sucursal se deriva** de quién capturó sus `U-A-5` en Kepler en los últimos 30 días; el del cobro a cliente, de quién captura `U-A-7`. Falta el par usuario de Kepler → usuario de la Suite, como parámetro (P6) | ⬜ | Cada sucursal con depósitos tiene responsable o lo declara |
+| BFU.4.5.11 | C1 · **«En otra cuenta» también para depósitos** → Tesorería (26 de 187 viejos en noviembre; placebo 1; P5) | ⬜ | Placebo por importe corrido; los 6 de Canindo BTE 7133 → BB 854 |
 
 **Falta de Edgar:** firmar D14–D18 y nombrar a la persona de cada área (ya pedido el 20-nov). Cupo: BFU sigue
 ⬜ propuesta con el tablero por encima de 4 fases 🔨.
@@ -335,6 +341,7 @@ Cada movimiento de la descarga tiene **categoría con su evidencia, o un motivo 
 | BFU.7.6 | C2 · La cobertura en `diagnostico`: con categoría + por motivo y responsable = total | 🧪 | Suma igual al total del mes |
 | BFU.7.7 | C3 · Bancos: «N por resolver», por qué y de quién (con BFU.4.5) | ⬜ | Pantalla viva + `diseno` §0b |
 | BFU.7.8 | C1 · El vocabulario del banco: las abreviaturas de comisión de BBVA | ✅ | Su IVA del 16 % el mismo día, al centavo |
+| BFU.7.11 | C1 · Más vocabulario del banco: «COM. VTA. NAL. AMEX» es comisión bancaria, no compra con tarjeta (35 desde agosto); la compra con tarjeta en gasolinera o caseta es gasto logístico ([investigación](FASE_CB_ANEXO_BFU_INVESTIGACION_AREAS.md) P7). ⚠️ Toca `clasificador.ts`, que otra sesión tiene a medias (BFU.7.10) | ⬜ | Testigo independiente de la comisión (su IVA o el abono de la venta del mismo día) |
 
 ## 9. Riesgos y bloqueos
 
@@ -402,3 +409,4 @@ falta; terciario = el detalle de cada movimiento.
 | 2026-11-23 | BFU.7.6: el diagnóstico de Bancos da la cobertura del motor (con categoría + por motivo y responsable + sin motivo), «todavía no» recalculado al leer y la suma contrastada contra un conteo aparte. Falta la pantalla (BFU.7.7) | Claude |
 | 2026-11-23 | «Que cada departamento observe sus movimientos y los ligue»: es BFU.4.5; se desglosa (BFU.4.5.1–4.5.8) con D14–D17 y maqueta. Medido: 77 % de los pesos explicados, 668 por ligar en 5 áreas, 4 mecanismos de liga a mano con 0 usos. El segundo BFU.4.5 («aviso a quien sube») pasa a BFU.4.6 | Edgar / Claude |
 | 2026-11-24 | BFU.4.5.1 en código (migración + candado; las categorías sin departamento van a «Otros», Edgar). BFU.4.5.3 medido: el texto del banco identifica al cliente en menos del 3 % (exacto cuando lo hace, placebo 0); de los 453 depósitos «cobranza» sin documento, 144 son cortes de terminal, 187 efectivo y ~55 transferencias de cliente. D14 corregida, D18 propuesta: el pendiente va a quien captura en Kepler | Claude |
+| 2026-11-24 | Investigación de BFU.4.5 (pedido de Edgar: «exhaustiva, para dudas actuales y futuras»): Kepler captura en 2–3 días (D13 validada), ~190 pendientes reales de 453, 26 depósitos en Kepler en otra cuenta, el responsable se deriva de quien captura, la compra con tarjeta es flotilla, 9 roles gestionan Bancos. Items BFU.4.5.9–4.5.11 y BFU.7.11 | Edgar / Claude |
