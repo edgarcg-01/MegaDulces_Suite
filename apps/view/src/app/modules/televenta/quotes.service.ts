@@ -282,9 +282,23 @@ export interface CambiosCabecera {
   contact_name?: string | null;
   contact_phone?: string | null;
   contact_email?: string | null;
+  /** `[COT.55]` «Solo precio 1 (sin mayoreo)»: pide permiso de supervisor y re-cotiza los renglones. */
+  list_price_only?: boolean;
+}
+
+/** `[COT.55]` El valor por defecto de «Solo precio 1 (sin mayoreo)» de un cliente. */
+export interface PrecioListaCliente {
+  branch: string;
+  erp_customer_code: string;
+  list_price_only: boolean;
+  updated_at: string | null;
+  updated_by_name: string | null;
+  can_change: boolean;
 }
 
 export interface QuoteDetail {
+  /** `[COT.55]` Va sólo a precio 1 (sin mayoreo). Ausente en una API anterior = false. */
+  list_price_only?: boolean;
   id: string;
   code: string;
   status: QuoteStatus;
@@ -472,6 +486,18 @@ export class QuotesService {
    * por `(sucursal, sku)`, así que un catálogo sin plaza ofrecería cosas que no se pueden preciar.
    */
   /** `[BU.6.2]` «¿Quisiste decir…?» del buscador de clientes, con el mismo alcance (`all` = todo el padrón). */
+  /** `[COT.55]` «Solo precio 1 (sin mayoreo)» por defecto del cliente, y si quien pide lo puede cambiar. */
+  precioListaCliente(branch: string, customer: string): Observable<PrecioListaCliente> {
+    return this.http.get<PrecioListaCliente>(`${this.base}/wholesale-customers/${encodeURIComponent(customer)}/pricing`, { params: { branch } });
+  }
+
+  /** `[COT.55]` Lo fija para el cliente (cotizaciones nuevas). Pide COMMERCIAL_QUOTES_PRECIO_LISTA. */
+  fijarPrecioListaCliente(branch: string, customer: string, valor: boolean): Observable<PrecioListaCliente> {
+    return this.http.patch<PrecioListaCliente>(
+      `${this.base}/wholesale-customers/${encodeURIComponent(customer)}/pricing`, { branch, list_price_only: valor },
+    );
+  }
+
   suggestWholesaleCustomers(branch: string, search: string, all = false): Observable<{ suggestion: string | null }> {
     let params = new HttpParams().set('branch', branch).set('search', search);
     if (all) params = params.set('all', '1');
@@ -500,7 +526,7 @@ export class QuotesService {
    * Cotiza un renglón SIN guardarlo. Es lo que deja ver el precio —y por qué— antes de
    * ensuciar la cotización. No exige `GESTIONAR`: mirar un precio no es ofrecerlo.
    */
-  pricePreview(input: { branch: string; sku: string; quantity: number; rung?: Rung }): Observable<PricedLine> {
+  pricePreview(input: { branch: string; sku: string; quantity: number; rung?: Rung; list_price_only?: boolean }): Observable<PricedLine> {
     return this.http.post<PricedLine>(`${this.base}/price-preview`, input);
   }
 
@@ -566,6 +592,8 @@ export class QuotesService {
     lines?: Array<{ sku?: string; requested_text?: string; quantity: number; rung?: Rung }>;
     /** `[COT.54]` Cuánto costó capturarla (sólo se reporta agregado). */
     capture?: CapturaCotizacion;
+    /** `[COT.55]` «Solo precio 1 (sin mayoreo)». Sin valor = el del cliente; otro pide permiso de supervisor. */
+    list_price_only?: boolean;
   }): Observable<{ id: string; code: string; status: QuoteStatus; valid_until: string; lines?: number }> {
     return this.http.post<{ id: string; code: string; status: QuoteStatus; valid_until: string; lines?: number }>(
       this.base,

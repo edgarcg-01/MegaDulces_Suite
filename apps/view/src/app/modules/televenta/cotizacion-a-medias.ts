@@ -47,6 +47,8 @@ export interface BorradorCotizacion {
   lista: string;
   observaciones: string;
   bandeja: ItemBandeja[];
+  /** `[COT.55]` «Solo precio 1» movido a mano; null/ausente = el del cliente. Opcional: los guardados de antes no lo traen. */
+  lista_sola?: boolean | null;
 }
 
 /** Debe empezar con uno de `PREFIJOS_TRABAJO_SIN_ENVIAR` (`@megadulces/ui-web`): la prueba lo amarra. */

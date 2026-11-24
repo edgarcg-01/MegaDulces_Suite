@@ -260,6 +260,9 @@ export enum Permission {
   COMMERCIAL_QUOTES_GESTIONAR = 'COMMERCIAL_QUOTES_GESTIONAR',
   // [COT.21] Sin esta llave cada quien ve sólo las cotizaciones que hizo. Es de Dirección General.
   COMMERCIAL_QUOTES_VER_ALL = 'COMMERCIAL_QUOTES_VER_ALL',
+  // [COT.55] Prender o apagar «Solo precio 1 (sin mayoreo)» en una cotización y fijarlo por cliente.
+  // De supervisores y Dirección (Edgar, 2026-11-23); quien captura ve el valor pero no lo mueve.
+  COMMERCIAL_QUOTES_PRECIO_LISTA = 'COMMERCIAL_QUOTES_PRECIO_LISTA',
 
   // Fase V — Vendedor de campo con OCR de ticket
   CAPTURE_TICKET_USE = 'CAPTURE_TICKET_USE',

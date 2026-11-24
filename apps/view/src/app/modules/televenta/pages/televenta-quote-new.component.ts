@@ -76,6 +76,9 @@ import { UltimoAgregadoComponent, textoAgregado, verRenglonEnLista, type UltimoA
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { pasosDelPrecio, explicacionDelPrecio, precioSinRedondear } from '../quote-discount-breakdown';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { PrecioListaToggleComponent } from '../components/precio-lista-toggle.component';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 /**
  * Las plazas Kepler donde se puede cotizar: el catálogo compartido `STORE_BRANCHES` menos el
@@ -126,6 +129,7 @@ const ORIGENES = ORIGENES_COTIZACION;
   selector: 'app-televenta-quote-new',
   standalone: true,
   imports: [
+    PrecioListaToggleComponent,
     ToastModule,
     CommonModule,
     FormsModule,
@@ -922,6 +926,16 @@ const ORIGENES = ORIGENES_COTIZACION;
               </div>
             </div>
 
+            <!-- [COT.55] Solo precio 1 (sin mayoreo): nace del cliente; moverlo es de supervisores. -->
+            <app-precio-lista-toggle
+              [valor]="listaSola()"
+              [delCliente]="listaCliente()"
+              [puede]="puedePrecioLista()"
+              [ocupado]="guardando() || guardandoListaCliente()"
+              (cambiar)="cambiarListaSola($event)"
+              (fijarCliente)="fijarListaCliente()"
+            />
+
             <!-- [COT.28] Lo que el almacén y la ruta tienen que saber: va a «Comentarios» del pedido en
                  Kepler (renglones 2 y 3, 60 + 60). Distinto del mensaje del cliente de abajo. -->
             <div class="obs-alta">
@@ -1403,6 +1417,17 @@ export class TeleventaQuoteNewComponent implements OnInit {
   resultadosClientes = signal<WholesaleCustomer[]>([]);
   cliente = signal<WholesaleCustomer | null>(null);
 
+  // ── [COT.55] Solo precio 1 (sin mayoreo) ──────────────────────────────────────────────────
+  private readonly perms = inject(PermissionsService);
+  readonly puedePrecioLista = computed(() => this.perms.has(Permission.COMMERCIAL_QUOTES_PRECIO_LISTA));
+  /** Lo que lleva esta cotización. */
+  readonly listaSola = signal(false);
+  /** Lo que tiene el cliente por defecto; null = sin cliente de Kepler o no se pudo leer. */
+  readonly listaCliente = signal<boolean | null>(null);
+  /** Alguien con permiso lo movió a mano: ya no lo pisa el valor del cliente. */
+  private listaTocada = false;
+  readonly guardandoListaCliente = signal(false);
+
   // ── [COT.26] Dirección de entrega y [COT.28] observaciones, desde el alta ────────────────────
   /** null = todavía no se sabe (o la lectura falló): no se pinta nada y se decide en el detalle. */
   readonly direccionesCliente = signal<DireccionEntrega[] | null>(null);
@@ -1532,6 +1557,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       lista: this.listaCruda,
       observaciones: this.observaciones,
       bandeja: this.bandeja(),
+      lista_sola: this.listaTocada ? this.listaSola() : null,
     };
   }
 
@@ -1580,10 +1606,14 @@ export class TeleventaQuoteNewComponent implements OnInit {
       this.revisarExistencia();
       this.repreciarBandeja();
     }
+    // [COT.55] Lo que se movió a mano se recupera; si no, manda el valor del cliente.
+    this.listaTocada = typeof b.lista_sola === 'boolean';
+    this.ponerListaSola(b.lista_sola ?? false);
     if (b.modo === 'mayoreo' && b.cliente) {
       this.direccionPendiente = b.direccion;
       this.cliente.set(b.cliente);
       this.asignarVendedorSugerido();
+      this.cargarListaCliente();
     }
     this.aplicarVendedorPendiente();
     this.toast.add({ severity: 'success', summary: 'Cotización recuperada', detail: 'Los precios se vuelven a calcular con los de hoy.' });
@@ -1978,7 +2008,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
           }
           this.cotizandoArticulo.set(true);
           return this.svc
-            .pricePreview({ branch: suc, sku: art.sku, quantity: qty, rung: this.rung() })
+            .pricePreview({ branch: suc, sku: art.sku, quantity: qty, rung: this.rung(), list_price_only: this.listaSola() })
             .pipe(
               catchError((err) => {
                 this.toast.add({
@@ -2060,14 +2090,69 @@ export class TeleventaQuoteNewComponent implements OnInit {
       if (!match && sugerida) {
         // El mismo camino que el selector: existencia, previa y bandeja con la sucursal nueva.
         this.onSucursalChange(sugerida.sucursal);
+        this.cargarListaCliente();
         return;
       }
     }
     this.asignarVendedorSugerido();
+    this.cargarListaCliente();
+  }
+
+  /** [COT.55] El «solo precio 1» del cliente en esta sucursal. Si nadie lo movió a mano, lo toma la cotización. */
+  private cargarListaCliente(): void {
+    const c = this.cliente();
+    const suc = this.sucursal();
+    if (!c || !suc) { this.listaCliente.set(null); return; }
+    this.svc.precioListaCliente(suc, c.customer_code).subscribe({
+      next: (v) => {
+        if (this.cliente()?.customer_code !== c.customer_code || this.sucursal() !== suc) return; // ya cambió
+        this.listaCliente.set(v.list_price_only);
+        if (!this.listaTocada) this.ponerListaSola(v.list_price_only);
+      },
+      // Sin el dato no se inventa: queda como estaba y el servidor aplica el del cliente al crear.
+      error: () => this.listaCliente.set(null),
+    });
+  }
+
+  /** [COT.55] Desde el interruptor (sólo con permiso). */
+  cambiarListaSola(v: boolean): void {
+    if (!this.puedePrecioLista()) return;
+    this.listaTocada = true;
+    this.ponerListaSola(v);
+  }
+
+  /** Cambia el precio de todo lo capturado y de lo que se está por agregar. */
+  private ponerListaSola(v: boolean): void {
+    if (this.listaSola() === v) return;
+    this.listaSola.set(v);
+    this.repreciarBandeja();
+    if (this.articuloElegido()) this.previa$.next();
+  }
+
+  /** [COT.55] «Dejarlo así para este cliente»: sus cotizaciones nuevas ya nacen así. */
+  fijarListaCliente(): void {
+    const c = this.cliente();
+    const suc = this.sucursal();
+    if (!c || !suc || !this.puedePrecioLista()) return;
+    this.guardandoListaCliente.set(true);
+    this.svc.fijarPrecioListaCliente(suc, c.customer_code, this.listaSola()).subscribe({
+      next: (v) => {
+        this.guardandoListaCliente.set(false);
+        this.listaCliente.set(v.list_price_only);
+        this.toast.add({ severity: 'success', summary: 'Guardado para el cliente', detail: c.name + ': ' + (v.list_price_only ? 'sólo precio 1, sin mayoreo.' : 'con mayoreo.') });
+      },
+      error: (err) => {
+        this.guardandoListaCliente.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se guardó para el cliente', detail: err?.error?.message || 'Intenta de nuevo.' });
+      },
+    });
   }
 
   limpiarCliente(): void {
     this.cliente.set(null);
+    // [COT.55] Sin cliente no hay valor del cliente; si nadie lo movió a mano, vuelve al cobro de siempre.
+    this.listaCliente.set(null);
+    if (!this.listaTocada) this.ponerListaSola(false);
     this.vendedorSeleccionado.set(null);
     this.cambiandoVendedor.set(false);
     this.resultadosClientes.set([]);
@@ -2616,11 +2701,13 @@ export class TeleventaQuoteNewComponent implements OnInit {
   private preciarRenglon(id: string, sku: string, qty: number, rung: Rung): void {
     const suc = this.sucursal();
     if (!suc) return;
+    const lista = this.listaSola();
     const aplicar = (cambios: Partial<ItemBandeja>) => {
-      if (this.sucursal() !== suc) return;
+      // [COT.55] Si mientras tanto se movió «solo precio 1», esta respuesta es de otro precio.
+      if (this.sucursal() !== suc || this.listaSola() !== lista) return;
       this.bandeja.update((items) => items.map((it) => (it.id !== id || it.quantity !== qty ? it : { ...it, ...cambios })));
     };
-    this.svc.pricePreview({ branch: suc, sku, quantity: qty, rung }).subscribe({
+    this.svc.pricePreview({ branch: suc, sku, quantity: qty, rung, list_price_only: lista }).subscribe({
       next: (p) =>
         aplicar({
           unit_price: p.unit_price,
@@ -2723,6 +2810,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
       salesperson_name: this.vendedorSeleccionadoObj()?.name || undefined,
       order_notes: this.observaciones.replace(/\s+/g, ' ').trim() || undefined,
       capture: this.medidaDeCaptura(),
+      // [COT.55] Sólo si alguien con permiso lo movió; si no, el servidor aplica el del cliente.
+      ...(this.listaTocada ? { list_price_only: this.listaSola() } : {}),
     };
     if (esMayoreo) {
       payload.erp_customer_code = this.cliente()!.customer_code;

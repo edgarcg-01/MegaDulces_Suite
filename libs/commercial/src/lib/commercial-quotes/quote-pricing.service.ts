@@ -367,7 +367,16 @@ export interface PriceLineInput {
    * `BTO`/`CUB` como unidad BASE). Ver `rungDeRotulo`.
    */
   rung_label?: string | null;
+  /**
+   * `[COT.55]` «Solo precio 1 (sin mayoreo)»: no se aplica el precio por volumen del ERP. Las
+   * promociones y el % del cliente SÍ (decisión de Edgar, 2026-11-23). Lo dice la cotización
+   * (`quotes.list_price_only`); en la vista previa lo manda la pantalla.
+   */
+  list_price_only?: boolean;
 }
+
+/** `[COT.55]` Por qué no se aplicó el volumen en una cotización «solo precio 1». */
+export const MOTIVO_SIN_MAYOREO = 'Mayoreo apagado: esta cotización va sólo a precio 1.';
 
 const RUNG_TO_APLICA_A: Record<Rung, string> = { base: 'base', pack: 'unidad2', box: 'unidad3' };
 const DEFAULT_TAX_RATE = 0.16;
@@ -774,7 +783,11 @@ export class QuotePricingService {
         : quantity < step.tiers[0].desde
           ? { min_qty: step.tiers[0].desde, price: step.tiers[0].price }
           : null;
-    if (volume) {
+    // `[COT.55]` «Solo precio 1»: el volumen existe pero no se cobra, y se dice por qué.
+    const sinMayoreo = input.list_price_only === true;
+    if (volume && sinMayoreo) {
+      notApplied.push({ mechanism: 'volumen', reason: `${MOTIVO_SIN_MAYOREO} (El ERP tiene $${volume.price} desde ${volume.min_qty} ${step.label ?? 'unidades'}.)` });
+    } else if (volume) {
       if (quantity >= volume.min_qty) {
         applied.push({
           step: 'volumen',
@@ -933,7 +946,8 @@ export class QuotePricingService {
       availability: productId ? 'available' : 'unmatched',
       applied,
       not_applied: notApplied,
-      volume_tier: volume ? { min_qty: volume.min_qty, price: volume.price } : null,
+      // `[COT.55]` Sin mayoreo no se ofrece el tramo («desde N baja a $X»): no se va a cobrar.
+      volume_tier: volume && !sinMayoreo ? { min_qty: volume.min_qty, price: volume.price } : null,
       free_goods: freeGoods,
       unpriced_reason: null,
       warnings,
@@ -1015,7 +1029,7 @@ export class QuotePricingService {
     userId: string | null,
   ): Promise<AddLineResult> {
     const q = await trx.raw(
-      `SELECT id, status, source_branch FROM commercial.quotes
+      `SELECT id, status, source_branch, list_price_only FROM commercial.quotes
         WHERE id = :id AND deleted_at IS NULL`,
       { id: quoteId },
     );
@@ -1041,6 +1055,7 @@ export class QuotePricingService {
         sku,
         quantity: input.quantity,
         rung: input.rung,
+        list_price_only: quote.list_price_only === true,
       });
     } else if (!input.requested_text || !input.requested_text.trim()) {
       throw new BadRequestException(
@@ -1199,7 +1214,7 @@ export class QuotePricingService {
 
     return this.tk.run(async (trx) => {
       const q = await trx.raw(
-        `SELECT id, status, source_branch FROM commercial.quotes
+        `SELECT id, status, source_branch, list_price_only FROM commercial.quotes
           WHERE id = :id AND deleted_at IS NULL
           FOR UPDATE`,
         { id: quoteId },
@@ -1235,7 +1250,7 @@ export class QuotePricingService {
         throw new BadRequestException('La cantidad tiene que ser mayor que cero. Para quitarlo, usa borrar el renglón.');
       }
 
-      const priced = await this.retarificarRenglonTrx(trx, quoteId, quote.source_branch, line, qty, input.rung, userId);
+      const priced = await this.retarificarRenglonTrx(trx, quoteId, quote.source_branch, line, qty, input.rung, userId, undefined, quote.list_price_only === true);
 
       await this.recalcTotals(trx, quoteId);
       const count = await trx.raw(`SELECT count(*)::int AS n FROM commercial.quote_lines WHERE quote_id = :id`, {
@@ -1260,6 +1275,8 @@ export class QuotePricingService {
     rung: Rung | undefined,
     userId: string | null,
     pre?: PrecargaPrecios,
+    /** `[COT.55]` La cotización va «solo precio 1» (`quotes.list_price_only`). */
+    listaSola = false,
   ): Promise<PricedLine | null> {
     // El SKU sale del renglón, no del request: editar una cantidad no puede cambiar el producto.
     const sku = await this.skuDelRenglon(trx, line);
@@ -1279,6 +1296,7 @@ export class QuotePricingService {
         // que es donde está la escalera de este sku (el rótulo solo no alcanza para decidir).
         rung,
         rung_label: line.qty_unit,
+        list_price_only: listaSola,
       }, pre);
     }
 
@@ -1402,7 +1420,7 @@ export class QuotePricingService {
     const userId = this.tenantCtx.get()?.userId ?? null;
     return this.tk.run(async (trx) => {
       const q = await trx.raw(
-        `SELECT id, status, source_branch, (valid_until < CURRENT_DATE) AS vencida
+        `SELECT id, status, source_branch, list_price_only, (valid_until < CURRENT_DATE) AS vencida
            FROM commercial.quotes
           WHERE id = :id AND deleted_at IS NULL
           FOR UPDATE`,
@@ -1435,7 +1453,7 @@ export class QuotePricingService {
       const pre = await this.precargarPrecios(trx, quote.source_branch, filas.map((l) => l.sku ?? l.requested_text ?? ''));
       let changed = 0;
       for (const l of filas) {
-        const priced = await this.retarificarRenglonTrx(trx, quoteId, quote.source_branch, l, Number(l.quantity), undefined, userId, pre);
+        const priced = await this.retarificarRenglonTrx(trx, quoteId, quote.source_branch, l, Number(l.quantity), undefined, userId, pre, quote.list_price_only === true);
         const antes = l.unit_price === null ? null : this.round(Number(l.unit_price), 2);
         if (antes !== (priced?.unit_price ?? null)) changed++;
       }
@@ -1516,7 +1534,7 @@ export class QuotePricingService {
   async checkQuote(quoteId: string): Promise<QuoteCheck> {
     return this.tk.run(async (trx) => {
       const q = await trx.raw(
-        `SELECT id, status, source_branch, terms_discount_pct, total,
+        `SELECT id, status, source_branch, list_price_only, terms_discount_pct, total,
                 (status IN ('draft', 'sent') AND valid_until >= CURRENT_DATE) AS vigente
            FROM commercial.quotes
           WHERE id = :id AND deleted_at IS NULL`,
@@ -1553,7 +1571,10 @@ export class QuotePricingService {
         let now: PricedLine | null = null;
         if (l.sku) {
           try {
-            now = await this.priceLine(trx, { branch, sku: l.sku, quantity: Number(l.quantity), rung_label: l.qty_unit }, pre);
+            now = await this.priceLine(trx, {
+              branch, sku: l.sku, quantity: Number(l.quantity), rung_label: l.qty_unit,
+              list_price_only: quote.list_price_only === true, // [COT.55] comparar contra el mismo precio que se cobra
+            }, pre);
           } catch (e) {
             this.logger.warn(`checkQuote ${quoteId} renglón ${l.line_number}: ${(e as Error).message}`);
           }
