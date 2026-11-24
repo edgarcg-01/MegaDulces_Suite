@@ -774,6 +774,68 @@ revela cuánto entregó cada una, y el arqueo es ciego.
 **Falta para ✅:** que el PM revise y mergee el PR, el despliegue (`/api/health` con el commit) y verlo en prod con una cajera desde el menú.
 
 
+## SM.55 — Retiros por revisar: emparejar los retiros de la Suite con los de Kepler (🧪 local 2026-11-24)
+
+**Pedido** (David, 2026-11-23): un aviso de qué turnos debe checar la encargada, si de verdad los checó y cuál
+fue el error, que quede justificable. **D1 (David):** revisa **la encargada de la sucursal**. **D2 (David, mismo
+día):** «un verdadero control» (aviso, control por día, errores por cajera, seguimiento hasta cerrar). **D5 (David,
+2026-11-24):** eso abrumaba; **la meta es emparejar el total de la Suite con el de Kepler** → versión simple.
+
+**Medido en prod (solo lectura, 1–22 nov 2026, 749 turnos cerrados, 8 sucursales)**, con `armarCajasDelDia`:
+94 turnos con retiros de Kepler (c48) sin contar completos en la Suite (57 sin ninguno; en 51 de esos tampoco se
+contó el cajón: nadie abrió el arqueo), 280 sin cajón contado. Desde SM.51 la cajera ya no ve el aviso «retiros
+sin contar». La bandeja `/almacen/cuadre` tiene 2,591 hallazgos de caja con **0** respuestas
+(`reconciliation.discrepancy_feedback` vacía) y Validar arqueo (SM.12) lleva 0 de 1,309 retiros.
+
+**Qué ve la encargada (versión simple):** pestaña «Retiros por revisar N» (N = turnos cuyos retiros no empatan y
+nadie explicó) → **Kepler · Suite · Diferencia** de la sucursal (la neta en grande; debajo, cuánto no empata sin
+signo) → una lista por cajera con sus totales y sus turnos siempre visibles → «Justificar» abre causa + nota. El
+cajón sin contar va como una línea informativa por cajera. Si la cajera cuenta tarde y empata, el turno sale solo.
+
+| Capa | Estado | Verificado contra / prueba |
+|---|---|---|
+| C0 dato | sin cambio, leída | `kdpv_folio_caja` + `blind_counts` vía `cajasDelDia`; esquema y CHECK de `reconciliation.discrepancies` / `discrepancy_feedback` / `rule_registry` leídos en prod: no hace falta migración |
+| C1 dominio | 🧪 | `turno-revision.ts`: el estado es el de los RETIROS (`descuadraRetiros`; el cajón es dato), historial, totales por cajera y `totalesRetiros` (neta + sin signo, en centavos). `turno-revision.spec.ts` 24 ✓; rota a propósito → 4 rojas |
+| C2 API | 🧪 | `GET /store/arqueo-revision` (+ `/resumen`, + `totales`), `POST /` (causa; solo turnos con retiros que no empatan). `/accion` y `/dia` se conservan, sin pantalla. `RECONCILIATION_VER` (prod: `encargado_tienda` true, `cajero` sin la clave) + `assertCanWrite`. `test-newdb-arqueo-revision.js` 40 ✓ contra base local real con los payloads de la pantalla, filas leídas, negativas (justificar un turno de solo cajón, uno que empata, uno abierto, un folio inexistente, firmar con pendientes, cerrar dos veces…) y `design:paramtypes` |
+| C3 pantalla | 🧪 | `tienda-arqueo-revision.component.ts`: franja Kepler/Suite/Diferencia, tabla agrupada por cajera (`p-table` subheader, teclado, `dt-stack`), panel de justificar. Spec 8 ✓ (payload exacto, doble clic, nota corta, error sin perder lo escrito, solo-cajón fuera de la lista); rota a propósito → roja. `check:pantalla`: Retiros por revisar 0 fallas |
+| C4 plataforma | 🔨 | PR contra `main` armado sobre `origin/main` con solo estos cambios. Sin migración ni permiso nuevo |
+
+**Decisiones:**
+- D1 la encargada revisa · D2 los cuatro controles (David, 2026-11-23) · **D5 versión simple, meta = emparejar
+  Suite ↔ Kepler; el cajón como línea informativa, no se justifica; pestaña «Retiros por revisar», aparte de «Por
+  cajera»** (David, 2026-11-24).
+- D3 todo vive en el **motor de hallazgos** (ADR-056), sin tabla nueva: el turno es un hallazgo `turno_sin_verificar`
+  y el día uno `dia_revisado`, ambas reglas registradas **apagadas**; el historial son filas de `discrepancy_feedback`
+  (causa · `accion:<x>` · `cerrado` · `dia_revisado`), veredicto siempre `util`. Status `confirmado`/`corregido`: la
+  bandeja `/almacen/cuadre` (que enseña `nuevo`/`en_revision`) no recibe ruido. (Claude, de diseño.)
+- D6 la diferencia de arriba es la **neta** en grande y la suma **sin signo** en chico, para que una diferencia no
+  esconda a otra (Claude, recomendado y anunciado a David).
+
+**Trampa encontrada por la prueba:** `now()` es la hora de INICIO de la transacción; la acción y el cierre que se
+guardan juntos quedaban con la misma hora y el historial salía en desorden. Arreglo: `created_at = clock_timestamp()`
+y, en empate, orden causa → acción → cierre.
+
+**Deuda con nombre:** «Por cajera» (`/tienda/arqueos`) decide «sin conteo físico» con su propia liga
+(`BlindCountService.porCajera`), no con `armarCajasDelDia`: las dos pestañas pueden dar cifras distintas del cajón.
+No medido cuánto difieren.
+
+**NO MEDIDO / bloqueos:**
+- 403 por HTTP (cajera / otra sucursal), validación visual en navegador, arranque de la API en CI. **Dueño:** David y el CI.
+- Latencia del `GET` en la API: dos consultas por día (7 días = 14). Desde la laptop, 7 días de toda la red = 1.1 s
+  con arranque incluido. Deuda con nombre: si pasa de 500 ms, una sola consulta por rango.
+- **El aviso en `/tienda/arqueo`** (donde entra la encargada) requiere una línea en `tienda-arqueo.component.ts`, que
+  otra sesión tiene a medio editar (SM.54). **Dueño:** David decide.
+- **Avisar a Edgar:** la regla toca su decisión SM.34 (sin reloj) y el motor de hallazgos. **Dueño:** David.
+
+**Falta para ✅:** mergeo del PM, despliegue (`/api/health`), verlo en prod como encargada desde el menú, y medir
+en 2 semanas la diferencia neta por sucursal y el % de turnos explicados al día siguiente.
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-11-23 | Medición en prod y primera versión (aviso, por día, por cajera, seguimiento hasta cerrar) | David + Claude |
+| 2026-11-24 | Versión simple «Retiros por revisar» (meta: emparejar Suite ↔ Kepler): spec 24 ✓, base real 40 ✓, pantalla 8 ✓, check:pantalla 0 fallas. PR abierto. NO MEDIDO: 403 HTTP, visual, arranque en CI | David + Claude |
+
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.

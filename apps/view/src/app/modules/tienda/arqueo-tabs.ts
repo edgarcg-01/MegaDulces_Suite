@@ -23,6 +23,9 @@ export const ARQUEO_TABS: PageTab[] = [
   // por cajera, o sea un historial — justo lo que no debe tener. Con un solo
   // tab visible la barra se oculta sola (ver comentario de arriba).
   { label: 'Por cajera', route: '/tienda/arqueos', icon: 'pi pi-users', permission: Permission.RECONCILIATION_VER },
+  // [SM.55] Los retiros de la Suite contra los de Kepler: la encargada justifica lo que no empata. Misma clave que
+  // «Por cajera»: muestra montos de Kepler, y la cajera no la debe ver.
+  { label: 'Retiros por revisar', route: '/tienda/arqueo/revision', icon: 'pi pi-check-square', permission: Permission.RECONCILIATION_VER },
   // [MKT.18] Quién vendió los tickets con promoción del turno: lo escribe quien captura el arqueo.
   { label: 'Promociones vendidas', route: '/tienda/arqueo/promociones', icon: 'pi pi-tags', permission: Permission.STORE_ARQUEO_CAPTURAR },
 ];
