@@ -3,6 +3,7 @@ import { inject, Injectable } from '@angular/core';
 import type { Observable } from 'rxjs';
 import type {
   CalendarioCompras, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta, MarcarRevisionDto, PropuestasCalendario,
+  ResponsablesCalendario,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -24,7 +25,15 @@ export class CalendarioComprasService {
     return this.http.get<PropuestasCalendario>(`${this.base}/propuestas`);
   }
 
-  /** Si ya hay una regla viva de ese proveedor en ese alcance, la API la REEMPLAZA (`accion: 'actualizada'`). */
+  /** `[PQ.3.22]` Quién puede ser responsable de una regla (pide CICLO), con las sucursales donde escribe. */
+  responsables(): Observable<ResponsablesCalendario> {
+    return this.http.get<ResponsablesCalendario>(`${this.base}/responsables`);
+  }
+
+  /**
+   * Si ya hay una regla viva de ese proveedor en ese alcance, la API la REEMPLAZA (`accion: 'actualizada'`).
+   * `[PQ.3.21]` Con varias zonas o sucursales, una regla por lugar (`reglas`), todas o ninguna.
+   */
   guardarRegla(dto: GuardarReglaDto): Observable<GuardarReglaRespuesta> {
     return this.http.post<GuardarReglaRespuesta>(`${this.base}/reglas`, dto);
   }

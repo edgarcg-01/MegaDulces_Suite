@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — Compras › Calendario de compras: las primeras mejoras de los usuarios (PQ.3.15 · PQ.3.21 · PQ.3.22 · 2026-11-24)
+- «Por zona» y «Por sucursal» (antes «Una zona», «Una sucursal»), con casillas: se marcan varias y se guarda una regla por cada lugar, todas a la vez. Cada una se atiende con lo de su lugar.
+- Bajo los días de la semana, «¿Cada cuánto?»: cada semana, cada 2, 3 o 6 semanas a partir de una fecha, o una vez al mes (el primero, segundo, tercero, cuarto o último de ese día). «Un viernes sí y otro no» ya no se mueve con las órdenes de Kepler.
+- «Responsable (opcional)»: sólo se ofrece a quien puede marcar y ve todas las sucursales de la regla; la lista dice «Responsable: …», y quien es responsable de alguna regla tiene «Mis revisiones (N)».
+- Al corregir una regla, el lugar queda fijo; otro lugar es «Otra regla para este proveedor».
+- Migración `20261124133043` (se aplica antes de soltar). El manual de capacitación quedó al día.
 ### Added — Compras › Calendario de compras: el manual de capacitación, desde la pantalla (PQ.3.20 · 2026-11-23)
 - En el encabezado, junto a «cargado ahora», el botón «Manual» abre el manual en otra pestaña. La Parte 1 es para quien revisa y la Parte 2 para la gerencia, que define y mantiene las reglas. Trae casos, dos autoevaluaciones y una guía para quien capacita.
 - El manual sigue el tema elegido en la Suite y se lee en el celular.

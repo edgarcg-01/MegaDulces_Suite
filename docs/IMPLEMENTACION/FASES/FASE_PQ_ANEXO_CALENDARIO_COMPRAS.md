@@ -140,6 +140,10 @@ Ciclo de Pedido: una sola agenda.
 | DC24 | La gerencia de compras de Canindo y Zamora Centro **no se recorta** a 05–06: define reglas para todas (DC8) y un recorte de alcance le quitaría las corporativas. «Abre en 05 y 06» queda como búsqueda («Zamora», «Canindo»); un filtro que se recuerde sería otro item | ✅ Francisco, 2026-11-21 (aceptó la propuesta) |
 | DC25 | El conocimiento para definir reglas lo tienen **dos personas**: la jefa actual de compras (`gerente_compras`) y quien llevaba antes la gerencia, hoy en operaciones de compras (`compras_operaciones`, rol de **una** sola persona, que ve y marca pero no define). El resto del equipo ejecuta (Francisco, 2026-11-21). **Define la jefa actual**: no se le da `COMPRAS_CALENDARIO_CICLO` a `compras_operaciones`. Como la clave la tiene otra persona de `gerente_compras` y el modo dios también define, se rastrea **quién definió y quién cambió** cada regla (PQ.3.17). Refina DC8 (§10.9) | ✅ Francisco, 2026-11-22 («Arizbeth o hacer un tracking de quién definió reglas»: las dos) |
 | DC26 | **Mantenimiento**: el patrón lo decide la jefa de compras (DC25). Si un comprador no avanzó, **pospone** («hoy no se pide» con nueva fecha) o hace una **revisión extemporánea** (las dos ya existen), o **ajusta la regla sólo para su sucursal o zona** (PQ.3.19: nueva clave por ADR-054, limitada a su alcance de escritura, nunca la corporativa; falta decidir si la de sucursal o zona reemplaza a la corporativa en esas sucursales o se revisa aparte, §10.1). Con el rastro de quién cambió qué (PQ.3.17) | ✅ Francisco, 2026-11-22 |
+| DC28 | **Varias zonas o sucursales en una captura** (PQ.3.21): casillas en vez de una lista, y se guarda **una regla por lugar**, todas a la vez o ninguna. Cada una se atiende con lo de su lugar, así se ve si a una zona no se le pidió; cada encargado ve la suya, y la base no cambia. Descartado: una regla que cubra varias zonas (una OC en cualquiera daría por atendida a todas y no se vería la zona sin revisar) | ✅ Francisco, 2026-11-24 |
+| DC29 | **La cadencia de «días de la semana»** (PQ.3.15): cada semana · cada 2 · cada 3 · una vez al mes · cada 6 semanas, en el orden en que la pidieron los usuarios. «Cada N semanas» cuenta desde «a partir del» y no se mueve con la actividad de Kepler. «Una vez al mes» = el 1º, 2º, 3º, 4º o último de ese día en el mes (12 al año). Descartado «cada 4 semanas»: 13 al año, y se corre de semana del mes. Reemplaza el alcance de PQ.3.15 (que decía 2, 3 o 4) | ✅ Francisco, 2026-11-24 |
+| DC30 | **El responsable de una regla** (PQ.3.22): una persona activa con la llave efectiva de marcar que escribe en **todas** las sucursales de la regla (así siempre la ve y la atiende), con el filtro «Mis revisiones». Sin las cuentas de sistema (superadmin, admin), como en `receipt-devueltas` | ✅ Francisco, 2026-11-24 |
+| DC31 | Las cinco mejoras van en **un PR** (tocan los mismos archivos; el PR separa cada una con su item) | ✅ Francisco, 2026-11-24 |
 
 ### 4.1 Quién entra (DC6), medido contra los roles de prod
 
@@ -200,12 +204,14 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | PQ.3.12 | **Invitación de calendario** (§9.5): `.ics` por correo (Google Workspace / Outlook) con el puerto de correo existente | C2 |
 | PQ.3.13 | **Visitas por WhatsApp** (§10.4): horario de visitas por persona, «Ofrecer horarios» y «Pedir visita» (con motivo); el mensaje sale por `wa.me` con el ayudante que ya existe, movido a `libs/`; el contacto del ejecutivo es dato propio | C0→C3 |
 | PQ.3.14 | La vista propone **día fijo por sucursal** donde la entrega y la OC caen el mismo día de la semana (16 pares medidos, 84 %). En el CEDIS no lo propone: ahí es día de recepción (37 %, R7) | C0 |
-| PQ.3.15 | **Cada 2, 3 o 4 semanas en un día fijo** (§10.9): «días de la semana» lleva cada cuántas semanas y desde qué semana cuenta, para que «un lunes sí y otro no» no se mueva con la actividad de Kepler | C0→C3 |
+| PQ.3.15 | **La cadencia de «días de la semana»** (§10.9, §10.12, DC29): cada semana, cada 2, 3 o 6 semanas a partir de una fecha, o una vez al mes (1º–4º o último); «un lunes sí y otro no» no se mueve con la actividad de Kepler | C0→C3 |
 | PQ.3.16 | **La siguiente fecha la pone quien pide** (§10.9), como en la hoja; «cada N días» no cae en domingo; se decide de qué se cuenta «cada N» (OC u OC y entrada), con antes/después | C0→C3 |
 | PQ.3.17 | **Quién definió y quién cambió cada regla** (DC25): la regla dice quién la creó y quién la cambió por última vez; el historial de cambios (de qué a qué) se decide en C0 sin inventar una tabla de historial propia (ADR-056) | C0→C3 |
 | PQ.3.18 | **El embudo de llenado en «Sin regla»** (§10.10): la lista por escalón (dinero y operaciones), el medidor de adopción en % de la compra y de las OC, y la decisión en bloque para los ocasionales | C2→C3 |
 | PQ.3.19 | **El comprador ajusta la regla de su sucursal o zona** (DC26): clave nueva, sólo dentro de su alcance de escritura, nunca la corporativa; con rastro (PQ.3.17) | C1→C3 |
 | PQ.3.20 | **El manual de capacitación, dentro de la Suite** (§10.11): botón «Manual» en el encabezado del calendario que abre `assets/manuales/calendario-compras.html` en otra pestaña; primitivo `app-manual-link`; un candado compara los rótulos de la pantalla con los del manual | C3 |
+| PQ.3.21 | **Varias zonas o sucursales con casillas** (§10.12, DC28): «Por zona» y «Por sucursal» (antes «Una zona», «Una sucursal»); una regla por lugar, todas o ninguna; corregir no cambia el lugar | C2→C3 |
+| PQ.3.22 | **El responsable de la regla y «Mis revisiones»** (§10.12, DC30): sólo quien puede marcar y escribe en todas las sucursales de la regla; la API lo exige al guardar | C2→C3 |
 
 ## 7. Definición de Terminado
 
@@ -236,6 +242,7 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | 2026-11-22 | **El embudo de llenado** (§10.10): 340 proveedores, 0 reglas; dinero y operaciones no ordenan igual (50 % de la compra = 10 proveedores, 50 % de las OC = 22); escalón 1 = 62 proveedores, 82.8 % de la compra y 65.8 % de las OC. Se abre **PQ.3.18**. PQ.3.14 ✅ (en prod con #591) | Francisco + sesión Claude |
 | 2026-11-22 | **PQ.3.18 🧪**: el orden y el medidor del embudo en «Sin regla», sin migración. Control en prod con el repo real = medición independiente (0 escalones distintos); dominio 36 ✔ (5 mutantes), vista 26 ✔, componente 14 ✔ (3 mutantes), Postgres real 45 ✓. Falta la decisión en bloque de los ocasionales, la prueba visual y el PR | sesión Claude |
 | 2026-11-23 | **PQ.3.20 🧪** (§10.11): el manual de capacitación vive en la pantalla (botón «Manual», otra pestaña) como archivo del repo; `app-manual-link` compartido; el candado de rótulos (65 en `origin/main`, todos en el manual; mutante en rojo), la prueba visual del manual en 3 perfiles + oscuro (0 fallas tras subir a 44 px los objetivos táctiles) y la del botón en la pantalla viva por puesto (0 fallas). Falta el PR (con `main` en rojo por `a9a843a95`) | Francisco (pidió el manual y dónde vive) + sesión Claude |
+| 2026-11-24 | **PQ.3.15 🧪 · PQ.3.21 🧪 · PQ.3.22 🧪** (§10.12): las primeras mejoras que pidieron los usuarios al día siguiente de salir a prod: varias zonas o sucursales con casillas (una regla por lugar), la cadencia de los días de la semana (cada 2, 3 o 6 semanas, o una vez al mes) y el responsable con «Mis revisiones». DC28–DC31 de Francisco. Migración `20261124133043` (la prueba contra Postgres real encontró un defecto en ella, ya corregido). 23 ✓ contra Postgres, 7 mutantes en rojo; prueba visual ✔ en 3 perfiles y oscuro | Francisco (lo pidieron los usuarios) + sesión Claude |
 
 ---
 
@@ -1051,3 +1058,94 @@ vivir el manual?»*.
   reemplazado por un módulo vacío, fuera del árbol.
 - **Mantenimiento.** El archivo del repo es la fuente. Si un PR cambia un rótulo de la pantalla, el candado pide
   cambiarlo en el manual en el mismo PR.
+
+### 10.12 Las primeras mejoras de los usuarios (PQ.3.15, PQ.3.21, PQ.3.22 · 2026-11-24)
+
+Al día siguiente de salir a prod, los usuarios pidieron, por Francisco:
+
+1. *«Cuando la revisión se hace por zonas, hay ocasiones que se hacen de dos zonas: La Piedad y Zamora, o Morelia y La
+   Piedad. Hoy sólo deja elegir una zona; con casillas sería mejor.»* Lo mismo con las sucursales.
+2. Bajo los días de la semana, la cadencia: *«cada semana, cada 2 semanas, cada 3 semanas, 1 vez al mes y cada 6 semanas»*.
+3. *«Un responsable de la revisión, para dar seguimiento.»*
+4. Los rótulos «Por zona» y «Por sucursal».
+
+**Medido en prod** (sólo lectura, 24-nov): 9 reglas vivas, todas capturadas ese día, de las que 6 eran de zona y 3 de
+todas las sucursales; ninguna con responsable y 0 marcas. Un proveedor ya tenía dos reglas iguales (martes), una en La
+Piedad y otra en Zamora: era el rodeo para «dos zonas». Las decisiones son DC28–DC31 (§4).
+
+**Decisiones de diseño** (sesión Claude):
+- **«Corregir la regla» ya no cambia el lugar:** lo muestra fijo. Antes, cambiarlo creaba otra regla y dejaba viva la
+  anterior (había un aviso para eso); con casillas sería todavía más confuso. Para otro lugar está «Otra regla para este
+  proveedor».
+- **El día fijo «un viernes sí y otro no»** ahora abre como viernes cada 2 semanas, a partir de la última orden o entrada
+  de esa sucursal (antes, «cada 14 días»). Es el criterio de PQ.3.15.
+
+**Las cinco preguntas** (skill `diseno` §0b):
+1. *Qué ve y en qué orden:* el formulario conserva su orden (dónde → cuándo → nota). Las casillas van donde estaba la
+   lista, la cadencia pegada a los días y el responsable antes de la nota.
+2. *Qué no ve:* la cadencia sólo con días de la semana; «A partir del» sólo con cada N semanas; «¿Cuál del mes?» sólo
+   con una vez al mes; «Mis revisiones» sólo si eres responsable de alguna regla.
+3. *Accesibilidad:* casillas reales (`p-checkbox` con su etiqueta, así que el renglón entero es objetivo: 44 px con el
+   dedo); el filtro es un botón con `aria-pressed`; el responsable se busca por nombre.
+4. *Ligas:* la regla queda ligada a una persona, y «Mis revisiones» lleva a cada quien a lo suyo.
+5. *¿Le toca?:* sí, en el formulario de la regla y en la lista; no hace falta pantalla nueva.
+
+**Cómo quedó:**
+- **C0.** Migración `20261124133043`: `week_interval` (2, 3, 6), `week_anchor` (date) y `month_week` (1–5),
+  con un CHECK con las mismas listas que el contrato. Sólo valen en «días de la semana».
+- **C1, el contrato.**
+  - `fechasDeLaRegla` respeta la cadencia: no hay fechas antes de la ancla, y las semanas van de lunes a domingo.
+  - `validarCaptura` y `reglasDeLaCaptura` arman una regla por lugar.
+  - `puedeSerResponsable` hace la misma cuenta que `reglaEnAlcance`.
+  - `patronDelDiaFijo` guarda cada 2, 3 o 6 semanas con su ancla.
+- **C2, la API.**
+  - `POST reglas` acepta `zone_codes` y `branch_codes`. Revisa el alcance de **todos** los lugares antes de
+    escribir el primero y devuelve `reglas` (una por lugar).
+  - El responsable se exige al guardar: activo, con la llave efectiva (`permisoEfectivoSql`) y escribiendo en todas
+    las sucursales. Su alcance lo resuelve `ScopeService.forUser` fuera de la transacción.
+  - `GET responsables` (pide CICLO) lista a quién se puede ofrecer.
+- **C3, la pantalla.** Casillas por zona y por sucursal, «¿Cada cuánto?» con «A partir del» o «¿Cuál del mes?»,
+  «Responsable (opcional)», «Mis revisiones (N)», y «Responsable:» en la lista y en el detalle. El manual se puso al día
+  en el mismo cambio (su candado lo exigía).
+
+**Pruebas:**
+- **Contrato:** 45 ✔ (21 nuevas), con fechas reales; por ejemplo, diciembre de 2026 trae cinco martes, así que el cuarto no es el último.
+- ⭐ **El criterio de PQ.3.15, cumplido:** las 3 quincenales de día fijo de la hoja de Compras (§10.9) dan **7 de 7** fechas iguales; con «cada 14 días» daban 0 de 7. Queda como prueba del contrato.
+- **Comercial:** 53 ✔, incluida la ruta nueva en el arranque.
+- **Pantalla:** `calendario-compras-captura.spec.ts` y `compras-calendario.mejoras.spec.ts`, 16 ✔; el componente, 18 ✔.
+- **`test-newdb-pq3-21-calendario-mejoras.js` contra Postgres real, como `app_runtime`: 23 ✓.**
+  - ⭐ **Encontró un defecto de la migración:** reusar el mismo `knex.schema` para varios `hasColumn` acumula las
+    instrucciones, y `week_anchor` no se creaba. Ya está corregido.
+  - Dos negativas: un lugar fuera de alcance y no se escribe ninguno; un responsable sin llave, sin ver el lugar o sin
+    alcance resuelto se rechaza.
+- **`test-newdb-pq3-4`:** 50 ✓; ahora aplica también la migración nueva.
+- **Siete mutantes en rojo:**
+  - sin la revisión previa del alcance;
+  - el responsable no tiene que ver los lugares;
+  - sin la llave;
+  - el CHECK acepta cualquier cadencia;
+  - la cadencia no filtra semanas;
+  - la pantalla manda una sola zona;
+  - la pantalla ofrece a cualquiera como responsable.
+- **`check:pantalla` cumple.** «Sin emojis», plantillas, estilos y tokens, en verde.
+- **Prueba visual** (24-nov): la pantalla viva contra la API local, sobre la base local con el catálogo real y la
+  migración aplicada con su `up()` real; escritorio, Fold 7 abierto y celular, más el modo oscuro; 0 errores de consola.
+  - *Escritorio, gerencia de compras:*
+    - el día fijo «un viernes sí y otro no» abre en «Por sucursal», viernes, «Cada 2 semanas»; al guardar dice «Regla
+      creada: … en Yurécuaro, cada 2 semanas, en viernes.»;
+    - dos zonas marcadas dicen «2 reglas de …, cada martes: zona La Piedad (nueva) y zona Zamora (nueva).», y en la base
+      quedan las dos;
+    - con La Piedad y Zamora marcadas, «Responsable» sólo ofrece a quien escribe en las dos;
+    - al corregir, el lugar se ve fijo; con «Una vez al mes · Último» y el encargado de esa sucursal como responsable
+      dice «Regla actualizada: … el último viernes de cada mes.».
+  - *Negativas en la pantalla:* sin sucursal marcada, «Elige al menos una sucursal.»; con un responsable que no ve todas
+    las sucursales, «… no ve todas las sucursales de esta regla: elige a otra persona o quítala.» y «Guardar la regla»
+    apagado.
+  - *Negativas en la API directa:* 400 con un responsable que no ve la zona; 400 «Elige al menos una zona.»; 403 a un
+    encargado en `GET responsables`. La lista de responsables trae al encargado sólo con su sucursal y deja fuera a
+    quien no tiene la llave de marcar.
+  - *Celular, encargado de sucursal:* «Mis revisiones (1)» filtra a su regla, con 44 px al dedo y sin desplazamiento
+    lateral. En el Fold 7 y en el celular el diálogo cabe, con casillas, días y opciones de 44 px.
+  - *El manual:* el botón «Manual» abre el que ya enseña «Por zona», «¿Cada cuánto?» y «Mis revisiones».
+  - El último paso del guion falló por el guion (el panel de detalle tapaba el botón «Manual»); se midió aparte, con la
+    pantalla limpia: ✓.

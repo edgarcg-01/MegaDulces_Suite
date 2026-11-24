@@ -443,6 +443,11 @@ mark.hl{background:var(--action-soft);color:inherit;border-radius:3px;padding:0 
 @media (max-width:560px){.multi-r{grid-template-columns:1fr;gap:2px}}
 .two-dlg{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));gap:14px}
 .btn.danger-solid{background:var(--bad-num);border-color:var(--bad-num);color:var(--paper)}
+/* Casillas de las maquetas (PQ.3.21): como las de la Suite, marcada = relleno del color de acción. */
+.checks{display:flex;flex-wrap:wrap;gap:6px 16px}
+.ck{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--ink)}
+.ck::before{content:"";width:16px;height:16px;flex:none;border:1.5px solid var(--line-2);border-radius:4px;background:var(--paper)}
+.ck.on::before{background:var(--action);border-color:var(--action);box-shadow:inset 0 0 0 3px var(--paper)}
 /* Con el dedo, todo lo que se toca del manual mide 44 px (la prueba visual midió el índice en 34 y la liga de regreso en 18). */
 @media (pointer: coarse){
   .toc a,.backbar a,.route .go,.meta a,.reset,.fn,details summary,.opt,.done-box{min-height:44px}
@@ -470,7 +475,7 @@ img{max-width:100%}
       <p class="lead">Qué es, cómo se lee y qué haces cada día. Para compradores, auxiliares, encargados de tienda y almacenistas, con una parte completa para la gerencia de compras: definir y mantener las reglas.</p>
       <div class="meta">
         <span>En la Suite: Compras › Calendario de compras</span>
-        <span>Describe la Suite al lun 23 nov 2026</span>
+        <span>Describe la Suite al mar 24 nov 2026</span>
         <span>Los proveedores de los ejemplos son inventados</span>
         <a href="#gerencia">Parte 2: gerencia de compras ›</a>
       </div>
@@ -655,7 +660,7 @@ img{max-width:100%}
     <div class="l-head">
       <p class="eyebrow"><span class="n">Lección 1</span> · ≈ 5 min <span class="for">Todos</span></p>
       <h2>Las palabras del calendario</h2>
-      <p class="why">Antes de ver la pantalla, las palabras que usa. Con estas ocho la entiendes completa.</p>
+      <p class="why">Antes de ver la pantalla, las palabras que usa. Con estas nueve la entiendes completa.</p>
     </div>
 
     <div class="block words">
@@ -667,12 +672,12 @@ img{max-width:100%}
       </article>
       <article class="word">
         <h4>Dónde (el alcance)</h4>
-        <p><b>Todas las sucursales</b> → revisa la gerencia de compras.<br><b>Una zona</b> → revisa la gerencia de zona.<br><b>Una sucursal</b> → revisa el encargado de esa sucursal.</p>
-        <p class="eg">En la lista sale como «Dónde» y debajo «Revisa: …».</p>
+        <p><b>Todas las sucursales</b> → revisa la gerencia de compras.<br><b>Por zona</b> (una o varias) → revisa la gerencia de cada zona.<br><b>Por sucursal</b> (una o varias) → revisa el encargado de cada sucursal.</p>
+        <p class="eg">En la lista sale como «Dónde» y debajo «Revisa: …» o, si la regla tiene responsable, «Responsable: …».</p>
       </article>
       <article class="word">
         <h4>Cada cuándo (el patrón)</h4>
-        <p><b>Días de la semana</b>: cada lunes.<br><b>Días del mes</b>: el 15 y el último.<br><b>Cada N días</b>: cada 10 días, contando desde la última orden o entrada en Kepler.</p>
+        <p><b>Días de la semana</b>: cada lunes; o cada 2, 3 o 6 semanas; o una vez al mes (el primer martes, el último viernes).<br><b>Días del mes</b>: el 15 y el último.<br><b>Cada N días</b>: cada 10 días, contando desde la última orden o entrada en Kepler.</p>
       </article>
       <article class="word">
         <h4>Revisión</h4>
@@ -689,6 +694,10 @@ img{max-width:100%}
       <article class="word">
         <h4>Fuera de ciclo</h4>
         <p>La gerencia saca a un proveedor del calendario hasta una fecha, con motivo. Ejemplo: uno de temporada. No cuenta como rezagado y regresa solo.</p>
+      </article>
+      <article class="word">
+        <h4>Responsable</h4>
+        <p>La persona a cargo de una regla, si la gerencia la nombró. Le sale «Mis revisiones» para ver sólo las suyas. Si no hay, revisa el puesto del lugar.</p>
       </article>
       <article class="word">
         <h4>Kepler propone</h4>
@@ -747,6 +756,7 @@ img{max-width:100%}
             <span class="seg" aria-hidden="true"><span class="on">Por revisar</span><span>Semana</span><span>Mes</span><span>Reglas</span></span>
             <span class="pin">5</span>
             <span class="search">Proveedor, clave o sucursal</span>
+            <span class="btn">Mis revisiones (1)</span>
           </div>
           <table class="t">
             <thead><tr><th>Proveedor</th><th>Dónde</th><th>Cuándo toca</th><th>Estado</th><th>Última atención</th><th><span style="position:absolute;left:-9999px">Acciones</span></th></tr></thead>
@@ -793,7 +803,7 @@ img{max-width:100%}
         <li><span class="pin">1</span><span><b>Título y «cargado ahora».</b> Dice cuándo se leyó lo que ves. Si dejaste la página abierta mucho rato, recárgala.</span></li>
         <li><span class="pin">2</span><span><b>La frase.</b> Lo que se debe hoy, en palabras. Léela primero: si dice «Hoy no se debe ninguna revisión», ya terminaste.</span></li>
         <li><span class="pin">3</span><span><b>Las cifras.</b> Cuántas revisiones hay en cada estado. Un clic en una cifra te lleva a su lista.</span></li>
-        <li><span class="pin">4</span><span><b>Las vistas.</b> «Por revisar» (lo que se debe), «Semana» y «Mes» (lo que viene), «Reglas» (todas). La gerencia ve además «Sin regla».</span></li>
+        <li><span class="pin">4</span><span><b>Las vistas.</b> «Por revisar» (lo que se debe), «Semana» y «Mes» (lo que viene), «Reglas» (todas). La gerencia ve además «Sin regla». Si eres responsable de alguna regla, junto al buscador sale «Mis revisiones (N)»: un clic deja sólo las tuyas.</span></li>
         <li><span class="pin">5</span><span><b>El buscador.</b> Por nombre del proveedor, su clave de Kepler o la sucursal.</span></li>
         <li><span class="pin">6</span><span><b>El proveedor.</b> Su nombre abre el detalle. Debajo, su clave de Kepler.</span></li>
         <li><span class="pin">7</span><span><b>El estado.</b> Con palabra y color. Debajo, desde cuándo se debe o cuál es la siguiente fecha.</span></li>
@@ -900,7 +910,7 @@ img{max-width:100%}
     </div>
     <div class="block steps4">
       <div class="st"><span class="big">1</span><h4>Lee la frase</h4><p>Abre Compras › Calendario de compras. Arriba dice cuánto se debe y cuál es la más atrasada.</p></div>
-      <div class="st"><span class="big">2</span><h4>Ve a «Por revisar»</h4><p>Arriba sale lo que se debe: primero las rezagadas, después las de hoy.</p></div>
+      <div class="st"><span class="big">2</span><h4>Ve a «Por revisar»</h4><p>Arriba sale lo que se debe: primero las rezagadas, después las de hoy. Si eres responsable de alguna regla, «Mis revisiones» deja sólo las tuyas.</p></div>
       <div class="st"><span class="big">3</span><h4>Atiende cada renglón</h4><p>Pide en Kepler (desde «Detalle › Abrir en Pedido»), o márcalo si no hubo OC. Lección 5.</p></div>
       <div class="st"><span class="big">4</span><h4>Mira «Semana»</h4><p>Antes de irte, revisa lo que viene en los próximos 7 días.</p></div>
     </div>
@@ -1023,7 +1033,7 @@ img{max-width:100%}
       </figure>
       <ol class="legend">
         <li><span class="pin">1</span><span><b>Hoy.</b> El estado de la regla.</span></li>
-        <li><span class="pin">2</span><span><b>Cuándo toca.</b> El patrón, las cuatro siguientes fechas y quién revisa.</span></li>
+        <li><span class="pin">2</span><span><b>Cuándo toca.</b> El patrón, las cuatro siguientes fechas y quién revisa (o el responsable, si lo hay).</span></li>
         <li><span class="pin">3</span><span><b>Última atención.</b> Y, si la hay, la última marca: quién la puso, el motivo y la nota.</span></li>
         <li><span class="pin">4</span><span><b>La regla.</b> Quién la definió y cuándo.</span></li>
         <li><span class="pin">5</span><span><b>Abrir en Pedido</b> te lleva al Pedido con ese proveedor y sus sucursales ya elegidos. Ahí armas el pedido como siempre.</span></li>
@@ -1332,12 +1342,12 @@ img{max-width:100%}
           <thead><tr><th>Si…</th><th>Elige</th><th>Revisa</th></tr></thead>
           <tbody>
             <tr><td>Al proveedor se le pide desde Compras para toda la red</td><td><b>Todas las sucursales</b></td><td>Gerencia de compras</td></tr>
-            <tr><td>Lo atiende la gerencia de una zona para sus sucursales</td><td><b>Una zona</b></td><td>Gerencia de zona (y el nombre de la zona)</td></tr>
-            <tr><td>Pasa a una sucursal y ahí se le pide (compra local)</td><td><b>Una sucursal</b></td><td>Encargado de esa sucursal</td></tr>
+            <tr><td>Lo atiende la gerencia de una o varias zonas</td><td><b>Por zona</b>, una casilla por zona</td><td>La gerencia de cada zona</td></tr>
+            <tr><td>Pasa a una o varias sucursales y ahí se le pide (compra local)</td><td><b>Por sucursal</b>, una casilla por sucursal</td><td>El encargado de cada sucursal</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="note-s">Quién revisa lo pone el puesto del lugar. Todavía no se elige a una persona por nombre.</p>
+      <p class="note-s">Con varias zonas o sucursales se guarda <b>una regla por lugar</b>, todas a la vez: cada una se atiende con lo de su lugar. Quién revisa lo pone el puesto del lugar, salvo que elijas un responsable (lección G4).</p>
     </div>
     <div class="block">
       <h3>2 · ¿Cada cuándo?</h3>
@@ -1348,7 +1358,8 @@ img{max-width:100%}
             <tr><td>Pasa siempre el mismo día de la semana</td><td><b>Días de la semana</b></td><td>Cada lunes · De lunes a viernes</td></tr>
             <tr><td>Se revisa en fechas del mes (quincena, cierre)</td><td><b>Días del mes</b></td><td>El 15 y el último de cada mes</td></tr>
             <tr><td>Tiene un ritmo de compra, sin día fijo</td><td><b>Cada N días</b></td><td>Cada 10 días, contando desde la última orden o entrada</td></tr>
-            <tr><td>Sólo pasa un lunes sí y otro no</td><td><b>Cada N días: 14</b> (es lo que arma el día fijo de Kepler)</td><td>Cuenta desde su última orden o entrada en esa sucursal</td></tr>
+            <tr><td>Pasa el mismo día, pero un lunes sí y otro no (o cada 3 o 6 semanas)</td><td><b>Días de la semana</b> · cada 2, 3 o 6 semanas, a partir de una fecha</td><td>Cada 2 semanas, en lunes</td></tr>
+            <tr><td>Pasa una vez al mes, en un día de la semana</td><td><b>Días de la semana</b> · una vez al mes</td><td>El primer martes de cada mes</td></tr>
             <tr><td>Compra una o pocas veces al año</td><td><b>Espera el botón en bloque</b></td><td>Escalón 3</td></tr>
           </tbody>
         </table>
@@ -1378,27 +1389,32 @@ img{max-width:100%}
             <p class="pri">BOTANAS EJEMPLO <span class="sub">clave BE014</span></p>
             <p class="sub">Kepler: en Yurécuaro, 40 de los 44 días con orden o entrada de los últimos 12 meses cayeron en lunes; 12 de 13 lunes en las últimas 13 semanas.</p>
             <span class="lbl pinned"><span class="pin">1</span>¿Dónde se revisa?</span>
-            <span class="seg"><span>Todas las sucursales</span><span>Una zona</span><span class="on">Una sucursal</span></span>
-            <span class="lbl">Sucursal</span>
-            <span class="field"><span>Yurécuaro</span><span class="sub">▾</span></span>
+            <span class="seg"><span>Todas las sucursales</span><span>Por zona</span><span class="on">Por sucursal</span></span>
+            <span class="lbl">Sucursales</span>
+            <div class="checks"><span class="ck on">Yurécuaro</span><span class="ck">La Piedad Abastos</span><span class="ck">Padre Hidalgo</span><span class="ck">8 Esquinas</span><span class="ck">…</span></div>
             <p class="sub pinned"><span class="pin">2</span>Revisa: Encargado de Yurécuaro</p>
             <span class="lbl pinned"><span class="pin">3</span>¿Cuándo toca?</span>
             <span class="seg"><span class="on">Días de la semana</span><span>Días del mes</span><span>Cada N días</span></span>
             <div class="days"><span class="on">Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
-            <span class="lbl pinned"><span class="pin">4</span>Nota (opcional)</span>
+            <span class="lbl pinned"><span class="pin">4</span>¿Cada cuánto?</span>
+            <span class="seg"><span class="on">Cada semana</span><span>Cada 2 semanas</span><span>Cada 3 semanas</span><span>Una vez al mes</span><span>Cada 6 semanas</span></span>
+            <span class="lbl pinned"><span class="pin">5</span>Responsable (opcional)</span>
+            <span class="field empty"><span>Sin responsable: revisa el puesto</span><span class="sub">▾</span></span>
+            <span class="lbl">Nota (opcional)</span>
             <span class="field empty"><span>Ejemplo: el ejecutivo pasa en la mañana</span></span>
-            <p class="preview pinned"><span class="pin">5</span><span>Las siguientes: lun 30 nov · lun 7 dic · lun 14 dic · lun 21 dic</span></p>
-            <div class="acc" style="margin-top:4px"><span class="pin">6</span><span class="btn primary">Guardar la regla</span><span class="btn text">Cancelar</span></div>
+            <p class="preview pinned"><span class="pin">6</span><span>Las siguientes: lun 30 nov · lun 7 dic · lun 14 dic · lun 21 dic</span></p>
+            <div class="acc" style="margin-top:4px"><span class="pin">7</span><span class="btn primary">Guardar la regla</span><span class="btn text">Cancelar</span></div>
           </div>
         </div>
       </div>
       <ol class="legend">
-        <li><span class="pin">1</span><span><b>Dónde.</b> Empieza en «Todas las sucursales». Con «Una zona» o «Una sucursal» aparece la lista para elegirla.</span></li>
-        <li><span class="pin">2</span><span><b>Quién revisa.</b> Sale solo según el lugar.</span></li>
+        <li><span class="pin">1</span><span><b>Dónde.</b> Empieza en «Todas las sucursales». Con «Por zona» o «Por sucursal» aparecen casillas: marca una o varias. Se guarda <b>una regla por cada lugar</b>, todas a la vez.</span></li>
+        <li><span class="pin">2</span><span><b>Quién revisa.</b> Sale solo según el lugar; si eliges responsable, dice su nombre.</span></li>
         <li><span class="pin">3</span><span><b>Cuándo.</b> Cada opción enseña sus propios campos (abajo, las tres).</span></li>
-        <li><span class="pin">4</span><span><b>Nota.</b> Lo que ayude a quien revisa: la hora a la que pasa el ejecutivo, con quién se habla.</span></li>
-        <li><span class="pin">5</span><span><b>Las siguientes.</b> Las próximas cuatro fechas, calculadas igual que en el calendario. Si no son las que esperas, ajusta antes de guardar.</span></li>
-        <li><span class="pin">6</span><span><b>Guardar.</b> Arriba sale «Regla creada: BOTANAS EJEMPLO en Yurécuaro, cada lunes.» y el proveedor sale de «Sin regla».</span></li>
+        <li><span class="pin">4</span><span><b>¿Cada cuánto?</b> Sólo con días de la semana: cada semana, cada 2, 3 o 6 semanas (a partir de una fecha), o una vez al mes (el primero, segundo, tercero, cuarto o último de ese día).</span></li>
+        <li><span class="pin">5</span><span><b>Responsable.</b> Opcional. Sólo salen las personas que pueden marcar y ven <b>todas</b> las sucursales de la regla. Le aparece «Mis revisiones». Debajo va la nota, para lo que ayude a quien revisa.</span></li>
+        <li><span class="pin">6</span><span><b>Las siguientes.</b> Las próximas cuatro fechas, calculadas igual que en el calendario. Si no son las que esperas, ajusta antes de guardar.</span></li>
+        <li><span class="pin">7</span><span><b>Guardar.</b> Arriba sale «Regla creada: BOTANAS EJEMPLO en Yurécuaro, cada lunes.» (con varios lugares, «2 reglas de …») y el proveedor sale de «Sin regla».</span></li>
       </ol>
     </div>
 
@@ -1407,9 +1423,13 @@ img{max-width:100%}
       <div class="panels">
         <div class="panel">
           <span class="seg"><span class="on">Días de la semana</span></span>
-          <div class="days"><span class="on">Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
-          <p class="sub">Toca uno o varios días. Con lunes a viernes dice «De lunes a viernes»; con los siete, «Todos los días».</p>
-          <p class="preview">Las siguientes: lun 30 nov · lun 7 dic · lun 14 dic · lun 21 dic</p>
+          <div class="days"><span>Lun</span><span class="on">Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
+          <span class="lbl">¿Cada cuánto?</span>
+          <span class="seg"><span>Cada semana</span><span class="on">Cada 2 semanas</span><span>Cada 3 semanas</span><span>Una vez al mes</span><span>Cada 6 semanas</span></span>
+          <span class="lbl">A partir del</span>
+          <span class="field" style="max-width:180px"><span>24/11/26</span><span class="sub">▦</span></span>
+          <p class="preview">Las siguientes: mar 24 nov · mar 8 dic · mar 22 dic · mar 5 ene</p>
+          <p class="sub">Toca uno o varios días. «Cada 2 semanas» cuenta las semanas desde «a partir del»: una sí y otra no, y no se mueve con las órdenes de Kepler. Con «Una vez al mes» se elige cuál en «¿Cuál del mes?»: <b>Primero, Segundo, Tercero, Cuarto o Último</b>. El primer martes, por ejemplo: mar 1 dic · mar 5 ene · mar 2 feb.</p>
         </div>
         <div class="panel">
           <span class="seg"><span class="on">Días del mes</span></span>
@@ -1433,24 +1453,26 @@ img{max-width:100%}
     </div>
 
     <div class="block">
-      <h3>Si elige «Una zona»</h3>
-      <div class="panels" style="grid-template-columns:minmax(0,420px)">
+      <h3>«Por zona»: una o varias</h3>
+      <div class="panels" style="grid-template-columns:minmax(0,480px)">
         <div class="panel">
-          <span class="seg"><span>Todas las sucursales</span><span class="on">Una zona</span><span>Una sucursal</span></span>
-          <span class="lbl">Zona</span>
-          <span class="field"><span>Morelia</span><span class="sub">▾</span></span>
-          <p class="sub">Revisa: Gerencia de zona (Morelia)</p>
+          <span class="seg"><span>Todas las sucursales</span><span class="on">Por zona</span><span>Por sucursal</span></span>
+          <span class="lbl">Zonas</span>
+          <div class="checks" style="flex-direction:column"><span class="ck on">La Piedad (Padre Hidalgo, La Piedad Abastos, 8 Esquinas, Yurécuaro)</span><span class="ck on">Zamora (Zamora Centro, Canindo)</span><span class="ck">Morelia (Morelia Madero, Morelia Abastos)</span></div>
+          <p class="sub">Revisa: la gerencia de cada zona</p>
         </div>
       </div>
-      <p class="note-s">Cuenta lo que pasa en cualquier sucursal de la zona. En la lista sale como «Zona Morelia».</p>
+      <p class="note-s">Se guardan dos reglas, «Zona La Piedad» y «Zona Zamora», con el mismo día. Cada una cuenta lo que pasa en las sucursales de su zona: si a Zamora no se le pidió, la de Zamora sale rezagada aunque La Piedad esté al día. «Por sucursal» funciona igual, con una casilla por sucursal.</p>
     </div>
 
     <div class="block">
       <h3>Cuando el botón no se deja</h3>
       <p class="prose" style="margin-bottom:12px">«Guardar la regla» queda apagado y, arriba del botón, dice qué falta:</p>
       <div class="motivos">
-        <div class="motivo"><b>«Elige una sucursal.»</b>Pusiste «Una sucursal» y no elegiste cuál.</div>
-        <div class="motivo"><b>«Elige una zona de compra.»</b>Lo mismo con «Una zona».</div>
+        <div class="motivo"><b>«Elige al menos una sucursal.»</b>Pusiste «Por sucursal» y no marcaste ninguna.</div>
+        <div class="motivo"><b>«Elige al menos una zona.»</b>Lo mismo con «Por zona».</div>
+        <div class="motivo"><b>«Di a partir de qué fecha cuenta…»</b>Elegiste cada 2, 3 o 6 semanas y falta «A partir del».</div>
+        <div class="motivo"><b>«… no ve todas las sucursales de esta regla»</b>El responsable no ve alguno de los lugares marcados: elige a otra persona o quítalo.</div>
         <div class="motivo"><b>«Elige al menos un día de la semana.»</b>Ningún día está encendido.</div>
         <div class="motivo"><b>«Elige al menos un día del mes o «el último».»</b>Ningún día del mes está encendido.</div>
         <div class="motivo"><b>«Cada N días» va de 1 a 365.</b>Falta el número o se pasa.</div>
@@ -1462,11 +1484,11 @@ img{max-width:100%}
       <div class="flowh">
         <div class="node"><span class="lnk act">Yurécuaro: cada lunes</span><small>12 de 13 lunes en las últimas 13 semanas</small></div>
         <div class="arrow"><b>→</b>un clic</div>
-        <div class="node"><b>El formulario ya lleno</b><small>Una sucursal: Yurécuaro · Días de la semana: lunes · con la evidencia de Kepler arriba</small></div>
+        <div class="node"><b>El formulario ya lleno</b><small>Por sucursal: Yurécuaro · Días de la semana: lunes · con la evidencia de Kepler arriba</small></div>
         <div class="arrow"><b>→</b>revisa «Las siguientes»</div>
         <div class="node"><b>Guardar la regla</b><small>listo</small></div>
       </div>
-      <div class="tip" style="margin-top:14px"><span class="ti">Un sí y otro no</span><span>Si la liga dice «un viernes sí y otro no» o «cada 3 semanas, en lunes», la regla se guarda como <b>«cada 14 días»</b> (o 21) contando desde la última orden o entrada <b>de esa sucursal</b>. Si un día se pide fuera de ese viernes, la cuenta se mueve. Elegir «cada 2 semanas en viernes» fijo todavía no está en la Suite.</span></div>
+      <div class="tip" style="margin-top:14px"><span class="ti">Un sí y otro no</span><span>Si la liga dice «un viernes sí y otro no» o «cada 3 semanas, en lunes», el formulario abre con <b>días de la semana, cada 2 (o 3) semanas</b>, a partir de la última orden o entrada <b>de esa sucursal</b>. Ya no se mueve si un día se pide fuera de ese viernes.</span></div>
       <p class="note-s">El CEDIS no recibe propuesta de día fijo: ahí el día fijo es el de recepción, no el de revisión.</p>
     </div>
 
@@ -1491,7 +1513,7 @@ img{max-width:100%}
         <article class="ex">
           <h4>B · Pasa cada lunes a una sucursal</h4>
           <p class="said">«El de botanas pasa cada lunes a Yurécuaro y ahí se le pide.»</p>
-          <dl><dt>Dónde</dt><dd>Una sucursal: Yurécuaro</dd><dt>Cuándo</dt><dd>Días de la semana: lunes</dd><dt>Revisa</dt><dd>Encargado de Yurécuaro</dd></dl>
+          <dl><dt>Dónde</dt><dd>Por sucursal: Yurécuaro</dd><dt>Cuándo</dt><dd>Días de la semana: lunes</dd><dt>Revisa</dt><dd>Encargado de Yurécuaro</dd></dl>
           <span class="mcal-title">Diciembre 2026</span>
           <div class="mcal" aria-label="Calendario de diciembre 2026: toca cada lunes, 7, 14, 21 y 28">
             <span class="h">L</span><span class="h">M</span><span class="h">M</span><span class="h">J</span><span class="h">V</span><span class="h">S</span><span class="h">D</span>
@@ -1550,8 +1572,8 @@ img{max-width:100%}
       <h3>Cómo se agrega</h3>
       <div class="steps4">
         <div class="st"><span class="big">1</span><h4>Abre el detalle</h4><p>De cualquier regla del proveedor, en «Reglas» o «Por revisar».</p></div>
-        <div class="st"><span class="big">2</span><h4>«Otra regla para este proveedor»</h4><p>Abre el formulario con «Una sucursal» ya elegido.</p></div>
-        <div class="st"><span class="big">3</span><h4>Elige el lugar y el día</h4><p>Otra sucursal o zona, con su propio patrón.</p></div>
+        <div class="st"><span class="big">2</span><h4>«Otra regla para este proveedor»</h4><p>Abre el formulario con «Por sucursal» ya elegido.</p></div>
+        <div class="st"><span class="big">3</span><h4>Elige el lugar y el día</h4><p>Una o varias sucursales o zonas (casillas), con su propio patrón.</p></div>
         <div class="st"><span class="big">4</span><h4>Guardar la regla</h4><p>Si en ese lugar ya había regla, el formulario te lo avisa antes.</p></div>
       </div>
       <div class="warnbox" style="margin-top:16px;max-width:760px">Si ese proveedor ya tiene regla en el mismo lugar: <i>«Ya hay una regla de este proveedor para Yurécuaro (Cada lunes): guardar la reemplaza y conserva sus marcas.»</i></div>
@@ -1569,7 +1591,7 @@ img{max-width:100%}
     <div class="l-head">
       <p class="eyebrow"><span class="n">Lección G6</span> · ≈ 4 min <span class="for">Gerencia</span></p>
       <h2>Corregir una regla</h2>
-      <p class="why">Cuando el proveedor cambia de día o de ritmo. Detalle › «Corregir la regla» abre el mismo formulario con todo lo que la regla ya tenía.</p>
+      <p class="why">Cuando el proveedor cambia de día o de ritmo. Detalle › «Corregir la regla» abre el mismo formulario con todo lo que la regla ya tenía. El lugar queda fijo.</p>
     </div>
     <div class="block">
       <div class="dlg-stage">
@@ -1578,8 +1600,8 @@ img{max-width:100%}
           <div class="dlg-b">
             <p class="pri">BOTANAS EJEMPLO <span class="sub">clave BE014</span></p>
             <span class="lbl">¿Dónde se revisa?</span>
-            <span class="seg"><span>Todas las sucursales</span><span>Una zona</span><span class="on">Una sucursal</span></span>
-            <span class="field"><span>Yurécuaro</span><span class="sub">▾</span></span>
+            <p class="pri">Yurécuaro</p>
+            <p class="sub">Para revisarla también en otro lugar, usa «Otra regla para este proveedor».</p>
             <span class="lbl pinned"><span class="pin">1</span>¿Cuándo toca?</span>
             <span class="seg"><span class="on">Días de la semana</span><span>Días del mes</span><span>Cada N días</span></span>
             <div class="days"><span>Lun</span><span class="on">Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
@@ -1592,7 +1614,7 @@ img{max-width:100%}
         <li><span class="pin">1</span><span><b>Cambia sólo lo que cambió.</b> En el ejemplo, el proveedor pasó del lunes al martes.</span></li>
         <li><span class="pin">2</span><span><b>Confirma las fechas</b> y guarda. Arriba sale «Regla actualizada: BOTANAS EJEMPLO en Yurécuaro, cada martes.» Las marcas anteriores se conservan.</span></li>
       </ol>
-      <div class="warnbox" style="margin-top:16px;max-width:760px"><b>Si cambias el lugar</b> (por ejemplo, de Yurécuaro a Canindo), el formulario avisa: <i>«Cambiaste el lugar: se crea una regla NUEVA y la de Yurécuaro sigue igual. Si ya no va, dala de baja.»</i> Corregir nunca mueve una regla de lugar: crea otra.</div>
+      <div class="warnbox" style="margin-top:16px;max-width:760px"><b>Al corregir, el lugar no se cambia</b>: se muestra fijo. Para revisarla en otro lugar, crea otra regla («Otra regla para este proveedor») y, si la de aquí ya no va, dala de baja.</div>
     </div>
     <label class="done-box"><input type="checkbox" data-leccion="g6"> Ya lo practiqué</label>
   </div>
@@ -1687,7 +1709,7 @@ img{max-width:100%}
     </div>
     <div class="block steps4">
       <div class="st"><span class="big">1</span><h4>El avance</h4><p>En «Sin regla», cuánto subió el embudo. Define los siguientes del escalón que vas llenando.</p></div>
-      <div class="st"><span class="big">2</span><h4>Las rezagadas</h4><p>En «Por revisar», busca por sucursal. Si una acumula rezagadas, habla con su encargado.</p></div>
+      <div class="st"><span class="big">2</span><h4>Las rezagadas</h4><p>En «Por revisar», busca por sucursal. Si una acumula rezagadas, habla con su encargado o con el responsable de esas reglas.</p></div>
       <div class="st"><span class="big">3</span><h4>Los que regresan</h4><p>En «Reglas», busca las «Fuera de ciclo» con fecha próxima. ¿Siguen en pausa? Cambia la fecha o déjalas regresar.</p></div>
       <div class="st"><span class="big">4</span><h4>Los cambios</h4><p>Lo que reportaron las sucursales (cambió de día, ya no pasa): corrige, agrega otra regla o da de baja.</p></div>
     </div>
@@ -1716,19 +1738,23 @@ img{max-width:100%}
     </div>
     <div class="block cases">
       <details class="case"><summary><span><span class="case-tag">Caso G1</span>En «Sin regla» aparece «Yurécuaro: cada lunes · 12 de 13 lunes en las últimas 13 semanas».</span></summary>
-        <div class="ans"><p><b>Clic en esa liga.</b> El formulario abre con Una sucursal: Yurécuaro y Días de la semana: lunes. Revisa «Las siguientes» y guarda.</p></div></details>
+        <div class="ans"><p><b>Clic en esa liga.</b> El formulario abre con Por sucursal: Yurécuaro y Días de la semana: lunes. Revisa «Las siguientes» y guarda.</p></div></details>
       <details class="case"><summary><span><span class="case-tag">Caso G2</span>El proveedor de botanas cambió su visita a Yurécuaro del lunes al martes.</span></summary>
         <div class="ans"><p><b>Detalle › Corregir la regla › apaga «Lun» y enciende «Mar» › revisa «Las siguientes» › Guardar la regla.</b> Las marcas anteriores se conservan.</p></div></details>
       <details class="case"><summary><span><span class="case-tag">Caso G3</span>Ese mismo proveedor empezó a pasar también a Canindo los jueves.</span></summary>
-        <div class="ans"><p><b>Detalle › Otra regla para este proveedor › Una sucursal: Canindo › Días de la semana: jueves › Guardar.</b> La de Yurécuaro sigue igual.</p></div></details>
+        <div class="ans"><p><b>Detalle › Otra regla para este proveedor › Por sucursal: Canindo › Días de la semana: jueves › Guardar.</b> La de Yurécuaro sigue igual.</p></div></details>
       <details class="case"><summary><span><span class="case-tag">Caso G4</span>Una regla quedó en «Todas las sucursales», pero en realidad sólo se le pide en Zamora Centro.</span></summary>
-        <div class="ans"><p>Crea la de Zamora Centro (<b>Otra regla para este proveedor</b>) y luego <b>Dar de baja</b> la de todas las sucursales. Si sólo corriges el lugar, se crea una regla nueva y la vieja sigue viva.</p></div></details>
+        <div class="ans"><p>Crea la de Zamora Centro (<b>Otra regla para este proveedor</b>) y luego <b>Dar de baja</b> la de todas las sucursales. Al corregir no se puede cambiar el lugar: por eso son dos pasos.</p></div></details>
       <details class="case"><summary><span><span class="case-tag">Caso G5</span>Un proveedor de temporada navideña no se revisará hasta septiembre.</span></summary>
         <div class="ans"><p><b>Detalle › Sacar del ciclo › Hasta: la fecha de septiembre › Motivo: «de temporada, vuelve en septiembre».</b> No contará como rezagado y regresará solo.</p></div></details>
       <details class="case"><summary><span><span class="case-tag">Caso G6</span>Se dejó de comprarle a un proveedor y no se le va a volver a pedir.</span></summary>
         <div class="ans"><p><b>Detalle › Dar de baja la regla.</b> Si después vuelve a tener órdenes en Kepler, aparecerá otra vez en «Sin regla».</p></div></details>
       <details class="case"><summary><span><span class="case-tag">Caso G7</span>Kepler propone «Cada 9 días», pero sabes que el ejecutivo viene cada miércoles.</span></summary>
         <div class="ans"><p>Manda lo que sabes: <b>Días de la semana: miércoles</b>. «Kepler propone» es una mediana, no una orden.</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso G8</span>El de botanas pasa un martes sí y otro no a La Piedad y a Zamora.</span></summary>
+        <div class="ans"><p><b>Definir regla › Por zona: La Piedad y Zamora › Días de la semana: martes › Cada 2 semanas, a partir del próximo martes › Guardar.</b> Se crean dos reglas, una por zona.</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso G9</span>Quieres que el encargado de Yurécuaro dé seguimiento a la regla de Yurécuaro.</span></summary>
+        <div class="ans"><p><b>Detalle › Corregir la regla › Responsable: él › Guardar.</b> En su calendario le aparece «Mis revisiones (1)». Para una regla de toda la zona no sale: él sólo ve Yurécuaro.</p></div></details>
     </div>
   </div>
 </section>
@@ -1739,22 +1765,20 @@ img{max-width:100%}
     <div class="l-head">
       <p class="eyebrow"><span class="n">Autoevaluación de la gerencia</span> · ≈ 4 min <span class="for">Gerencia</span></p>
       <h2>¿Todo listo para definir?</h2>
-      <p class="why">Seis preguntas sobre la Parte 2. Con 5 de 6 ya puedes definir reglas.</p>
+      <p class="why">Siete preguntas sobre la Parte 2. Con 6 de 7 ya puedes definir reglas.</p>
     </div>
     <div class="block">
       <div class="quiz" data-quiz="gerencia"></div>
-      <div class="score" style="margin-top:16px"><span data-score="gerencia" aria-live="polite">Contesta las 6 preguntas.</span><button type="button" class="reset" data-reset="gerencia">Volver a empezar</button></div>
+      <div class="score" style="margin-top:16px"><span data-score="gerencia" aria-live="polite">Contesta las 7 preguntas.</span><button type="button" class="reset" data-reset="gerencia">Volver a empezar</button></div>
     </div>
     <div class="block">
       <h3>Lo que viene para la gerencia</h3>
       <p class="prose" style="margin-bottom:10px">Todavía no está en la Suite:</p>
       <ul class="checklist">
         <li>Sacar del ciclo en bloque a los ocasionales del escalón 3.</li>
-        <li>«Cada 2 o 3 semanas en un día fijo» que no se mueva con las órdenes.</li>
         <li>Que «cada N días» no caiga en domingo.</li>
         <li>Ver quién cambió cada regla y de qué a qué.</li>
         <li>Que el comprador ajuste la regla de su sucursal o zona.</li>
-        <li>Elegir por nombre a la persona que revisa.</li>
       </ul>
     </div>
   </div>
@@ -1775,7 +1799,7 @@ img{max-width:100%}
       <div class="princ">
         <div class="pr"><h4>Por puesto, no por pantalla</h4><p>Tres rutas: quien revisa, quien define y quien consulta. Nadie aprende botones que no va a usar.</p><span class="src">Aprendizaje de adultos (Knowles): se aprende lo que se necesita para el trabajo.</span></div>
         <div class="pr"><h4>Desde lo que ya conocen</h4><p>Cada idea se ancla en la hoja «2026»: qué se hacía ahí y qué hace ahora la Suite.</p><span class="src">Andamiaje sobre la experiencia previa.</span></div>
-        <div class="pr"><h4>Primero las palabras</h4><p>Ocho términos y cinco estados antes de la pantalla. Así la pantalla no satura.</p><span class="src">Pre-entrenamiento (Mayer).</span></div>
+        <div class="pr"><h4>Primero las palabras</h4><p>Nueve términos y cinco estados antes de la pantalla. Así la pantalla no satura.</p><span class="src">Pre-entrenamiento (Mayer).</span></div>
         <div class="pr"><h4>Imagen y explicación juntas</h4><p>Cada pieza de la pantalla lleva un número y su explicación al lado. Un paso por imagen.</p><span class="src">Señalización, contigüidad y segmentación (Mayer).</span></div>
         <div class="pr"><h4>Una tarea por lección</h4><p>Lecciones de 3 a 10 minutos, cada una con su «compruébalo». Se pueden repasar en el celular.</p><span class="src">Microaprendizaje.</span></div>
         <div class="pr"><h4>Ver, hacer juntos, hacer solo</h4><p>Demostración en la pantalla real, práctica guiada, y luego casos y proveedores reales.</p><span class="src">Modelo «yo hago, hacemos, haces».</span></div>
@@ -1861,7 +1885,7 @@ img{max-width:100%}
 </section>
 
 <footer class="foot">
-  <div class="wrap">Manual del Calendario de compras · describe la Suite al lunes 23 de noviembre de 2026. Los textos de las imágenes son los de la pantalla; los proveedores y claves de los ejemplos son inventados.</div>
+  <div class="wrap">Manual del Calendario de compras · describe la Suite al martes 24 de noviembre de 2026. Los textos de las imágenes son los de la pantalla; los proveedores y claves de los ejemplos son inventados.</div>
 </footer>
 
 <script>
@@ -1892,13 +1916,14 @@ img{max-width:100%}
       { q: '«Kepler propone: Cada 12 días» quiere decir que…', o: ['El ciclo ya quedó confirmado', 'Es una propuesta con las órdenes del último año; la gerencia la confirma o la cambia', 'Hay que pedir cada 12 días sin excepción'], a: 1, e: 'Es una propuesta. La regla existe hasta que la gerencia la guarda.', l: 'g3' },
       { q: '¿Hasta cuántos días adelante se puede marcar una revisión?', o: ['Ninguno, sólo hoy', '14 días', '60 días'], a: 1, e: 'Se puede marcar un día que ya pasó o hasta 14 días adelante.', l: 'l5' }
     ] },
-    gerencia: { pase: 5, bien: ' · Ya puedes definir reglas.', items: [
+    gerencia: { pase: 6, bien: ' · Ya puedes definir reglas.', items: [
       { q: 'Una orden de compra en Yurécuaro, ¿atiende la regla de «Todas las sucursales» del mismo proveedor?', o: ['Sí, porque esa regla cubre a todas las sucursales', 'No, sólo la de Yurécuaro', 'Sólo si la marca la gerencia'], a: 0, e: 'La regla de todas las sucursales se atiende con lo que pase en cualquiera de ellas.', l: 'g5' },
-      { q: 'Corriges una regla de Yurécuaro y cambias el lugar a Canindo. ¿Qué pasa?', o: ['La regla se mueve a Canindo', 'Se crea una regla nueva en Canindo y la de Yurécuaro sigue igual', 'No deja guardar'], a: 1, e: 'Corregir nunca mueve una regla de lugar: crea otra. Si la vieja ya no va, dala de baja.', l: 'g6' },
+      { q: 'Necesitas la misma regla, martes, en La Piedad y en Zamora. ¿Qué haces?', o: ['Dos capturas, una por zona', 'Una captura «Por zona» marcando las dos casillas', 'Una regla para todas las sucursales'], a: 1, e: 'Con las casillas se guardan las dos de una vez; cada zona se atiende con lo suyo.', l: 'g4' },
       { q: 'Un proveedor de temporada vuelve en septiembre. ¿Qué usas?', o: ['Dar de baja la regla', 'Sacar del ciclo, con fecha y motivo', 'Que marquen «Hoy no se pide» cada vez'], a: 1, e: 'Sacar del ciclo lo pausa sin rezagos, y regresa solo al día siguiente de la fecha.', l: 'g7' },
       { q: 'Regla «el 15 y el último» con «Se adelanta al viernes». El 31 de enero de 2027 es domingo. ¿Cuándo toca?', o: ['El domingo 31', 'El viernes 29', 'El lunes 1 de febrero'], a: 1, e: 'La fecha que cae en fin de semana pasa al viernes anterior.', l: 'g4' },
       { q: '¿Por dónde conviene empezar a llenar el calendario?', o: ['Por orden alfabético', 'Por el escalón 1: los que más pesan en la compra', 'Por los ocasionales'], a: 1, e: 'El escalón 1 son 62 proveedores con el 82.8 % de la compra (medido en nov 2026).', l: 'g2' },
-      { q: 'Guardas una regla en un lugar donde el proveedor ya tenía otra. ¿Qué pasa?', o: ['Quedan dos reglas en el mismo lugar', 'La nueva reemplaza a la anterior y conserva sus marcas', 'Se borran sus marcas'], a: 1, e: 'El formulario te avisa antes de guardar: la reemplaza y conserva sus marcas.', l: 'g5' }
+      { q: 'Guardas una regla en un lugar donde el proveedor ya tenía otra. ¿Qué pasa?', o: ['Quedan dos reglas en el mismo lugar', 'La nueva reemplaza a la anterior y conserva sus marcas', 'Se borran sus marcas'], a: 1, e: 'El formulario te avisa antes de guardar: la reemplaza y conserva sus marcas.', l: 'g5' },
+      { q: '¿A quién ofrece la Suite como responsable de una regla de la zona La Piedad?', o: ['A cualquier persona activa', 'A quien puede marcar y ve las cuatro sucursales de la zona', 'Sólo a la gerencia de compras'], a: 1, e: 'Sólo sale quien puede marcar y ve todas las sucursales de la regla: así siempre puede atenderla.', l: 'g4' }
     ] }
   };
   var NOMBRE = { l0: 'la lección 0', l3: 'la lección 3', l5: 'la lección 5', gerencia: 'la Parte 2', g2: 'la lección G2', g3: 'la lección G3', g4: 'la lección G4', g5: 'la lección G5', g6: 'la lección G6', g7: 'la lección G7' };
