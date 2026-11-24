@@ -2038,11 +2038,11 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       (el cutover como CASE: unirlo llevaba 30 días de 0.3 a 1.5 s). Servicio 114/114, pantalla 41/41; mutantes (venta por
       clave sin sucursal; contar antes del cutover; «—» cuando la lectura falló) en rojo. Sin validación visual.
 - [x] **[CXC.52.1]** ❌ (revertido el 2026-11-24, Edgar: «córrelo de una») **El índice de la venta por vendedor NO sirve.**
-      Creado en prod a las 8:30 con  (6.5 s, 43 MB, válido; sin transacciones viejas; prod por
-      ). Medido antes/después con la consulta del código: 3 meses 0.72–0.86 s → 0.74–0.84 s, un año
-      1.5–2.6 s → 1.4–1.6 s. El planificador NO lo usa (estima 1 fila y sigue con ), y forzándolo
+      Creado en prod a las 8:30 con `CREATE INDEX CONCURRENTLY` (6.5 s, 43 MB, válido; sin transacciones viejas; prod por
+      `system_identifier`). Medido antes/después con la consulta del código: 3 meses 0.72–0.86 s → 0.74–0.84 s, un año
+      1.5–2.6 s → 1.4–1.6 s. El planificador NO lo usa (estima 1 fila y sigue con `ix_kdm1_venta_fecha`), y forzándolo
       tampoco hace index-only scan. Un índice sin uso sólo cuesta (43 MB y escritura extra en la tabla que el carril reescribe
-      cada 2 s): se quitó con ; nunca entró a  y la migración ya no está en
+      cada 2 s): se quitó con `DROP INDEX CONCURRENTLY`; nunca entró a `knex_migrations` y la migración ya no está en
       el repo. Hallazgo útil: con el índice de fecha apagado, Postgres elige un escaneo paralelo y un año baja a 0.93 s — tampoco
       cabe en 500 ms. Lo que sí alcanzaría: un agregado diario por (sucursal, vendedor), decisión pendiente de Edgar.
 - [x] **[CXC.53]** ✅ (en prod el 2026-11-24, `96c07e4ee`; lo soltó la sesión df con sus 5 cambios) **Todo el Resumen de Cartera sigue UN periodo** (Edgar, 2026-11-23: «que
