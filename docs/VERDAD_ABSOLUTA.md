@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 429 KB, 6382 líneas, 44 secciones.
+> **Índice navegable** — 432 KB, 6433 líneas, 44 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -50,7 +50,7 @@
 | 5894 | 5998 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
 | 5999 | 6070 | 5 | 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026- |
 | 6071 | 6266 | 11 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
-| 6267 | 6438 | 10 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
+| 6267 | 6489 | 13 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -6435,3 +6435,54 @@ mal timbradas, **también les falta complemento y el filtro no las iba a ver nun
 |---|---|---|
 | **D-F5** | Las 18 `UD08` PUE con forma `99`: ¿se re-timbran, se sustituyen, o eran PUE de verdad y lo que está mal es la forma? | Contabilidad |
 | **D-F6** | Correr `F5_metodo_forma` (y `F6_metodo`) **sobre los CFDI emitidos**, no sólo sobre los recibidos. El control ya está escrito | Desarrollo |
+
+### 41.9 ⭐⭐ Ingeniería inversa de la atribución: el cruce por importe tiene techo, y el canal que da certeza está sin usar (Edgar, 2026-11-24)
+
+**La idea.** El caso del §41.5 mostró un asidero: el depósito era **el importe exacto de una factura
+abierta**. Si no hay cobro, la factura que ese dinero paga **sigue abierta**. Entonces se puede ir al
+revés —banco → **factura**— en vez de banco → cobro, que es lo único que se cruzaba.
+
+⭐ **Lo de banco → cobro YA estaba reconstruido, y bien** (`[CC.8]`, `collection-deposits.service.ts`):
+quitar un filtro que miraba sólo el 30 % del dinero subió el cruce de **18.7 % a 78.0 %** con el ruido
+medido (2.2 % → 7.6 %), recuperó **13,772 abonos por $192.6M** y bajó los huérfanos de 14,359 a 3,890.
+**Los huérfanos de hoy son el residuo duro de ese trabajo, no material sin tocar.**
+
+**El cruce nuevo, medido con DOS placebos** (el mismo abono con el importe corrido +$7.13 y +$131.00;
+universo: 3,386 abonos sin conciliar de 180 días contra 8,244 cargos abiertos de 1,187 clientes):
+
+| | Real | Placebo +7.13 | Placebo +131 |
+|---|---:|---:|---:|
+| Abonos con alguna factura que cuadra | 121 | 19 | 25 |
+| **Con UNA sola candidata** | **89** | 18 | 19 |
+| Monto de los únicos | **$743,826.25** | $9,807.33 | $28,959.32 |
+
+⭐ **La señal es real** —89 contra un piso de 18–19, y el monto del placebo es una vigésima parte— así
+que **~70 abonos quedan con un solo dueño plausible**, por unos $715 mil. Cada uno es un cliente con
+nombre y un complemento con fecha.
+
+⛔ **Pero el techo es bajo: 70 de 3,386, el 2 %.** El cruce por importe **no resuelve la atribución**,
+y conviene decirlo antes de que alguien lo presente como la solución de los $106.8M. *Lo que hizo
+cierto el caso del §41.5 no fue el importe: fue que **la clienta subió su ficha declarándose dueña**.*
+
+#### ⭐⭐ Y ahí está lo que la ingeniería inversa de verdad encontró
+
+El mecanismo que produce **certeza** en vez de inferencia ya existe, ya está en producción
+(`[CC.20]`, desde el 2026-11-18: el cliente sube su ficha desde un enlace personal, sin usuario) y
+**está sin usar**:
+
+| | |
+|---|---:|
+| Fichas subidas por clientes, en total | **2** |
+| Clientes distintos que subieron alguna | **2** |
+| Fecha de las dos | **2026-11-24** (hoy) |
+| Clientes con saldo abierto a los que se les podría pedir | **1,187** ($69.9M) |
+
+⚠️ **NO MEDIDO:** si a esos 1,187 se les llegó a enviar su enlace (va por WhatsApp y por el QR del
+estado de cuenta). Sin eso, «2 de 1,187» mide el uso, **no la conversión**: puede que nadie lo haya
+pedido todavía.
+
+> ⭐ **La conclusión, que es de método.** La atribución no se va a cerrar midiendo mejor: el techo de
+> la inferencia está medido y es el 2 %. Se cierra **preguntándole al cliente**, que es lo único que
+> devuelve prueba —foto, monto, fecha y referencia— en vez de probabilidad. El canal está construido
+> y desplegado; lo que falta es **usarlo**. Y ahora hay con qué justificar la llamada: cada ficha que
+> entra convierte un abono anónimo en una obligación fiscal con dueño y con fecha (§41.3).
