@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 290 KB, 5024 líneas, 107 secciones.
+> **Índice navegable** — 291 KB, 5025 líneas, 107 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/GOTCHAS.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -111,9 +111,9 @@
 | 4910 | 4940 | 2 | 90. ⛔ `styleClass` en `p-inputicon` dibuja una lupa de 0 px, y `track i` sobre un esqueleto repite la llave (N |
 | 4941 | 4972 | 4 | 91. ⛔ Seis trampas de HERRAMIENTA que no avisan — y las seis cobraron en el ciclo de Caducidades (2026-10-16) |
 | 4973 | 4991 | 3 | 92. ⛔ Un índice de EXPRESIÓN sin `ANALYZE` no existe para el planificador — y la prueba que apaga `enable_seqs |
-| 4992 | 5017 | 4 | 93. ⛔ `/api/health` en verde con la suite en blanco: el 404 que la CDN guarda durante un despliegue |
-| 5018 | 5098 | 6 | 94. ⛔⛔ Una prueba escrita en el Kepler vivo es un documento REAL: la sucursal la ejerce en minutos y la Suite  |
-| 5099 | 5143 | 3 | 95. ⛔⛔ Un pago a proveedor no se arregla por caso: se mide el cuadre de los libros, o el pago doble pasa entre |
+| 4992 | 5018 | 5 | 93. ⛔ `/api/health` en verde con la suite en blanco: el 404 que la CDN guarda durante un despliegue |
+| 5019 | 5099 | 6 | 94. ⛔⛔ Una prueba escrita en el Kepler vivo es un documento REAL: la sucursal la ejerce en minutos y la Suite  |
+| 5100 | 5144 | 3 | 95. ⛔⛔ Un pago a proveedor no se arregla por caso: se mide el cuadre de los libros, o el pago doble pasa entre |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5013,6 +5013,7 @@ Cloudflare **guardó ese 404**. Los bundles se declaran `public, max-age=3153600
 - **`npm run check:suite-publica`** (`scripts/check-suite-publica.js`) abre el `index.html` por el origen real, lee qué archivos declara, saca los trozos que importa el bundle y comprueba que **todos** contesten 200 — 3 directos + 324 trozos el día que se escribió. Trae prueba negativa (`:self`, 6 casos). ⛔ **Mide el nodo de la CDN que te atiende a VOS**: verde acá no descarta una plaza rota.
 - **`[RES.6]`** (inline en `apps/view/src/index.html`): si un `<script>` no carga, lo vuelve a pedir **con un parámetro único** —otra entrada en el borde, así que la petición llega al origen—. Una vez por archivo, nunca dos. No arregla la causa: es la red.
 - ⭐ **La cura de raíz es purgar la CDN al terminar cada despliegue.** Hace falta un token de Cloudflare con permiso `Cache Purge`; los dos que existen (`CLOUDFLARE_DNS_API_TOKEN` para los certificados, `CLOUDFLARE_TUNNEL_TOKEN` para el túnel) **no sirven** para eso.
+- ⭐⭐ **Volvió a pasar el 2026-11-24** (`chunk-26e3Lv6b.js`, la lista de Cotizaciones; el aviso «Hay una actualización lista» y recargar no sacaba a nadie, porque un trozo cargado con `import()` no lo cubre `[RES.6]`). **Y la mitad de la causa era NUESTRA:** los tres `nginx.conf` ponían `add_header Cache-Control "public, max-age=31536000, immutable" always;` — el `always` manda la marca **también en el 404**, y con eso Cloudflare guarda el «no existe» por un año. Desde `[COT.56.1]` la marca sale de un `map $status`: 200/206/304 → el año; **cualquier error → `no-store`**. Probado con un nginx 1.27 desechable en `md`: nueva → 404 `no-store`; la de antes → 404 `immutable` (la negativa). Con eso la carrera del despliegue puede seguir dando un 404 en ese minuto, pero ya no queda guardado. ⛔ Lo que ya está guardado **no se va solo**: se purga en el panel de Cloudflare.
 - ⭐⭐ **Las plazas no deberían pasar por Cloudflare.** `interno.megadulcessuite.com` tiene un registro A público que apunta a `192.168.0.222`, certificado válido, y sondeado en sep-2026 resuelve desde los 8 routers de plaza sin tocar nada. Medido el 2026-11-10: sirve la misma versión, 327/327 archivos, sin `cf-ray`. ⚠️ Sólo funciona **adentro**: una laptop que sale de la red deja de resolverlo, y cambiar de dominio obliga a iniciar sesión otra vez.
 
 ## 94. ⛔⛔ Una prueba escrita en el Kepler vivo es un documento REAL: la sucursal la ejerce en minutos y la Suite ya no la puede deshacer
