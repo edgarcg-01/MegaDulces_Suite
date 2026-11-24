@@ -567,6 +567,12 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
         const incExcusa = incs.find((i) => tipoIncidencia(i.tipo)?.excusaFalta);
         const justificacion = incExcusa?.etiqueta || excusadas.get(d.fecha);
         let esperadoMin: number | null = null, salidaAntesMin: number | null = null, comidaExcesoMin: number | null = null;
+        // `[RH.19.1]` TRABAJÓ CORRIDO (RH, 2026-11-24: la hora extra empieza al cumplir su jornada). Si RH autorizó ese día
+        // una comida MÁS CORTA que la de su horario —0 min = no salió a comer— con «Comida distinta» (motivo, quién lo
+        // autorizó y calificada por otra persona), cumple su jornada antes por la comida que no tomó: su salida esperada se
+        // adelanta y desde ahí cuenta la hora extra. Sólo con horario asignado (sin él no sabemos cuánto dura su comida) y
+        // no con «Horario distinto» completo (ése ya fija la salida de ese día). Una comida autorizada más LARGA sigue igual.
+        let comidaNoTomada = 0;
         const hDia = horarioDe(d.fecha);
         if (asig && hDia && laboralesAsig) {
           const sab = hd.diaSemana(d.fecha) === 6;
@@ -575,8 +581,10 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
           const ent = hc ? hc.entrada : hd.aMinutos(sab ? asig.sabadoEntrada || hDia.entrada : hDia.entrada);
           const sal = hc ? hc.salida : hd.aMinutos(sab ? asig.sabadoSalida || hDia.salida : hDia.salida);
           const comPermitida = comPermitidaDia ?? (sab ? 0 : hDia.comidaMin);
-          esperadoMin = leToca && ent !== null && sal !== null ? Math.max(0, sal - ent - comPermitida) : 0;
-          if (leToca && sal !== null && det.salidaMin !== null && det.netasMin !== null) salidaAntesMin = Math.max(0, sal - det.salidaMin);
+          const comidaAutorizada = minutosDe(incs, 'comida_distinta');
+          if (leToca && !hc && comidaAutorizada !== null) comidaNoTomada = Math.max(0, (sab ? 0 : hDia.comidaMin) - comidaAutorizada);
+          esperadoMin = leToca && ent !== null && sal !== null ? Math.max(0, sal - ent - comPermitida - comidaNoTomada) : 0;
+          if (leToca && sal !== null && det.salidaMin !== null && det.netasMin !== null) salidaAntesMin = Math.max(0, sal - comidaNoTomada - det.salidaMin);
           if (leToca && comPermitida > 0 && det.comidaMin !== null) comidaExcesoMin = Math.max(0, det.comidaMin - comPermitida);
         }
         if (comPermitidaDia !== null) comidaExcesoMin = det.comidaMin !== null ? Math.max(0, det.comidaMin - comPermitidaDia) : null;
@@ -587,7 +595,7 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
         const refMin = hd.aMinutos(d.referencia ?? null);
         const jornadaDia = jornadaDe(d.fecha);
         if (refMin !== null && jornadaDia !== null && det.salidaMin !== null && det.netasMin !== null) {
-          const esperada = refMin + jornadaDia;
+          const esperada = refMin + jornadaDia - comidaNoTomada;
           salidaEsperada = hd.aHora(esperada);
           const debe = (d.atrasoMin || 0) + (det.desayunoExcesoMin || 0) + (comidaExcesoMin || 0);
           const bruto = det.salidaMin - esperada - debe;

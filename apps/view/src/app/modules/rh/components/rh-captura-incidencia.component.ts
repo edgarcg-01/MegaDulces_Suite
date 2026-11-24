@@ -7,7 +7,7 @@ import { ButtonModule } from 'primeng/button';
 import type { HrIncidenciaDto, HrTipoIncidenciaDto } from '@megadulces/contracts';
 import { RhService, rhError } from '../rh.service';
 import { diaLargo, firmaHoras, horasTexto } from '../reporte-formato';
-import { COMO_LE_DICEN, type FormCaptura, conAutorizacion, cuerpoCaptura, deUnDia, etiquetaConAlias, etiquetaNota, notaObligatoria } from '../incidencia-captura';
+import { COMO_LE_DICEN, TRABAJO_CORRIDO, type FormCaptura, conAutorizacion, cuerpoCaptura, deUnDia, etiquetaConAlias, etiquetaNota, notaObligatoria } from '../incidencia-captura';
 
 interface GrupoTipos { label: string; items: HrTipoIncidenciaDto[]; }
 /** `[RH.18.4]` Un botón de tipo: el nombre que usa RH arriba («Personal»), el tipo oficial abajo («Permiso sin goce»). */
@@ -195,6 +195,8 @@ export class RhCapturaIncidenciaComponent {
   readonly tipos = input<HrTipoIncidenciaDto[]>([]);
   /** `[RH.18.1]` Los tipos que tienen sentido para el día, el más probable primero (vacío = la lista completa). */
   readonly sugeridos = input<string[]>([]);
+  /** `[RH.19.1]` El nombre que lleva un tipo sólo ese día (`aliasDelDia`): «Trabajó corrido» para la comida de 0 min. */
+  readonly alias = input<Record<string, string>>({});
   /** Desde la ficha: el nombre de la persona (su número ya va en el formulario y no se edita). */
   readonly persona = input<string | null>(null);
   readonly titulo = input('Capturar incidencia');
@@ -228,7 +230,7 @@ export class RhCapturaIncidenciaComponent {
     return this.sugeridos().map((s) => tipos.find((t) => t.tipo === s)).filter((t): t is HrTipoIncidenciaDto => !!t)
       .slice(0, MAX_BOTONES)
       .map((t) => {
-        const alias = COMO_LE_DICEN[t.tipo];
+        const alias = this.alias()[t.tipo] ?? COMO_LE_DICEN[t.tipo];
         return alias ? { tipo: t.tipo, titulo: alias.charAt(0).toUpperCase() + alias.slice(1), sub: t.etiqueta } : { tipo: t.tipo, titulo: t.etiqueta, sub: '' };
       });
   });
@@ -242,7 +244,9 @@ export class RhCapturaIncidenciaComponent {
       if (!f) return f;
       const motivo = tipo === 'horario_distinto' && !f.reason.trim() ? 'Tráfico' : f.reason;
       const autorizo = conAutorizacion(tipo) && !f.authorized_by_name.trim() ? leerAutorizo() : f.authorized_by_name;
-      return { ...f, incident_type: tipo, reason: motivo, authorized_by_name: autorizo };
+      // `[RH.19.1]` «Trabajó corrido» = comida de 0 min. El motivo NO se llena: es el justificante, lo escribe RH.
+      const minutos = tipo === 'comida_distinta' && this.alias()[tipo] === TRABAJO_CORRIDO ? '0' : f.minutos;
+      return { ...f, incident_type: tipo, reason: motivo, authorized_by_name: autorizo, minutos };
     });
   }
 

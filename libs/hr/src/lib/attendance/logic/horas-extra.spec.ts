@@ -80,6 +80,50 @@ describe('[RH.1.10] horas extra ganadas', () => {
   });
 });
 
+/**
+ * `[RH.19.1]` TRABAJÓ CORRIDO (RH, 2026-11-24): la hora extra empieza al cumplir su jornada. Quien no sale a comer la
+ * cumple antes, pero sólo cuenta cuando RH lo confirma con «Comida distinta» (motivo, quién lo autorizó y calificada).
+ * Horario 08:00–18:00 con 60 min de comida = 9 h netas.
+ */
+describe('[RH.19.1] trabajó corrido: la comida que no tomó cuenta como trabajo', () => {
+  const asignados = new Map([['15', { entrada: '08:00', salida: '18:00', comidaMin: 60, horarios: [{ entrada: '08:00', salida: '18:00', comidaMin: 60 }], sabado: true, sabadoEntrada: null, sabadoSalida: null }]]);
+  const corrido = (f: string) => (f === '2026-07-20' ? ['08:00', '18:00'] : undefined);
+
+  it('⭐ checó 08:00 y 18:00 sin salir a comer, con «Comida distinta» de 0 min: cumplió a las 17:00 → 1 h extra', () => {
+    const e = escenario(corrido, { asignados, incidencias: [inc('comida_distinta', '2026-07-20', 0)] } as Partial<EntradaAsistencia>);
+    expect(dia(e, '2026-07-20')).toMatchObject({ salidaEsperada: '17:00', extraMin: 60 });
+    expect(ana(e)?.horasExtraGanadasMin).toBe(60);
+  });
+
+  it('⛔ NEGATIVA — sin la confirmación de RH, el mismo día no gana nada (puede ser que comió y no checó)', () => {
+    const e = escenario(corrido, { asignados } as Partial<EntradaAsistencia>);
+    expect(dia(e, '2026-07-20')).toMatchObject({ salidaEsperada: '18:00', extraMin: 0 });
+  });
+
+  it('comida autorizada de 30 en vez de 60: cumple 30 min antes (salió 18:30 → 1 h)', () => {
+    const e = escenario((f) => (f === '2026-07-20' ? ['08:00', '13:00', '13:30', '18:30'] : undefined),
+      { asignados, incidencias: [inc('comida_distinta', '2026-07-20', 30)] } as Partial<EntradaAsistencia>);
+    expect(dia(e, '2026-07-20')).toMatchObject({ salidaEsperada: '17:30', extraMin: 60, comidaExcesoMin: 0 });
+  });
+
+  it('autorizó 0 pero sí salió a comer 60 min: la comida es exceso y lo repone, no gana de más', () => {
+    const e = escenario((f) => (f === '2026-07-20' ? ['08:00', '13:00', '14:00', '18:00'] : undefined),
+      { asignados, incidencias: [inc('comida_distinta', '2026-07-20', 0)] } as Partial<EntradaAsistencia>);
+    expect(dia(e, '2026-07-20')?.extraMin).toBe(0);
+  });
+
+  it('trabajó corrido y salió a las 17:00: ya cumplió, no es «salió antes»', () => {
+    const e = escenario((f) => (f === '2026-07-20' ? ['08:00', '17:00'] : undefined),
+      { asignados, incidencias: [inc('comida_distinta', '2026-07-20', 0)] } as Partial<EntradaAsistencia>);
+    expect(dia(e, '2026-07-20')).toMatchObject({ extraMin: 0, salidaAntesMin: 0 });
+  });
+
+  it('⛔ NEGATIVA — sin horario asignado no se acredita (no sabemos cuánto dura su comida)', () => {
+    const e = escenario(corrido, { incidencias: [inc('comida_distinta', '2026-07-20', 0)] });
+    expect(dia(e, '2026-07-20')?.extraMin).toBe(0);
+  });
+});
+
 describe('[RH.1.10] comida y desayuno distintos', () => {
   it('con «Comida distinta» de 90 min, 90 min de comida ya no es exceso (y repone menos)', () => {
     const asignados = new Map([['15', { entrada: '08:00', salida: '18:00', comidaMin: 60, horarios: [{ entrada: '08:00', salida: '18:00', comidaMin: 60 }], sabado: true, sabadoEntrada: null, sabadoSalida: null }]]);

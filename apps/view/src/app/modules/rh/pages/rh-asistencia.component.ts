@@ -19,7 +19,7 @@ import { RhReporteSemanalComponent } from '../components/rh-reporte-semanal.comp
 import { RhPersonaDiasComponent } from '../components/rh-persona-dias.component';
 import { RhExpedienteFirmasComponent } from '../components/rh-expediente-firmas.component';
 import { RhCapturaIncidenciaComponent } from '../components/rh-captura-incidencia.component';
-import { type FormCaptura, contextoDelDia, formDelDia, sugerenciasDelDia } from '../incidencia-captura';
+import { type FormCaptura, aliasDelDia, contextoDelDia, formDelDia, sugerenciasDelDia } from '../incidencia-captura';
 import { RhFaltasComponent } from './rh-faltas.component';
 import { RhToleranciaComponent } from './rh-tolerancia.component';
 import { RhIncidenciasComponent } from './rh-incidencias.component';
@@ -334,7 +334,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
         @if (captura(); as c) {
           @if (c.origen === 'tabla') {
             <div class="ra-globo">
-              <app-rh-captura-incidencia [(form)]="capturaForm" [site]="est.sitio()" [tipos]="tiposInc()" [sugeridos]="c.sugeridos"
+              <app-rh-captura-incidencia [(form)]="capturaForm" [site]="est.sitio()" [tipos]="tiposInc()" [sugeridos]="c.sugeridos" [alias]="c.alias"
                                          [persona]="c.nombre" [titulo]="'Incidencia del ' + diaLargo(c.fecha)"
                                          [deLoChecado]="c.deLoChecado" [contexto]="c.contexto" [puedeCalificar]="puedeCalificar()"
                                          (guardada)="capturaGuardada($event)" (cancelada)="cerrarGlobo()" />
@@ -564,7 +564,7 @@ export class RhAsistenciaComponent {
   irAPersonas(ev: Event): void { ev.preventDefault(); void this.router.navigate(['/admin/users']); }
   /** `[RH.18.1]` La incidencia que se está capturando desde un día (de quién, qué día, qué se le propone). */
   /** `[RH.18.4]` La incidencia que se está capturando desde una celda de la tabla (de quién, qué día, qué se le propone). */
-  readonly captura = signal<{ codigo: string; nombre: string; fecha: string; sugeridos: string[]; deLoChecado: boolean; contexto: string; origen: 'tabla' } | null>(null);
+  readonly captura = signal<{ codigo: string; nombre: string; fecha: string; sugeridos: string[]; alias: Record<string, string>; deLoChecado: boolean; contexto: string; origen: 'tabla' } | null>(null);
   /** `[RH.18.7]` Los grupos de la leyenda de bloques. */
   readonly gruposInc = GRUPOS_INCIDENCIA;
   /** El nombre de cada tipo (para las pendientes de la tabla, que sólo traen su clave). */
@@ -809,7 +809,7 @@ export class RhAsistenciaComponent {
     const hoy = this.est.hoy();
     const form = formDelDia(p.codigo, fecha, d);
     this.capturaForm.set(form);
-    this.captura.set({ codigo: p.codigo, nombre: p.nombreCompleto || p.nombre, fecha, sugeridos: sugerenciasDelDia(d, fecha, hoy), deLoChecado: !!form.entrada, contexto: contextoDelDia(d, fecha, hoy), origen });
+    this.captura.set({ codigo: p.codigo, nombre: p.nombreCompleto || p.nombre, fecha, sugeridos: sugerenciasDelDia(d, fecha, hoy), alias: aliasDelDia(d), deLoChecado: !!form.entrada, contexto: contextoDelDia(d, fecha, hoy), origen });
   }
 
   cerrarCaptura(): void { this.captura.set(null); this.capturaForm.set(null); }

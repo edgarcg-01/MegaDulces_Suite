@@ -95,6 +95,18 @@ export const COMO_LE_DICEN: Readonly<Record<string, string>> = {
 /** La etiqueta con su nombre de Mega Talento, si tiene: «Incapacidad · cita médica». */
 export const etiquetaConAlias = (tipo: string, etiqueta: string): string => (COMO_LE_DICEN[tipo] ? `${etiqueta} · ${COMO_LE_DICEN[tipo]}` : etiqueta);
 
+/**
+ * `[RH.19.1]` TRABAJÓ CORRIDO (RH, 2026-11-24). Un día con sólo entrada y salida puede ser que no salió a comer… o que
+ * comió y no checó. No se adivina: se OFRECE «Trabajó corrido», que es «Comida distinta» con 0 min (motivo, quién lo
+ * autorizó y la califica otra persona). Calificada, la comida que no tomó cuenta como trabajo para las horas extra.
+ */
+export const TRABAJO_CORRIDO = 'trabajó corrido';
+export const trabajoCorrido = (d: HrDiaAsistencia | undefined): boolean =>
+  !!d && d.marcas === 2 && !!d.entrada && !!d.salida && d.comidaMin == null;
+/** El nombre que lleva un tipo SÓLO ese día (`trabajó corrido` para la comida de 0 min). */
+export const aliasDelDia = (d: HrDiaAsistencia | undefined): Record<string, string> =>
+  (trabajoCorrido(d) ? { comida_distinta: TRABAJO_CORRIDO } : {});
+
 const AUSENCIA = ['permiso_sin_goce', 'incapacidad', 'otros', 'vacaciones', 'permiso_con_goce', 'falta_injustificada'];
 const POR_VENIR = ['vacaciones', 'permiso_sin_goce', 'permiso_con_goce', 'descanso', 'cambio_descanso'];
 
@@ -118,6 +130,7 @@ export function sugerenciasDelDia(d: HrDiaAsistencia | undefined, fecha: string,
     case 'descanso': return ['cambio_descanso', 'visita_fuera', 'otros'];
     case 'justificado': return ['otros', 'horario_distinto'];
     default: {
+      if (trabajoCorrido(d)) return ['comida_distinta', 'horario_distinto', 'horas_extra'];
       if ((d.comidaExcesoMin ?? 0) > 0) return ['comida_distinta', 'horario_distinto', 'horas_extra'];
       if ((d.desayunoExcesoMin ?? 0) > 0) return ['desayuno_distinto', 'horario_distinto', 'horas_extra'];
       if ((d.atrasoMin ?? 0) > 0 || (d.salidaAntesMin ?? 0) > 0) return ['horario_distinto', 'otros', 'permiso_sin_goce'];

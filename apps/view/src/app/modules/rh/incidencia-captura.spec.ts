@@ -1,5 +1,5 @@
 import { dia } from '../../../testing/rh.fixture';
-import { COMO_LE_DICEN, cuerpoCaptura, etiquetaConAlias, formDelDia, formNuevo, sugerenciasDelDia } from './incidencia-captura';
+import { COMO_LE_DICEN, TRABAJO_CORRIDO, aliasDelDia, cuerpoCaptura, etiquetaConAlias, formDelDia, formNuevo, sugerenciasDelDia, trabajoCorrido } from './incidencia-captura';
 
 /**
  * `[RH.18.1]` `[RH.18.3]` Capturar desde el día: qué se propone y qué se llena solo. Lo que se defiende: el orden sale del
@@ -78,5 +78,22 @@ describe('[RH.18.7] lo que pasó ese día, arriba del globo', () => {
     expect(contextoDelDia(undefined, '2026-10-09', HOY)).toBe('Un día que todavía no llega.');
     // ⛔ El día en curso no es falta todavía.
     expect(contextoDelDia(dia({ fecha: HOY, estado: 'falta', entrada: null, salida: null }), HOY, HOY)).toBe('Todavía no checa hoy.');
+  });
+});
+
+describe('[RH.19.1] trabajó corrido: se ofrece, no se adivina', () => {
+  it('⭐ sólo entrada y salida, sin comida: «Trabajó corrido» (Comida distinta) va primero', () => {
+    const d = dia({ marcas: 2 });
+    expect(trabajoCorrido(d)).toBe(true);
+    expect(sugerenciasDelDia(d, '2026-10-01', HOY)[0]).toBe('comida_distinta');
+    expect(aliasDelDia(d)).toEqual({ comida_distinta: TRABAJO_CORRIDO });
+  });
+
+  it('⛔ NEGATIVA — con su comida checada (4 marcas) no se ofrece, ni con una sola checada', () => {
+    for (const d of [dia({ marcas: 4, comidaMin: 60 }), dia({ estado: 'marca_faltante', marcas: 1, salida: null })]) {
+      expect(trabajoCorrido(d)).toBe(false);
+      expect(aliasDelDia(d)).toEqual({});
+    }
+    expect(sugerenciasDelDia(dia({ marcas: 4, comidaMin: 60 }), '2026-10-01', HOY)[0]).not.toBe('comida_distinta');
   });
 });
