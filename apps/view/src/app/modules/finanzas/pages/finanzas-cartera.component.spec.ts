@@ -57,7 +57,7 @@ function resp(clientes: CarteraCliente[], extra: { total?: number; porTipo?: Por
     clientes,
     total_clientes: extra.total ?? clientes.length,
     resumen: {
-      hoy: '2026-11-17', saldo_total: saldo, vencido_total: saldo, pct_vencido: 100, dso: null, ventas_90d: 0,
+      hoy: '2026-11-17', saldo_total: saldo, vencido_total: saldo, pct_vencido: 100, dso: null, ventas_periodo: 0, periodo: { desde: '2026-08-20', hasta: '2026-11-17', dias: 90 },
       n_clientes: clientes.length, pago: null, concentracion: { top10_pct: 0, top10: [] },
       proyeccion: { vencido: 0, d0_7: 0, d8_15: 0, d16_30: 0, d30_plus: 0, sin_fecha: 0 },
       por_vendedor: [], por_zona: [], base_rollups: 'documento', sin_documento: { monto: 0, clientes: 0 },
@@ -462,64 +462,88 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(document.body.textContent).toContain('eliges a quién');
   });
 
-  it('23 · [CXC.52] la venta de cada vendedor, con su periodo: cifra, «—», total, rango y «no medido»', () => {
-    const r = resp([cli('C1', 'Abarrotes Uno', 100, 100)]);
-    (r.resumen as unknown as Record<string, unknown>)['por_vendedor'] = [
-      { sucursal: '06', vendedor: '30003', vendedor_nombre: 'DANIEL FRANCO', saldo: 900, vencido: 100, n_clientes: 3 },
-      { sucursal: '00', vendedor: '10002', vendedor_nombre: 'SERGIO MENDOZA', saldo: 800, vencido: 800, n_clientes: 2 },
-    ];
-    const vv = (desde: string, hasta: string, venta: number) => ({
-      date_from: desde, date_to: hasta, hoy: '2026-11-17', total: venta,
+  it('23 · [CXC.52][CXC.53] UN periodo para todo el Resumen: venta, DSO, pago, venta por vendedor y tendencia', () => {
+    const conPeriodo = (desde: string, hasta: string, dias: number) => {
+      const r = resp([cli('C1', 'Abarrotes Uno', 100, 100)]);
+      Object.assign(r.resumen as unknown as Record<string, unknown>, {
+        periodo: { desde, hasta, dias }, ventas_periodo: 3000, dso: 30,
+        por_vendedor: [
+          { sucursal: '06', vendedor: '30003', vendedor_nombre: 'DANIEL FRANCO', saldo: 900, vencido: 100, n_clientes: 3 },
+          { sucursal: '00', vendedor: '10002', vendedor_nombre: 'SERGIO MENDOZA', saldo: 800, vencido: 800, n_clientes: 2 },
+        ],
+      });
+      return r;
+    };
+    cartera = vi.fn((q: { period_from?: string; period_to?: string } = {}) =>
+      of(conPeriodo(q.period_from ?? '2026-08-20', q.period_to ?? '2026-11-17', q.period_from ? 30 : 90)));
+    const vv = (q: { date_from?: string; date_to?: string }, venta: number) => ({
+      date_from: q.date_from ?? '?', date_to: q.date_to ?? '?', hoy: '2026-11-17', total: venta,
       // 04/30003 es otra persona con la misma clave: no debe pegarse a la fila de 06.
       filas: [{ sucursal: '06', vendedor: '30003', venta }, { sucursal: '04', vendedor: '30003', venta: 7 }],
     });
-    const ventaVendedor = vi.fn((q: { date_from?: string; date_to?: string }) =>
-      of(vv(q.date_from ?? '2026-10-19', q.date_to ?? '2026-11-17', q.date_from ? 1000 : 4277123.4)));
-    cartera = vi.fn(() => of(r));
+    const ventaVendedor = vi.fn((q: { date_from?: string; date_to?: string }) => of(vv(q, q.date_from === '2026-08-20' ? 4277123.4 : 1000)));
+    const tendencia = vi.fn(() => of([
+      { fecha: '2026-09-24', saldo_total: 1, vencido_total: 1, n_clientes: 1, pct_vencido: 100 },
+      { fecha: '2026-10-20', saldo_total: 2, vencido_total: 1, n_clientes: 1, pct_vencido: 50 },
+      { fecha: '2026-11-10', saldo_total: 3, vencido_total: 1, n_clientes: 1, pct_vencido: 33 },
+    ]));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos, ventaVendedor } });
+    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, tendencia, resolvePromise: () => of({}), enlaceDeposito, telefonos, ventaVendedor } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     const c = f.componentInstance;
     c.toggleResumen();
     f.detectChanges();
+    const txt = (sel: string) => document.body.querySelector(sel)?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
     const celdas = () => [...document.body.querySelectorAll('[data-testid="venta-vendedor"]')].map((td) => td.textContent!.trim());
     const total = () => [...document.body.querySelectorAll('[data-testid="total-vendedores"] td')].map((td) => td.textContent!.trim());
 
-    // Al abrir: los últimos 30 días, sin fechas (el servidor pone el default).
-    expect(ventaVendedor).toHaveBeenLastCalledWith({});
+    // Al abrir: 90 días (la base de siempre del DSO), dicho en el encabezado; la venta por vendedor, del MISMO periodo.
+    expect(c.periodoResumen()).toBe('90d');
+    expect(txt('[data-testid="periodo-texto"]')).toBe('del 2026-08-20 al 2026-11-17 (90 días)');
+    expect(ventaVendedor).toHaveBeenLastCalledWith({ date_from: '2026-08-20', date_to: '2026-11-17' });
     expect(celdas()).toEqual(['4,277,123', '—']);
     expect(total()).toEqual(['Total · 2 vendedores', '', '4,277,123', '900', '1,700']);
-    expect(document.body.querySelector('[data-testid="venta-vendedor-nota"]')?.textContent).toContain('del 2026-10-19 al 2026-11-17');
+    expect(txt('.ct-rs-kpis')).toContain('venta a crédito del periodo (base DSO)');
+    expect(txt('.ct-rs-kpis')).toContain('del saldo vencido, hoy');
+    // La tendencia, recortada al periodo, dice desde cuándo hay fotos (empiezan después del inicio del periodo).
+    expect(document.body.querySelectorAll('.ct-trend-col')).toHaveLength(3);
+    expect(txt('.ct-rs-trend .ct-rs-h4')).toContain('hay fotos diarias desde el 2026-09-24');
 
-    // Mes anterior y 3 meses: las fechas que viajan.
-    c.cambiarPeriodoVenta('mes_ant');
+    // Mes anterior: la cartera se vuelve a pedir CON el periodo, y la venta por vendedor también.
+    c.cambiarPeriodo('mes_ant');
+    expect(cartera).toHaveBeenLastCalledWith(expect.objectContaining({ period_from: '2026-10-01', period_to: '2026-10-31' }));
     expect(ventaVendedor).toHaveBeenLastCalledWith({ date_from: '2026-10-01', date_to: '2026-10-31' });
-    c.cambiarPeriodoVenta('mes');
-    expect(ventaVendedor).toHaveBeenLastCalledWith({ date_from: '2026-11-01', date_to: '2026-11-17' });
-    c.cambiarPeriodoVenta('3m');
-    expect(ventaVendedor).toHaveBeenLastCalledWith({ date_from: '2026-08-17', date_to: '2026-11-17' });
     f.detectChanges();
+    expect(txt('[data-testid="periodo-texto"]')).toBe('del 2026-10-01 al 2026-10-31 (30 días)');
     expect(celdas()).toEqual(['1,000', '—']);
+    // …y la tendencia se recorta a ese mes: sólo la foto del 20-oct.
+    expect(c.tendenciaPeriodo().map((t) => t.fecha)).toEqual(['2026-10-20']);
+
+    c.cambiarPeriodo('30d');
+    expect(ventaVendedor).toHaveBeenLastCalledWith({ date_from: '2026-10-19', date_to: '2026-11-17' });
+    c.cambiarPeriodo('mes');
+    expect(ventaVendedor).toHaveBeenLastCalledWith({ date_from: '2026-11-01', date_to: '2026-11-17' });
 
     // Rango: no se pide con una sola fecha; con las dos, sí.
-    const llamadas = ventaVendedor.mock.calls.length;
-    c.cambiarPeriodoVenta('rango');
-    c.cambiarRangoVenta([new Date(2026, 9, 5), null]);
-    expect(ventaVendedor.mock.calls.length).toBe(llamadas);
-    c.cambiarRangoVenta([new Date(2026, 9, 5), new Date(2026, 9, 20)]);
-    expect(ventaVendedor).toHaveBeenLastCalledWith({ date_from: '2026-10-05', date_to: '2026-10-20' });
+    const llamadas = cartera.mock.calls.length;
+    c.cambiarPeriodo('rango');
+    c.cambiarRango([new Date(2026, 9, 5), null]);
+    expect(cartera.mock.calls.length).toBe(llamadas);
+    c.cambiarRango([new Date(2026, 9, 5), new Date(2026, 9, 20)]);
+    expect(cartera).toHaveBeenLastCalledWith(expect.objectContaining({ period_from: '2026-10-05', period_to: '2026-10-20' }));
 
-    // NEGATIVA — la lectura falla: «no medido» y el motivo, nunca cero ni «—».
+    // NEGATIVA — la venta por vendedor falla: «no medido» y el motivo, nunca cero ni «—».
     ventaVendedor.mockReturnValueOnce(throwError(() => ({ error: { message: 'El periodo es de 400 días; el máximo es 366.' } })) as never);
-    c.cambiarPeriodoVenta('30d');
+    c.cambiarPeriodo('30d');
     f.detectChanges();
     expect(celdas()).toEqual(['no medido', 'no medido']);
     expect(total()[2]).toBe('no medido');
-    expect(document.body.querySelector('[data-testid="venta-vendedor-error"]')?.textContent).toContain('máximo es 366');
+    expect(txt('[data-testid="venta-vendedor-error"]')).toContain('máximo es 366');
 
     // Con un solo vendedor no hay total: repetiría su renglón.
-    expect(c.totalVendedores({ ...r.resumen, por_vendedor: r.resumen.por_vendedor.slice(0, 1) })).toBeNull();
+    const r1 = conPeriodo('2026-10-01', '2026-10-31', 30).resumen;
+    expect(c.totalVendedores({ ...r1, por_vendedor: r1.por_vendedor.slice(0, 1) })).toBeNull();
   });
 
   describe('21 · [CXC.47] periodo, pagadas y envío al vendedor', () => {

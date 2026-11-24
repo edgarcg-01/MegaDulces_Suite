@@ -13,6 +13,7 @@ function servicio(clientes: Fila[]) {
   fake['tenantCtx'] = { requireTenantId: () => 't' };
   fake['tk'] = { run: (fn: (trx: unknown) => unknown) => fn({}) };
   fake['fuenteCartera'] = async () => ({ rel: 'x' });
+  fake['hoy'] = async () => '2026-11-20'; // `[CXC.53]` el periodo del Resumen se valida contra hoy
   fake['freshness'] = async () => ({ status: 'unknown' });
   fake['ultimosContactos'] = async () => null;
   fake['opciones'] = () => ({});
