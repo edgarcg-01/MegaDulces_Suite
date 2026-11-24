@@ -12,6 +12,7 @@ import { fechaDeCalendario } from './fecha-de-calendario';
 import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, FacturaCompartidaLiga, LigaCompartidaCreada, LigaCompartidaDeshecha, MismaFactura } from '@megadulces/contracts';
 import { armarMismaFactura, citaFactura } from './misma-factura';
 import { MOTIVO_LIGA_MIN, hayLigaCompartida, tieneLigaCompartidaSql } from './liga-compartida';
+import { esEntradaInternaSql } from './entrada-interna';
 import { cuadraDentroDeTolerancia, evidenciaCuadra, sqlEvidenciaCuadra, paqueteSoloHojaKepler, MENSAJE_SOLO_HOJA_KEPLER } from '@megadulces/contracts';
 import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
@@ -350,6 +351,8 @@ type FilaComprobanteCruda = {
   deposits: number;
   /** `[RE.86]` Ligada con motivo a una factura compartida: su documento es la factura de otra entrada. */
   factura_compartida?: boolean;
+  /** `[RE.87]` El proveedor es la propia empresa: movimiento interno, no lleva factura. */
+  interna?: boolean;
   monto: string | number;
   dias: string | number;
   dias_espera: string | number | null;
@@ -692,6 +695,9 @@ export class GoodsReceiptProofsService {
       // ES la factura original. La misma expresión en el filtro, la fila y los conteos.
       const ligaComp = tieneLigaCompartidaSql(await hayLigaCompartida(trx));
       const conPapel = `(d.n IS NOT NULL OR ${ligaComp})`;
+      // `[RE.87]` La entrada INTERNA (el proveedor es la propia empresa): no lleva factura. Sale de lo que se pide y
+      // de los conteos, y se cuenta aparte; se ve pidiéndola por su nombre (`estado=interna`), con su motivo.
+      const internaSql = esEntradaInternaSql(await this.existeCol(trx, 'catalog', 'suppliers', 'is_internal'));
       // [PQ.81] las entradas cuya ORDEN DE ENTRADA termina en esos dígitos (ver entradasPorOrden)
       const terminoFolio = (q.search || '').trim();
       const porOrden = /^\d{1,4}$/.test(terminoFolio) ? await this.entradasPorOrden(trx, terminoFolio.padStart(4, '0')) : [];
@@ -845,7 +851,8 @@ export class GoodsReceiptProofsService {
         const u = trx(fuente)
           .join(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
           .where('c.tenant_id', tenantId).whereRaw('c.dup_of_folio IS NULL')
-          .whereRaw(`d.last_status = 'recibido'`);
+          .whereRaw(`d.last_status = 'recibido'`)
+          .whereRaw(`NOT ${internaSql}`); // [RE.87] la interna no espera decisión
         if (alcance) { if (alcance.length) u.whereIn('c.sucursal', alcance); else u.whereRaw('false'); }
         if (q.carril === 'rezago') u.where('c.receipt_date', '<', cfg.reception_start);
         else if (q.carril !== 'todo') u.where('c.receipt_date', '>=', cfg.reception_start);
@@ -922,6 +929,9 @@ export class GoodsReceiptProofsService {
         } else if (q.estado === 'descartada') {
           b.whereRaw('false'); // sin la migración no hay descartadas que mostrar
         }
+        // `[RE.87]` Las internas salen de TODAS las vistas de trabajo, como las descartadas, y se ven por su nombre.
+        if (q.estado === 'interna') b.whereRaw(internaSql);
+        else if (q.estado !== 'descartada') b.whereRaw(`NOT ${internaSql}`);
         if (q.estado === 'pendiente') b.whereRaw(`NOT ${conPapel}`);
         else if (q.estado === 'con_comprobante') b.whereRaw(conPapel);
         else if (q.estado === 'por_validar') b.whereRaw(`d.last_status = 'recibido'`);
@@ -975,6 +985,7 @@ export class GoodsReceiptProofsService {
           trx.raw(`${ORDEN_ENTRADA_SQL} AS orden_entrada_folio`), // [PQ.81]
           trx.raw('COALESCE(d.n, 0)::int AS deposits'),
           trx.raw(`${ligaComp} AS factura_compartida`), // [RE.86]
+          trx.raw(`${internaSql} AS interna`), // [RE.87]
           trx.raw('d.last_id AS deposit_id'),
           trx.raw('d.last_status AS deposit_status'),
           trx.raw('COALESCE(d.any_match, false) AS monto_match'),
@@ -1093,11 +1104,13 @@ export class GoodsReceiptProofsService {
         // `[RE.35.5]` El veredicto de la fila (el mismo cálculo que el panel lateral).
         // Sólo los que esperan decisión tienen veredicto; validados y devueltos ya se decidieron.
         // `[RE.86]` Ligada a una factura compartida: ya se decidió (como validada), sin veredicto pendiente.
-        expediente: r.deposits > 0 || r.factura_compartida
+        // `[RE.87]` La interna no lleva papel ni veredicto: no es una compra.
+        expediente: r.interna ? null
+          : r.deposits > 0 || r.factura_compartida
           ? (resumen?.filas.get(`${r.sucursal}/${r.folio}`) ?? null)
           : { cubo: 'sin_documento', hallazgos: [], motivo: null },
         // Un solo lugar decide "atrasada": el reloj que aplica según tenga o no evidencia.
-        atrasada: r.factura_compartida ? false
+        atrasada: r.factura_compartida || r.interna ? false
           : r.deposits > 0
           ? (r.dias_espera != null && Number(r.dias_espera) > cfg.sla_review_days)
           : Number(r.dias) > cfg.sla_capture_days,
@@ -1126,11 +1139,13 @@ export class GoodsReceiptProofsService {
 
       // KPIs = el universo del alcance + carril + rango de fecha (NO se le aplica `estado`
       // ni `search`: son el denominador contra el que se lee la lista filtrada).
-      const kpiBase = () => {
+      // `[RE.87]` `internas` = las que el proveedor es la propia empresa: fuera de los conteos de trabajo, contadas aparte.
+      const kpiBase = (internas = false) => {
         const k = trx(fuente)
           .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
           .where('c.tenant_id', tenantId)
-          .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — KPIs sobre canónicas (sin doble conteo CEDIS)
+          .whereRaw('c.dup_of_folio IS NULL') // RE.12 — KPIs sobre canónicas (sin doble conteo CEDIS)
+          .whereRaw(internas ? internaSql : `NOT ${internaSql}`);
         if (alcance) { if (alcance.length) k.whereIn('c.sucursal', alcance); else k.whereRaw('false'); }
         if (q.carril === 'rezago') k.where('c.receipt_date', '<', cfg.reception_start);
         else if (q.carril !== 'todo') k.where('c.receipt_date', '>=', cfg.reception_start);
@@ -1179,6 +1194,7 @@ export class GoodsReceiptProofsService {
         trx.raw(`COUNT(*) FILTER (WHERE ${PLAZA_SIN_DECLARAR})::int AS plaza_sin_declarar`),
         trx.raw(`COALESCE(SUM(c.monto::numeric) FILTER (WHERE ${PLAZA_SIN_DECLARAR}), 0)::numeric AS monto_plaza_sin_declarar`),
       );
+      const [ki] = await kpiBase(true).select(trx.raw('COUNT(*)::int AS internas'), trx.raw('COALESCE(SUM(c.monto::numeric), 0)::numeric AS monto_internas'));
 
       return {
         kpis: {
@@ -1194,6 +1210,8 @@ export class GoodsReceiptProofsService {
           monto_plaza_ajena: Number(k.monto_plaza_ajena),
           plaza_sin_declarar: Number(k.plaza_sin_declarar),
           monto_plaza_sin_declarar: Number(k.monto_plaza_sin_declarar),
+          // `[RE.87]` Fuera de `entradas` (no llevan factura), pero a la vista: un número que crece es una señal.
+          internas: Number(ki?.internas ?? 0), monto_internas: Number(ki?.monto_internas ?? 0),
         },
         // El alcance viaja al front para que la vista sepa si mostrar el selector de
         // sucursal (más de una) o el aviso de "no tenés sucursal asignada" (ninguna).
@@ -1430,10 +1448,13 @@ export class GoodsReceiptProofsService {
       // RE.20.3 — las descartadas salen del DENOMINADOR: una sucursal no puede quedar en 60%
       // por traspasos que nadie va a facturar. Pero se cuentan aparte y vuelven en `descartadas`
       // — si el descarte sólo restara, "descartar todo" sería el camino corto al 100%.
-      const excluirDescartes = (await this.hayDescartes(trx))
+      const internaSql = esEntradaInternaSql(await this.existeCol(trx, 'catalog', 'suppliers', 'is_internal'));
+      // `[RE.87]` Las internas (el proveedor es la propia empresa) también salen del denominador —nunca van a tener
+      // factura— y se cuentan aparte en `internas`, igual que las descartadas. Sin `?`: no corre los parámetros.
+      const excluirDescartes = ((await this.hayDescartes(trx))
         ? ` AND NOT EXISTS (SELECT 1 FROM finance.goods_receipt_discards x
               WHERE x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio)`
-        : '';
+        : '') + ` AND NOT ${internaSql}`;
       // Los `?` van en el orden en que aparecen en la SQL:
       //   sla_captura → sla_revision ×3 → tenant → arranque → filtros.
       // Son posicionales, así que agregar una columna en medio del SELECT corre TODO lo de
@@ -1510,6 +1531,16 @@ export class GoodsReceiptProofsService {
           tenantId, cfg.reception_start, ...filtroParams,
         ]);
 
+      // `[RE.87]` Cuántas internas por sucursal en el mismo carril (desde el arranque, no descartadas).
+      const intPorSuc = new Map<string, number>();
+      for (const x of (await trx.raw(`
+        SELECT c.sucursal, COUNT(*)::int AS n FROM analytics.erp_goods_receipts c
+         WHERE c.tenant_id = ? AND c.dup_of_folio IS NULL AND c.receipt_date >= ? AND ${internaSql}
+           ${alcance ? 'AND c.sucursal = ANY(?)' : ''}
+         GROUP BY c.sucursal`, alcance ? [tenantId, cfg.reception_start, alcance] : [tenantId, cfg.reception_start])).rows as Array<{ sucursal: string; n: number }>) {
+        intPorSuc.set(String(x.sucursal), Number(x.n));
+      }
+
       // Cuántas se descartaron por sucursal (y con qué motivo). Se pide en la MISMA transacción.
       const desc = await this.descartesPorSucursal(trx, alcance);
       const descPorSuc = new Map<string, { total: number; motivos: Record<string, number> }>();
@@ -1549,6 +1580,8 @@ export class GoodsReceiptProofsService {
           // una señal (el ERP volvió a emitir traspasos, alguien descarta de más), no una fila menos.
           descartadas: descPorSuc.get(String(x.sucursal))?.total ?? 0,
           descartes_motivos: descPorSuc.get(String(x.sucursal))?.motivos ?? {},
+          // `[RE.87]` Fuera del denominador, a la vista: el proveedor es la propia empresa (no llevan factura).
+          internas: intPorSuc.get(String(x.sucursal)) ?? 0,
           entradas: Number(x.entradas),
           con_evidencia: Number(x.con_evidencia),
           validadas: Number(x.validadas),
