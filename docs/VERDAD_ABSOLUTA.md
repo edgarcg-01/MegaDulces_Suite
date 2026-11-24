@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 427 KB, 6335 líneas, 44 secciones.
+> **Índice navegable** — 429 KB, 6382 líneas, 44 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -50,7 +50,7 @@
 | 5894 | 5998 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
 | 5999 | 6070 | 5 | 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026- |
 | 6071 | 6266 | 11 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
-| 6267 | 6391 | 7 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
+| 6267 | 6438 | 10 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -6388,3 +6388,50 @@ empezó a leer ese saldo.*
 | **D-F2** | ¿Cuántos de los 4,445 abonos sin cobro son pagos de factura PPD? Hoy **NO MEDIDO**; sin atribución no hay cifra | BFU + Contabilidad |
 | **D-F3** | ¿El cruce factura-por-factura del ingreso se cablea ahora que hay CFDI emitido? (§19 caducó) | Contabilidad + LC |
 | **D-F4** | ⛔ El candado que debía ponerse rojo al llegar los emitidos **no existe**. ¿Se construye? | Desarrollo |
+
+### 41.8 ⭐⭐ ¿Cómo se sabe si una factura es PPD o PUE? (Edgar, 2026-11-24)
+
+**El dato autoritativo es el CFDI**: `fiscal.cfdis.metodo_pago` (`rol = 'emitidas'`). No es una
+derivación nuestra — es lo que se timbró y se mandó al SAT. Para una factura concreta, ahí está la
+respuesta y no hay nada que inferir.
+
+**Lo que NO sirve para derivarlo:** la regla propia de la Suite (`[FE.8]`, en
+`commercial-orders.service.ts`: `payment_terms_days > 0 → PPD`) describe **lo que la Suite factura**,
+no lo que hace Kepler. Medido sobre la cartera desde septiembre: **619 facturas PPD a clientes con
+plazo CERO** (y 2,811 PPD con plazo, 19 PUE sin plazo, 0 PUE con plazo). *«Tiene crédito» no es el
+criterio.*
+
+**Lo que sí predice, y con qué fuerza** (CFDI emitidos, desde el 2026-09-01):
+
+| Serie | PPD | PUE | |
+|---|---:|---:|---|
+| `UD08` factura de telemarketing | **3,430** | 19 | 99.4 % PPD |
+| `UD05` factura de ticket / mostrador | 10 | **4,734** | 99.8 % PUE |
+| `UD06` | 0 | **693** | 100 % PUE |
+
+⚠️ **Es correlación, no regla.** Sirve para dimensionar; no para decidir sobre una factura.
+
+⭐ **La firma interna más confiable: PPD ⟺ `forma_pago = '99'`** («por definir»). Las 3,618 PPD del
+periodo llevan `99` y nada más; es coherente, porque en PPD la forma se define hasta el complemento.
+
+#### ⛔ Las 19 excepciones son, casi seguro, un timbrado MAL — y nadie lo vigila del lado emitido
+
+Las 19 facturas `UD08` marcadas **PUE** son **todas de Canindo**, todos sus clientes tienen plazo
+**cero**, y **18 de 19 llevan `forma_pago = '99'`**. Eso es contradictorio por definición: un PUE se
+pagó de una sola exhibición, así que su forma tiene que ser la real, **nunca «por definir»**.
+
+⭐ **El repo ya tiene esa regla, completa y bloqueante** — `expediente-verdict.ts`, control
+`F5_metodo_forma`: `pueMal = metodo === 'PUE' && forma === '99'`, con la nota *«PUE con forma 99: el
+SAT no lo permite»*, y su espejo `ppdMal`. ⛔ **Pero vive en el expediente de las facturas que
+RECIBIMOS de proveedores, y nadie la corre contra las que EMITIMOS.** Por eso 18 CFDIs propios
+salieron con una combinación que nuestra propia regla declara inválida y bloqueante, sin que nada se
+pusiera rojo. *El control existe; lo que falta es apuntarlo al otro lado.*
+
+⚠️ **Y eso contamina la medición de §41.4**, que filtró por `metodo_pago = 'PPD'`: si esas 18 son PPD
+mal timbradas, **también les falta complemento y el filtro no las iba a ver nunca**. La cifra de
+§41.4 es un **piso**, no un total.
+
+| | Pregunta | De quién |
+|---|---|---|
+| **D-F5** | Las 18 `UD08` PUE con forma `99`: ¿se re-timbran, se sustituyen, o eran PUE de verdad y lo que está mal es la forma? | Contabilidad |
+| **D-F6** | Correr `F5_metodo_forma` (y `F6_metodo`) **sobre los CFDI emitidos**, no sólo sobre los recibidos. El control ya está escrito | Desarrollo |
