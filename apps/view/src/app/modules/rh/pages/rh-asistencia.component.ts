@@ -123,10 +123,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
                 <ng-container *ngTemplateOutlet="formHorario; context: { $implicit: p }" />
               }
               @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
-              <app-rh-persona-dias [persona]="p" [columnas]="columnas()" [hoy]="est.hoy()" [mideRetardo]="mide()"
-                                   [capturable]="puedeCapturar()" [abierto]="abiertoDe(p)" (capturar)="capturar(p, $event)">
-                <ng-container *ngTemplateOutlet="capturaDia; context: { $implicit: p }" />
-              </app-rh-persona-dias>
+              <app-rh-persona-dias [persona]="p" [columnas]="columnas()" [hoy]="est.hoy()" [mideRetardo]="mide()" />
             </div>
           </section>
         } @else {
@@ -307,15 +304,10 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             }
             @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
 
-            <app-rh-persona-dias [persona]="p" [columnas]="columnas()" [hoy]="est.hoy()" [mideRetardo]="mide()"
-                                 [capturable]="puedeCapturar()" [abierto]="abiertoDe(p)" (capturar)="capturar(p, $event)">
-              <ng-container *ngTemplateOutlet="capturaDia; context: { $implicit: p }" />
-            </app-rh-persona-dias>
+            <!-- [RH.18.9] La incidencia se levanta en la tabla de la semana (la celda del día), no aquí: un solo lugar. -->
+            <app-rh-persona-dias [persona]="p" [columnas]="columnas()" [hoy]="est.hoy()" [mideRetardo]="mide()" />
 
             <div class="ra-acciones">
-              @if (puedeCapturar()) {
-                <p-button icon="pi pi-file-edit" label="Capturar incidencia" severity="secondary" [outlined]="true" size="small" (onClick)="capturar(p)" />
-              }
               <p-button label="Ver solo a esta persona" severity="secondary" [outlined]="true" size="small" (onClick)="soloEsta(p)" />
               <p-button label="PDF para firmar" icon="pi pi-file-pdf" [text]="true" size="small" [loading]="exportando()" (onClick)="pdfPersona(p)" />
             </div>
@@ -342,16 +334,6 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
           }
         }
       </p-popover>
-
-      <!-- [RH.18.1] La captura de un día, debajo de su renglón: la persona y la fecha ya puestas, los tipos de ese día arriba. -->
-      <ng-template #capturaDia let-p>
-        @if (captura(); as c) {
-          <app-rh-captura-incidencia [(form)]="capturaForm" [site]="est.sitio()" [tipos]="tiposInc()" [sugeridos]="c.sugeridos"
-                                     [persona]="p.nombreCompleto || p.nombre" [titulo]="'Incidencia del ' + diaLargo(c.fecha)"
-                                     [deLoChecado]="c.deLoChecado" [contexto]="c.contexto" [puedeCalificar]="puedeCalificar()"
-                                     (guardada)="capturaGuardada($event)" (cancelada)="cerrarCaptura()" />
-        }
-      </ng-template>
 
       <!-- [RH.13.5] Incidencias y Relojes eran pestañas con su página: son trabajo SOBRE esta semana y esta plaza, así que
            se abren encima, sin salir. La URL dice cuál está abierto (?panel=): un enlace o un aviso lo abre igual. -->
@@ -573,7 +555,8 @@ export class RhAsistenciaComponent {
   readonly puedeVerPersonas = computed(() => this.perms.has(Permission.USUARIOS_VER));
   irAPersonas(ev: Event): void { ev.preventDefault(); void this.router.navigate(['/admin/users']); }
   /** `[RH.18.1]` La incidencia que se está capturando desde un día (de quién, qué día, qué se le propone). */
-  readonly captura = signal<{ codigo: string; nombre: string; fecha: string; sugeridos: string[]; deLoChecado: boolean; contexto: string; origen: 'ficha' | 'tabla' } | null>(null);
+  /** `[RH.18.4]` La incidencia que se está capturando desde una celda de la tabla (de quién, qué día, qué se le propone). */
+  readonly captura = signal<{ codigo: string; nombre: string; fecha: string; sugeridos: string[]; deLoChecado: boolean; contexto: string; origen: 'tabla' } | null>(null);
   /** `[RH.18.7]` Los grupos de la leyenda de bloques. */
   readonly gruposInc = GRUPOS_INCIDENCIA;
   /** El nombre de cada tipo (para las pendientes de la tabla, que sólo traen su clave). */
@@ -777,21 +760,6 @@ export class RhAsistenciaComponent {
   cambioFicha(abierta: boolean): void { if (!abierta) this.cerrar(); }
   soloEsta(p: HrPersonaAsistencia): void { this.cerrar(); this.est.verSolo(p.codigo); }
 
-  /**
-   * `[RH.18.1]` (E1) La incidencia se captura AQUÍ, debajo del día, sin salir de la ficha: la persona y la fecha puestas y los
-   * tipos de ese día arriba (`[RH.18.3]` sin elegir: lo eligen ellas). Antes cerraba la ficha y abría el panel de Incidencias, que
-   * arrancaba en Vacaciones. Sin día (el botón de abajo): hoy, si está en el periodo; si no, el primer día.
-   * Tocar el mismo día otra vez la cierra.
-   */
-  capturar(p: HrPersonaAsistencia, fecha?: string): void {
-    const cols = this.columnas();
-    const dia = fecha ?? (cols.some((c) => c.fecha === this.est.hoy()) ? this.est.hoy() : cols[0]?.fecha ?? this.est.hoy());
-    const c = this.captura();
-    if (c && c.codigo === p.codigo && c.fecha === dia) { this.cerrarCaptura(); return; }
-    this.aviso.set(null);
-    this.conTipos(() => this.abrirCaptura(p, dia, 'ficha'));
-  }
-
   /** Los 19 tipos se leen la primera vez que se captura; después, al momento. */
   private conTipos(sigue: () => void): void {
     if (this.tiposInc().length) { sigue(); return; }
@@ -828,18 +796,12 @@ export class RhAsistenciaComponent {
     if (r) setTimeout(r);
   }
 
-  private abrirCaptura(p: HrPersonaAsistencia, fecha: string, origen: 'ficha' | 'tabla'): void {
+  private abrirCaptura(p: HrPersonaAsistencia, fecha: string, origen: 'tabla'): void {
     const d = diasPorFecha(p).get(fecha);
     const hoy = this.est.hoy();
     const form = formDelDia(p.codigo, fecha, d);
     this.capturaForm.set(form);
     this.captura.set({ codigo: p.codigo, nombre: p.nombreCompleto || p.nombre, fecha, sugeridos: sugerenciasDelDia(d, fecha, hoy), deLoChecado: !!form.entrada, contexto: contextoDelDia(d, fecha, hoy), origen });
-  }
-
-  /** El día abierto de ESTA persona (null si se captura para otra o no hay captura). */
-  abiertoDe(p: HrPersonaAsistencia): string | null {
-    const c = this.captura();
-    return c && c.origen === 'ficha' && c.codigo === p.codigo ? c.fecha : null;
   }
 
   cerrarCaptura(): void { this.captura.set(null); this.capturaForm.set(null); }
