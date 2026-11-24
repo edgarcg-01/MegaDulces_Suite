@@ -5,8 +5,28 @@ import {
   lastDateByCode,
   latestLocal,
   normalizePunches,
+  limiteLocalFuturo,
+  MARGEN_FUTURO_HORAS,
   normalizeSource,
 } from './ingest-batch';
+
+describe('[RH.15.4] checadas del futuro', () => {
+  it('rechaza sólo lo que pasa del límite (un día): un reloj unos minutos adelantado sigue entrando', () => {
+    const r = normalizePunches([
+      { codigo: '15', fechaHora: '2026-11-17T09:10:00' },   // reloj 10 min adelantado: real
+      { codigo: '15', fechaHora: '2026-11-18T09:00:00' },   // justo en el límite: entra
+      { codigo: '15', fechaHora: '2031-04-02T08:00:00' },   // fecha mal puesta: basura
+    ], { limiteLocal: '2026-11-18 09:00:00' });
+    expect([r.rows.map((x) => x.local), r.rejected, r.futuras]).toEqual([['2026-11-17 09:10:00', '2026-11-18 09:00:00'], 1, 1]);
+  });
+  it('sin límite no rechaza nada por fecha futura (como antes)', () => {
+    expect(normalizePunches([{ codigo: '15', fechaHora: '2031-04-02T08:00:00' }]).futuras).toBe(0);
+  });
+  it('el límite es ahora + 24 h en la hora de pared del reloj (México, sin horario de verano)', () => {
+    expect(MARGEN_FUTURO_HORAS).toBe(24);
+    expect(limiteLocalFuturo(new Date('2026-11-17T16:30:00Z'), 'America/Mexico_City')).toBe('2026-11-18 10:30:00');
+  });
+});
 
 describe('normalizePunches', () => {
   it('acepta la fecha con T o con espacio y la deja como hora de pared con espacio', () => {
@@ -50,7 +70,7 @@ describe('normalizePunches', () => {
   });
 
   it('un lote que no es arreglo no revienta', () => {
-    expect(normalizePunches(null)).toEqual({ rows: [], rejected: 0 });
+    expect(normalizePunches(null)).toEqual({ rows: [], rejected: 0, futuras: 0 });
   });
 });
 

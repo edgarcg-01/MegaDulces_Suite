@@ -13,6 +13,36 @@ const HOY = '2026-10-08';
 const o = { hoy: HOY, mideRetardo: true };
 const una = (d = dia()) => { const p = persona({ semanas: [{ ...persona().semanas[0], dias: [d] }] }); return { p, m: diasPorFecha(p) }; };
 
+describe('[RH.15.10] la semana contra la ley, como irregularidad', () => {
+  const conSemana = (minutos: number, legal: { excedenteMin: number; triplesMin: number }) => persona({
+    semanas: [{ ...persona().semanas[0], inicio: '2026-11-12', minutosTrabajados: minutos, dias: [],
+      legal: { anio: 2026, jornadaMaxMin: 2880, extraMaxMin: 540, ...legal } }],
+  });
+  const o2 = { hoy: '2026-11-30', desayunoAlertaMin: 30 };
+  it('dentro de la jornada legal: nada', () => {
+    expect(irregularidadesDe(conSemana(2800, { excedenteMin: 0, triplesMin: 0 }), o2)).toEqual([]);
+  });
+  it('se pasó pero dentro del tope de extra: aviso BAJO, con las horas', () => {
+    const [i] = irregularidadesDe(conSemana(3300, { excedenteMin: 420, triplesMin: 0 }), o2);
+    expect([i.nivel, i.tipo, i.texto]).toEqual(['baja', 'jornada_legal', 'Semana de 55h 00m: 7h 00m sobre la jornada legal de 48 h']);
+  });
+  it('con horas al triple: ALTA, y lo dice', () => {
+    const [i] = irregularidadesDe(conSemana(3600, { excedenteMin: 720, triplesMin: 180 }), o2);
+    expect(i.nivel).toBe('alta');
+    expect(i.texto).toContain('3h 00m pasan del tope de 9 h extra y se pagan al triple');
+  });
+});
+
+describe('[RH.15.2] celdaDe — «Sin dato» no es falta', () => {
+  it('se pinta «S/D», no «0 - 0», y no cuenta como irregularidad', () => {
+    const { p, m } = una(dia({ fecha: '2026-10-05', estado: 'sin_dato', entrada: undefined, salida: undefined }));
+    const c = celdaDe(p, m, '2026-10-05', o);
+    expect([c.tipo, c.jornada]).toEqual(['sin_dato', 'S/D']);
+    expect(c.titulo).toContain('No cuenta como falta');
+    expect(irregularidadesDe(p, { hoy: '2026-10-09', desayunoAlertaMin: 30 })).toEqual([]);
+  });
+});
+
 describe('[RH.1.7c] celdaDe — un día en el papel', () => {
   it('un día normal: jornada, pausas y D/C', () => {
     const { p, m } = una(dia({ fecha: '2026-10-05', entrada: '07:56', salida: '17:04', comida: '11:02 – 11:24 · 14:01 – 15:00', desayunoMin: 22, comidaMin: 59 }));
@@ -200,5 +230,36 @@ describe('[RH.1.7c] lo que cuentan las pestañas y el agrupado', () => {
     // [RH.13.5] Personas sueltas: el reporte parcial dice que lo es también cuando se eligió gente y no departamentos.
     expect(etiquetaParcial({ unica: null, departamentos: [], sueltas: 3, buscar: '', soloIrregulares: false })).toBe('solo 3 personas');
     expect(etiquetaParcial({ unica: null, departamentos: ['SISTEMAS'], sueltas: 2, buscar: '', soloIrregulares: false })).toBe('solo SISTEMAS y 2 personas más');
+  });
+});
+
+describe('[RH.18.7] la semana en rejilla: bloques de incidencia y totales por día', () => {
+  it('⭐ los bloques: la incidencia que cuenta y la capturada por calificar (punteada), cada una con su grupo', async () => {
+    const { bloquesDeCelda, diasPorFecha } = await import('./reporte-formato');
+    const p = persona({ codigo: '118', semanas: [{ ...persona().semanas[0], dias: [dia({ fecha: '2026-10-02', estado: 'justificado', entrada: null, salida: null,
+      incidencias: [{ id: 'i1', tipo: 'vacaciones', codigo: 'VAC', etiqueta: 'Vacaciones', nota: '' }] })] }] });
+    const pend = [{ person_code: '118', incident_type: 'permiso_sin_goce', date_from: '2026-10-02', date_to: '2026-10-02', note: 'Banco' },
+      { person_code: '999', incident_type: 'incapacidad', date_from: '2026-10-02', date_to: '2026-10-02', note: null }];
+    const b = bloquesDeCelda(p, diasPorFecha(p), '2026-10-02', pend, new Map([['permiso_sin_goce', 'Permiso sin goce de sueldo']]));
+    expect(b.map((x) => [x.nombre, x.grupo, x.pendiente])).toEqual([['Vacaciones', 'vacaciones', false], ['Permiso s/goce', 'permiso', true]]);
+    expect(b[1].titulo).toBe('Permiso sin goce de sueldo — Banco (por calificar)');
+  });
+
+  it('⛔ NEGATIVA — en su día de descanso, unas vacaciones no se pintan (su descanso no se vuelve vacaciones); una amonestación sí', async () => {
+    const { bloquesDeCelda, diasPorFecha } = await import('./reporte-formato');
+    const p = persona({ semanas: [{ ...persona().semanas[0], dias: [dia({ fecha: '2026-10-04', estado: 'descanso', entrada: null, salida: null,
+      incidencias: [{ id: 'a', tipo: 'vacaciones', codigo: 'VAC', etiqueta: 'Vacaciones', nota: '' }, { id: 'b', tipo: 'amonestacion', codigo: 'AMO', etiqueta: 'Amonestación', nota: '' }] })] }] });
+    expect(bloquesDeCelda(p, diasPorFecha(p), '2026-10-04', [], new Map()).map((x) => x.tipo)).toEqual(['amonestacion']);
+  });
+
+  it('⭐ totales por día: suma las horas de quien checó y cuenta a quién; ⛔ la falta y el día sin datos no cuentan', async () => {
+    const { totalesPorDia } = await import('./reporte-formato');
+    const a = persona({ codigo: '1', semanas: [{ ...persona().semanas[0], dias: [dia({ fecha: '2026-10-01', netasMin: 540 }), dia({ fecha: '2026-10-02', estado: 'falta', entrada: null, salida: null })] }] });
+    const b = persona({ codigo: '2', semanas: [{ ...persona().semanas[0], dias: [dia({ fecha: '2026-10-01', netasMin: 480 }), dia({ fecha: '2026-10-02', estado: 'marca_faltante', entrada: null, hora: '13:10', netasMin: null })] }] });
+    expect(totalesPorDia([a, b], ['2026-10-01', '2026-10-02', '2026-10-03'])).toEqual([
+      { fecha: '2026-10-01', min: 1020, checaron: 2 },
+      { fecha: '2026-10-02', min: 0, checaron: 1 },   // una sola checada: checó, pero no suma horas
+      { fecha: '2026-10-03', min: 0, checaron: 0 },
+    ]);
   });
 });

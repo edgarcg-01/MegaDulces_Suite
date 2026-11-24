@@ -7,6 +7,7 @@ import { detalleDia, formatHoras, type ConfigDesayuno } from './detalle-dia';
 import { esPromotora, type ReglaConfig } from './tipos';
 import { tipoIncidencia } from './incidencias';
 import { minutosDeHHMM, rangoFechas, siguienteDia } from './fechas';
+import { semanaContraLey } from './jornada-legal';
 
 /**
  * Fase RH · `[RH.1.5]` — ASISTENCIA POR PERSONA, con las reglas del horario deducido. Lógica PURA.
@@ -169,6 +170,39 @@ export function configDesayuno(cfg: ReglaConfig): ConfigDesayuno | undefined {
     : undefined;
 }
 
+/** `[RH.15.2]` Cuántas faltas el mismo día, sin checadas de nadie, hacen falta para leerlo como «el reloj no entregó». */
+export const SIN_DATO_MIN_PERSONAS = 2;
+
+/**
+ * `[RH.15.2]` «Sin dato» en vez de «Falta»: un día laborable en que NADIE de la plaza checó y al menos
+ * `SIN_DATO_MIN_PERSONAS` personas salen con falta. Así se lee un reloj caído (o un día festivo): no se distingue de
+ * una falta, y un registro que inventa faltas pierde valor como prueba (LFT 805). Con UNA sola persona esperada, «nadie
+ * checó» es su falta y se queda como falta. No toca la regla de `horario-deducido` (paridad con Mega Talento):
+ * re-etiqueta el resultado. Por plaza y no por reloj (las filas no traen el reloj): en una plaza con dos relojes, si
+ * sólo uno se cae, sus personas siguen saliendo con falta.
+ */
+export function marcarSinDato(personas: PersonaAsistencia[], diasConDatoSitio: Set<string>): void {
+  const faltasPorFecha = new Map<string, number>();
+  for (const p of personas) {
+    for (const s of p.semanas) for (const d of s.dias) {
+      if (d.estado === 'falta' && !diasConDatoSitio.has(d.fecha)) faltasPorFecha.set(d.fecha, (faltasPorFecha.get(d.fecha) ?? 0) + 1);
+    }
+  }
+  const sinDato = new Set([...faltasPorFecha].filter(([, n]) => n >= SIN_DATO_MIN_PERSONAS).map(([f]) => f));
+  if (!sinDato.size) return;
+  for (const p of personas) {
+    let n = 0;
+    for (const s of p.semanas) {
+      s.dias = s.dias.map((d) => {
+        if (d.estado !== 'falta' || !sinDato.has(d.fecha)) return d;
+        n++;
+        return { ...d, estado: 'sin_dato', esperadoMin: null };
+      });
+    }
+    if (n) { p.faltas = Math.max(0, p.faltas - n); p.diasSinDato = (p.diasSinDato ?? 0) + n; }
+  }
+}
+
 export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
   const { siteCode, desde, hasta, soloPromotoras, cfg } = e;
   const DIAS_EX = e.diasExTrabajador ?? DIAS_EX_TRABAJADOR;
@@ -230,6 +264,8 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
 
   // Todas las fechas del rango: un día AUSENTE de las checadas es justo el que hay que evaluar.
   const fechasDelRango = rangoFechas(desde, hasta);
+  // `[RH.15.2]` Días en que ALGUIEN de la plaza checó (ver `marcarSinDato`, al final).
+  const diasConDatoSitio = new Set(e.filas.map((f) => f.fecha));
 
   // Base: TODOS los del padrón del sitio (para ver faltas de quien no checó nada) + los
   // códigos que checan sin estar en el padrón.
@@ -685,6 +721,10 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
     });
   }
 
+  marcarSinDato(personas, diasConDatoSitio);
+  // `[RH.15.10]` Cada semana contra la ley (jornada máxima y tope de horas extra del año).
+  for (const p of personas) for (const s of p.semanas) s.legal = semanaContraLey(s.inicio, s.minutosTrabajados);
+
   // Primero lo que hay que ATENDER, no el retardo más alto (que suele ser de alguien cuyo
   // horario está sin confirmar).
   const orden = (p: PersonaAsistencia): number => (p.usable ? 2 : 0) + (p.marcas.some((m) => m.gravedad === 'media') ? 1 : 0);
@@ -722,6 +762,7 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
       absorbidoMin: personas.reduce((s, p) => s + p.absorbidoMin, 0),
       faltas: personas.reduce((s, p) => s + p.faltas, 0),
       faltasJustificadas: personas.reduce((s, p) => s + p.faltasJustificadas, 0),
+      diasSinDato: personas.reduce((s, p) => s + (p.diasSinDato ?? 0), 0),
       diasNoMedibles: personas.reduce((s, p) => s + p.diasNoMedibles, 0),
       horasTrabajadas: Math.round(personas.reduce((s, p) => s + p.horasTrabajadas, 0)),
       desayunoExcesoMin: personas.reduce((s, p) => s + p.desayunoExcesoMin, 0),

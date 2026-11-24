@@ -119,7 +119,10 @@ async function limpiar(c) {
   // [MKT.18] turnos, reloj checador y quién vendió
   await c.query(`DELETE FROM commercial.mkt_promo_ticket_sellers WHERE folio LIKE 'DM%'`);
   await c.query(`DELETE FROM kepler_ods.kdpv_folio_caja WHERE c13 = $1`, [MARCA_HR]);
+  // `[RH.15.1]` Borrar checadas pide motivo y deja copia en hr.attendance_log_deletions: aquí son las de demostración.
+  await c.query(`SET hr.borrado_checadas = 'semilla de demostración MKT.18'`);
   await c.query(`DELETE FROM hr.attendance_logs WHERE device_id IN (SELECT id FROM hr.attendance_devices WHERE serial_number LIKE $1)`, [`${MARCA_HR}-%`]);
+  await c.query(`RESET hr.borrado_checadas`);
   await c.query(`DELETE FROM hr.device_enrollments WHERE device_id IN (SELECT id FROM hr.attendance_devices WHERE serial_number LIKE $1)`, [`${MARCA_HR}-%`]);
   await c.query(`DELETE FROM hr.person_site_profiles WHERE site_code LIKE $1`, [`${SITIO}-%`]);
   await c.query(`DELETE FROM hr.attendance_devices WHERE serial_number LIKE $1`, [`${MARCA_HR}-%`]);
