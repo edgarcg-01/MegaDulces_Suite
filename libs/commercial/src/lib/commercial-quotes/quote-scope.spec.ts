@@ -217,3 +217,52 @@ describe('[COT.28] Crear: las observaciones del pedido desde el alta', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('[COT.55] Crear: «Solo precio 1 (sin mayoreo)» nace del cliente; moverlo pide permiso', () => {
+  const alta = { erp_customer_code: 'C1088', origin: 'telemarketing' as const, source_branch: '01' };
+  const insert = (calls: Array<{ sql: string; binds: Record<string, unknown> }>) =>
+    calls.find((c) => c.sql.includes('INSERT INTO commercial.quotes'));
+  /** El alta lee las condiciones del cliente en el padrón: la base falsa lo trae (el resto, vacío). */
+  function servicios(scope: ResolvedScope) {
+    const { calls, tk } = fakeTk();
+    const run = tk.run;
+    tk.run = (fn: (k: any) => unknown) => run((k: any) => {
+      if (!k.__conPadron) {
+        const orig = k.raw;
+        k.raw = vi.fn(async (sql: string, binds: Record<string, unknown>) => {
+          const r = await orig(sql, binds);
+          if (sql.includes('v_erp_wholesale_customers')) {
+            return { rows: [{ name: 'CLIENTE DE PRUEBA', credit_limit: '0', payment_days: '0', discount_1_pct: '0' }] };
+          }
+          if (sql.includes('quote_sequences')) return { rows: [{ current_value: 1 }] };
+          return r;
+        });
+        k.__conPadron = true;
+      }
+      return fn(k);
+    });
+    const scopeSvc = new ScopeService(null as any, null as any);
+    vi.spyOn(scopeSvc, 'current').mockResolvedValue(scope);
+    const ctx = { get: () => ({ userId: 'u', tenantId: 't' }), requireTenantId: () => 't' } as any;
+    const pricing = new QuotePricingService(tk, ctx, scopeSvc);
+    return { calls, quotes: new CommercialQuotesService(tk, ctx, scopeSvc, pricing) };
+  }
+
+  it('sin permiso, pedir precio 1 cuando el cliente no lo tiene: 403 y no se inserta', async () => {
+    const { calls, quotes } = servicios(DIRECCION);
+    await expect(quotes.create({ ...alta, list_price_only: true }, {})).rejects.toThrow(ForbiddenException);
+    expect(insert(calls)).toBeUndefined();
+  });
+
+  it('con el permiso, se guarda en la cotización', async () => {
+    const { calls, quotes } = servicios(DIRECCION);
+    await quotes.create({ ...alta, list_price_only: true }, { permissions: { COMMERCIAL_QUOTES_PRECIO_LISTA: true } }).catch(() => undefined);
+    expect(insert(calls)?.binds).toMatchObject({ list_price_only: true });
+  });
+
+  it('sin valor, va el del cliente (sin fila = con mayoreo, como siempre) y no pide permiso', async () => {
+    const { calls, quotes } = servicios(DIRECCION);
+    await quotes.create({ ...alta }, {}).catch(() => undefined);
+    expect(insert(calls)?.binds).toMatchObject({ list_price_only: false });
+  });
+});

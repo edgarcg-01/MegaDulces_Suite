@@ -328,6 +328,31 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-23** — 🧪 **[COT.55] «Solo precio 1 (sin mayoreo)»** (Edgar: «un botón de configuración para que ciertos
+  pedidos solamente pasen con precio 1, sin precio de mayoreo»). Decisiones suyas, ese día: **dónde** = las dos (el cliente
+  trae el valor por defecto y en cada cotización se puede cambiar); **qué quita** = sólo el mayoreo (precio por volumen del
+  ERP, `kdpv_prod_util`); promociones y % del cliente siguen; **quién** = permiso nuevo `COMMERCIAL_QUOTES_PRECIO_LISTA`
+  para supervisor, supervisor_ventas, direccion y superadmin. Medido antes (prod, sólo lectura): `kdud` (31 columnas, todas
+  decodificadas) no tiene nivel de precio → el valor por cliente es dato propio, `commercial.customer_pricing_prefs` (llave
+  Kepler: sucursal + clave); `commercial.customers` cubre 4 de 259 clientes cotizados y `price_lists` está retirada. C0:
+  migración `20261123173838_cot55_precio_1_sin_mayoreo` (columna `quotes.list_price_only NOT NULL DEFAULT false`,
+  compatible con la API desplegada; tabla nueva con RLS y sin DELETE; reparto de la llave). C1: el motor salta el volumen y
+  lo declara («Mayoreo apagado: esta cotización va sólo a precio 1», con el tramo que el ERP tiene) y no ofrece el tramo;
+  lo respetan agregar, editar cantidad, re-cotizar y la revisión «cambió de precio» (`checkQuote`). C2: el alta toma el
+  valor del cliente y otro distinto pide el permiso (403); `PATCH :id/header` lo mueve sólo en borrador vigente, con
+  permiso, y re-cotiza; cambiar de cliente trae el valor del nuevo sin pedir permiso; `GET/PATCH
+  wholesale-customers/:code/pricing` lee y fija el del cliente (el PATCH valida que exista en `kdud`). C3: interruptor
+  compartido `app-precio-lista-toggle` en la cotización nueva (debajo de Origen/Vigencia) y en la franja del borrador;
+  quien no tiene permiso lo ve sin poder moverlo y lo lee escrito («Lo cambia un supervisor»); con permiso, si queda
+  distinto al cliente se ofrece «Dejarlo así para este cliente»; la cotización a medias recuerda si se movió a mano.
+  Pruebas: motor (3, con control: sin la bandera cobra el volumen; mutante que apaga la bandera → rojo), alta (3, mutante
+  sin la revisión de permiso → rojo), borrador (5, mutante → rojo), interruptor (7), pantalla nueva (2); 230/230 de
+  cotizaciones, 79/79 de permisos, 175/175 de televenta; `ngc` limpio; `check:pantalla --todas` 0 nuevas;
+  `check:estilos`, `check:mig-colisiones` en verde. **NO MEDIDO:** el SQL de la migración (Docker local caído: se valida al
+  aplicarla, en transacción); los tres endpoints que escriben contra una base real (regla 13: pide la prueba HTTP o el
+  ensayo en prod con un borrador de prueba); arranque de Nest con el `@Req()` nuevo en `create` (mismo patrón que `cancel`);
+  **sin validación visual**. **Pendiente al soltar:** regenerar `MATRIZ_ACCESOS.md` (llave nueva).
+
 - **2026-11-22** — 🧪 **[COT.54] Cuánto cuesta capturar cada cotización, para medir si las mejoras ahorran tiempo** (punto 1 de
   la auditoría de uso y ML; decisión de Francisco del 2026-11-22: se guarda por cotización y **se reporta sólo agregado**, por
   sucursal o semana, **nunca un ranking por persona**). **Medido en prod:** hoy es imposible medirlo, porque los renglones se

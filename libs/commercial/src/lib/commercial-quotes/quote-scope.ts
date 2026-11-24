@@ -60,6 +60,26 @@ export function autorVisible(
   return userId ?? '';
 }
 
+/** `[COT.55]` Mover «Solo precio 1 (sin mayoreo)» (en la cotización o en el cliente). */
+export const PERMISO_PRECIO_LISTA = 'COMMERCIAL_QUOTES_PRECIO_LISTA' satisfies `${Permission}`;
+
+export const MENSAJE_SIN_PERMISO_PRECIO_LISTA =
+  'Cambiar «Solo precio 1 (sin mayoreo)» lo hace un supervisor o Dirección. El valor del cliente se aplica solo.';
+
+/**
+ * `[COT.55]` ¿Puede prender o apagar «Solo precio 1»? Sin datos de quién pide: NO (fail-closed).
+ * El administrador de plataforma entra por god-mode, como en `autorVisible`.
+ */
+export function puedeMoverPrecioLista(
+  quien: QuienCotiza | null | undefined,
+  esAdminDePlataforma: (rol?: string | null) => boolean,
+): boolean {
+  if (!quien) return false;
+  const roles = quien.roles_frescos?.length ? quien.roles_frescos : [quien.role_name ?? null];
+  if (roles.some((r) => esAdminDePlataforma(r))) return true;
+  return quien.permissions?.[PERMISO_PRECIO_LISTA] === true;
+}
+
 export const MENSAJE_COTIZACION_AJENA =
   'Esta cotización la hizo otra persona. Cada quien ve y trabaja sólo las suyas; '
   + 'las de todos las ve Dirección.';

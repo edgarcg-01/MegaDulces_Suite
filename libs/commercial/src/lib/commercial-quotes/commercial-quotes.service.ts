@@ -30,7 +30,10 @@ import {
   type EventoBusquedaCotizacion,
 } from '@megadulces/contracts';
 import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
-import { AREA_COTIZACIONES, MENSAJE_COTIZACION_AJENA, autorVisible, type QuienCotiza } from './quote-scope';
+import {
+  AREA_COTIZACIONES, MENSAJE_COTIZACION_AJENA, MENSAJE_SIN_PERMISO_PRECIO_LISTA, autorVisible, puedeMoverPrecioLista, type QuienCotiza,
+} from './quote-scope';
+import { fijarPrecioListaDelCliente, precioListaDelCliente, type PrecioListaCliente } from './customer-pricing-prefs';
 import { consultaBuscadorCatalogo, PRECIO_SIMBOLICO_MAX } from '../shared/catalogo-buscador';
 import { LARGO_OBSERVACIONES, normalizarObservaciones } from './kepler-pedido-tlmk';
 import { QuotePricingService, type Rung } from './quote-pricing.service';
@@ -427,6 +430,45 @@ export class CommercialQuotesService {
   async assertEscribeSucursal(branch: string | null | undefined): Promise<void> {
     if (!branch) throw new BadRequestException('La cotización no tiene sucursal: no se puede editar.');
     await this.scope.assertCanWrite('warehouse', branch, AREA_COTIZACIONES);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // `[COT.55]` «Solo precio 1 (sin mayoreo)» por cliente
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** El valor por defecto del cliente en esa sucursal (sin fila = false) y si quien pide lo puede mover. */
+  async precioListaCliente(
+    branch: string, erpCode: string, quien?: QuienCotiza | null,
+  ): Promise<PrecioListaCliente & { can_change: boolean }> {
+    const b = String(branch ?? '').trim();
+    const c = String(erpCode ?? '').trim();
+    if (!b || !c) throw new BadRequestException('Falta la sucursal o la clave del cliente.');
+    await this.assertLeeSucursal(b);
+    const v = await this.tk.run((k) => precioListaDelCliente(k, b, c));
+    return { ...v, can_change: puedeMoverPrecioLista(quien, isPlatformAdminRole) };
+  }
+
+  /** Lo fija para el cliente. Pide COMMERCIAL_QUOTES_PRECIO_LISTA y poder escribir en la sucursal. No toca cotizaciones ya hechas. */
+  async fijarPrecioListaCliente(
+    branch: string, erpCode: string, valor: unknown, quien?: QuienCotiza | null,
+  ): Promise<PrecioListaCliente & { can_change: boolean }> {
+    if (typeof valor !== 'boolean') throw new BadRequestException('`list_price_only` va como true o false.');
+    if (!puedeMoverPrecioLista(quien, isPlatformAdminRole)) throw new ForbiddenException(MENSAJE_SIN_PERMISO_PRECIO_LISTA);
+    const b = String(branch ?? '').trim();
+    const c = String(erpCode ?? '').trim();
+    if (!b || !c) throw new BadRequestException('Falta la sucursal o la clave del cliente.');
+    await this.assertEscribeSucursal(b);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const userId = this.tenantCtx.get()?.userId ?? null;
+    return this.tk.run(async (k) => {
+      const existe = await k.raw(
+        `SELECT 1 FROM kepler_ods.kdud WHERE sucursal = :b AND btrim(c2) = :c LIMIT 1`,
+        { b, c: c.toUpperCase() },
+      );
+      if (!existe.rows.length) throw new NotFoundException(`El cliente ${c} no existe en Kepler en esa sucursal.`);
+      await fijarPrecioListaDelCliente(k, tenantId, b, c, valor, userId);
+      return { ...(await precioListaDelCliente(k, b, c)), can_change: true };
+    });
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -1122,7 +1164,12 @@ export class CommercialQuotesService {
     lines?: CreateQuoteLine[];
     /** `[COT.54]` Cuánto costó capturarla. Un valor imposible se guarda como no medido (`capturaLimpia`). */
     capture?: CapturaCotizacion | null;
-  }): Promise<CreatedQuote> {
+    /**
+     * `[COT.55]` «Solo precio 1 (sin mayoreo)». Sin valor = el del cliente
+     * (`commercial.customer_pricing_prefs`); otro distinto al del cliente pide COMMERCIAL_QUOTES_PRECIO_LISTA.
+     */
+    list_price_only?: boolean | null;
+  }, quien?: QuienCotiza | null): Promise<CreatedQuote> {
     const userId = this.tenantCtx.get()?.userId;
     if (dto.lines !== undefined && dto.lines !== null && !Array.isArray(dto.lines)) {
       throw new BadRequestException('`lines` tiene que ser una lista de renglones.');
@@ -1186,6 +1233,13 @@ export class CommercialQuotesService {
       // `[COT.34]` La misma lectura que la edición del borrador al cambiar de cliente.
       if (erpCode) terms = await condicionesDelCliente(trx, erpCode, sourceBranch);
 
+        // `[COT.55]` «Solo precio 1»: nace del cliente; moverlo pide permiso (lo decide el servidor).
+        const listaDelCliente = erpCode ? (await precioListaDelCliente(trx, sourceBranch, erpCode)).list_price_only : false;
+        const listaSola = typeof dto.list_price_only === 'boolean' ? dto.list_price_only : listaDelCliente;
+        if (listaSola !== listaDelCliente && !puedeMoverPrecioLista(quien, isPlatformAdminRole)) {
+          throw new ForbiddenException(MENSAJE_SIN_PERMISO_PRECIO_LISTA);
+        }
+
         // `[COT.26]` La dirección de entrega se puede elegir desde el alta: tiene que ser del
         // cliente en Kepler, en esta sucursal (`kdudent`, la misma lectura que al aceptar).
         if (direccionAlta) {
@@ -1233,6 +1287,7 @@ export class CommercialQuotesService {
             salesperson_code, salesperson_name,
             delivery_address_key, order_notes,
             capture_seconds, capture_searches, capture_recovered,
+            list_price_only,
             created_by, updated_by
           ) VALUES (
             :tenant_id, :code, :customer_id, :erp_code, :erp_name,
@@ -1245,6 +1300,7 @@ export class CommercialQuotesService {
             :salesperson_code, :salesperson_name,
             :delivery_address_key, :order_notes,
             :capture_seconds, :capture_searches, :capture_recovered,
+            :list_price_only,
             :user_id, :user_id
           )
           RETURNING id, code, status, to_char(valid_until,'YYYY-MM-DD') AS valid_until,
@@ -1288,6 +1344,7 @@ export class CommercialQuotesService {
             capture_seconds: captura?.segundos ?? null,
             capture_searches: captura?.busquedas ?? null,
             capture_recovered: captura?.recuperada ?? null,
+            list_price_only: listaSola,
           },
         );
 

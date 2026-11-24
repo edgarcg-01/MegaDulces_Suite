@@ -401,6 +401,9 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                   <span class="cb-descartada" [pTooltip]="descarteTip(c)" tooltipPosition="top">
                     <i class="pi pi-ban" aria-hidden="true"></i> {{ motivoDescarteLabel(c.descarte_motivo) || 'Descartada' }}
                   </span>
+                } @else if (c.interna) {
+                  <!-- [RE.87] Nadie la tiene que subir: el proveedor es la propia empresa. -->
+                  <span class="muted cb-comp-empty" [pTooltip]="'El proveedor es la propia empresa: es un movimiento interno (alta de códigos de promoción, kit o mercancía que regresa de una promoción) y no lleva factura de proveedor.'" tooltipPosition="top"><i class="pi pi-building" aria-hidden="true"></i> Interna · no lleva factura</span>
                 } @else if (c.factura_compartida) {
                   <!-- [RE.86] Sin papel propio a propósito: se ligó (con motivo) a la factura de otra entrada. -->
                   <span class="muted cb-comp-empty"><i class="pi pi-link" aria-hidden="true"></i> Factura compartida</span>
@@ -2343,7 +2346,7 @@ export class ComprasEntradasComponent {
     if (est && this.estadoOpts.some((o) => o.value === est)) this.estadoSel.set(est as any);
     // [RE.35.5] La Bandeja manda. Un ?estado= de un link viejo se traduce; ?bandeja= gana.
     const ban = qp.get('bandeja');
-    if (ban && ['revisar', 'auto', 'sin_cfdi_aun', 'pendiente', 'devueltas', 'validado', 'descartada', 'todas'].includes(ban)) this.setBandejaInicial(ban);
+    if (ban && ['revisar', 'auto', 'sin_cfdi_aun', 'pendiente', 'devueltas', 'validado', 'descartada', 'interna', 'todas'].includes(ban)) this.setBandejaInicial(ban);
     else if (est === 'rechazado') this.setBandejaInicial('devueltas');
     else if (est === 'pendiente' || est === 'validado' || est === 'descartada') this.setBandejaInicial(est);
     else if (est === 'por_validar') this.setBandejaInicial('revisar');
@@ -2694,6 +2697,8 @@ export class ComprasEntradasComponent {
       { label: 'Devueltas' + n(k?.rechazados), value: 'devueltas' },
       { label: 'Validadas' + n(k?.validados), value: 'validado' },
       { label: 'Descartadas', value: 'descartada' },
+      // `[RE.87]` El proveedor es la propia empresa: no llevan factura y no cuentan en ninguna bandeja de trabajo.
+      { label: 'Internas' + n(k?.internas), value: 'interna' },
       { label: 'Todas', value: 'todas' },
     ];
   });
@@ -2701,7 +2706,7 @@ export class ComprasEntradasComponent {
   private setBandejaInicial(v: string) {
     this.bandejaSel.set(v);
     this.cuadreSel.set(null);
-    const estado = v === 'pendiente' || v === 'validado' || v === 'descartada' ? v
+    const estado = v === 'pendiente' || v === 'validado' || v === 'descartada' || v === 'interna' ? v
       : v === 'devueltas' ? 'rechazado'
       : v === 'todas' ? '' : 'por_validar';
     this.estadoSel.set(estado as Exclude<EntradasQuery['estado'], undefined>);

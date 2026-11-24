@@ -24,6 +24,8 @@ interface Escenario {
   padron?: Array<Record<string, unknown>>;
   /** Fila de `kepler_ods.kdud` (COT.40: la ficha del cliente sin precedente). */
   ficha?: Record<string, unknown>;
+  /** `[COT.55]` «Solo precio 1» del cliente en `customer_pricing_prefs` (undefined = sin fila). */
+  prefs?: boolean;
 }
 
 function armar(e: Escenario = {}) {
@@ -48,6 +50,7 @@ function armar(e: Escenario = {}) {
         if (s.includes('FROM commercial.quotes q')) return { rows: [cab] };
         if (s.includes('FROM commercial.quote_lines')) return { rows: lineas };
         if (s.includes('FROM kepler_ods.kdudent')) return { rows: e.direcciones ?? [] };
+        if (s.includes('commercial.customer_pricing_prefs')) return { rows: e.prefs === undefined ? [] : [{ list_price_only: e.prefs }] };
         if (s.includes('FROM kepler_ods.kdud WHERE')) return { rows: e.ficha ? [e.ficha] : [] };
         if (s.includes('SET kepler_sending_at = now()')) return { rows: e.reclamo === false ? [] : [{ id: ID }] };
         return { rows: [] };
@@ -60,11 +63,14 @@ function armar(e: Escenario = {}) {
     assertPuedeAbrir: vi.fn(async () => { if (e.ajena) throw new ForbiddenException('ajena'); }),
     assertEscribeSucursal: vi.fn(async () => undefined),
   };
-  const pricing: any = { checkQuote: vi.fn(async () => ({ price_changed: e.cambio ?? 0 })) };
+  const pricing: any = {
+    checkQuote: vi.fn(async () => ({ price_changed: e.cambio ?? 0 })),
+    repriceQuote: vi.fn(async () => ({ quote_id: ID, lines: 1, changed: 1 })),
+  };
   const sink: any = {
     entregar: vi.fn(async () => e.sink ?? { estado: 'entregado', kepler: { sucursal: '01', folio: '0003800', renglones: 1, total: 3520.16 } }),
   };
-  return { svc: new QuoteKeplerService(tk, ctx, quotes, pricing, sink), sink, sql, binds, quotes };
+  return { svc: new QuoteKeplerService(tk, ctx, quotes, pricing, sink), sink, sql, binds, quotes, pricing };
 }
 
 const escribioAceptada = (sql: string[]) => sql.some((s) => s.includes("THEN 'accepted'"));
@@ -318,5 +324,47 @@ describe('[COT.34] editar la cabecera del borrador', () => {
     const { svc, sql } = armar();
     await svc.editarCabecera(ID, { origin: 'counter', status: 'accepted', source_branch: '05' } as never, {});
     expect(update(sql)).not.toMatch(/status|source_branch/);
+  });
+});
+
+describe('[COT.55] «Solo precio 1 (sin mayoreo)» en el borrador', () => {
+  const CON_PERMISO = { permissions: { COMMERCIAL_QUOTES_PRECIO_LISTA: true } };
+  const update = (sql: string[]) => sql.findIndex((x) => x.startsWith('UPDATE commercial.quotes SET'));
+
+  it('sin el permiso: 403 y no se escribe ni se re-cotiza', async () => {
+    const { svc, sql, pricing } = armar();
+    await expect(svc.editarCabecera(ID, { list_price_only: true }, {})).rejects.toThrow(ForbiddenException);
+    expect(update(sql)).toBe(-1);
+    expect(pricing.repriceQuote).not.toHaveBeenCalled();
+  });
+
+  it('con el permiso: se guarda y los renglones se vuelven a cotizar', async () => {
+    const { svc, sql, binds, pricing } = armar();
+    await expect(svc.editarCabecera(ID, { list_price_only: true }, CON_PERMISO)).resolves.toEqual({ cambiados: ['list_price_only'] });
+    expect(binds[update(sql)]).toMatchObject({ list_price_only: true });
+    expect(pricing.repriceQuote).toHaveBeenCalledTimes(1);
+  });
+
+  it('pedir el valor que ya tiene no es un cambio: sin permiso no falla y no re-cotiza', async () => {
+    const { svc, sql, pricing } = armar({ cab: { list_price_only: true } });
+    await expect(svc.editarCabecera(ID, { list_price_only: true }, {})).resolves.toEqual({ cambiados: [] });
+    expect(update(sql)).toBe(-1);
+    expect(pricing.repriceQuote).not.toHaveBeenCalled();
+  });
+
+  it('una enviada no cambia de precio: 400', async () => {
+    const { svc, sql } = armar({ cab: { status: 'sent' } });
+    await expect(svc.editarCabecera(ID, { list_price_only: true }, CON_PERMISO)).rejects.toThrow(/borrador/);
+    expect(update(sql)).toBe(-1);
+  });
+
+  it('cambiar de cliente trae el valor del cliente nuevo, sin pedir permiso, y re-cotiza', async () => {
+    const { svc, sql, binds, pricing } = armar({
+      prefs: true,
+      padron: [{ name: 'NUEVA OPERADORA', credit_limit: '0', payment_days: '0', discount_1_pct: '0' }],
+    });
+    await svc.editarCabecera(ID, { erp_customer_code: 'C2001' }, {});
+    expect(binds[update(sql)]).toMatchObject({ erp_customer_code: 'C2001', list_price_only: true });
+    expect(pricing.repriceQuote).toHaveBeenCalledTimes(1);
   });
 });

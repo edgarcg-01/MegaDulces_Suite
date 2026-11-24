@@ -1,10 +1,11 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { TenantKnexService, TenantContextService, isPlatformAdminRole, todayMx } from '@megadulces/platform-core';
 
 import { CommercialQuotesService, condicionesDelCliente } from './commercial-quotes.service';
 import { QuotePricingService } from './quote-pricing.service';
 import { KeplerPedidoTlmkSinkAdapter, fichaDeCatalogo, type PedidoTlmkResultado } from './kepler-pedido-tlmk-sink.adapter';
-import type { QuienCotiza } from './quote-scope';
+import { MENSAJE_SIN_PERMISO_PRECIO_LISTA, puedeMoverPrecioLista, type QuienCotiza } from './quote-scope';
+import { precioListaDelCliente } from './customer-pricing-prefs';
 import { LARGO_OBSERVACIONES, normalizarObservaciones, type RenglonCotizacion } from './kepler-pedido-tlmk';
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,6 +66,8 @@ export interface CambiosCabecera {
   contact_phone?: string | null;
   contact_email?: string | null;
   order_notes?: string | null;
+  /** `[COT.55]` «Solo precio 1 (sin mayoreo)». Moverlo pide COMMERCIAL_QUOTES_PRECIO_LISTA y re-cotiza los renglones. */
+  list_price_only?: boolean;
 }
 
 const ORIGENES = ['telemarketing', 'route_visit', 'counter', 'portal'];
@@ -72,7 +75,7 @@ const ORIGENES = ['telemarketing', 'route_visit', 'counter', 'portal'];
 const COLUMNAS_EDITABLES = new Set([
   'erp_customer_code', 'erp_customer_name', 'terms_source', 'terms_discount_pct', 'terms_credit_limit', 'terms_payment_days',
   'delivery_address_key', 'contact_name', 'contact_phone', 'contact_email', 'salesperson_code', 'salesperson_name',
-  'valid_until', 'origin', 'customer_request', 'order_notes',
+  'valid_until', 'origin', 'customer_request', 'order_notes', 'list_price_only',
 ]);
 
 @Injectable()
@@ -329,6 +332,12 @@ export class QuoteKeplerService {
           delivery_address_key: null, // era del cliente anterior
         });
         cliente = nuevo;
+        // `[COT.55]` El cliente nuevo trae su «solo precio 1». Sin permiso: es su valor, no una decisión.
+        if (cab.status === 'draft' && !cab.vencida) {
+          set['list_price_only'] = nuevo
+            ? (await this.tk.run((k) => precioListaDelCliente(k, cab.source_branch as string, nuevo))).list_price_only
+            : false;
+        }
       }
     }
     if (viene('delivery_address_key')) {
@@ -368,6 +377,20 @@ export class QuoteKeplerService {
       set['order_notes'] = o;
     }
 
+    if (viene('list_price_only')) {
+      if (typeof cambios.list_price_only !== 'boolean') throw new BadRequestException('`list_price_only` va como true o false.');
+      const actual = 'list_price_only' in set ? set['list_price_only'] === true : cab.list_price_only === true;
+      if (cambios.list_price_only !== actual) {
+        if (!puedeMoverPrecioLista(quien, isPlatformAdminRole)) throw new ForbiddenException(MENSAJE_SIN_PERMISO_PRECIO_LISTA);
+        set['list_price_only'] = cambios.list_price_only;
+      }
+    }
+    // `[COT.55]` Cambiar el precio de los renglones sólo se hace en un borrador vigente (como re-cotizar).
+    const reCotizar = 'list_price_only' in set && (set['list_price_only'] === true) !== (cab.list_price_only === true);
+    if (!reCotizar) delete set['list_price_only'];
+    if (reCotizar && cab.status !== 'draft') throw new BadRequestException('«Solo precio 1» se cambia en el borrador: lo enviado es lo que se le prometió al cliente.');
+    if (reCotizar && cab.vencida) throw new BadRequestException('La cotización está vencida: queda como documento de su fecha. Para cotizar de nuevo, crea otra.');
+
     const cols = Object.keys(set).filter((c) => COLUMNAS_EDITABLES.has(c));
     if (!cols.length) return { cambiados: [] };
     // Las columnas salen de una lista fija (COLUMNAS_EDITABLES), nunca del request.
@@ -375,6 +398,8 @@ export class QuoteKeplerService {
       `UPDATE commercial.quotes SET ${cols.map((c) => `${c} = :${c}`).join(', ')}, updated_at = now(), updated_by = :u
         WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL`,
       { ...set, u: this.tenantCtx.get()?.userId ?? null, t: this.tenantCtx.requireTenantId(), id }));
+    // Los renglones se vuelven a cotizar con el precio nuevo (con o sin mayoreo).
+    if (reCotizar) await this.pricing.repriceQuote(id);
     return { cambiados: cols };
   }
 
@@ -383,7 +408,7 @@ export class QuoteKeplerService {
     await this.quotes.assertPuedeAbrir(id, quien);
     const cab = (await this.tk.run((k) => k.raw(
       `SELECT q.status, q.source_branch, q.erp_customer_code, q.delivery_address_key,
-              q.contact_name, q.customer_id,
+              q.contact_name, q.customer_id, q.list_price_only, (q.valid_until < CURRENT_DATE) AS vencida,
               to_jsonb(q) ->> 'kepler_folio' AS kepler_folio
          FROM commercial.quotes q
         WHERE q.tenant_id = :t AND q.id = :id AND q.deleted_at IS NULL`,
@@ -391,6 +416,7 @@ export class QuoteKeplerService {
       | {
           status: string; source_branch: string | null; erp_customer_code: string | null; delivery_address_key: string | null;
           contact_name: string | null; customer_id: string | null; kepler_folio: string | null;
+          list_price_only: boolean | null; vencida: boolean | null;
         }
       | undefined;
     if (!cab) throw new NotFoundException('Cotización no encontrada');

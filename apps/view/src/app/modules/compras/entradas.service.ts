@@ -34,6 +34,8 @@ export interface EntradaRow {
   deposits: number;
   /** `[RE.86]` Ligada con motivo a una factura compartida: su documento es la factura de otra entrada. */
   factura_compartida?: boolean;
+  /** `[RE.87]` El proveedor es la propia empresa: movimiento interno, no lleva factura. */
+  interna?: boolean;
   deposit_id: string | null;
   deposit_status: ProofStatus | null;
   monto_match: boolean;
@@ -226,7 +228,8 @@ export type OrdenEntradas = 'antiguedad' | 'reciente' | 'monto' | 'riesgo' | 'fe
 /** RE.13.0 — filtros del listado. `warehouse_codes` es el nombre canónico ([ID.5]). */
 export interface EntradasQuery {
   /** `descartada` (RE.20.3) sale de todos los demás estados: sólo se ve pidiéndola por su nombre. */
-  estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | 'descartada' | '';
+  /** `[RE.87]` `interna` = el proveedor es la propia empresa (no lleva factura): se ve sólo pidiéndola. */
+  estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | 'descartada' | 'interna' | '';
   // (`[RE.83]` 'rechazado' es la bandeja «Devueltas».)
   from?: string;
   to?: string;
@@ -314,6 +317,8 @@ export interface CoverageRow {
    */
   descartadas?: number;
   descartes_motivos?: Record<string, number>;
+  /** `[RE.87]` Entradas cuyo proveedor es la propia empresa: fuera del %, contadas aparte. */
+  internas?: number;
 }
 
 /** `[RE.20.3]` — motivos por los que una entrada nunca va a tener factura de proveedor. */
@@ -354,6 +359,8 @@ export interface EntradasReport {
   expediente_lote?: 'pagina' | 'todo';
   kpis: {
     entradas: number; con_comprobante: number; validados: number; monto_pendiente: number;
+    /** `[RE.87]` Fuera de `entradas`: el proveedor es la propia empresa y no llevan factura. Se cuentan aparte. */
+    internas?: number; monto_internas?: number;
     // RE.13.0 — lo que las vistas nuevas necesitan contar sin traerse las filas.
     por_validar: number; rechazados: number; atrasadas: number;
     /** SLA del REVISOR: evidencia esperando decisión más de lo permitido. */
