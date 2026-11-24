@@ -6,7 +6,7 @@ import {
   linkWhatsApp,
   mensajeWhatsApp,
   numeroWhatsApp,
-  paraPedido,
+  existenciaParaCotizar,
   renglonDe,
   rungDeUnidad,
 } from './cotizacion';
@@ -67,18 +67,22 @@ describe('lo que le llega al cliente', () => {
   });
 });
 
-describe('convertir en pedido', () => {
-  it('pasan los renglones propios en la unidad cotizada; el regalo no (el pedido lo recalcula)', () => {
-    const r = paraPedido(COT.lines);
-    expect(r.renglones).toEqual([
-      { product_id: 'p1', quantity: 2, sello: { qty_unit: 'CJA', qty_factor: 24 } },
-      { product_id: 'p2', quantity: 3, sello: { qty_unit: 'PAQ', qty_factor: 20 } },
-    ]);
-    expect(r.sinProducto).toEqual([]);
+describe('[MCP.35] existenciaParaCotizar', () => {
+  const ahora = Date.parse('2026-11-24T12:00:00-06:00');
+  const fresco = '2026-11-24T11:00:00-06:00';
+  const caja = { rungs: [{ rung: 'base', unit: 'PZA', factor: 1, price: 9 }, { rung: 'box', unit: 'CJA', factor: 24, price: 200 }] } as Pick<PriceRow, 'rungs'>;
+  it('en la unidad que se cotiza: 50 piezas son «2 CJA»; si no completa una, en piezas y en ámbar', () => {
+    expect(existenciaParaCotizar({ ...caja, stock_state: 'con_existencia', stock_available: 50, stock_checked_at: fresco }, 'CJA', ahora)).toEqual({ texto: 'Existencias: 2 CJA', tono: 'ok' });
+    expect(existenciaParaCotizar({ ...caja, stock_state: 'con_existencia', stock_available: 5, stock_checked_at: fresco }, 'CJA', ahora)).toEqual({ texto: 'Existencias: 5 pzas', tono: 'warn' });
+    expect(existenciaParaCotizar({ ...caja, stock_state: 'con_existencia', stock_available: 5, stock_checked_at: fresco }, 'PZA', ahora).texto).toBe('Existencias: 5 pzas');
   });
-  it('NEGATIVO: un renglón sin producto del catálogo no se pide y se dice', () => {
-    const r = paraPedido([ren({ product_id: null, requested_text: 'GOMITAS DE LA COMPETENCIA' }), ren({ id: 'x', quantity: 0 })]);
-    expect(r.renglones).toEqual([]);
-    expect(r.sinProducto).toEqual(['GOMITAS DE LA COMPETENCIA']);
+  it('agotado en rojo; no se maneja y sin dato en gris', () => {
+    expect(existenciaParaCotizar({ stock_state: 'agotado', stock_available: 0, stock_checked_at: fresco }, 'PZA', ahora)).toEqual({ texto: 'Sin existencias', tono: 'bad' });
+    expect(existenciaParaCotizar({ stock_state: 'no_se_maneja', stock_available: null }, 'PZA', ahora).tono).toBe('nd');
+    expect(existenciaParaCotizar({ stock_state: 'sin_dato', stock_available: null }, 'PZA', ahora).texto).toBe('Sin dato de existencia');
+  });
+  it('NEGATIVO: sin lectura no es «0» — y una lectura de más de 6 h es «Sin dato», no un número viejo', () => {
+    expect(existenciaParaCotizar({ stock_available: null }, 'PZA', ahora)).toEqual({ texto: 'Sin dato de existencia', tono: 'nd' });
+    expect(existenciaParaCotizar({ stock_state: 'con_existencia', stock_available: 80, stock_checked_at: '2026-11-24T05:00:00-06:00' }, 'PZA', ahora).texto).toBe('Sin dato de existencia');
   });
 });

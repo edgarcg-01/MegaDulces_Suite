@@ -104,6 +104,15 @@ describe('[VTK.17] abrirLectorCodigos — formatos de producto, cámara trasera,
     expect(z.llamadas.hints?.get('FORMATOS')).toEqual(['EAN13', 'EAN8', 'UPCA', 'UPCE', 'C128', 'ITF']);
   });
 
+  it('[MCP.33] con `conQr` (la etiqueta del pedido) también QR; sin pedirlo, el de siempre no lo lee', async () => {
+    const z = zxingFalso();
+    await abrirLectorCodigos({} as HTMLVideoElement, () => undefined, z.cargar, { conQr: true });
+    expect(z.llamadas.hints?.get('FORMATOS')).toEqual(['EAN13', 'EAN8', 'UPCA', 'UPCE', 'C128', 'ITF', 'QR']);
+    const y = zxingFalso();
+    await abrirLectorCodigos({} as HTMLVideoElement, () => undefined, y.cargar, {});
+    expect(y.llamadas.hints?.get('FORMATOS')).not.toContain('QR');
+  });
+
   it('entrega el código sin espacios y no llama con lecturas vacías', async () => {
     const z = zxingFalso();
     const leidos: string[] = [];

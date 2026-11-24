@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import type { CotizacionDetalle, Rung } from './cotizacion';
 import type { ListaDeCotizaciones } from './mis-cotizaciones';
+import type { PasoAVenta, PasoAVentaBody } from '@megadulces/contracts';
 
 /**
  * `[MCP.12]` La cotización del vendedor sobre el MISMO servidor que la de telemarketing
@@ -18,6 +19,14 @@ export class VendorQuoteService {
   /** Crea la cotización en borrador. `origin: 'route_visit'` = la levantó el vendedor en su visita. */
   create(body: { customer_id: string; source_branch: string; warehouse_id?: string; contact_phone?: string }): Observable<{ id: string; code: string; valid_until: string }> {
     return this.http.post<{ id: string; code: string; valid_until: string }>(this.base, { ...body, origin: 'route_visit' });
+  }
+
+  /**
+   * `[MCP.34]` Pasar a venta: el servidor arma el pedido de preventa con precios de HOY, lo confirma con el día
+   * elegido y liga la cotización. Idempotente. Con `dry_run` sólo calcula (nada se guarda).
+   */
+  pasarAVenta(id: string, body: PasoAVentaBody): Observable<PasoAVenta> {
+    return this.http.post<PasoAVenta>(`${environment.apiUrl}/commercial/orders/from-quote/${id}`, body);
   }
 
   get(id: string): Observable<CotizacionDetalle> {

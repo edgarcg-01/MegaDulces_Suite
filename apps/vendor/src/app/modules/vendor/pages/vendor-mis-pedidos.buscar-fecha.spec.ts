@@ -98,6 +98,28 @@ describe('[MCP.28] [MCP.29] buscar un pedido y cambiar su día de entrega', () =
     expect(botonEn(el(), 'Otro día')).toBeUndefined();
   });
 
+  it('MCP.33 la cámara lee la etiqueta del pedido (código de barras o QR) y busca ese folio', async () => {
+    await montar();
+    expect(el().querySelector('app-lector-codigo button')?.getAttribute('aria-label')).toBe('Leer la etiqueta de un pedido con la cámara');
+    fix.componentInstance.alLeerEtiqueta('992026000020');
+    fix.detectChanges();
+    await esperar();
+    fix.detectChanges();
+    expect(api['search']).toHaveBeenCalledWith('PD-2026-00020');
+    fix.componentInstance.alLeerEtiqueta('PD-2026-00010');
+    await esperar();
+    expect(api['search']).toHaveBeenLastCalledWith('PD-2026-00010');
+  });
+
+  it('MCP.33 NEGATIVA: un código de producto no es etiqueta de pedido: lo dice y no busca', async () => {
+    await montar();
+    fix.componentInstance.alLeerEtiqueta('7501000111206');
+    fix.detectChanges();
+    await esperar();
+    expect(api['search']).not.toHaveBeenCalled();
+    expect(texto()).toContain('Leí «7501000111206» y no es la etiqueta de un pedido');
+  });
+
   it('MCP.28 NEGATIVA: una sola letra no busca; borrar regresa al día', async () => {
     await montar();
     await escribir('l');

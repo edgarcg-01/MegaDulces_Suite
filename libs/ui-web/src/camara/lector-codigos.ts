@@ -109,6 +109,8 @@ export async function abrirLectorCodigos(
   video: HTMLVideoElement,
   alLeer: (codigo: string) => void,
   cargar: () => Promise<ModulosZxing> = cargarZxing,
+  /** `[MCP.33]` También QR: la etiqueta del pedido lo trae. Sólo quien lee etiquetas lo pide (cuesta un formato más por intento). */
+  opciones: { conQr?: boolean } = {},
 ): Promise<IScannerControls> {
   const { browser, library } = await cargar();
   const { BarcodeFormat, DecodeHintType } = library;
@@ -116,6 +118,7 @@ export async function abrirLectorCodigos(
   hints.set(DecodeHintType.POSSIBLE_FORMATS, [
     BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
     BarcodeFormat.CODE_128, BarcodeFormat.ITF,
+    ...(opciones.conQr ? [BarcodeFormat.QR_CODE] : []),
   ]);
   const lector = new browser.BrowserMultiFormatReader(hints as never, { delayBetweenScanAttempts: 100 });
   return lector.decodeFromConstraints(RESTRICCIONES_CAMARA, video, (r) => {

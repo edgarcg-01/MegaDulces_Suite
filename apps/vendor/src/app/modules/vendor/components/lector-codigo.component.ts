@@ -38,7 +38,7 @@ type Controles = { stop: () => void };
     </button>
     @if (abierta()) {
       <div class="lc-ov" role="dialog" aria-modal="true" aria-label="Leer un código de barras con la cámara">
-        <p class="lc-tip">Apunta la cámara al código de barras</p>
+        <p class="lc-tip">{{ conQr() ? 'Apunta la cámara a la etiqueta del pedido' : 'Apunta la cámara al código de barras' }}</p>
         <video #video class="lc-vid" playsinline muted></video>
         <button #cancelar type="button" class="lc-x" (click)="cerrar()">Cancelar</button>
       </div>
@@ -79,6 +79,8 @@ export class LectorCodigoComponent implements OnDestroy {
   /** Lo que dice el botón al lector de pantalla (y su `title`). */
   readonly etiqueta = input('Leer código de barras con la cámara');
   readonly deshabilitado = input(false);
+  /** `[MCP.33]` Leer también QR (la etiqueta del pedido); el texto de la capa lo dice. */
+  readonly conQr = input(false);
 
   /** El código leído, ya sin espacios. La cámara ya se apagó cuando esto sale. */
   readonly leido = output<string>();
@@ -108,7 +110,7 @@ export class LectorCodigoComponent implements OnDestroy {
     if (!v || intento !== this.intento || !this.abierta()) return;
     this.cancelarBtn()?.nativeElement.focus();
     try {
-      const ctl = await abrirLectorCodigos(v, (codigo) => this.alLeer(codigo, intento));
+      const ctl = await abrirLectorCodigos(v, (codigo) => this.alLeer(codigo, intento), undefined, { conQr: this.conQr() });
       this.controles = controlesSiSigueAbierta(ctl, this.abierta() && intento === this.intento);
     } catch (e) {
       if (intento !== this.intento) return; // ya se había cerrado: no hay nada que avisar
