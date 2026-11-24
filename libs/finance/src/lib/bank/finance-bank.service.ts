@@ -9,7 +9,8 @@ import { buildClaimIndex, claimFueraDeAlcance, claimVerdict, type ClaimRow } fro
 import { elegirEnLaSemana } from './recon-pase-semana';
 import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
 import { aplicarMotorDeCategoria } from './estado-de-cuenta/motor-de-categoria.aplicar';
-import { coberturaDeCategoria, type FilaDeCobertura } from './estado-de-cuenta/cobertura-de-categoria';
+import { coberturaDeCategoria, leerFila, NOMBRE_DE_GRUPO, type FilaDeCobertura } from './estado-de-cuenta/cobertura-de-categoria';
+import { leerHechosDelPeriodo } from './estado-de-cuenta/hechos-del-periodo.query';
 import { compileRules, classifyWith, normKey } from './classify-rules';
 import { avisarBancos } from './aviso-bancos';
 import { leerDescargaDelPeriodo } from './estado-de-cuenta/descarga-en-movimientos.query';
@@ -212,6 +213,13 @@ export interface ListMovementsQuery {
   offset?: number;
   /** `[CB.64]` 'solo_descarga' → sólo lo que trae la descarga y el libro no · 'no_trae' → sólo lo del libro que la descarga no trae. */
   contra_descarga?: string;
+  /**
+   * `[BFU.4.5.6]` Sólo los renglones de esa área (código de `identity.departments` o grupo declarado: `otros`,
+   * `por_asignar`, `quien_captura`, `en_plazo`, `sin_motivo`), decidida por `leerFila` igual que la cifra por área.
+   */
+  area?: string;
+  /** `[BFU.4.5.6]` 'true' → sólo lo que falta ligar (no explicado según `explicarRenglon`). */
+  por_ligar?: string;
 }
 
 @Injectable()
@@ -737,7 +745,19 @@ export class FinanceBankService {
       const grupoDeDescarga = (id: string) => catDeDescarga(id)?.group_key ?? 'sin_clasificar';
       const idsDescarga = Array.from(descarga?.solo.keys() ?? []).filter((id) =>
         (!q.category_id || catDeDescarga(id)?.id === q.category_id) && (!q.group_key || grupoDeDescarga(id) === q.group_key));
-      const soloDelLibro = q.uncategorized === 'true' || !!q.recon_status;
+      // [BFU.4.5.6] Por área / lo que falta ligar: los renglones que `leerFila` pone ahí, con los MISMOS hechos y la misma
+      // regla que la cifra «quién explica cada peso» — el número y la lista que abre no pueden contar distinto. Sólo hay
+      // área en el universo del motor (la descarga del banco ya en el libro): lo que la descarga trae y el libro no, no entra.
+      let idsDelArea: string[] | null = null;
+      if (q.area || q.por_ligar === 'true') {
+        if (!q.period) throw new BadRequestException('el filtro por área necesita el periodo');
+        const hoy = todayMx();
+        idsDelArea = (await leerHechosDelPeriodo(trx, q.period)).filter((h) => {
+          const l = leerFila(h, hoy);
+          return (!q.area || l.area === q.area) && (q.por_ligar !== 'true' || l.explicado === false);
+        }).map((h) => h.id);
+      }
+      const soloDelLibro = q.uncategorized === 'true' || !!q.recon_status || idsDelArea !== null;
       const conLibro = q.contra_descarga !== 'solo_descarga';
       const conDescarga = idsDescarga.length > 0 && !soloDelLibro && q.contra_descarga !== 'no_trae';
       const base = () => {
@@ -758,6 +778,7 @@ export class FinanceBankService {
           applySmartSearch(b, q.search, { columns: ['bm.concept', 'bm.raw_code', 'bm.sucursal'] });
         }
         if (q.contra_descarga === 'no_trae') b.whereIn('bm.id', Array.from(descarga?.no_trae ?? []));
+        if (idsDelArea) b.whereIn('bm.id', idsDelArea); // [BFU.4.5.6] vacío = ningún renglón (knex lo vuelve un falso)
         return b;
       };
       // [CB.64] Los renglones de la descarga que el libro no tiene, con los mismos filtros que aplican (cuenta y búsqueda).
@@ -1397,7 +1418,7 @@ export class FinanceBankService {
 
     // Totales de la tabla (ingresos/egresos) + sin_clasificar + cuentas sin estado de cuenta.
     const { totales, sinClas, sinClasBuckets, cuentasSinEstado, matchedCount, keplerPostingsCount,
-      reconAmt, cobertura, ultimoImport, sinEvaluar, filasCobertura, totalBanco } = await this.tk.run(async (trx) => {
+      reconAmt, cobertura, ultimoImport, sinEvaluar, filasCobertura, totalBanco, nombresDeArea } = await this.tk.run(async (trx) => {
       const t = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.deleted_at')
@@ -1507,16 +1528,11 @@ export class FinanceBankService {
       // (el día, para recalcular «todavía no» al leer). El total sale de OTRA consulta, para contrastar el agrupado.
       // Medido en prod (2026-11-23, nov): 18 ms y 12 ms de ejecución.
       // [BFU.4.5.2] + el área dueña de la categoría (BFU.4.5.1) y la dirección del dinero, para repartir por área.
-      const filasCob = await trx('finance.bank_movements as bm')
-        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
-        .where('st.period', period).whereNull('bm.deleted_at').where('bm.sync_source', 'banco')
-        .groupByRaw(`(bm.category_id IS NOT NULL), bm.category_reason, bm.category_evidence->>'responsable', to_char(bm.movement_date, 'YYYY-MM-DD'),
-          mc.owner_department_code, (bm.amount_in > 0)`)
-        .select(trx.raw('(bm.category_id IS NOT NULL) AS con_categoria'), trx.raw('bm.category_reason AS motivo'),
-          trx.raw(`bm.category_evidence->>'responsable' AS responsable`), trx.raw(`to_char(bm.movement_date, 'YYYY-MM-DD') AS fecha`),
-          trx.raw('mc.owner_department_code AS area'), trx.raw('(bm.amount_in > 0) AS entra'),
-          trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric AS monto')) as FilaDeCobertura[];
+      // [BFU.4.5.6] + los hechos para decidir si está EXPLICADO, renglón por renglón: la MISMA consulta que usa el filtro
+      // por área de la lista de movimientos (`leerHechosDelPeriodo`), para que la cifra y la lista no cuenten distinto.
+      const filasCob: FilaDeCobertura[] = await leerHechosDelPeriodo(trx, period);
+      const nombresDeArea = new Map<string, string>((await trx('identity.departments').whereNull('deleted_at').select('code', 'name'))
+        .map((d: { code: string; name: string }) => [d.code, d.name]));
       const totBanco = await trx('finance.bank_movements as bm')
         .whereNull('bm.deleted_at').where('bm.sync_source', 'banco')
         .whereIn('bm.statement_id', trx('finance.bank_statements').where('period', period).select('id'))
@@ -1524,7 +1540,7 @@ export class FinanceBankService {
 
       return { totales: t, sinClas: sc, sinClasBuckets: scb, cuentasSinEstado: missing,
         matchedCount: n((mc as any)?.n), keplerPostingsCount: n((kp as any)?.n),
-        reconAmt, cobertura, ultimoImport, sinEvaluar: n(sinEv?.n), filasCobertura: filasCob, totalBanco: n(totBanco?.n) };
+        reconAmt, cobertura, ultimoImport, sinEvaluar: n(sinEv?.n), filasCobertura: filasCob, totalBanco: n(totBanco?.n), nombresDeArea };
     });
 
     const bal = await this.balances(period);
@@ -1716,7 +1732,12 @@ export class FinanceBankService {
       sin_clasificar_monto: n((sinClas as any)?.monto),
       // [BFU.7.6] El motor de categoría sobre la descarga del banco: con categoría + por resolver (motivo y responsable)
       // + sin motivo = sus renglones, contrastado contra un conteo aparte. «Todavía no» se recalcula con la fecha de hoy.
-      cobertura_categoria: coberturaDeCategoria(filasCobertura, todayMx(), totalBanco),
+      // [BFU.4.5.6] + quién explica cada peso, por área, con el nombre del departamento (o del grupo declarado).
+      cobertura_categoria: (() => {
+        const c = coberturaDeCategoria(filasCobertura, todayMx(), totalBanco);
+        for (const a of c.por_area) a.nombre = nombresDeArea.get(a.area) ?? NOMBRE_DE_GRUPO[a.area] ?? a.area;
+        return c;
+      })(),
       recon_estado: reconEstado,
       items,
     };
