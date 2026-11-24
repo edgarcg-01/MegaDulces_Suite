@@ -657,17 +657,36 @@ para dar el puente por probado.
   se ve idéntica a una falta. Es el supuesto más frágil de todo el frente.
 - El puente de horas está medido sobre **3 casos**.
 
-### 11.9 Lo que falta decidir
+### 11.9 ⭐⭐ No hay nada que resolver: 78 de 88 semanas se cierran HOY
+
+Simuladas en sólo lectura las **tres** condiciones del endpoint, para las 8 semanas de cierre
+anteriores a la actual × los 11 sitios activos (medido 2026-11-24):
+
+| | semanas-sitio |
+|---|---:|
+| **se cierran ya, sin tocar nada** | **78** |
+| se cierran escribiendo el motivo (1 a 3 códigos sin identificar) | 10 |
+| **bloqueadas de verdad** | **0** |
+
+Las 10 que piden motivo son **casi todas la última semana**: gente recién enrolada que todavía no
+se liga a un usuario. Resolver esos enrolamientos en `/rh/asistencia` —entre 1 y 3 por sitio—
+deja las **88 en verde**.
+
+⭐ **Esto cambia la forma de D3**: no hace falta preguntar «¿por qué no cierran?» en abstracto.
+La pregunta es más corta y más útil: *acá están 78 semanas que se cierran con un clic — ¿qué hace
+falta para cerrarlas?* Lo que se aprenda de esa respuesta es lo que de verdad falta.
+
+### 11.10 Lo que falta decidir
 
 | | decisión | de quién |
 |---|---|---|
 | **D1** | ¿La puntualidad se vuelve condicional **pareja**? Hoy la regla se aplica 1 de cada 8 veces | Dirección |
 | **D2** | ¿La asistencia sigue siendo incondicional? (nunca se ha descontado) | Dirección |
-| **D3** | **¿Por qué no se cierra la semana?** No hay obstáculo técnico: es una conversación con las 2 personas que pueden hacerlo | RH |
+| **D3** | **78 semanas-sitio se cierran hoy con un clic (§11.9): ¿qué hace falta para cerrarlas?** No hay obstáculo técnico | RH |
 | **D4** | ¿El cierre se alinea a la semana de pago (sáb→vie) o el recibo al cierre (jue→mié)? | RH + Contabilidad |
 | **D5** | ¿Se reparte `HR_PERIOD_CLOSE` a más gente, o se cierra centralizado? | RH |
 
-### 11.10 Lo que sigue, en orden
+### 11.11 Lo que sigue, en orden
 
 1. **D3 antes que nada**: sin cierre, nada de lo demás cuenta. Es una pregunta, no código.
 2. Repartir el permiso (D5) — **regla 20**.
