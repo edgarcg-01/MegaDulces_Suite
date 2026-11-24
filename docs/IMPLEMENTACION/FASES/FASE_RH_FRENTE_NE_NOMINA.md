@@ -817,3 +817,93 @@ persona, no una incidencia de un día.
 ⚠️ **NO MEDIDO:** `horas_extra` tiene **19 de 24** incidencias en días en que la persona **no checó**.
 O se capturan con otra fecha, o son de gente que no usa reloj. Hay que entenderlo antes de usar
 `horasExtraGanadasMin` para alimentar el recibo.
+
+---
+
+### 11.14 Los dos huecos que quedaban declarados
+
+Al cerrar `[NE.0.12c]` quedaron dos cosas dichas como **NO MEDIDO**. Las dos se contestaron, y una
+de ellas destapó un defecto de este mismo frente.
+
+#### A. Qué son esas `horas_extra` sin checada — **contestado**
+
+La pregunta era: `horas_extra` tenía 19 de 24 incidencias en días sin checada. Tres hipótesis se
+podían separar con datos, y se separaron (los 25 días del rango, con control negativo sobre **todos**
+los demás tipos):
+
+| hipótesis | qué predecía | medido |
+|---|---|---:|
+| H1 la fecha es la de **captura**, no la del día trabajado | `created_at` ≈ `date_from` | **1 de 25** |
+| H2 es gente **sin reloj** | 0 checadas en todo el periodo | **0 de 25** |
+| ⭐ H3 **checó la semana, pero ese día no** | checadas alrededor, ninguna ese día | **20 de 25** |
+
+Nadie de estos 25 días es de alguien que no checa: **los 25 tienen checadas en la ventana de ±6 días**
+(entre 116 y 264 checadas cada persona en el periodo). Son empleados presentes, de los que falta
+**un día**.
+
+⭐ **Y el tamaño parte la tabla en dos, sin una sola excepción:**
+
+| minutos de la incidencia | días | checó ese día |
+|---|---:|---:|
+| **≥ 300 min** (5 h o más: una **jornada**) | 12 | **0 — ninguno** |
+| ≤ 180 min (horas extra de verdad) | 13 | 5 |
+
+Los valores que existen son 30 · 120 · 180 · 300 · 330 · 480 · 510. ⛔ **480 y 510 minutos no son
+horas extra: son un día completo de trabajo.** La captura llega 4 o 5 días después, ya con la
+nómina en curso.
+
+⛔ **Entonces `horas_extra` carga dos cosas distintas**, y la grande es la que no se llama como es:
+es **el día que se trabajó y el reloj no registró** —otra sede, un descanso trabajado, una checada
+que no entró— anotado como «horas extra» porque es la única casilla que termina en dinero.
+
+⛔ **Consecuencia directa para el frente: `horasExtraGanadasMin` NO puede alimentar el recibo tal
+como está.** Sumado a las horas del reloj, 12 de 25 casos pagarían una jornada completa **como si
+fuera tiempo extra**. Antes de usarlo hay que partir el tipo en dos: *tiempo extra* y *día sin
+checada*, que no es lo mismo ni cuesta lo mismo.
+
+#### B. Por qué el puente es un empate por nombre — **contestado, y es un defecto nuestro**
+
+El techo de §11.13 era el puente: 59.8 % de los recibos respaldables, porque la única forma de ligar
+a una persona entre el sistema de nómina y la Suite es **el nombre escrito**. La pregunta era si
+existe una llave dura. Se buscaron las tres candidatas:
+
+| candidata | resultado |
+|---|---|
+| el número del **reloj** (`device_user_id`) | ⛔ no. De 385 números de reloj, 7 coinciden con un número de nómina — y el control negativo dice que **al azar acertaría el 6.5 %**: 7 de 385 es **1.8 %, por debajo del azar**. Sobre los ya puenteados por nombre: **0 de 210** coinciden |
+| `person_code` del reloj | ⛔ no: 38 valores distintos, **0** coinciden |
+| **CURP** (la llave que sí funcionó contra ContPAQi) | el padrón de nómina la trae; ⛔ **la Suite no guarda CURP en ningún lado** (`hr.*` ni `identity.*`) |
+
+⭐ Así que el empate por nombre no es pereza: **hoy es lo único que hay**, y liga **210 de 259
+(81.1 %)** del padrón de nómina. Por eso `matched_by` existe.
+
+⛔ **Pero `hr.person_aliases` —la tabla que creamos ayer en `[NE.0.4]` justo para registrar esto— no
+puede recibir ni una sola fila.** Su `employee_id` es NOT NULL contra `hr.employees`, y
+`hr.employees` tiene **0 filas y `n_tup_ins = 0`: cero inserciones en toda su vida** (existe desde
+el 2026-08-17). Su único camino de carga es `database/importers/checadores/link-employees.js`, **un
+importer** — lo que la regla 1 prohíbe. No está esperando turno: no se va a llenar nunca.
+
+⭐ **El padrón sí existe, en otro lado.** `[RH.1.4]` ✅ (aplicada en prod el 11-nov) cargó **1,038
+personas a `identity.users`** y sus **1,087 fichas de plaza a `hr.person_site_profiles`**. El padrón
+de personas de esta suite es `identity.users`, y la tabla `hr.employees` quedó vestigial.
+
+⚠️ **El cero está AUDITADO, no supuesto** (la regla de §11.13, aplicada a sí misma): leyendo con un
+rol **sin `bypassrls`**, las tablas vecinas del mismo schema y con la misma RLS forzada sí se
+cuentan —`hr.device_enrollments` 2,180 · `hr.person_site_profiles` 1,087 · `identity.users` 1,267—,
+y `n_tup_ins` lo cuenta el planificador, no la política: no hay filas escondidas detrás de un RLS.
+
+→ **Corrección: migración `20261124120236_ne013_alias_apunta_al_padron_que_existe.js`.** La columna
+pasa a `user_id` y el FK va por **`(tenant_id, user_id)`** contra `identity.users` —el único
+compuesto existe, y así un alias no puede nombrar a alguien de otro tenant—. ⛔ `hr.employees`
+**no se borra** (regla 5): retirarla es una decisión aparte. Lo demás de la tabla queda intacto.
+
+⚠️ **NO MEDIDO: que Postgres acepte esa DDL.** El Docker local no levanta (el demonio no responde) y
+el ensayo con `ROLLBACK` contra prod quedó sin autorización. Probada **en seco**, con un `knex` que
+sólo anota el SQL: **5 de 5** —el `up`, el `up` corrido dos veces (idempotencia), el `down`, y las
+**dos negativas** de que `up` y `down` *paran* si la tabla trae filas—. Falta correrla contra una
+base de verdad antes de aplicarla.
+
+#### Lo que esto cambia en el frente
+
+El techo de 59.8 % **no se mueve con esta migración**: el puente sigue siendo por nombre, porque no
+hay llave dura que comprar. Lo que cambia es que ese empate **se va a poder registrar y auditar** en
+vez de vivir en un script de una sesión — que era el punto entero de `[NE.0.4]`.
