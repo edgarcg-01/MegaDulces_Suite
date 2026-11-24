@@ -2,8 +2,9 @@
  * `[MCP.10]` La revisión en caja, del lado de la pantalla y sin Angular: qué producto se está
  * revisando, qué hace cada botón y qué se manda al terminar. Se prueba sola (revision-caja.spec.ts).
  *
- * Pensado para cajeras mayores (David, 2026-10-29): UN producto a la vez, resaltado; lo normal es un
- * solo toque («Está bien»); los demás botones son para cuando algo no cuadra.
+ * Pensado para cajeras mayores (David, 2026-10-29): UN producto a la vez, resaltado; los botones son para
+ * cuando algo no cuadra. `[MCP.31]` (David, 2026-11-24): lo normal ya no es un toque sino ESCANEAR el producto;
+ * a mano sólo lo que no se puede escanear ({@link sePuedeEscanear}).
  */
 import type { PresaleReviewFinishRequest, PresaleReviewLine, PresaleReviewMatch } from '@megadulces/contracts';
 import { RANGO_COINCIDENCIA, coincidenciaDeCodigo } from '@megadulces/contracts';
@@ -66,15 +67,17 @@ export const resueltos = (lines: PresaleReviewLine[], p: ProgresoPedido): number
 
 /**
  * `[MCP.10.3]` Lo que pasó con lo que se escaneó o escribió.
- *  · `confirmado` — código EXACTO de un renglón de UNA unidad, en esa misma unidad: ya quedó «bien».
- *  · `elegido` — es de este pedido pero hay que mirarlo: varias unidades, otra unidad, un faltante, o se
- *    encontró por SKU, por código sin ceros o por nombre (ninguno de ésos dice la unidad: nunca confirman solos).
+ *  · `confirmado` — `[MCP.31]` se escaneó (código o SKU) un renglón por revisar: quedó «bien» ENTERO.
+ *  · `completado` — `[MCP.31]` se escaneó el faltante que ya se estaba atendiendo: quedó «completo».
+ *  · `elegido` — es de este pedido pero hay que mirarlo: se encontró por nombre (escribir no es tener el
+ *    producto en la mano), es un faltante que todavía no se atendía, vino de más, o no se puede volver al pedido.
  *  · `ya_revisado` · `varios` (más de un pendiente coincide: no se adivina) · `no_es` (no es de este pedido:
  *    la pantalla lo busca en los otros pedidos por revisar).
  */
 export type Escaneo =
   | { tipo: 'vacio' }
   | { tipo: 'confirmado'; line: PresaleReviewLine }
+  | { tipo: 'completado'; line: PresaleReviewLine }
   | { tipo: 'elegido'; line: PresaleReviewLine; match: PresaleReviewMatch }
   | { tipo: 'ya_revisado'; line: PresaleReviewLine }
   | { tipo: 'varios'; lines: PresaleReviewLine[]; match: PresaleReviewMatch }
@@ -84,10 +87,19 @@ export type Escaneo =
  * `[MCP.10.3]` Lo escaneado o escrito contra los renglones del pedido. Primero por código o SKU con la
  * regla compartida con el servidor (`coincidenciaDeCodigo`: el código exacto manda, luego el SKU, luego el
  * código sin ceros a la izquierda) y, si nada coincide, por nombre con el buscador compartido de la suite
- * (cada palabra, sin acentos). Sólo cuenta la forma más segura que haya coincidido. Confirma solo
- * únicamente con código EXACTO, renglón de 1 y la misma unidad: la pieza de un pedido de «1 caja» la señala.
+ * (cada palabra, sin acentos). Sólo cuenta la forma más segura que haya coincidido.
+ *
+ * `[MCP.31]` (David, 2026-11-24: se quita «Está bien»; **un escaneo = todo el renglón**). Lo que se ESCANEA —por
+ * código, en cualquier unidad, o por SKU— marca el renglón por revisar como «bien» entero, aunque sean 12. Lo
+ * encontrado por NOMBRE nunca confirma: escribir no prueba que el producto esté en la mano. Un faltante se
+ * completa escaneándolo sólo si la cajera ya lo estaba atendiendo (`atendiendo`: lo señaló antes —escaneándolo,
+ * tocándolo o contándolo— o lo dejó «esperando al surtidor»): el primer escaneo de un faltante sólo lo señala,
+ * aunque ya esté en grande, porque lo que hay en el carrito son los que SÍ vinieron. Un renglón que ya no puede
+ * volver al pedido (`restorable: false`) sólo se señala.
  */
-export function alEscanear(lines: PresaleReviewLine[], p: ProgresoPedido, texto: string): { escaneo: Escaneo; progreso: ProgresoPedido } {
+export function alEscanear(
+  lines: PresaleReviewLine[], p: ProgresoPedido, texto: string, atendiendo: string | null = null,
+): { escaneo: Escaneo; progreso: ProgresoPedido } {
   const q = String(texto ?? '').trim();
   if (!q) return { escaneo: { tipo: 'vacio' }, progreso: p };
   type Hallado = { l: PresaleReviewLine; match: PresaleReviewMatch; factor: number | null };
@@ -107,13 +119,26 @@ export function alEscanear(lines: PresaleReviewLine[], p: ProgresoPedido, texto:
   const pendientes = hallados.filter((x) => !resuelto(p.marcas[x.l.key]));
   if (!pendientes.length) return { escaneo: { tipo: 'ya_revisado', line: hallados[0].l }, progreso: p };
   if (pendientes.length > 1) return { escaneo: { tipo: 'varios', lines: pendientes.map((x) => x.l), match: pendientes[0].match }, progreso: p };
-  const { l, match, factor } = pendientes[0];
-  const estado = p.marcas[l.key]?.estado ?? 'por_revisar';
-  const mismaUnidad = factor !== null && Math.abs(factor - l.factor) < 1e-9;
-  if (match === 'codigo' && estado === 'por_revisar' && l.ordered === 1 && mismaUnidad && l.restorable) {
-    return { escaneo: { tipo: 'confirmado', line: l }, progreso: aplicar(p, l, { tipo: 'bien' }) };
+  const { l, match } = pendientes[0];
+  const m = p.marcas[l.key];
+  const estado = m?.estado ?? 'por_revisar';
+  if (match !== 'nombre' && l.restorable) {
+    if (estado === 'por_revisar') return { escaneo: { tipo: 'confirmado', line: l }, progreso: aplicar(p, l, { tipo: 'bien' }) };
+    if (estado === 'falta' && (l.key === atendiendo || !!m?.despues)) {
+      return { escaneo: { tipo: 'completado', line: l }, progreso: aplicar(p, l, { tipo: 'completar' }) };
+    }
   }
   return { escaneo: { tipo: 'elegido', line: l, match }, progreso: p };
+}
+
+/**
+ * `[MCP.31]` ¿Este renglón se puede revisar escaneándolo? No, si los códigos de Kepler no llegaron (`codes`
+ * ausente: se DECLARA y no se le pide a la cajera algo imposible) o si el producto no tiene ningún código ni SKU.
+ * Sólo entonces aparece el botón «a mano»: sin él ese pedido no se podría terminar nunca.
+ */
+export function sePuedeEscanear(l: PresaleReviewLine): boolean {
+  if (l.codes === undefined) return false;
+  return l.codes.length > 0 || !!String(l.sku ?? '').trim();
 }
 
 /**

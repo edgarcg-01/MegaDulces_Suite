@@ -12,6 +12,7 @@ import {
   progresoInicial,
   renglonActual,
   resueltos,
+  sePuedeEscanear,
   textoAtraso,
 } from './revision-caja';
 
@@ -34,7 +35,7 @@ describe('el producto que se está revisando', () => {
     expect(p.marcas['a'].estado).toBe('por_revisar');
   });
 
-  it('«Está bien» pasa al siguiente con un solo toque', () => {
+  it('marcar «bien» pasa al siguiente', () => {
     const p = aplicar(progresoInicial(LINEAS), LINEAS[0], { tipo: 'bien' });
     expect(renglonActual(LINEAS, p)?.key).toBe('b');
     expect(resueltos(LINEAS, p)).toBe(1);
@@ -89,52 +90,72 @@ describe('[MCP.10.3] escanear lo que se tiene en la mano', () => {
   ];
   const p0 = progresoInicial(LS);
 
-  it('un renglón de UNA unidad escaneado en esa unidad queda «bien» sin tocar nada', () => {
-    const { escaneo, progreso } = alEscanear(LS, p0, ' 07501001 ');
-    expect(escaneo.tipo).toBe('confirmado');
-    expect(progreso.marcas['pal'].estado).toBe('bien');
-    expect(progreso.hist).toHaveLength(1); // «Anterior» lo puede deshacer
+  // [MCP.31] (David, 2026-11-24): «un escaneo = todo el renglón». Reemplaza la regla de MCP.10.3, que sólo
+  // confirmaba renglones de UNA unidad escaneados en esa misma unidad.
+  it('[MCP.31] escanear un renglón por revisar lo deja «bien» ENTERO, sea de 1 o de varias unidades', () => {
+    const uno = alEscanear(LS, p0, ' 07501001 ');
+    expect(uno.escaneo.tipo).toBe('confirmado');
+    expect(uno.progreso.marcas['pal']).toMatchObject({ estado: 'bien', vienen: 1 });
+    expect(uno.progreso.hist).toHaveLength(1); // «Anterior» lo puede deshacer
+    const varios = [L('gom', 12, 12, { unit: 'CJA', codes: [{ code: '7504004', factor: 1 }] })];
+    const r = alEscanear(varios, progresoInicial(varios), '7504004');
+    expect(r.escaneo).toMatchObject({ tipo: 'confirmado', line: { key: 'gom' } });
+    expect(r.progreso.marcas['gom']).toMatchObject({ estado: 'bien', vienen: 12 });
   });
 
-  it('NEGATIVO: la PIEZA de un pedido de «1 caja» sólo la señala, no da la caja por buena', () => {
-    const { escaneo, progreso } = alEscanear(LS, p0, '7503003');
-    expect(escaneo.tipo).toBe('elegido');
-    expect(progreso).toBe(p0);
-    expect(alEscanear(LS, p0, 'c7503').escaneo.tipo).toBe('confirmado'); // la etiqueta de la caja sí
+  it('[MCP.31] cualquier unidad del producto lo confirma: la pieza de un pedido de «1 caja», el código sin ceros, el SKU', () => {
+    expect(alEscanear(LS, p0, '7503003').progreso.marcas['chi'].estado).toBe('bien');
+    expect(alEscanear(LS, p0, 'c7503').progreso.marcas['chi'].estado).toBe('bien');
+    expect(alEscanear(LS, p0, '00C7503').escaneo).toMatchObject({ tipo: 'confirmado', line: { key: 'chi' } });
+    const conSku = LS.map((l) => (l.key === 'pal' ? { ...l, sku: '44340' } : l));
+    expect(alEscanear(conSku, progresoInicial(conSku), '44340').escaneo).toMatchObject({ tipo: 'confirmado', line: { key: 'pal' } });
   });
 
-  it('NEGATIVO: sin quitar ceros: 7501001 (pieza) no confirma el paquete 07501001', () => {
-    const { escaneo } = alEscanear(LS, p0, '7501001');
-    expect(escaneo.tipo).toBe('elegido');
+  it('[MCP.31] NEGATIVO: lo encontrado por NOMBRE se señala pero nunca confirma (escribir no es tenerlo en la mano)', () => {
+    const porNombre = alEscanear(LS, p0, 'producto  SAL');
+    expect(porNombre.escaneo).toMatchObject({ tipo: 'elegido', match: 'nombre', line: { key: 'sal' } });
+    expect(resueltos(LS, porNombre.progreso)).toBe(0);
   });
 
-  it('varias unidades o un faltante: lo señala para revisarlo en grande', () => {
+  it('[MCP.31] un faltante: el primer escaneo lo señala (en el carrito vienen los que SÍ hubo), no lo completa', () => {
     const r = alEscanear(LS, p0, '7502002');
-    expect(r.escaneo).toMatchObject({ tipo: 'elegido', line: { key: 'maz' } });
+    expect(r.escaneo).toMatchObject({ tipo: 'elegido', match: 'codigo', line: { key: 'maz' } });
     expect(r.progreso.marcas['maz'].estado).toBe('falta');
   });
 
-  it('lo ya revisado lo dice; lo que no es del pedido también, y avisa si hay pendientes sin código', () => {
+  it('[MCP.31] el faltante que la cajera ya señaló (o dejó esperando al surtidor) se completa escaneándolo', () => {
+    const enGrande = alEscanear(LS, p0, '7502002', 'maz'); // ya señalado
+    expect(enGrande.escaneo).toMatchObject({ tipo: 'completado', line: { key: 'maz' } });
+    expect(enGrande.progreso.marcas['maz']).toMatchObject({ estado: 'completo', vienen: 3 });
+    const esperando = aplicar(p0, LS[1], { tipo: 'despues' });
+    expect(alEscanear(LS, esperando, '7502002', 'pal').escaneo.tipo).toBe('completado');
+    // «Trajo otra cantidad» (sigue faltando): al traer el resto, escanearlo lo completa.
+    const contado = aplicar(p0, LS[1], { tipo: 'contar', vienen: 1 });
+    expect(alEscanear(LS, contado, '7502002', 'maz').progreso.marcas['maz'].estado).toBe('completo');
+  });
+
+  it('[MCP.31] NEGATIVO: un renglón que ya no puede volver al pedido sólo se señala; lo que vino de más también', () => {
+    const borrado = [L('bor', 1, 0, { restorable: false, codes: [{ code: '7505005', factor: 1 }] })];
+    const r = alEscanear(borrado, progresoInicial(borrado), '7505005', 'bor');
+    expect(r.escaneo.tipo).toBe('elegido');
+    expect(resueltos(borrado, r.progreso)).toBe(0);
+    const sobra = [L('sob', 2, 3, { codes: [{ code: '7506006', factor: 1 }] })];
+    const p = aplicar(progresoInicial(sobra), sobra[0], { tipo: 'contar', vienen: 3 });
+    expect(alEscanear(sobra, p, '7506006', 'sob').escaneo.tipo).toBe('elegido');
+  });
+
+  it('lo ya revisado lo dice; lo que no es del pedido también', () => {
     const { progreso } = alEscanear(LS, p0, '07501001');
     expect(alEscanear(LS, progreso, '07501001').escaneo.tipo).toBe('ya_revisado');
     expect(alEscanear(LS, p0, '999999').escaneo).toEqual({ tipo: 'no_es' });
     expect(alEscanear(LS, p0, '   ').escaneo.tipo).toBe('vacio');
   });
 
-  it('por SKU, por código sin ceros o por nombre lo señala, pero NUNCA lo confirma solo (no dicen la unidad)', () => {
-    const conSku = LS.map((l) => (l.key === 'pal' ? { ...l, sku: '44340' } : l));
-    const porSku = alEscanear(conSku, progresoInicial(conSku), '44340');
-    expect(porSku.escaneo).toMatchObject({ tipo: 'elegido', match: 'sku', line: { key: 'pal' } });
-    expect(resueltos(conSku, porSku.progreso)).toBe(0);
-    expect(alEscanear(LS, p0, '7502002').escaneo).toMatchObject({ tipo: 'elegido', match: 'codigo' });
-    expect(alEscanear(LS, p0, '07502002').escaneo).toMatchObject({ tipo: 'elegido', match: 'codigo_sin_ceros', line: { key: 'maz' } });
-    // NEGATIVO: la etiqueta de la caja con ceros de más la encuentra, pero aunque el pedido sea «1 caja» no la confirma.
-    const sinCeros = alEscanear(LS, p0, '00C7503');
-    expect(sinCeros.escaneo).toMatchObject({ tipo: 'elegido', match: 'codigo_sin_ceros', line: { key: 'chi' } });
-    expect(resueltos(LS, sinCeros.progreso)).toBe(0);
-    const porNombre = alEscanear(LS, p0, 'producto  SAL');
-    expect(porNombre.escaneo).toMatchObject({ tipo: 'elegido', match: 'nombre', line: { key: 'sal' } });
-    expect(resueltos(LS, porNombre.progreso)).toBe(0);
+  it('[MCP.31] sePuedeEscanear: no, si los códigos no llegaron o el producto no tiene código ni SKU', () => {
+    expect(sePuedeEscanear(LS[0])).toBe(true);
+    expect(sePuedeEscanear(LS[3])).toBe(false); // codes: [] y sin SKU
+    expect(sePuedeEscanear({ ...LS[3], sku: '44340' })).toBe(true); // el SKU se teclea o se escanea
+    expect(sePuedeEscanear(L('x', 1, 1))).toBe(false); // codes ausente: Kepler no contestó
   });
 
   it('por nombre con varias coincidencias no adivina; lo ya revisado por nombre lo dice', () => {

@@ -48,7 +48,10 @@ import {
   resueltos,
   textoAtraso,
   filtraLaLista,
+  sePuedeEscanear,
 } from '../revision-caja';
+import { folioDeLectura } from '@megadulces/contracts';
+import { esFolioDeSuite, imprimirTicketPedido } from '../pedido-etiqueta-impresion';
 
 /** Cada cuánto se vuelve a pedir la bandeja mientras se ve: así llegan solos los pedidos que el surtidor termina. */
 const REFRESCO_MS = 20_000;
@@ -77,6 +80,12 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
  * `[MCP.10.3]` (David, 2026-11-09): con lector, se ESCANEA lo que se tiene en la mano: si el renglón es de
  * una unidad, el escaneo ya lo confirma; si no, lo pone en grande; si no es del pedido, lo dice. Sin
  * lector (o un producto sin código) se toca en la lista, que ahora pone lo pendiente arriba.
+ *
+ * `[MCP.31]` (David, 2026-11-24): se quitan «Está bien» y «Ya se completó». Lo revisado se ESCANEA, y un
+ * escaneo da por bueno el renglón entero (`alEscanear`). A mano sólo lo que no se puede escanear
+ * (`sePuedeEscanear`): sin códigos de Kepler o sin código ni SKU.
+ * `[MCP.32]` La cajera imprime la etiqueta del pedido en el ticket de 80 mm. `[MCP.33]` Escanear la etiqueta
+ * de un pedido (QR o barras) lo abre, desde la lista o desde otro pedido.
  */
 @Component({
   selector: 'app-almacen-revision-preventa',
@@ -142,6 +151,16 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                          (valueChange)="vendedor.set($any($event) || null)"></app-segmented>
         }
 
+        <!-- [MCP.33] La etiqueta del pedido (QR o barras) abre ese pedido; también se teclea el folio. -->
+        <div class="rv-etq-scan">
+          <label class="rv-scan-l" for="rv-etq-in"><i class="pi pi-qrcode" aria-hidden="true"></i> Escanea la etiqueta del pedido</label>
+          <input id="rv-etq-in" class="rv-scan-in" type="text" autocomplete="off" enterkeyhint="go"
+                 placeholder="o escribe el folio, p. ej. PD-2026-00138" (keydown.enter)="alEnterEtiqueta($event)" />
+          @if (avisoEtiqueta(); as a) {
+            <p class="rv-scan-msg rv-scan-mal" role="status"><i class="pi pi-times" aria-hidden="true"></i><span>{{ a }}</span></p>
+          }
+        </div>
+
         <app-load-state [loading]="cargandoVista()" [error]="errorVista()" [isEmpty]="vistaLista() && !delDia().length"
                         emptyIcon="pi-check-circle" [emptyTitle]="vacioTitulo()"
                         emptyHint="Cuando el surtidor termine un pedido de preventa, va a aparecer aquí solo."
@@ -188,6 +207,14 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
             <h1 class="rv-h1">{{ detalle()?.order?.customer_name || detalle()?.order?.code || 'Pedido' }}</h1>
             @if (detalle(); as d) { <span class="rv-sub rv-folio">{{ d.order.code }} · surtió {{ d.order.finished.name }}</span> }
           </div>
+          <!-- [MCP.32] La etiqueta del pedido (QR + barras) en la impresora de tickets de la caja. -->
+          @if (detalle(); as d) {
+            @if (esFolioDeSuite(d.order.code)) {
+              <button type="button" class="rv-btn rv-btn-sm rv-etq" [disabled]="imprimiendo()" (click)="imprimirEtiqueta(d)">
+                <i class="pi pi-print" aria-hidden="true"></i> Etiqueta
+              </button>
+            }
+          }
         </header>
 
         <app-load-state [loading]="cargandoDetalle()" [error]="errorDetalle()" [isEmpty]="false" (retry)="abrir(abierto()!, false)">
@@ -271,7 +298,13 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                     @if (l.sku) { <span class="rv-sku">SKU {{ l.sku }}</span> }
                     @if (l.substitutes_for) { <span class="rv-en-lugar"><i class="pi pi-sync" aria-hidden="true"></i> En lugar de {{ l.substitutes_for }} · lo cambió el surtidor</span> }
                     <span class="rv-cant">Deben ser <span class="rv-mono">{{ cantidadTexto(l.ordered, l.unit) }}</span></span>
-                    <button type="button" class="rv-btn rv-btn-ok" (click)="hacer(l, { tipo: 'bien' })">Está bien <i class="pi pi-check" aria-hidden="true"></i></button>
+                    <!-- [MCP.31] Ya no hay «Está bien»: se escanea. A mano sólo lo que no se puede escanear. -->
+                    @if (sePuedeEscanear(l)) {
+                      <span class="rv-espera rv-escanea"><i class="pi pi-barcode" aria-hidden="true"></i> Escanéalo para marcarlo bien.</span>
+                    } @else {
+                      <span class="rv-espera">{{ hayCodigos() ? 'Este producto no tiene código de barras.' : 'No se pudieron leer los códigos de Kepler.' }} Revísalo a la vista.</span>
+                      <button type="button" class="rv-btn rv-btn-ok" (click)="hacer(l, { tipo: 'bien' })">Marcar bien a mano <i class="pi pi-check" aria-hidden="true"></i></button>
+                    }
                     <button type="button" class="rv-btn" (click)="contar(l)">No coincide</button>
                   </section>
                 } @else if (estadoDe(l) === 'falta') {
@@ -283,8 +316,13 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                     <span class="rv-falta">Se pidieron {{ l.ordered }} y vienen {{ marca(l)!.vienen }}: faltan {{ cantidadTexto(faltan(l), l.unit) }}</span>
                     <span class="rv-hay" [class.rv-hay-no]="l.stock?.state !== 'con_existencia'">{{ textoExistencia(l) }}</span>
                     @if (l.restorable) {
-                      <span class="rv-espera">Pídele al surtidor {{ cantidadTexto(faltan(l), l.unit) }}. Cuando te lo traiga, toca «Ya se completó».</span>
-                      <button type="button" class="rv-btn rv-btn-ok" (click)="hacer(l, { tipo: 'completar' })">Ya se completó <i class="pi pi-check" aria-hidden="true"></i></button>
+                      <!-- [MCP.31] Lo que trae el surtidor se escanea; a mano sólo si no se puede escanear. -->
+                      @if (sePuedeEscanear(l)) {
+                        <span class="rv-espera">Pídele al surtidor {{ cantidadTexto(faltan(l), l.unit) }}. Cuando te lo traiga, escanéalo.</span>
+                      } @else {
+                        <span class="rv-espera">Pídele al surtidor {{ cantidadTexto(faltan(l), l.unit) }}. Cuando te lo traiga, márcalo aquí.</span>
+                        <button type="button" class="rv-btn rv-btn-ok" (click)="hacer(l, { tipo: 'completar' })">Ya se completó (a mano) <i class="pi pi-check" aria-hidden="true"></i></button>
+                      }
                     } @else {
                       <span class="rv-espera">Este producto se quitó del pedido al surtir y ya no se puede agregar desde aquí. Avísale a la vendedora.</span>
                     }
@@ -323,6 +361,11 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                       <app-motivo-chips [opciones]="motivosCaja" [valor]="motivoDeLinea(l.key)" [idBase]="'rv-mot-' + $index"
                                         [etiqueta]="'Por qué no se cobra todo de ' + l.product_name" (cambio)="ponerMotivo(l.key, $event)"></app-motivo-chips>
                     </div>
+                  }
+                  @if (esFolioDeSuite(d.order.code)) {
+                    <button type="button" class="rv-btn" [disabled]="imprimiendo()" (click)="imprimirEtiqueta(d)">
+                      <i class="pi pi-print" aria-hidden="true"></i> Imprimir la etiqueta del pedido
+                    </button>
                   }
                   <button type="button" class="rv-btn rv-btn-ok" [disabled]="trabajando() || motivosSinCompletar().length > 0" (click)="terminar(d)">
                     @if (trabajando()) { <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> }
@@ -516,6 +559,12 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-scan-warn { color: var(--warn-soft-fg); }
     .rv-scan-mal { color: var(--bad-fg); }
     .rv-scan-sin { display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-body); color: var(--text-muted); }
+    /* [MCP.33] El campo de la etiqueta del pedido, en la lista: mismo campo que el del producto. */
+    .rv-etq-scan { display: flex; flex-direction: column; gap: var(--sp-1); margin: var(--sp-2) 0 var(--sp-3); }
+    /* [MCP.32] «Etiqueta» en el encabezado del pedido: secundario, a la derecha. */
+    .rv-etq { margin-left: auto; flex: none; width: auto; }
+    /* [MCP.31] La instrucción que reemplaza a «Está bien». */
+    .rv-escanea { display: flex; align-items: center; gap: var(--sp-2); font-weight: 700; }
     /* En celular no hay lector que se pierda: ahí el campo es un buscador y no se le exige el foco. */
     @media (pointer: coarse) {
       .rv-scan:not(:focus-within) .rv-scan-off { display: none; }
@@ -560,6 +609,12 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
   private abiertoEn = 0;
   private retomado = false;
   private readonly escanerInput = viewChild<ElementRef<HTMLInputElement>>('escaner');
+  /** `[MCP.33]` Por qué no se abrió lo escaneado en el campo de la etiqueta (lista). */
+  readonly avisoEtiqueta = signal<string | null>(null);
+  /** `[MCP.32]` Mientras se arma la etiqueta (el QR se baja la primera vez): un toque, una impresión. */
+  readonly imprimiendo = signal(false);
+  readonly sePuedeEscanear = sePuedeEscanear;
+  readonly esFolioDeSuite = esFolioDeSuite;
 
   readonly bandeja = signal<PresaleReviewInboxResponse | null>(null);
   readonly cargando = signal(false);
@@ -839,7 +894,9 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     const d = this.detalle();
     if (!d || d.order.state === 'revisado') return true;
     const q = String(texto ?? '').trim();
-    const { escaneo, progreso } = alEscanear(d.lines, this.progreso(), q);
+    // [MCP.31] Un faltante se completa escaneándolo sólo si ya se señaló (escaneado, tocado o contado): el primer
+    // escaneo de un faltante es de los que SÍ vinieron.
+    const { escaneo, progreso } = alEscanear(d.lines, this.progreso(), q, this.elegido());
     if (escaneo.tipo === 'vacio') return true;
     this.editando.set(null);
     this.otrosPedidos.set(null);
@@ -849,12 +906,25 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
       case 'confirmado':
         this.cambiar(progreso);
         this.elegido.set(null);
-        aviso = { tono: 'ok', texto: `${escaneo.line.product_name} · bien` };
+        // [MCP.31] Un escaneo da por bueno el renglón entero: se dice cuánto, para que se vea qué se aceptó.
+        aviso = { tono: 'ok', texto: `${cantidadTexto(escaneo.line.ordered, escaneo.line.unit)} de ${escaneo.line.product_name} · bien` };
         break;
-      case 'elegido':
-        this.elegido.set(escaneo.line.key);
-        aviso = { tono: 'info', texto: `${escaneo.line.product_name}: revísalo aquí abajo.` };
+      case 'completado':
+        this.cambiar(progreso);
+        this.elegido.set(null);
+        aviso = { tono: 'ok', texto: `${escaneo.line.product_name} · completo (${cantidadTexto(escaneo.line.ordered, escaneo.line.unit)})` };
         break;
+      case 'elegido': {
+        const l = escaneo.line;
+        this.elegido.set(l.key);
+        const estado = this.estadoDe(l);
+        aviso = { tono: 'info', texto: estado === 'falta' && l.restorable
+          ? `${l.product_name}: faltan ${cantidadTexto(this.faltan(l), l.unit)}. Pídeselo al surtidor y, cuando te lo traiga, escanéalo.`
+          : escaneo.match === 'nombre' && estado === 'por_revisar' && sePuedeEscanear(l)
+            ? `${l.product_name}: escanéalo para marcarlo bien.`
+            : `${l.product_name}: revísalo aquí abajo.` };
+        break;
+      }
       case 'ya_revisado':
         aviso = { tono: 'warn', texto: `${escaneo.line.product_name} ya lo revisaste.` };
         break;
@@ -866,11 +936,22 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
           aviso = { tono: 'warn', texto: `«${q}» es de ${escaneo.lines.length} productos de este pedido: toca el correcto en la lista.` };
         }
         break;
-      case 'no_es':
+      case 'no_es': {
+        // [MCP.33] No es un producto de este pedido: ¿es la etiqueta de un pedido?
+        const folio = folioDeLectura(q);
+        if (folio) {
+          const msg = this.abrirPorFolio(folio);
+          if (msg) {
+            this.avisoEscaneo.set({ tono: 'warn', texto: msg });
+            this.anuncio.set(msg);
+          }
+          return true;
+        }
         this.avisoEscaneo.set(null);
         this.buscarEnOtros(q);
         this.enfocarActual();
         return true;
+      }
       default:
         return true;
     }
@@ -878,6 +959,52 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     this.anuncio.set(aviso.texto);
     this.enfocarActual();
     return limpiar;
+  }
+
+  /**
+   * `[MCP.33]` Enter en el campo de la etiqueta (lista). Lo que no es etiqueta de pedido o no está en la lista
+   * lo DICE; un pedido encontrado se abre. El campo se limpia siempre para la siguiente lectura.
+   */
+  alEnterEtiqueta(ev: Event): void {
+    ev.preventDefault();
+    const campo = ev.target as HTMLInputElement;
+    const q = campo.value.trim();
+    campo.value = '';
+    if (!q) return;
+    const folio = folioDeLectura(q);
+    const msg = folio ? this.abrirPorFolio(folio) : `«${q}» no es la etiqueta de un pedido. Escanea el QR o el código de barras de la etiqueta.`;
+    this.avisoEtiqueta.set(msg);
+    if (msg) this.anuncio.set(msg);
+  }
+
+  /**
+   * `[MCP.33]` Abre el pedido de ese folio si está en lo que esta caja ve (la bandeja viva o el día abierto).
+   * Devuelve el aviso si no se pudo abrir; `null` si se abrió.
+   */
+  abrirPorFolio(folio: string): string | null {
+    const actual = this.detalle()?.order;
+    if (actual?.code === folio) return `Ya estás en el pedido ${folio}.`;
+    const filas = [...(this.bandeja()?.data ?? []), ...(this.bandejaDia()?.data ?? [])];
+    const p = filas.find((x) => x.code === folio);
+    if (!p) return `${folio} no está en los pedidos por revisar de tu sucursal (ni en el día que estás viendo).`;
+    this.avisoEtiqueta.set(null);
+    this.anuncio.set(`Abriendo ${folio}: ${p.customer_name || 'cliente sin nombre'}.`);
+    this.abrir(p.order_id);
+    return null;
+  }
+
+  /** `[MCP.32]` La etiqueta del pedido en la impresora de tickets (80 mm). */
+  imprimirEtiqueta(d: PresaleReviewDetail): void {
+    if (this.imprimiendo()) return;
+    this.imprimiendo.set(true);
+    const o = d.order;
+    imprimirTicketPedido(
+      { folio: o.code, cliente: o.customer_name, vendedor: o.seller_name, entrega: o.requested_delivery_date, productos: d.lines.length },
+      () => { this.imprimiendo.set(false); this.listoParaEscanear(); },
+    ).catch(() => {
+      this.imprimiendo.set(false);
+      this.toast.add({ severity: 'error', summary: 'No se pudo armar la etiqueta. Inténtalo otra vez.', life: 6000 });
+    });
   }
 
   /** `[MCP.10.3]` Lo abre y vuelve a buscar ahí lo mismo, para que quede señalado sin escanear otra vez. */
@@ -930,6 +1057,8 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     if (!e) return;
     this.editando.set(null);
     this.hacer(l, { tipo: 'contar', vienen: e.n });
+    // [MCP.31] Corregido y todavía falta: queda señalado, y escanear lo que traiga el surtidor lo completa.
+    if (this.estadoDe(l) === 'falta') this.elegido.set(l.key);
   }
 
   anterior(): void {

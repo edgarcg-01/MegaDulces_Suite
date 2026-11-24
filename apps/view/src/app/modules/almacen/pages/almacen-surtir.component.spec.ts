@@ -25,6 +25,13 @@ import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { UsoService } from '../../../core/services/uso.service';
+import { imprimirEtiquetaPedido } from '../pedido-etiqueta-impresion';
+
+// [MCP.32] La impresión real abre el diálogo del navegador: aquí sólo se mira con qué datos se pide.
+vi.mock('../pedido-etiqueta-impresion', async (orig) => ({
+  ...(await orig<typeof import('../pedido-etiqueta-impresion')>()),
+  imprimirEtiquetaPedido: vi.fn(() => Promise.resolve()),
+}));
 import { ClientesNuevosService } from '../clientes-nuevos.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -752,6 +759,45 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(texto()).toContain('ya se le avisó a la vendedora');
     expect(boton('Ver pedidos')).toBeTruthy();
     expect(boton('Tomar siguiente')).toBeFalsy();
+  });
+
+  it('[MCP.32] al terminar un pedido de preventa se ofrece su etiqueta (QR + barras) para la TSC', async () => {
+    vi.mocked(imprimirEtiquetaPedido).mockClear();
+    await montar();
+    clic('Preventa');
+    clic('Surtir este');
+    clic('Completo');
+    c.noHabia(c.pendientes()[0]);
+    fix.detectChanges();
+    clic('Terminé de surtir');
+    expect(texto()).toContain('Salen 3 etiquetas iguales de PD-2026-00082');
+    clic('Imprimir etiqueta del pedido');
+    expect(imprimirEtiquetaPedido).toHaveBeenCalledWith(
+      { folio: 'PD-2026-00082', cliente: 'ABARROTES ROSY', vendedor: 'Vendedora Prueba', entrega: '2026-10-19', productos: 2 },
+      expect.any(Function),
+    );
+  });
+
+  it('[MCP.33] la etiqueta escaneada en la lista: abre el que se puede surtir, dice lo ya surtido y lo que no está', async () => {
+    vi.mocked(imprimirEtiquetaPedido).mockClear();
+    await montar();
+    clic('Preventa');
+    const campo = el().querySelector('#sr-etq-in') as HTMLInputElement;
+    expect(campo).not.toBeNull();
+    const leer = (t: string): void => { campo.value = t; campo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); fix.detectChanges(); };
+    leer('gomitas');
+    expect(texto()).toContain('«gomitas» no es la etiqueta de un pedido');
+    leer('992026000999');
+    expect(texto()).toContain('PD-2026-00999 no está en los pedidos de preventa de tu almacén');
+    // Ya surtido: se dice de quién es y se puede reimprimir su etiqueta.
+    leer('992026000060');
+    expect(texto()).toContain('PD-2026-00060 (YA SURTIDO · Vendedora Prueba): ya se surtió.');
+    clic('Reimprimir etiqueta');
+    expect(imprimirEtiquetaPedido).toHaveBeenCalledWith(expect.objectContaining({ folio: 'PD-2026-00060', cliente: 'YA SURTIDO' }), expect.any(Function));
+    expect(campo.value).toBe('');
+    // Uno nuevo se abre para surtirlo, igual que tocar su tarjeta.
+    leer('PD-2026-00082');
+    expect(pv.start).toHaveBeenCalledWith('o-rosy');
   });
 
   // ── [MCP.17] Pidieron CJA y no hubo caja completa: el mismo producto en otra unidad ──────

@@ -134,6 +134,8 @@ export * from './http/box-labels.contract';
 export * from './http/warehouse-presale.contract';
 export * from './http/presale-picking.contract';
 export * from './http/presale-review.contract';
+export * from './http/pedido-etiqueta';
+export * from './http/cotizacion-a-venta.contract';
 // [MCP.18] Justificantes: el motivo de cada cambio a un pedido de preventa, visible para los otros roles.
 export * from './http/order-justification.contract';
 export * from './http/vecinal-monitor.contract';

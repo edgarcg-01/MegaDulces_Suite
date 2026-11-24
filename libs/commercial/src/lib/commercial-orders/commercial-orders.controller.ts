@@ -27,6 +27,7 @@ import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 import { MOTIVOS_CANCELAR, MOTIVOS_CORREGIR, MOTIVO_OBLIGATORIO_EN_SERVIDOR, type MotivoOpcion } from '@megadulces/contracts';
+import type { PasoAVenta, PasoAVentaBody } from '@megadulces/contracts';
 import { MotivoInvalido, motivoDelCuerpo } from './justificantes.engine';
 
 /** `[MCP.18]` Cuerpo de «Corregir» y «Cancelar»: el motivo nuevo (clave + nota) o el texto de antes. */
@@ -293,6 +294,18 @@ export class CommercialOrdersController {
   })
   place(@Param('id') id: string, @Body() body: UpdateOrderDraftDto) {
     return this.service.place(id, body);
+  }
+
+  /**
+   * `[MCP.34]` **Pasar a venta**: la cotización del vendedor (app, `route_visit`) se vuelve un pedido de preventa
+   * confirmado con el día elegido y precios de HOY; la cotización queda aceptada y ligada. Idempotente. `dry_run`
+   * arma el pedido y lo deshace (para enseñar el total antes de confirmar). Sólo quien hizo la cotización.
+   */
+  @Post('from-quote/:quoteId')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CONFIRMAR)
+  @ApiOperation({ summary: '[MCP.34] Pasar a venta: cotización del vendedor → pedido de preventa confirmado (idempotente; dry_run = vista previa sin guardar).' })
+  pasarCotizacionAVenta(@Param('quoteId') quoteId: string, @Body() body: PasoAVentaBody): Promise<PasoAVenta> {
+    return this.service.pasarCotizacionAVenta(quoteId, body ?? {});
   }
 
   @Post(':id/reopen')

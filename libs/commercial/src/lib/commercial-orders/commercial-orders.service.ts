@@ -30,6 +30,8 @@ import { AVISO_PANTALLA_VIEJA, MAX_CAMBIOS_PEDIDO, POLITICA_CORREGIR, motivoDeHi
 import { bloqueoParaCorregir, type SurtidoDelPedido } from './justificantes.engine';
 import { FechaDeEntregaInvalida, fechaDeEntregaNueva, razonDeHistoria } from './reagendar.engine';
 import { relojMx } from '../warehouse-orders/warehouse-orders.engine';
+import type { PasoAVenta } from '@megadulces/contracts';
+import { NoSePasaAVenta, VistaPreviaDeVenta, motivoParaNoPasar, renglonesParaPedido, type CotizacionParaVenta, type RenglonDeCotizacion } from './cotizacion-a-pedido.engine';
 
 // ─────────── tipos ───────────
 
@@ -493,7 +495,12 @@ export class CommercialOrdersService {
     if (dto.client_uuid && !UUID_REGEX.test(dto.client_uuid))
       throw new BadRequestException('client_uuid inválido');
 
-    return this.tk.run(async (trx) => {
+    return this.tk.run((trx) => this.createDraftEnTrx(trx, dto));
+  }
+
+  /** `[MCP.34]` El cuerpo de `createDraft` dentro de una transacción ajena (lo usa «Pasar a venta»). Valida quien llama los ids. */
+  async createDraftEnTrx(trx: Knex.Transaction, dto: CreateDraftDto): Promise<{ id: string; code: string } & Record<string, unknown>> {
+    {
       const userId = this.requireUserId();
 
       // `[AUTHZ-HARD.1]` Un `customer_b2b` sólo puede crear pedidos a SU nombre: el customer_id se
@@ -595,7 +602,7 @@ export class CommercialOrdersService {
       await this.recordHistory(trx, order.id, null, 'draft', null);
 
       return order;
-    });
+    }
   }
 
   /**
@@ -1775,6 +1782,100 @@ export class CommercialOrdersService {
     // [DN.8] Paso 2, ya con el pedido confirmado y el candado suelto.
     if (registro?.root && registro.marcadas > 0) this.completarRegistroDespues(tenantId, registro.root);
     return tomado;
+  }
+
+  /**
+   * `[MCP.34]` **Pasar a venta**: la cotización del vendedor se vuelve un pedido de preventa confirmado, en UNA
+   * transacción: bloquea la cotización (`FOR UPDATE`), arma el borrador con sus renglones en la unidad cotizada
+   * (el precio lo pone el motor del pedido: el de HOY, decisión de David), lo confirma con el día elegido y deja
+   * la cotización `accepted` + `order_id` (el linaje que el esquema ya preveía).
+   *
+   * - **Idempotente:** si la cotización ya tiene pedido, devuelve ése (`ya_existia`). Dos toques, o una respuesta
+   *   perdida sin señal, no hacen dos pedidos: el segundo espera el candado y encuentra el `order_id`.
+   * - **`dry_run`:** hace TODO y deshace la transacción al final. Así la pantalla enseña el total REAL del pedido
+   *   («cotizaste $X, hoy es $Y») sin guardar nada ni gastar folio (la secuencia también se deshace).
+   */
+  async pasarCotizacionAVenta(quoteId: string, body: { requested_delivery_date?: unknown; dry_run?: unknown } = {}): Promise<PasoAVenta> {
+    if (!UUID_REGEX.test(quoteId)) throw new BadRequestException('quoteId inválido');
+    const dryRun = body?.dry_run === true;
+    let fecha: string;
+    try {
+      fecha = fechaDeEntregaNueva(body?.requested_delivery_date, relojMx(new Date()).fecha);
+    } catch (e) {
+      if (e instanceof FechaDeEntregaInvalida) throw new BadRequestException(e.message);
+      throw e;
+    }
+    const tenantId = this.tenantCtx.requireTenantId();
+    // (`as`: se asigna dentro del callback y TS no sigue esa asignación; igual que en `place`.)
+    let registro = null as { root: string | null; marcadas: number } | null;
+    let paso: PasoAVenta;
+    try {
+      paso = await this.tk.run(async (trx): Promise<PasoAVenta> => {
+        const userId = this.requireUserId();
+        const q = (await trx('commercial.quotes')
+          .where({ id: quoteId })
+          .whereNull('deleted_at')
+          .forUpdate()
+          .first('id', 'code', 'status', 'origin', 'user_id', 'customer_id', 'warehouse_id', 'order_id', 'total')) as
+          | (CotizacionParaVenta & { total: string | number | null })
+          | undefined;
+        const no = motivoParaNoPasar(q ?? null, userId);
+        if (no) throw httpDeNoSePasa(no);
+        const cot = q as CotizacionParaVenta & { total: string | number | null };
+        const totalCotizado = Number(cot.total) || 0;
+
+        if (cot.order_id) {
+          const o = (await trx('commercial.orders')
+            .where({ id: cot.order_id })
+            .first('code', 'total', trx.raw(`to_char(requested_delivery_date, 'YYYY-MM-DD') AS dia`))) as
+            | { code: string; total: string | number; dia: string | null }
+            | undefined;
+          return {
+            quote_id: cot.id, quote_code: cot.code, quote_total: totalCotizado,
+            order_id: cot.order_id, order_code: o?.code ?? null, order_total: o ? Number(o.total) || 0 : null,
+            requested_delivery_date: o?.dia ?? null, sin_producto: [], ya_existia: true, dry_run: dryRun,
+          };
+        }
+
+        const ls = (await trx('commercial.quote_lines')
+          .where({ quote_id: cot.id })
+          .orderBy('line_number', 'asc')
+          .select('product_id', 'requested_text', 'quantity', 'qty_unit', 'qty_factor', 'parent_line_number')) as Array<
+          Omit<RenglonDeCotizacion, 'product_name'>
+        >;
+        const { renglones, sinProducto } = renglonesParaPedido(ls.map((l) => ({ ...l, product_name: null })));
+        if (!renglones.length) throw new BadRequestException('La cotización no tiene productos del catálogo que se puedan pedir.');
+
+        const draft = await this.createDraftEnTrx(trx, {
+          customer_id: cot.customer_id as string,
+          warehouse_id: cot.warehouse_id as string,
+          delivery_type: 'route',
+          requested_delivery_date: fecha,
+        });
+        for (const rn of renglones) await this.addLineEnTrx(trx, draft.id, rn);
+        const placed = await this.placeEnTrx(trx, draft.id, { requested_delivery_date: fecha });
+        const o = (await trx('commercial.orders').where({ id: draft.id }).first('code', 'total')) as { code: string; total: string | number } | undefined;
+        const armado: PasoAVenta = {
+          quote_id: cot.id, quote_code: cot.code, quote_total: totalCotizado,
+          order_id: draft.id, order_code: o?.code ?? draft.code ?? null, order_total: Number(o?.total) || 0,
+          requested_delivery_date: fecha, sin_producto: sinProducto, ya_existia: false, dry_run: dryRun,
+        };
+        // La vista previa deshace TODO (pedido, renglones, folio): sale por la excepción y `knex.transaction` hace rollback.
+        if (dryRun) throw new VistaPreviaDeVenta(armado);
+
+        await trx('commercial.quotes')
+          .where({ id: cot.id })
+          .update({ status: 'accepted', accepted_at: trx.fn.now(), order_id: draft.id, updated_at: trx.fn.now(), updated_by: userId });
+        registro = placed.registro;
+        return armado;
+      });
+    } catch (e) {
+      if (e instanceof VistaPreviaDeVenta) return e.paso;
+      throw e;
+    }
+    // [DN.8] Paso 2 del registro para Compras, ya con el candado suelto (igual que `place`).
+    if (registro?.root && registro.marcadas > 0) this.completarRegistroDespues(tenantId, registro.root);
+    return paso;
   }
 
   /**
@@ -3780,4 +3881,12 @@ export function validarCambios(v: unknown): OrderModifyChange[] {
     if (f != null && (typeof f !== 'number' || !Number.isFinite(f) || f <= 0)) throw new BadRequestException('El factor de la unidad no es válido.');
     return { line_id: id, quantity: q, qty_unit: (u as string | null) ?? null, qty_factor: (f as number | null) ?? null };
   });
+}
+
+/** `[MCP.34]` El motivo de no pasar a venta, como el error HTTP que entiende la app. */
+function httpDeNoSePasa(e: NoSePasaAVenta): Error {
+  if (e.http === 404) return new NotFoundException(e.message);
+  if (e.http === 403) return new ForbiddenException(e.message);
+  if (e.http === 400) return new BadRequestException(e.message);
+  return new ConflictException(e.message);
 }

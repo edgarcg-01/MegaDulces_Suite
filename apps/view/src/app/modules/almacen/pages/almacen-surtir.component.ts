@@ -19,7 +19,8 @@ import type {
   PresalePickInboxResponse, PresalePickInboxRow, PresalePickReport, PresaleOtherUnitsResponse, PresaleReviewStock,
   PresaleSubstituteCandidate, PresaleSubstituteResponse,
 } from '@megadulces/contracts';
-import { topeEnUnidad } from '@megadulces/contracts';
+import { folioDeLectura, topeEnUnidad } from '@megadulces/contracts';
+import { type DatosEtiquetaPedido, esFolioDeSuite, imprimirEtiquetaPedido } from '../pedido-etiqueta-impresion';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
@@ -268,6 +269,22 @@ function plural(n: number, uno: string, varios: string): string {
               <!-- §9 La lista se vuelve a pedir cada 30 s: su edad se ve. -->
               <app-freshness-pill measures="fetch" [since]="sucursalAl()" [staleAfterSec]="90"></app-freshness-pill>
             </div>
+            <!-- [MCP.33] La etiqueta de un pedido (QR o barras) lo encuentra: lo abre, dice quién lo surte o deja reimprimirla. -->
+            <section class="sr-buscar sr-etq-scan">
+              <i class="pi pi-qrcode" aria-hidden="true"></i>
+              <input id="sr-etq-in" class="sr-buscar-input" type="text" autocomplete="off" enterkeyhint="go"
+                     aria-label="Escanea la etiqueta del pedido" placeholder="Escanea la etiqueta del pedido o escribe su folio"
+                     (keydown.enter)="alEnterEtiqueta($event)" />
+            </section>
+            @if (avisoEtiqueta(); as a) {
+              <div class="sr-banda" [class.sr-banda-warn]="a.tono === 'warn'" role="status">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                <span class="sr-banda-txt">{{ a.texto }}</span>
+                @if (a.reimprimir; as r) {
+                  <button pButton type="button" severity="secondary" class="sr-tap" [disabled]="imprimiendoEtq()" (click)="imprimirEtiqueta(r)">Reimprimir etiqueta</button>
+                }
+              </div>
+            }
             <!-- [MCP.24] Lo pendiente de días anteriores no se mezcla con hoy, pero tampoco se esconde: por día.
                  [GP.RF.35] En un renglón que se desliza, no en una caja de varios renglones. -->
             @if (dia() === 'hoy' && !diaAtrasado() && atrasados().length) {
@@ -749,6 +766,13 @@ function plural(n: number, uno: string, varios: string): string {
               <p class="sr-tip">Total: {{ dinero(r.total_before) }} → <strong>{{ dinero(r.total_after) }}</strong></p>
             }
           }
+          <!-- [MCP.32] La etiqueta del pedido (QR + barras) a la TSC: 3 iguales, para las bolsas y la hoja. -->
+          @if (etiquetaCerrado(); as et) {
+            <button type="button" class="sr-btn sr-btn-etq" [disabled]="imprimiendoEtq()" (click)="imprimirEtiqueta(et)">
+              <i class="pi pi-print" aria-hidden="true"></i><span>Imprimir etiqueta del pedido</span>
+            </button>
+            <p class="sr-tip">Salen 3 etiquetas iguales de {{ et.folio }}: pégalas en las bolsas o cajas del pedido.</p>
+          }
           @if (origen() === 'SUCURSAL') {
             <button type="button" class="sr-btn sr-btn-go" (click)="volverALista()">
               <i class="pi pi-list" aria-hidden="true"></i><span>Ver pedidos</span>
@@ -965,6 +989,10 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-pend-cero { color: var(--ok-soft-fg); }
     .sr-falt { font-weight: 800; color: var(--warn-soft-fg); }
     .sr-btn-fin { min-height: 3.25rem; margin-top: 0; }
+    /* [MCP.32] Imprimir la etiqueta: secundario (el naranja queda en «Ver pedidos»). */
+    .sr-btn-etq { background: var(--card-bg); color: var(--text-main); border-color: var(--border-color); margin-top: .4rem; }
+    /* [MCP.33] El campo de la etiqueta del pedido, en la lista. */
+    .sr-etq-scan { margin: 0 0 var(--sp-2); }
 
     /* [MCP.3.1] Pedidos de Sucursal. */
     .sr-sec-vacia { margin: .5rem 0 1rem; }
@@ -1078,6 +1106,11 @@ export class AlmacenSurtirComponent implements OnInit {
   readonly tomandoId = signal<string | null>(null);
   /** El pedido de Sucursal que se está surtiendo; null = se surte una ola de Telemarketing. */
   readonly pedidoSucursal = signal<PresalePickInboxRow | null>(null);
+  /** `[MCP.32]` La etiqueta del pedido que se acaba de terminar (sólo de la Suite, `PD-…`); null = no hay que ofrecer. */
+  readonly etiquetaCerrado = signal<DatosEtiquetaPedido | null>(null);
+  readonly imprimiendoEtq = signal(false);
+  /** `[MCP.33]` Qué pasó con la etiqueta escaneada en la lista; `reimprimir` si el pedido ya se surtió. */
+  readonly avisoEtiqueta = signal<{ tono: 'info' | 'warn'; texto: string; reimprimir?: DatosEtiquetaPedido } | null>(null);
   /** [MCP.3.15] El surtidor marcó que cumplió las indicaciones del vendedor (sólo en pantalla, decisión de David). */
   readonly indicacionesOk = signal(false);
   /** [MCP.3.15] Hay indicaciones y todavía no se marcan: «Terminé de surtir» espera. */
@@ -1293,6 +1326,54 @@ export class AlmacenSurtirComponent implements OnInit {
     });
   }
 
+  /** `[MCP.32]` Los datos de la etiqueta de un pedido de la Suite; `null` si no es `PD-…` (Kepler no la lleva). */
+  datosEtiqueta(p: PresalePickInboxRow | null, productos?: number | null): DatosEtiquetaPedido | null {
+    if (!p || !esFolioDeSuite(p.code)) return null;
+    return { folio: p.code, cliente: p.customer_name, vendedor: p.seller_name, entrega: p.requested_delivery_date, productos: productos ?? p.lines };
+  }
+
+  /** `[MCP.32]` 3 etiquetas iguales a la TSC. Un toque, una impresión. */
+  imprimirEtiqueta(d: DatosEtiquetaPedido): void {
+    if (this.imprimiendoEtq()) return;
+    this.imprimiendoEtq.set(true);
+    imprimirEtiquetaPedido(d, () => this.imprimiendoEtq.set(false)).catch(() => {
+      this.imprimiendoEtq.set(false);
+      this.avisar('error', 'No se pudo armar la etiqueta. Inténtalo otra vez.');
+    });
+  }
+
+  /**
+   * `[MCP.33]` La etiqueta de un pedido escaneada en la lista: si se puede surtir, se abre; si lo surte otro, se
+   * dice quién; si ya se surtió, se dice y se ofrece reimprimirla; si no está en la lista, se DICE (no se adivina).
+   */
+  alEnterEtiqueta(ev: Event): void {
+    ev.preventDefault();
+    const campo = ev.target as HTMLInputElement;
+    const q = campo.value.trim();
+    campo.value = '';
+    if (!q) return;
+    this.avisoEtiqueta.set(this.leerEtiqueta(q));
+    const a = this.avisoEtiqueta();
+    if (a) this.anuncio.set(a.texto);
+  }
+
+  /** `[MCP.33]` Qué hacer con lo leído; `null` = se abrió el pedido para surtirlo. */
+  leerEtiqueta(q: string): { tono: 'info' | 'warn'; texto: string; reimprimir?: DatosEtiquetaPedido } | null {
+    const folio = folioDeLectura(q);
+    if (!folio) return { tono: 'warn', texto: `«${q}» no es la etiqueta de un pedido. Escanea el QR o el código de barras de la etiqueta.` };
+    const p = (this.sucursal()?.data ?? []).find((x) => x.code === folio);
+    if (!p) return { tono: 'warn', texto: `${folio} no está en los pedidos de preventa de tu almacén que se ven aquí.` };
+    const quien = `${p.customer_name || 'Cliente sin nombre'} · ${p.seller_name || 'sin vendedor'}`;
+    if (p.state === 'nuevo' || (p.state === 'surtiendo' && this.esMio(p))) {
+      this.surtirPedido(p.order_id);
+      return null;
+    }
+    if (p.state === 'surtiendo') return { tono: 'info', texto: `${folio} (${quien}): lo está surtiendo ${p.started?.name ?? 'otra persona'}.` };
+    if (p.state === 'por_cancelar') return { tono: 'warn', texto: `${folio} (${quien}): no hubo nada y está por cancelarse.` };
+    const et = this.datosEtiqueta(p);
+    return { tono: 'info', texto: `${folio} (${quien}): ya se surtió.`, ...(et ? { reimprimir: et } : {}) };
+  }
+
   esMio(p: PresalePickInboxRow): boolean {
     const yo = this.auth.user()?.sub;
     return !!yo && p.started?.user_id === yo;
@@ -1408,6 +1489,8 @@ export class AlmacenSurtirComponent implements OnInit {
     this.tomandoId.set(null);
     this.error.set(null);
     this.reporte.set(null);
+    this.etiquetaCerrado.set(null);
+    this.avisoEtiqueta.set(null);
     // [MCP.23] La existencia viaja por renglón mientras el pedido no se cierra (ausente = servidor anterior).
     this.stockPedido.set(Object.fromEntries(d.lines.map((l) => [l.line_id, l.stock])));
     this.pedidoSucursal.set(d.order);
@@ -1739,6 +1822,8 @@ export class AlmacenSurtirComponent implements OnInit {
     });
     this.reporte.set(report);
     this.ola.set(null);
+    // [MCP.32] Lo que lleva la etiqueta, antes de soltar el pedido: «Surtido terminado» ofrece imprimirla.
+    this.etiquetaCerrado.set(this.datosEtiqueta(this.pedidoSucursal(), o.lines.length));
     this.pedidoSucursal.set(null);
     this.fase.set('cerrada');
     this.anuncio.set('Pedido surtido.');
@@ -2167,6 +2252,7 @@ export class AlmacenSurtirComponent implements OnInit {
       return;
     }
     this.reporte.set(null);
+    this.etiquetaCerrado.set(null); // [MCP.32] una ola de Kepler no lleva la etiqueta del pedido de la Suite
     this.cerrando.set(true);
     this.api.finish(o.id).subscribe({
       next: (r) => {

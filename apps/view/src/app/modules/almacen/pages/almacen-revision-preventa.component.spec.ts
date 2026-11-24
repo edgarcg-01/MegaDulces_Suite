@@ -186,7 +186,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     expect(fix.componentInstance.metricas()[0].value).toBe(340);
   });
 
-  it('señala un producto a la vez: «Está bien» pasa al siguiente', async () => {
+  it('señala un producto a la vez: «Marcar bien a mano» (sin códigos) pasa al siguiente', async () => {
     await montar();
     await abrir();
     expect(api.detail).toHaveBeenCalledWith('o-carm');
@@ -195,7 +195,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     expect(texto()).toContain('Deben ser 1 caja');
     // [VTK.15] El SKU a la vista mientras revisa.
     expect(texto()).toContain('SKU 44340');
-    clic('Está bien');
+    clic('Marcar bien a mano');
     expect(texto()).toContain('Producto 2 de 3');
     expect(texto()).toContain('faltan 1 paquete');
     expect(texto()).toContain('El sistema dice que sí hay (65 paquetes)');
@@ -217,7 +217,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
   it('el faltante se completa con el surtidor; el borrado sin copia sólo deja «No hay»', async () => {
     await montar();
     await abrir();
-    clic('Está bien');
+    clic('Marcar bien a mano');
     clic('Ya se completó');
     expect(texto()).toContain('SALSA MAGA');
     expect(texto()).toContain('ya no se puede agregar desde aquí');
@@ -307,7 +307,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     await montar();
     await abrir();
     expect(boton('Anterior')).toBeUndefined();
-    clic('Está bien');
+    clic('Marcar bien a mano');
     clic('Anterior');
     expect(texto()).toContain('Producto 1 de 3');
     expect(texto()).toContain('Deben ser 1 caja');
@@ -332,7 +332,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     clic('Anterior');
     expect(enGrande()).toContain('MAZAPAN GIGANTE 50 G');
     clic('Ya se completó');
-    clic('Está bien');
+    clic('Marcar bien a mano');
     // NEGATIVO: lo ya revisado no se puede tocar (se corrige con «Anterior»).
     expect(boton('PALETA PAYASO GRANDE')).toBeUndefined();
     expect(boton('MAZAPAN GIGANTE 50 G')).toBeUndefined();
@@ -363,9 +363,11 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     const enter = (): void => { campo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); fix.detectChanges(); };
     const enGrande = (): string => (el().querySelector('.rv-actual')?.textContent ?? '').replace(/\s+/g, ' ');
 
-    // El SKU que se ve en pantalla lo señala (sin confirmarlo: el SKU no dice la unidad).
+    // [MCP.31] El SKU que se ve en pantalla lo da por bueno entero (un escaneo = todo el renglón); «Anterior» lo deshace.
     escribir('44340'); enter();
-    expect(texto()).toContain('PALETA PAYASO GRANDE: revísalo aquí abajo');
+    expect(texto()).toContain('1 caja de PALETA PAYASO GRANDE · bien');
+    expect(texto()).toContain('Producto 2 de 3');
+    clic('Anterior');
     expect(texto()).toContain('Producto 1 de 3');
 
     // Parte del nombre filtra «Por revisar» mientras se escribe, y lo DICE («1 de 2»).
@@ -389,7 +391,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     expect(api.detail).toHaveBeenLastCalledWith('o-lupi');
   });
 
-  it('[MCP.10.3] con lector: lo de 1 unidad queda bien al escanear, lo demás se señala y lo ajeno se avisa', async () => {
+  it('[MCP.31] con lector: escanear da por bueno el renglón entero, el faltante se señala y lo ajeno se avisa', async () => {
     await montar(() => {
       const d = DETALLE();
       d.lines[0].codes = [{ code: '7501000044340', factor: 1 }, { code: 'C44340', factor: 24 }];
@@ -407,18 +409,17 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     };
     const enGrande = (): string => (el().querySelector('.rv-actual')?.textContent ?? '').replace(/\s+/g, ' ');
     expect(texto()).toContain('Escanéalo o escríbelo arriba');
+    // [MCP.31] Con códigos ya no hay «Está bien» ni «Marcar bien a mano»: se escanea.
+    expect(texto()).toContain('Escanéalo para marcarlo bien');
+    expect(boton('Está bien')).toBeUndefined();
+    expect(boton('Marcar bien a mano')).toBeUndefined();
 
-    // NEGATIVO: la PIEZA de la paleta (pedido de 1 caja de 24) sólo la señala, no la da por buena.
+    // [MCP.31] La PIEZA de la paleta (pedido de 1 caja de 24) también la da por buena: un escaneo = todo el renglón.
     escanear('7501000044340');
-    expect(texto()).toContain('PALETA PAYASO GRANDE: revísalo aquí abajo');
-    expect(texto()).toContain('Producto 1 de 3');
-    expect(campo.value).toBe('');
-
-    // La etiqueta de la CAJA sí: 1 de 1, queda bien sin tocar nada.
-    escanear('C44340');
-    expect(texto()).toContain('PALETA PAYASO GRANDE · bien');
+    expect(texto()).toContain('1 caja de PALETA PAYASO GRANDE · bien');
     expect(texto()).toContain('Producto 2 de 3');
     expect(texto()).toContain('Ya revisados · 1');
+    expect(campo.value).toBe('');
 
     escanear('C44340');
     expect(texto()).toContain('ya lo revisaste');
@@ -429,10 +430,57 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     expect(texto()).toContain('«999» no está en este pedido ni en los otros por revisar');
     expect(texto()).toContain('Producto 2 de 3');
 
-    // El mazapán (3 paquetes, faltó 1) se señala para resolver el faltante en grande.
+    // El mazapán (3 paquetes, faltó 1): el PRIMER escaneo sólo lo señala (en el carrito vienen los 2 que sí hubo).
     escanear('7502000000050');
     expect(enGrande()).toContain('MAZAPAN GIGANTE 50 G');
     expect(enGrande()).toContain('faltan 1 paquete');
+    expect(enGrande()).toContain('Cuando te lo traiga, escanéalo');
+    expect(texto()).toContain('Ya revisados · 1');
+    // Cuando el surtidor trae el que faltó, escanearlo lo completa.
+    escanear('7502000000050');
+    expect(texto()).toContain('MAZAPAN GIGANTE 50 G · completo (3 paquetes)');
+    expect(texto()).toContain('Ya revisados · 2');
+    // La salsa no tiene código: ahí sí aparece el botón a mano.
+    expect(enGrande()).toContain('SALSA MAGA');
+  });
+
+  it('[MCP.33] la etiqueta de un pedido (QR o barras) lo abre desde la lista; lo que no está se dice', async () => {
+    await montar();
+    const campo = el().querySelector('#rv-etq-in') as HTMLInputElement;
+    expect(campo).not.toBeNull();
+    const leer = (t: string): void => { campo.value = t; campo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); fix.detectChanges(); };
+    leer('992026000999');
+    expect(texto()).toContain('PD-2026-00999 no está en los pedidos por revisar de tu sucursal');
+    leer('gomitas');
+    expect(texto()).toContain('«gomitas» no es la etiqueta de un pedido');
+    expect(campo.value).toBe('');
+    // El código de barras de PD-2026-00140 (MISCELANEA LUPITA) abre ese pedido.
+    leer('992026000140');
+    await fix.whenStable();
+    fix.detectChanges();
+    expect(api.detail).toHaveBeenLastCalledWith('o-lupi');
+  });
+
+  it('[MCP.33] dentro de un pedido, la etiqueta de OTRO pedido lo abre; la del mismo, lo dice', async () => {
+    await montar();
+    await abrir();
+    const campo = el().querySelector('#rv-scan-in') as HTMLInputElement;
+    const leer = (t: string): void => { campo.value = t; campo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); fix.detectChanges(); };
+    leer('PD-2026-00138');
+    expect(texto()).toContain('Ya estás en el pedido PD-2026-00138');
+    expect(api.search).not.toHaveBeenCalled();
+    leer("PD'2026'00140");
+    await fix.whenStable();
+    fix.detectChanges();
+    expect(api.detail).toHaveBeenLastCalledWith('o-lupi');
+  });
+
+  it('[MCP.32] «Etiqueta» del pedido de la Suite; sin códigos, «Marcar bien a mano» con su porqué', async () => {
+    await montar();
+    await abrir();
+    expect(boton('Etiqueta')).toBeDefined();
+    expect(texto()).toContain('No se pudieron leer los códigos de Kepler. Revísalo a la vista.');
+    expect(boton('Marcar bien a mano')).toBeDefined();
   });
 
   it('se puede cambiar a otro pedido por revisar', async () => {
@@ -446,7 +494,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     await montar();
     await abrir();
     api.finish.mockReturnValueOnce(throwError(() => ({ error: { message: 'Este pedido ya lo revisó María Cajera a las 10:00.' } })));
-    clic('Está bien');
+    clic('Marcar bien a mano');
     clic('Ya se completó');
     clic('No hay');
     clic('Terminar y seguir con el siguiente');
@@ -457,7 +505,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
   it('[GP.RF.42] un cierre aceptado no reporta nada', async () => {
     await montar();
     await abrir();
-    clic('Está bien');
+    clic('Marcar bien a mano');
     clic('Ya se completó');
     clic('No hay');
     clic('Terminar y seguir con el siguiente');
@@ -469,7 +517,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     await montar();
     await abrir();
     api.finish.mockReturnValueOnce(throwError(() => ({ status: 409, error: { message: 'Este pedido ya lo revisó María Cajera a las 10:00.' } })));
-    clic('Está bien');
+    clic('Marcar bien a mano');
     clic('Ya se completó');
     clic('No hay');
     clic('Terminar y seguir con el siguiente');
@@ -496,7 +544,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     const d = DETALLE();
     api.detail.mockReturnValueOnce(of({ ...d, order: { ...d.order, state: 'revisado', reviewed: { user_id: 'c1', name: 'María Cajera', at: '2026-11-20T16:30:00.000Z' } } }));
     const antes = api.detail.mock.calls.length;
-    clic('Está bien');
+    clic('Marcar bien a mano');
     clic('Ya se completó');
     clic('No hay');
     clic('Terminar y seguir con el siguiente');
@@ -510,7 +558,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     await abrir();
     api.finish.mockReturnValueOnce(throwError(() => ({ status: 422, error: { message: 'Falta el motivo' } })));
     const antes = api.detail.mock.calls.length;
-    clic('Está bien');
+    clic('Marcar bien a mano');
     clic('Ya se completó');
     clic('No hay');
     clic('Terminar y seguir con el siguiente');
