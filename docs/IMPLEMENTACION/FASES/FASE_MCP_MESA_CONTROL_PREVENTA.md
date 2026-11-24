@@ -253,6 +253,23 @@ documento al entregar. **MCP.7** (liquidación) es el que retira el papel de la 
 | **D15** | El día de entrega se cambia con el **calendario libre** desde hoy, **domingos incluidos** («en ocasiones sí trabajan en domingo»), con **motivo obligatorio** y en el **mismo guardado** que los productos. |
 | **D16** | Un pedido en dos sucursales se mueve **entero** (opción A de la maqueta). |
 
+**Respondidas por David (2026-11-24, MCP.31–35):**
+
+| # | Decisión |
+|---|---|
+| **D17** | En **Revisión de pedidos** (caja) se quita «Está bien»: **un escaneo marca bueno el renglón entero**, cualquiera que sea la cantidad (David eligió esto sobre «cada escaneo suma»; queda dicho que así no se cuenta pieza por pieza). Lo que faltó se corrige y, al traerlo, se escanea para pasar a bueno. |
+| **D18** | La **etiqueta del pedido** (QR + código de barras + folio + cliente) la imprime **cada quien en la suya**: el surtidor en la etiquetera TSC del almacén, la cajera en el ticket de caja. |
+| **D19** | El **lector pedido-entrega** va en la **app del vendedor** (cámara) **y en la Suite** (Revisión y Surtir, con el escáner de mano). |
+| **D20** | **Pasar a venta**: sólo las cotizaciones de la **app del vendedor** (las de telemarketing van a Kepler por COT.7, decisión de Edgar). Un toque **pide el día y manda el pedido** al surtidor. |
+| **D21** | Al pasar a venta, **el precio es el de hoy** («que los precios estén actualizados»); se enseña contra lo cotizado antes de confirmar. |
+| **D22** | El catálogo de cotizar enseña la **existencia** de la sucursal. |
+
+Decisiones de implementación de Claude (anunciadas a David el 2026-11-24): los productos sin código de barras
+conservan «Marcar bien a mano» (sin eso el pedido no se podría terminar); el código de barras del pedido codifica
+sólo números (`99` + año + folio a 6) porque el folio completo no cabe en 32 mm, y el QR lleva el folio completo;
+la existencia de cotizar sale de la **misma lectura** que «Tomar pedido»; pasar a venta **no se frena** si falta
+existencia (ADR-115: el vendedor captura sin bloqueo).
+
 Todas las decisiones de diseño están tomadas. Lo que queda abierto es de implementación (§4.1).
 
 ### 4.1 Pendientes de implementación (no bloquean el arranque)
@@ -617,6 +634,41 @@ más recientes de N».
   esa columna); en ese camino la reapertura y el cambio de día tienen la misma hora y su orden en «Por qué cambió»
   puede salir al revés; con `group=true` la búsqueda de la lista sólo ve los renglones del principal (hoy nadie la
   llama así).
+
+### 6.10 MCP.31 a MCP.35 — revisar escaneando, etiqueta del pedido, lector, pasar a venta y existencia al cotizar (🧪 en código, 2026-11-24)
+
+**Pedido de David (2026-11-24):** en Revisión «quitar el botón de “sí está” por un método en donde lo que ya calificó
+el surtidor y dejó listo lo va a jalar y lo va a escanear… y cuando le digan que algo falta pueda modificar y ya
+después escanear para que pase por bueno»; «que se imprima un QR y uno de barras para que cuando el vendedor llegue lo
+lea y sepa de qué es y para quién… lo pueden generar los surtidores y las cajeras… agregar el lector de
+pedido-entrega»; «que las cotizaciones se puedan hacer pedido… con un botón de pasar a venta»; «que los precios estén
+actualizados, además agregas las existencias en el catálogo de las cotizaciones». Decisiones D17–D22 (§4).
+
+| Capa | Estado | Verificado contra / Prueba |
+|---|---|---|
+| C0 | no aplica | Sin migración. El esquema ya tenía `commercial.quotes.order_id` («linaje hacia el pedido en firme»), `accepted_at` y el CHECK `order_only_when_accepted`; nadie los llenaba |
+| C1 | 🧪 | `cotizacion-a-pedido.engine.spec.ts` 4 (negativas: de otro, de telemarketing, cerrada, sin cliente); `pedido-etiqueta.spec.ts` 6 (ida y vuelta, `'` por `-`, un EAN-13 y una etiqueta del checado NO son pedido); `revision-caja.spec.ts` 28 (escribir el nombre NO confirma; **sabotaje** de esa regla salió en rojo); `pedido-etiqueta-impresion.spec.ts` 8; `cotizacion.spec.ts` 8 (sin lectura dice «Sin dato», una lectura de más de 6 h no es número) |
+| C2 | 🧪 · probado contra Postgres real local | `POST /api/commercial/orders/from-quote/:quoteId` (`COMMERCIAL_ORDERS_CONFIRMAR`: el mismo de `POST /orders/:id/place`, con el que la app ya manda cada pedido; su reparto en prod NO se midió hoy). `pasar-a-venta.it.spec.ts` **4/4 contra el Postgres local** como `app_runtime`, payload de `VendorQuoteService.pasarAVenta`: vista previa sin escritura, venta confirmada y ligada, segundo toque devuelve el mismo pedido, 3 negativas sin nada escrito. **Sabotaje** (quitar la protección del doble toque) → rojo. Typecheck `libs/commercial`: 0 errores nuevos |
+| C3 | 🧪 · sin validación visual | App del vendedor 682/682; almacén 949/949 (Revisión 31, Surtir 130); `check:templates-types` de las 4 apps sin errores; `check:pantalla -- almacen` 39 → 39 fallas, ninguna nueva en Revisión ni Surtir (no cubre `apps/vendor`) |
+| C4 | ⬜ | Sin migración. Falta PR, CI, despliegue, verlo en prod desde el menú y **imprimir una prueba** en la TSC y en el ticket de caja |
+
+**Lo que cambia:** `docs/MODULOS/almacen-revision-de-pedidos.md`, `almacen-surtir.md` y `vendedor-mis-pedidos.md`
+(2026-11-24). En corto: en Revisión se escanea en lugar de «Está bien» (a mano sólo lo que no tiene código); la
+etiqueta del pedido sale en la TSC desde «Surtido terminado» y en el ticket desde Revisión; escanear esa etiqueta
+abre el pedido en Revisión y en Surtir, y en la app del vendedor la cámara lo busca; la cotización del vendedor se
+pasa a venta en un toque con precios de hoy, y su catálogo dice la existencia.
+
+**Declarado / fuera de alcance:**
+- **Decisión de implementación en Revisión:** el primer escaneo de un faltante sólo lo SEÑALA; se completa al
+  escanearlo cuando la cajera ya lo estaba atendiendo (lo señaló, lo tocó, lo contó o lo dejó esperando al
+  surtidor). Lo que hay en el carrito son los que sí vinieron: completar con el primer escaneo marcaría completo lo
+  que falta. Reemplaza la regla de MCP.10.3 («la pieza de un pedido de 1 caja sólo señala»): con D17 sí confirma.
+- La etiqueta TSC sale **3 veces** (llena la fila del rollo, igual que la caja P del checado).
+- NO MEDIDO: cómo salen impresas y si la cámara o el lector de mano leen el QR de 16 mm y las barras; las pantallas
+  en un navegador y en el teléfono; el camino de pasar a venta con renglones en caja/paquete contra factores reales de
+  Kepler (la prueba usa piezas); si la bandeja de Surtir trae pedidos ya surtidos (si no, «ya se surtió · Reimprimir»
+  casi no se verá).
+- Telemarketing sigue pasando a pedido por COT.7 (Kepler), con la escritura apagada: decisión de Edgar, no se tocó.
 
 ## 7. Fuera de alcance
 
