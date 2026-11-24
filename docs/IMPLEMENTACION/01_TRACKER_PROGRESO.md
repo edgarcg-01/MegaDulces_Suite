@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 3259 KB, 15608 líneas, 78 secciones.
+> **Índice navegable** — 3260 KB, 15609 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -69,22 +69,22 @@
 | 13813 | 14240 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
 | 14241 | 14255 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
 | 14256 | 14297 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14298 | 14468 | 85 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14469 | 14500 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14501 | 14800 | 78 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14801 | 14875 | 105 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14876 | 14884 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14885 | 14945 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14952 | 14961 | 1 | 📝 Convenciones |
-| 14962 | 14999 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 15000 | 15018 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 15019 | 15071 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 15072 | 15481 | 115 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15482 | 15512 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15513 | 15534 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15535 | 15568 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15569 | 15617 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15618 | 15698 | 68 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14298 | 14469 | 86 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14470 | 14501 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14502 | 14801 | 78 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14802 | 14876 | 105 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14877 | 14885 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14886 | 14946 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14953 | 14962 | 1 | 📝 Convenciones |
+| 14963 | 15000 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 15001 | 15019 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 15020 | 15072 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 15073 | 15482 | 115 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15483 | 15513 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15514 | 15535 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15536 | 15569 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15570 | 15618 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15619 | 15699 | 68 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14443,9 +14443,10 @@ semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso)
 - [ ] **[MSP.4]** 🔨 2026-11-21 **Encender** — ✅ migraciones aplicadas en prod una por una (2026-11-19 19:35 UTC, batch 1213 y 1214; después del merge, que es el orden correcto) · ✅ desplegado (`/api/health` sirve `f43a7340e`, que contiene el squash `3e3bf4caf`; medido el 2026-11-21). Falta: Ernesto cierra sesión y vuelve a entrar (no se puede verificar desde la base: los permisos viajan en el token); **el PM ratifica el cupo**; encender la cola desde Configuración y levantar una solicitud de prueba (marcada «de prueba») con un encargado, CON evidencia adjunta y una orden a Mantenimiento: es la primera medición de la evidencia de punta a punta (no hay bucket en local). **Re-medido el 2026-11-24 (sólo lectura):** ✅ cola **encendida** a las 17:21:54 UTC por `felipe_galvan`; ✅ 2 solicitudes con su adjunto (1 real, asignada y sin dictamen; 1 marcada de prueba, «no autorizada») → el alta con evidencia funciona en prod. Falta: la primera orden de servicio (0 hasta hoy), que mide la copia de la evidencia.
 - [ ] ⬜ **[MSP.D1]** Deuda con nombre: la pantalla de Configuración no edita `requester_positions`, `requires_description`, `requires_decision` ni `work_order_queue_codes` (hoy sólo por migración).
 - [ ] ⬜ **[MSP.D2]** Deuda con nombre: si una orden se REABRE después de haber resuelto al padre, el padre sólo lo anota en su hilo; no se reabre solo.
+- [ ] ⬜ **[MSP.D3]** Deuda con nombre (hallada en la prueba en pantalla de `[MSP.5.0]`, 2026-11-24): a un superadmin la ficha le ofrece «Autorizar / No autorizar» (y «Generar orden de servicio»), porque `puedeDictaminar` usa `coord()`, que la bandeja calcula por permiso; el servidor lo rechaza con «Sólo la coordinación de esta área da el dictamen» (D7: decide por membresía real). Ocultar esos botones a quien no coordina por membresía. Viene de `[MSP.3]`. `FASE_MSP` §9.7.
 - [ ] **[MSP.5]** 🔨 2026-11-24 **Reposición de equipo desde TI y Mantenimiento → Presupuestos** — [`FASE_MSP` §9](docs/IMPLEMENTACION/FASES/FASE_MSP_PRESUPUESTOS_Y_REQUERIMIENTOS.md). Pedido del usuario: «que al registrar que la impresora ya no funcione pase esa orden como solicitud de compra para el área de presupuestos». D9–D12 contestadas por el usuario el 2026-11-24: lo decide la coordinación de Mantenimiento y de TI; la orden de instalación sale cuando el equipo ya llegó; cotización opcional, sin monto; primero lo más simple: el cambio mínimo `[MSP.5.0]` y el piloto. Medido en prod el 2026-11-24: TI 126 solicitudes y Mantenimiento 5; 0 ligas y 0 traslados en toda la historia de la Mesa.
-- [ ] ⬜ **[MSP.5.0]** **Presupuestos aparece al trasladar** (C2 + C3, sin migración): hoy el diálogo «Transferir a otra área» arma su lista con el catálogo de «Nueva solicitud», que desde `[MSP.2.1]` le esconde Presupuestos a la coordinación de TI y de Mantenimiento; el servidor sí aceptaría el traslado (D8). `GET /service-desk/transfer-targets` (`SERVICIO_COORDINAR`) sin el filtro de puestos y el diálogo la usa; «Nueva solicitud» no cambia. Cierra con: prueba del servicio y de la pantalla, cada una con su negativa, y el traslado de TI a Presupuestos ejercido contra una base real (regla 13; hoy ninguna prueba HTTP traslada). Plan en `FASE_MSP` §9.3.
-- [ ] **[MSP.5.1]** ⬜ **Piloto** (espera a `[MSP.5.0]`): Trasladar (`[MS.7.11]`) a Presupuestos, categoría «Compra de activos» → dictamen → en espera «proveedor» hasta que llega el equipo → orden de servicio al área de origen → la solicitud original se resuelve sola (`[MSP.1.6]`). Verificado leyendo el código de `main`; ⚠️ **NO MEDIDO** de punta a punta: el primer caso real es la prueba. Cierra con: ≥ 1 caso real recorrido completo y medido en prod (traslado, dictamen, orden, padre resuelto por el sistema), y los dos tiempos del §9.6.
+- [ ] 🧪 2026-11-24 **[MSP.5.0]** **Presupuestos aparece al trasladar** (C2 + C3, sin migración; **PR #620**): hoy el diálogo «Transferir a otra área» arma su lista con el catálogo de «Nueva solicitud», que desde `[MSP.2.1]` le esconde Presupuestos a la coordinación de TI y de Mantenimiento; el servidor sí aceptaría el traslado (D8). `GET /service-desk/transfer-targets` (`SERVICIO_COORDINAR`) sin el filtro de puestos y el diálogo la usa; «Nueva solicitud» no cambia. Cierra con: prueba del servicio y de la pantalla, cada una con su negativa, y el traslado de TI a Presupuestos ejercido contra una base real (regla 13; hoy ninguna prueba HTTP traslada). Plan en `FASE_MSP` §9.3. **Probado 🧪 el 2026-11-24:** `traslado.spec` 21/21 y `servicio-por-cola.spec` 15/15 (7 nuevas), librería 362/362 y módulo 332/332, **4 mutantes en rojo**; `http-service-desk-presupuestos-test.js` **80/80** contra la API levantada desde la rama (el bloque 11 recorre el piloto entero; sin el cambio, `transfer-targets` daba 404); en pantalla, de punta a punta, con 16 capturas en el repo privado del PM (`evidencia/MSP.5.0/`, datos sintéticos); `check:pantalla -- servicio` idéntico antes y después. ⚠️ NO MEDIDO: la evidencia que viaja a la orden (sin almacenamiento local), que se mide en `[MSP.5.1]`.
+- [ ] **[MSP.5.1]** ⬜ **Piloto** (espera a que `[MSP.5.0]` llegue a prod): Trasladar (`[MS.7.11]`) a Presupuestos, categoría «Compra de activos» → dictamen → en espera «proveedor» hasta que llega el equipo → orden de servicio al área de origen → la solicitud original se resuelve sola (`[MSP.1.6]`). Verificado leyendo el código de `main`; ⚠️ **NO MEDIDO** de punta a punta: el primer caso real es la prueba. Cierra con: ≥ 1 caso real recorrido completo y medido en prod (traslado, dictamen, orden, padre resuelto por el sistema), y los dos tiempos del §9.6.
 - [ ] ⏸️ **[MSP.5.2]** Atajo «Requiere compra» (solicitud hija en Presupuestos; la de origen espera con motivo `aprobacion` y **se reanuda**, no se resuelve, al decidir Presupuestos). Escrito en el §9.5; espera al piloto (D12) y al cupo, que ratifica el PM.
 - [ ] **[MSH.5]** ⬜ 2026-11-12 **Botón «Reporte confidencial»** (R8-b, decisión del dueño de la Mesa 2026-11-12): desde el formulario de cualquier área cambia el destino a la cola RH; no marca confidencial un ticket de otra cola (R1 intacta); sólo aparece con la cola RH encendida. Criterio: casos 21–24 de [`FASE_MSH`](docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md) «Decisiones 2026-11-12», cada uno con su negativa.
 - [ ] **[MSH.4]** ⬜ 2026-11-12 **Siembra de la cola RH + matriz de 20 casos** ([`FASE_MSH`](docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md) §5): migración con la cola `rh` confidencial, apagada, sin prioridad ni SLA, 10 categorías, Lesly Berber y Tania Solorio coordinadoras con `SERVICIO_ATENDER`+`SERVICIO_COORDINAR` (hoy sólo reportan, medido 2026-11-12) y la cola ligada al código de aviso `rh` (el aviso NO se siembra: se carga con el texto aprobado). Encender ⚠️ espera a Legal (PRV.0/PRV.1/PRV.3).

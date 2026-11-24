@@ -15,7 +15,7 @@ MÉTRICA:  solicitudes de presupuesto con dictamen registrado en la Suite —
 CAPA TOPE: C3
 ÁREA:      Finanzas (Presupuestos y Compras Corporativas) + Plataforma (Mesa de Servicio)
 DUEÑO:     Sistemas (construcción) · Ernesto Zárate (coordinación del área)
-ESTADO:    🔨  (C0–C3 ✅ en prod desde el 2026-11-19 · cola ENCENDIDA el 2026-11-24 · alta con evidencia medida en prod; su copia en la orden y la validación visual NO MEDIDAS · falta la orden de prueba de MSP.4.3 · §9: reposición desde TI y Mantenimiento, falta `[MSP.5.0]` para el piloto)
+ESTADO:    🔨  (C0–C3 ✅ en prod desde el 2026-11-19 · cola ENCENDIDA el 2026-11-24 · alta con evidencia medida en prod; su copia en la orden y la validación visual NO MEDIDAS · falta la orden de prueba de MSP.4.3 · §9: reposición desde TI y Mantenimiento — `[MSP.5.0]` 🧪 en el PR #620, probado en local por HTTP (80/80) y en pantalla de punta a punta)
 ```
 
 ⚠️ **Cupo:** MS está ⏸️ en el roadmap y la campaña de aterrizaje sigue (Fase 0). Este frente lo pidió el usuario el
@@ -212,6 +212,7 @@ que da el piloto.
 | D10 | Presupuestos manda la orden de instalación **cuando el equipo ya llegó**, no al autorizar, para que la bandeja de TI y de Mantenimiento sólo tenga trabajo que se puede hacer. Mientras llega, la solicitud queda en espera con el motivo «proveedor», que ya existe. | Usuario (regla) · Sistemas (el motivo) |
 | D11 | La cotización es **opcional** y va como adjunto. No hay campo de monto (respeta D4). | Usuario |
 | D12 | Primero lo más simple: Trasladar + Orden de servicio, con el único cambio que hace falta para que Presupuestos aparezca al trasladar (`[MSP.5.0]`). El atajo `[MSP.5.2]` queda escrito para cuando el piloto lo pida. | Usuario («aplica lo que sea más simple de implementar») · Sistemas (que hace falta `[MSP.5.0]`, §9.3) |
+| D13 | El diálogo «Transferir a otra área» tiene su **propia** lista (`GET /service-desk/transfer-targets`, con `SERVICIO_COORDINAR`): todas las áreas encendidas que tienen categorías, **sin** la lista de puestos, que ni siquiera se lee. «Nueva solicitud» y las órdenes de servicio siguen con el catálogo. Las demás reglas del traslado (confidencial, alguien que atienda, la cola actual) las sigue decidiendo `validarTraslado` en el servidor. | Sistemas (2026-11-24) |
 
 ### 9.3 La pieza que falta (`[MSP.5.0]`) y el flujo del piloto (`[MSP.5.1]`)
 
@@ -233,6 +234,23 @@ pida. Es la «puerta pintada» al revés: un camino que existe y la pantalla no 
   tiene ningún traslado).
 - Alternativa descartada: hacer a las 16 personas de la coordinación de TI y Mantenimiento miembros de Presupuestos.
   No necesita código, pero les abriría la bandeja de Presupuestos con todas las solicitudes de todas las sucursales.
+
+**Estado de `[MSP.5.0]`: 🧪 2026-11-24, PR #620** (commit `f9e66d473`, sobre `70afdf3bf`):
+
+| Prueba | Resultado |
+|---|---|
+| `traslado.spec.ts` (dominio, `destinosDeTraslado`) | **21/21** (5 nuevas) |
+| `servicio-por-cola.spec.ts` (el diálogo) | **15/15** (2 nuevas) |
+| Librería `service-desk` · módulo `servicio` | **362/362** · **332/332** |
+| Mutantes | **4/4 en rojo**, y restaurados en verde: el filtro de puestos de vuelta; la lista de puestos se cuela; el diálogo vuelve al catálogo; el error de carga se calla |
+| `http-service-desk-presupuestos-test.js`, contra Postgres local y la API levantada desde la rama | **80 ✅ 0 ❌**, dos corridas completas. El bloque 11 recorre el piloto entero (§9.3) con la cajera como solicitante real. Negativa: la API sin el cambio contestaba **404** en `transfer-targets` |
+| Pantalla, local, de punta a punta | 16 capturas en el repo **privado** del PM, `evidencia/MSP.5.0/` (datos sintéticos). Muestran: «Nueva solicitud» sin Presupuestos → «Transferir» con Presupuestos → mismo folio, nota interna y motivo → dictamen → «Esperando al proveedor» → orden a TI («Viene de SRV-…») → **la original resuelta sola** («Sistema») |
+| `check:pantalla -- servicio` | idéntico antes y después (28 fallas, ninguna nueva) |
+| Arranque de la API | verificado: la ruta contesta 401 sin sesión |
+| ⚠️ NO MEDIDO | la evidencia (adjunto) que viaja a la orden, porque en local no hay almacenamiento: se mide con el primer caso real (`[MSP.5.1]`); y la vista de quien reporta sin god-mode, que sólo se cubrió por HTTP |
+
+Para recorrerlo en pantalla hicieron falta datos sintéticos reversibles en la base local: una cola «Presupuestos (local MSP.5)»
+y un coordinador **sin god-mode**, porque las cuentas locales son superadmin y por D7 un superadmin no da dictamen.
 
 **El flujo del piloto, ya con `[MSP.5.0]`:**
 
@@ -286,6 +304,15 @@ ni ligas; medido el 2026-11-24). Desde que `[MSP.5.0]` llegue a prod, se cuenta 
 Presupuestos, y se miden dos tiempos: del traslado al dictamen, y del dictamen a la orden resuelta. Con eso se decide si
 `[MSP.5.2]` vale el cupo.
 
+### 9.7 Hallazgo de la prueba en pantalla: a un superadmin se le ofrece el dictamen (`[MSP.D3]`)
+
+En la prueba local, a un superadmin (`prueba_cortes`, miembro coordinador de la cola) la ficha le ofreció «Autorizar».
+El servidor lo rechazó con «Sólo la coordinación de esta área da el dictamen», y es lo correcto según D7: el god-mode no
+autoriza gasto. El mensaje se entiende, pero **el botón no debería ofrecerse**, porque es una puerta pintada. La pantalla
+decide con la entrada `coord()`, que para el god-mode es verdadera; el servidor decide por membresía real, y al god-mode no
+se le cargan membresías. Es previo a `[MSP.5]`: viene de `[MSP.3]`. Queda como deuda con nombre `[MSP.D3]` (ocultar
+«Autorizar / No autorizar» y «Generar orden de servicio» a quien no coordina por membresía real). Evidencia: la captura 09.
+
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
@@ -296,3 +323,4 @@ Presupuestos, y se miden dos tiempos: del traslado al dictamen, y del dictamen a
 | 2026-11-19 | **PR #567** abierto. CI obligatorio en verde; `Lint & test` rojo ajeno (`primeng` 24 > 21 ya en la base). `main` tomó ADR-122 (`[VER]`): la decisión de esta fase pasa a **ADR-124** en una fusión. Las observaciones del ciclo, al protocolo previo al PR (`ONBOARDING.md` §8.0b, puntos 114–119; 109–113 son de #569). | Claude |
 | 2026-11-21 | **En prod, con la cola apagada** (re-medido, sólo lectura): #567 fusionado el 2026-11-19 (squash `3e3bf4caf`, 18:28 UTC); las 2 migraciones aplicadas a las 19:35 UTC (batch 1213 y 1214), después del merge; prod sirve `f43a7340e`, que contiene el squash; cola `presupuestos` apagada, 3 categorías, 0 solicitudes; Ernesto coordinador con sus 2 permisos. C0–C3 y MSP.4.1 a ✅. Falta MSP.4.2 (re-login) y MSP.4.3 (encender + prueba con evidencia), con el cupo ratificado por el PM. | Claude |
 | 2026-11-24 | Re-medido en prod (sólo lectura): la cola se **encendió** a las 17:21:54 UTC (`felipe_galvan`); 2 solicitudes con su adjunto (1 real, 1 de prueba «no autorizada»), 0 órdenes. **Pedido nuevo del usuario:** que la reposición de equipo de TI y Mantenimiento llegue a Presupuestos como solicitud de compra. D9–D12 contestadas por el usuario: lo más simple con Trasladar + Orden de servicio (§9), y el atajo `[MSP.5.2]` escrito y en espera. Al revisar la pantalla: Presupuestos no aparece en «Transferir a otra área» para TI ni Mantenimiento (la lista sale del catálogo de «Nueva solicitud»), así que el piloto necesita el cambio mínimo `[MSP.5.0]`. | Usuario + Claude |
+| 2026-11-24 | **`[MSP.5.0]` construido y probado** (PR #620): lista de traslado propia (D13); 21/21 de dominio, 15/15 de la pantalla y 4 mutantes en rojo; HTTP 80/80 con el piloto de punta a punta; prueba en pantalla con 16 capturas en el repo privado del PM. Hallazgo previo: el dictamen se le ofrece a un superadmin y el servidor lo rechaza (§9.7, `[MSP.D3]`). Lo aprendido, al protocolo previo al PR (`ONBOARDING.md` §8.0b, puntos 126 a 130). | Usuario + Claude |
