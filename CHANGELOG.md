@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Compras › Calendario de compras: el manual de capacitación, desde la pantalla (PQ.3.20 · 2026-11-23)
+- En el encabezado, junto a «cargado ahora», el botón «Manual» abre el manual en otra pestaña. La Parte 1 es para quien revisa y la Parte 2 para la gerencia, que define y mantiene las reglas. Trae casos, dos autoevaluaciones y una guía para quien capacita.
+- El manual sigue el tema elegido en la Suite y se lee en el celular.
+- Internal: `app-manual-link` es el botón compartido para la siguiente pantalla con manual (`assets/manuales/<pantalla>.html`). `calendario-compras-manual.spec.ts` falla si la pantalla cambia un rótulo y el manual no.
 ### Changed — Finanzas › Cartera: la ficha del cliente, igual que su estado de cuenta (CXC.51 · 2026-11-23 · en código, sin soltar)
 - Las facturas van de la más reciente a la más antigua, como en el PDF que se le envía al cliente.
 - Una línea con el resumen del periodo elegido: saldo al inicio + facturado − cobros − notas y devoluciones = saldo en facturas. Lo que no cuadra se dice en ámbar.
