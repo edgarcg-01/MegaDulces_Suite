@@ -1103,3 +1103,9 @@ El primitivo decide; **todavía no hay quién escriba**. Falta la capa de arriba
    por el repo (público) ni por un importer (regla 1). **D7 sigue abierta**, y es la misma pregunta
    que `[NE.0.7]` para la serie histórica.
 3. Nada de esto llega a prod sin desplegar.
+
+> ⭐⭐ **El mapa estructural del frente entero vive en su propio anexo:**
+> [`FASE_RH_FRENTE_NE_ANEXO_ESTRUCTURA_2026-11-24.md`](FASE_RH_FRENTE_NE_ANEXO_ESTRUCTURA_2026-11-24.md).
+> Qué hay en cada capa, en qué orden se construye, y por qué **la mudanza del Access va al final**
+> (Edgar, 2026-11-24). Medido ese día: **6 primitivos de nómina y 0 llamadores**, 0 endpoints y
+> 3 tablas del frente en 0 filas.
