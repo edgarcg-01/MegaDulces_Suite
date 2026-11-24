@@ -328,6 +328,24 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-24** — 🧪 **[COT.58] La pieza de un pieza · paquete · caja se vende sólo en piso** (regla de Francisco: «la
+  unidad inferior sólo está para venta en piso de ventas en el área de cajas; sólo permitir venta de caja y paquete»).
+  C0, medido en prod en sólo lectura con la escalera real del cotizador (`ladders`, las 8 sucursales): 429 productos
+  ofrecen 3 unidades con precio, los mismos en las 8; **362 son PZA · PAQ · CJA** y a ésos aplica. Los otros 67 se quedan
+  como están por decisión de Francisco: 60 de granel por peso (250/400/500 g → KG → caja, bulto o cubeta) y 7 fichas con
+  otras unidades (PZA · PAQ · BTO, PAQ · PAQ · CJA, KG · PAQ · CJA…). 84 de los 362 ya se habían cotizado en pieza; los
+  renglones guardados no se tocan. La regla vista desde el buscador (`v_label_prices`, lo que ve la pantalla) y desde la
+  escalera (lo que valida el servidor) coincide en las 2,896 filas sucursal × producto: 0 diferencias. Cinco preguntas:
+  (1) al elegir uno de estos productos, Paquete · Caja con el paquete elegido; (2) no se ve el botón Pieza; (3) la nota
+  «Pieza: sólo en piso de ventas» lo dice en texto, Alt+1 elige el paquete y el código de barras de la pieza deja el
+  paquete en vez del aviso de «empaque sin precio»; (4) el pedido a Kepler no cambia; (5) alta y borrador, misma regla;
+  los pedidos (`commercial-orders`) no. Hecho: `piezaSoloEnPiso` en `@megadulces/contracts` (una regla para pantalla y
+  servidor); `priceLine` rechaza la pieza con `check_sellable_unit`, que piden el renglón nuevo y el cambio de unidad, y
+  NO re-cotizar ni cambiar la cantidad (las cotizaciones que ya traían pieza siguen vivas); en pantalla, `opcionesUnidad`
+  la quita y `unidadInicial` arranca en el paquete. Pruebas: 7 de la regla, 9 del motor y 5 nuevas de unidades; tres
+  mutantes (sin la regla en el motor, en la pantalla y en el contrato) → rojo; 183/183 de televenta. `check:pantalla
+  televenta` igual que `origin/main` sin el cambio (las 6 «nuevas» ya estaban). **Sin validación visual.**
+
 - **2026-11-24** — 🧪 **[COT.57] (parte 1) El precio pactado a mano se respeta.** Caso: COT-2026-00650 (cliente ENVIOS
   ONLINE) tenía que llevar los precios de un pedido en línea ya cobrado (Edgar: «pásame estos precios, excepto los totis y
   la nucita»). Se escribieron en prod a mano (8 renglones `price_source = 'manual'`, con candado de `updated_at`, la cuenta

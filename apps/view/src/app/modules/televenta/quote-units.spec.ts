@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { abrevUnidadBase, desglose, esPaquete, gramosDeBase, unidadBaseLegible, unidadBaseDesglose, textoHay, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio, unidadDelEscaneo, netoPorUnidad } from './quote-units';
+import { abrevUnidadBase, desglose, esPaquete, gramosDeBase, unidadBaseLegible, unidadBaseDesglose, textoHay, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio, unidadDelEscaneo, netoPorUnidad, piezaSoloEnPisoDe, unidadInicial } from './quote-units';
 import { pasosDelPrecio } from './quote-discount-breakdown';
 import { etiquetaDesglose } from './quote-deliverable-export';
 import type { QuoteCatalogRow } from './quotes.service';
@@ -23,9 +23,9 @@ const fila = (o: Partial<QuoteCatalogRow>): QuoteCatalogRow => ({
 });
 
 describe('opcionesUnidad — de menor a mayor, sólo las que el ERP declara', () => {
-  it('KINDER DELICE (42029): Pieza 1 · Paquete 10 · Caja 140 (antes salía Pieza · Caja · Paquete)', () => {
+  it('KINDER DELICE (42029): Paquete 10 · Caja 140 (antes salía Pieza · Caja · Paquete; la pieza es de piso desde COT.58)', () => {
     const o = opcionesUnidad(fila({ unit_base: 'PZA', pack_size: 10, box_size: 140, box_label: 'CJA' }));
-    expect(o.map((x) => `${x.titulo} ${x.tamano}`)).toEqual(['Pieza 1', 'Paquete 10', 'Caja 140']);
+    expect(o.map((x) => `${x.titulo} ${x.tamano}`)).toEqual(['Paquete 10', 'Caja 140']);
   });
 
   it('un producto con una sola unidad pinta UN solo botón', () => {
@@ -72,9 +72,37 @@ describe('opcionesUnidad — de menor a mayor, sólo las que el ERP declara', ()
   });
 
   it('[COT.30] la intermedia sin rótulo o PAQ sigue siendo «Paquete»; el paquete se desglosa en la caja sólo si ES paquete', () => {
-    expect(opcionesUnidad(fila({ unit_base: 'PZA', pack_size: 10, pack_label: 'PAQ', box_size: 140 }))[1].titulo).toBe('Paquete');
+    // [COT.58] Sin la pieza (es de piso), el paquete es la primera opción.
+    expect(opcionesUnidad(fila({ unit_base: 'PZA', pack_size: 10, pack_label: 'PAQ', box_size: 140 }))[0].titulo).toBe('Paquete');
     expect(esPaquete('KG')).toBe(false);
     expect(esPaquete(null)).toBe(true);
+  });
+});
+
+describe('[COT.58] la pieza de un pieza · paquete · caja se vende sólo en piso', () => {
+  const snickers = fila({ sku: '06001', unit_base: 'PZA', pack_size: 6, pack_label: 'PAQ', box_size: 192, box_label: 'CJA' });
+
+  it('06001 CHOC SNICKERS /6: Paquete · Caja, sin pieza', () => {
+    expect(piezaSoloEnPisoDe(snickers)).toBe(true);
+    expect(opcionesUnidad(snickers).map((x) => x.rung)).toEqual(['pack', 'box']);
+  });
+
+  it('la pieza se queda donde no hay las tres: pieza · caja, pieza · paquete, o una sola', () => {
+    expect(opcionesUnidad(fila({ unit_base: 'PZA', box_size: 24, box_label: 'CJA' }))[0].rung).toBe('base');
+    expect(opcionesUnidad(fila({ unit_base: 'PZA', pack_size: 6, pack_label: 'PAQ' }))[0].rung).toBe('base');
+    expect(opcionesUnidad(fila({ unit_base: 'PZA' }))[0].rung).toBe('base');
+  });
+
+  it('la pieza se queda con otras unidades: bulto en vez de caja (01054) o granel por peso (17252)', () => {
+    expect(piezaSoloEnPisoDe(fila({ unit_base: 'PZA', pack_size: 10, pack_label: 'PAQ', box_size: 100, box_label: 'BTO' }))).toBe(false);
+    expect(piezaSoloEnPisoDe(fila({ unit_base: '250', pack_size: 4, pack_label: 'KG', box_size: 40, box_label: 'CJA' }))).toBe(false);
+  });
+
+  it('unidadInicial: el paquete cuando la pieza es de piso; la base en los demás', () => {
+    expect(unidadInicial(snickers)).toBe('pack');
+    expect(unidadInicial(snickers, 'base')).toBe('pack'); // la anterior ya no se ofrece
+    expect(unidadInicial(snickers, 'box')).toBe('box'); // la anterior sí: se conserva
+    expect(unidadInicial(fila({ unit_base: 'PZA', box_size: 24, box_label: 'CJA' }))).toBe('base');
   });
 });
 
@@ -221,7 +249,10 @@ describe('renglón antes de guardar = renglón guardado', () => {
 describe('[COT.42] unidadDelEscaneo — el código de la caja elige la caja', () => {
   const agua = fila({ unit_base: 'PZA', pack_size: 6, pack_label: 'PAQ', box_size: 24, box_label: 'CJA' });
   it('sin código (búsqueda por palabras): null, no toca la unidad', () => expect(unidadDelEscaneo({ ...agua, scan_factor: null })).toBeNull());
-  it('código de la pieza: base', () => expect(unidadDelEscaneo({ ...agua, scan_factor: 1 })).toBe('base'));
+  it('[COT.58] código de la pieza de un pieza · paquete · caja: no elige nada (queda el paquete)', () =>
+    expect(unidadDelEscaneo({ ...agua, scan_factor: 1 })).toBeNull());
+  it('código de la pieza donde la pieza sí se cotiza (pieza · caja): base', () =>
+    expect(unidadDelEscaneo(fila({ unit_base: 'PZA', box_size: 24, box_label: 'CJA', scan_factor: 1 }))).toBe('base'));
   it('código del paquete: pack', () => expect(unidadDelEscaneo({ ...agua, scan_factor: 6 })).toBe('pack'));
   it('código de la caja: box', () => expect(unidadDelEscaneo({ ...agua, scan_factor: 24 })).toBe('box'));
   it('un empaque sin precio en la sucursal: se avisa, no cae a pieza', () => expect(unidadDelEscaneo({ ...agua, scan_factor: 12 })).toBe('sin-opcion'));

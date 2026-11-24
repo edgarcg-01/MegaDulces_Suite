@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Changed — Telemarketing › Cotizaciones: la pieza de los productos pieza · paquete · caja ya no se cotiza (COT.58 · 2026-11-24)
+- En los productos que se venden en pieza, paquete y caja (362, como los chocolates de 6), la pieza es para el piso de ventas: al cotizar sólo aparecen Paquete y Caja, con el paquete elegido, y una nota dice «Pieza: sólo en piso de ventas». Escanear el código de la pieza deja elegido el paquete.
+- Los productos a granel por peso (medio kilo, kilo, bulto) y los que tienen otras unidades siguen igual.
+- Las cotizaciones ya guardadas que traían pieza se conservan: se puede cambiar la cantidad y volver a cotizarlas. Lo que ya no se puede es agregar un renglón nuevo en pieza, ni cambiar uno a pieza.
+
 ### Added — Compras › Calendario de compras: el manual de capacitación, desde la pantalla (PQ.3.20 · 2026-11-23)
 - En el encabezado, junto a «cargado ahora», el botón «Manual» abre el manual en otra pestaña. La Parte 1 es para quien revisa y la Parte 2 para la gerencia, que define y mantiene las reglas. Trae casos, dos autoevaluaciones y una guía para quien capacita.
 - El manual sigue el tema elegido en la Suite y se lee en el celular.
