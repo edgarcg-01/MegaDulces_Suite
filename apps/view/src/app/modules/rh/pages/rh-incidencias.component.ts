@@ -63,7 +63,7 @@ const FILTROS: Array<{ value: FiltroEstado; label: string; statuses: string }> =
       @if (embebido()) {
         <div class="ri-head-btns ri-emb-btns"><ng-container *ngTemplateOutlet="botonesCabecera" /></div>
       } @else {
-        <app-rh-marco [barra]="false" [franja]="false">
+        <app-rh-marco [barra]="false">
           <div acciones class="ri-head-btns"><ng-container *ngTemplateOutlet="botonesCabecera" /></div>
         </app-rh-marco>
       }

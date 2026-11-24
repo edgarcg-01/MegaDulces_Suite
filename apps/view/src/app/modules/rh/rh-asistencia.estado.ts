@@ -98,6 +98,30 @@ export class RhAsistenciaEstado {
   readonly nombreSitio = computed(() => this.sitios().find((s) => s.code === this.sitio())?.name ?? this.sitio() ?? '');
   readonly relojesSitio = computed(() => this.relojes().filter((r) => r.sucursalId === this.sitio()));
 
+  /**
+   * El estado de cierre de la semana en pantalla. `[RH.18.11]` Vive aquí (antes en el marco) porque lo leen dos lugares:
+   * el marco pinta el aviso que pide algo (terminó y no se cerró) o lo cerrado, y la fila de modos dice en una línea
+   * cuándo se puede cerrar la semana en curso. Sin cierres leídos (sin permiso) no se afirma nada.
+   */
+  readonly cierreSemana = computed<{ texto: string; tono: 'warn' | 'mute' | 'curso'; link: string | null; desde: string } | null>(() => {
+    if (!this.sitio() || !this.datos()) return null;
+    const jueves = this.modoHoy() ? this.juevesActual() : this.jueves();
+    if (jueves >= this.juevesActual()) {
+      return { texto: `se puede cerrar desde el ${fechaCorta(sumarDias(jueves, 7))}`, tono: 'curso', link: null, desde: jueves };
+    }
+    const c = this.cierres();
+    if (c === null) return null;
+    const vigente = c.find((x) => x.vigente && x.period_start === jueves);
+    if (vigente) {
+      return { texto: `Semana cerrada para prenómina${vigente.closed_by_name ? ' por ' + vigente.closed_by_name : ''}. Lo que pasó a prenómina es la foto de ese día; si algo cambió después, se reabre en Incidencias.`, tono: 'mute', link: null, desde: jueves };
+    }
+    const p = this.pendientes();
+    const falta = p ? ` Para cerrarla falta calificar ${p} incidencia${p === 1 ? '' : 's'}.` : '';
+    return { texto: `La semana del ${fechaCorta(jueves)} ya terminó y no está cerrada.${falta}`, tono: 'warn', link: p ? 'Calificarlas' : 'Cerrar la semana', desde: jueves };
+  });
+  /** Quien checa sin estar ligado a su persona sale con el nombre del reloj (no es un nombre real). */
+  readonly sinLigar = computed(() => (this.datos()?.personas ?? []).filter((p) => !p.registrado).length);
+
   // ── Lo que cuentan las pestañas ──
   /** En una sucursal sin hora límite no se mide tolerancia: no hay número que dar (null, no un cero). */
   readonly nRebasados = computed(() => (this.datos()?.mideRetardo === false ? null : rebasados(this.datos()).usables.length));

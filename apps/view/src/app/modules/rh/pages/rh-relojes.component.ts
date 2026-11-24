@@ -43,7 +43,7 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
       @if (embebido()) {
         <div class="rr-head-btns rr-emb-btns"><ng-container *ngTemplateOutlet="botonesCabecera" /></div>
       } @else {
-        <app-rh-marco [barra]="false" [franja]="false">
+        <app-rh-marco [barra]="false">
           <div acciones class="rr-head-btns"><ng-container *ngTemplateOutlet="botonesCabecera" /></div>
         </app-rh-marco>
       }

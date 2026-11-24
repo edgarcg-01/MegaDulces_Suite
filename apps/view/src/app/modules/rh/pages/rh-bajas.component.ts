@@ -38,7 +38,7 @@ const DIAS_POR_OMISION = 31;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="rb-page">
-      <app-rh-marco [barra]="false" [franja]="false" />
+      <app-rh-marco [barra]="false" />
       <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
       @if (!est.sinPlazas()) {
       <section class="rb-bar" aria-label="Plaza">

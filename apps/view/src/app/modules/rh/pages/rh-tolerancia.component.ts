@@ -20,7 +20,7 @@ import { departamentoDe, hora12, rebasados } from '../reporte-formato';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="rt-page" [class.emb]="embebido()">
-      @if (!embebido()) { <app-rh-marco [barra]="true" [franja]="true" /> }
+      @if (!embebido()) { <app-rh-marco [barra]="true" /> }
       <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
       @if (!est.sinPlazas()) {
       <app-load-state [loading]="est.loading() && !est.datos()" [error]="est.error()" (retry)="est.asegurar(true)">

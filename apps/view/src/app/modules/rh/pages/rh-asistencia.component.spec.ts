@@ -14,6 +14,7 @@ import { By } from '@angular/platform-browser';
 import { RhCapturaIncidenciaComponent } from '../components/rh-captura-incidencia.component';
 import { By } from '@angular/platform-browser';
 import { RhMarcoComponent } from '../components/rh-marco.component';
+import { RhFiltrosComponent } from '../components/rh-semana-barra.component';
 
 /**
  * `[RH.1.7c]` Checadas: el reporte semanal «calcado» de Mega Talento. Lo que se defiende: se lee como el papel de
@@ -206,17 +207,20 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     expect(fix.componentInstance.sel()?.codigo).toBe('77');
   });
 
-  it('la fila abre la ficha con su semana día por día; «Ver solo a esta persona» deja sólo a ella', async () => {
+  it('[RH.18.10] la fila abre la ficha (sin repetir la semana día por día); «Ver solo a esta persona» la muestra día por día', async () => {
     await render({ claves: [Permission.HR_ATTENDANCE_VER] });
     filas().find((f) => f.textContent?.includes('Prueba Uno'))!.click();
     await ciclo();
     expect(fix.componentInstance.sel()?.codigo).toBe('104');
-    expect(el().querySelector('app-side-peek')?.textContent).toContain('Lun 5');
+    expect(el().querySelector('app-side-peek app-rh-persona-dias')).toBeNull();
+    expect(el().querySelector('app-side-peek')?.textContent).not.toContain('Lun 5');
     boton('Ver solo a esta persona')!.click();
     await ciclo();
     expect(fix.componentInstance.sel()).toBeNull();
     expect(texto()).toContain('solo esta persona');
     expect(el().querySelector('app-rh-reporte-semanal')).toBeNull();
+    // Ahí sí, la semana de la persona día por día.
+    expect(el().querySelector('.ra-una app-rh-persona-dias')?.textContent).toContain('Lun 5');
   });
 
   it('[RH.13.5] la semana también se elige en el calendario: cualquier día abre su semana de jueves a miércoles', async () => {
@@ -242,24 +246,30 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
 
   it('[RH.13.5] «Personas» es plaza, departamento y personas: un departamento entero, sueltas o una sola', async () => {
     await render({ claves: [Permission.HR_ATTENDANCE_VER] });
-    const marco = fix.debugElement.query(By.directive(RhMarcoComponent)).componentInstance as RhMarcoComponent;
+    // [RH.18.11] Personas vive en el globo de «Filtros», en la fila de modos.
+    const filtros = fix.debugElement.query(By.directive(RhFiltrosComponent)).componentInstance as RhFiltrosComponent;
     const nombres = () => filas().map((f) => f.querySelector('.rs-n')?.textContent?.trim());
     // las opciones traen a la gente debajo de su departamento
-    expect(marco.opcPersonas().map((o) => o.value)).toEqual(['d:CONTABILIDAD', 'p:087', 'd:SISTEMAS', 'p:118', 'p:104']);
-    marco.cambiarPersonas(['d:SISTEMAS']);
+    expect(filtros.opc().map((o) => o.value)).toEqual(['d:CONTABILIDAD', 'p:087', 'd:SISTEMAS', 'p:118', 'p:104']);
+    filtros.cambiar(['d:SISTEMAS']);
     await ciclo();
     expect(nombres()).toEqual(['Prueba Dos Ejemplo', 'Prueba Uno Ejemplo']);
     expect(texto()).toContain('solo SISTEMAS');
-    expect(el().querySelector('.mc-per-sel')?.textContent?.trim()).toBe('SISTEMAS');
+    (el().querySelector('.mc-filtros-btn') as HTMLButtonElement).click();
+    await ciclo();
+    expect(document.body.querySelector('.mf-per-sel')?.textContent?.trim()).toBe('SISTEMAS');
+    expect(el().querySelector('.mc-filtros-n')?.textContent?.trim()).toBe('1');
+    (el().querySelector('.mc-filtros-btn') as HTMLButtonElement).click();
+    await ciclo();
     // personas sueltas de dos departamentos (el campo cambia de a una casilla, como el clic)
     est().verATodos();
-    marco.cambiarPersonas(['p:104']);
-    marco.cambiarPersonas([...marco.valorPersonas(), 'p:087']);
+    filtros.cambiar(['p:104']);
+    filtros.cambiar([...filtros.valor(), 'p:087']);
     await ciclo();
     expect(nombres()).toEqual(['Prueba Tres Ejemplo', 'Prueba Uno Ejemplo']);
     expect(texto()).toContain('solo 2 personas');
     // una sola: su tabla día por día, y «Ver a todos» regresa a la plaza
-    marco.cambiarPersonas(marco.valorPersonas().filter((v) => v !== 'p:087'));
+    filtros.cambiar(filtros.valor().filter((v) => v !== 'p:087'));
     await ciclo();
     expect(el().querySelector('app-rh-reporte-semanal')).toBeNull();
     expect(texto()).toContain('solo esta persona');
@@ -287,17 +297,25 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     c.abrir(c.todas().find((p) => p.codigo === '118')!);
     await ciclo();
     expect(document.querySelectorAll('button.pd-inc').length).toBe(0);
-    // (El «Capturar incidencia» del encabezado de Asistencia es otra puerta: abre el panel, para cualquier persona o varios días.)
     const acciones = document.querySelector('.ra-acciones') as HTMLElement;
     expect(acciones).not.toBeNull();
     expect(Array.from(acciones.querySelectorAll('button')).some((b) => b.textContent?.includes('Capturar incidencia'))).toBe(false);
-    expect(document.querySelector('app-rh-persona-dias .pd-tabla')).not.toBeNull();
+    // [RH.18.10] Y ya no repite la semana día por día. [RH.18.12] Ni el registro para la autoridad, ni el PDF, ni sus
+    // firmas: sólo la puerta «Ver solo a esta persona», donde viven los tres.
+    expect(document.querySelectorAll('app-side-peek app-rh-persona-dias').length).toBe(0);
+    expect(document.querySelector('app-side-peek app-rh-registro-legal')).toBeNull();
+    expect(document.querySelector('app-side-peek app-rh-expediente-firmas')).toBeNull();
+    expect(Array.from(acciones.querySelectorAll('button')).map((b) => b.textContent?.trim())).toEqual(['Ver solo a esta persona']);
     // «Solo esta persona», tampoco.
     c.cerrar();
     c.est.verSolo('118');
     await ciclo();
     expect(el().querySelector('.ra-una app-rh-persona-dias')).not.toBeNull();
     expect(el().querySelectorAll('.ra-una button.pd-inc').length).toBe(0);
+    // [RH.18.12] Aquí está todo lo de una persona: el registro para la autoridad, el PDF y sus firmas.
+    expect(el().querySelector('.ra-una app-rh-registro-legal')).not.toBeNull();
+    expect(el().querySelector('.ra-una app-rh-expediente-firmas')).not.toBeNull();
+    expect(boton('PDF para firmar')).toBeDefined();
   });
 
   describe('[RH.13.5] una sola pantalla', () => {
@@ -441,19 +459,48 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
       expect(el().querySelectorAll('tr.rs-fila .rs-hor-movil').length).toBe(el().querySelectorAll('tr.rs-fila').length);
     });
 
-    it('[RH.13.5] en pantalla angosta los filtros plegados dicen cuántos están puestos', async () => {
+    it('[RH.18.11] «Filtros» dice cuántos están puestos y abre su globo con Personas y Planta/Promotoras', async () => {
       await render({ claves: [Permission.HR_ATTENDANCE_VER] });
-      const marco = fix.debugElement.query(By.directive(RhMarcoComponent)).componentInstance as RhMarcoComponent;
-      expect(marco.filtrosActivos()).toBe(0);
+      const filtros = fix.debugElement.query(By.directive(RhFiltrosComponent)).componentInstance as RhFiltrosComponent;
+      expect(filtros.activos()).toBe(0);
       est().setPromotoras(true);
-      expect(marco.filtrosActivos()).toBe(1);
+      expect(filtros.activos()).toBe(1);
       est().irA('hoy');
-      expect(marco.filtrosActivos()).toBe(2);
+      expect(filtros.activos()).toBe(1);   // «Hoy» es el periodo (se ve junto a la semana), no un filtro escondido
+      await ciclo();
       const btn = el().querySelector('.mc-filtros-btn') as HTMLButtonElement;
+      expect(btn.getAttribute('aria-label')).toBe('Filtros: 1 puesto');
       expect(btn.getAttribute('aria-expanded')).toBe('false');
       btn.click();
       await ciclo();
       expect(btn.getAttribute('aria-expanded')).toBe('true');
+      expect(document.body.textContent).toContain('Personal de planta');
+    });
+
+    it('[RH.18.11] la cabecera simple: plaza y semana junto al título, «Hoy» prende y apaga, Relojes y Actualizar en «⋯»', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+      const titulo = el().querySelector('.mc-titulo')!;
+      expect(titulo.querySelector('.mc-plaza')).not.toBeNull();
+      expect(titulo.querySelector('.mc-semana')).not.toBeNull();
+      // ya no hay fila de filtros ni los atajos «Esta semana» / «Semana pasada»
+      expect(el().querySelector('.mc-bar')).toBeNull();
+      expect(boton('Esta semana')).toBeUndefined();
+      expect(boton('Semana pasada')).toBeUndefined();
+      const hoy = el().querySelector('.mc-hoy') as HTMLButtonElement;
+      hoy.click();
+      await ciclo();
+      expect(est().modoHoy()).toBe(true);
+      expect(hoy.getAttribute('aria-pressed')).toBe('true');
+      hoy.click();
+      await ciclo();
+      expect(est().modoHoy()).toBe(false);
+      expect(est().jueves()).toBe(est().juevesActual());
+      const marco = fix.debugElement.query(By.directive(RhMarcoComponent)).componentInstance as RhMarcoComponent;
+      expect(marco.masItems().map((i) => i.label)).toEqual(['Relojes', 'Actualizar']);
+      expect(boton('Actualizar')).toBeUndefined();
+      // la semana en curso se dice en la fila de modos, no en una franja aparte
+      expect(el().querySelector('.ra-barra')?.textContent).toContain('se puede cerrar desde el');
+      expect(el().querySelector('.mc-cierre')).toBeNull();
     });
 
     it('⭐ la rejilla es TABLA: la barra de cada departamento cubre todas las columnas y no hay columna de acciones suelta', async () => {
@@ -475,10 +522,12 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
       }));
     });
 
-    it('⭐ el botón principal es el paso que toca: semana en curso → «Capturar incidencia»', async () => {
+    it('⭐ [RH.18.13] semana en curso → sin botón principal: se captura en la celda del día (o en el panel de Incidencias)', async () => {
       await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_PERIOD_CLOSE] });
-      expect(boton('Capturar incidencia')).toBeDefined();
+      expect(boton('Capturar incidencia')).toBeUndefined();
       expect(boton('Cerrar semana')).toBeUndefined();
+      // la puerta de la tabla sigue: la celda del día ofrece capturar
+      expect(el().querySelectorAll('.rs-inc-btn').length).toBeGreaterThan(0);
     });
 
     it('⭐ semana que ya terminó y sigue abierta → «Cerrar semana» (uno solo, nunca los dos)', async () => {
@@ -494,12 +543,13 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
       fix.componentInstance.est.irA('pasada');
       await ciclo();
       expect(boton('Cerrar semana')).toBeUndefined();
-      expect(boton('Capturar incidencia')).toBeDefined();
+      expect(boton('Capturar incidencia')).toBeUndefined();   // [RH.18.13] ningún primario: no hay paso que le toque
     });
 
-    it('Relojes e Incidencias son botones del encabezado, con lo que falta calificar en el globo', async () => {
+    it('Relojes (en «⋯») e Incidencias (botón) están en el encabezado, con lo que falta calificar en el globo', async () => {
       await render({ claves: [Permission.HR_ATTENDANCE_VER] });
-      expect(boton('Relojes')).toBeDefined();
+      const marco = fix.debugElement.query(By.directive(RhMarcoComponent)).componentInstance as RhMarcoComponent;
+      expect(marco.masItems().map((i) => i.label)).toContain('Relojes');
       const inc = Array.from(el().querySelectorAll('button')).find((b) => b.textContent?.includes('Incidencias'));
       expect(inc?.textContent).toContain('2');
     });
@@ -696,34 +746,33 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     segundosSinSenal: 30, logsEnReloj: null, logsEnBase: null, desfaseRelojSeg: null, ultimoError: '', agenteVersion: '', agenteHost: '', semaforo: 'ok', ...o,
   });
 
-  it('[RH.13.5] sin administrar relojes, un reloj sin señal se dice en el chip pero NO trae la franja', async () => {
+  it('[RH.18.14] un reloj sin señal se dice en el chip, sin franja', async () => {
     relojes = [reloj({ semaforo: 'mudo', segundosSinSenal: null })];
     await render({ claves: [Permission.HR_ATTENDANCE_VER] });
     expect(el().querySelector('.mc-vivo')?.textContent?.trim()).toBe('Sin señal');
     expect(el().querySelector('app-rh-relojes-franja')).toBeNull();
   });
 
-  it('⭐ [RH.1.7b] si el reloj de la plaza no reporta, el chip dice «Sin señal» y quien administra relojes ve el aviso', async () => {
+  it('⭐ [RH.1.7b] si el reloj de la plaza no reporta, el chip dice «Sin señal»; [RH.18.14] ni a quien administra relojes le sale la franja', async () => {
     relojes = [reloj({ semaforo: 'mudo', segundosSinSenal: null }), reloj({ serie: 'S9', sucursalId: 'CEDIS', semaforo: 'ok' })];
     await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] });
     expect(el().querySelector('.mc-vivo')?.textContent?.trim()).toBe('Sin señal');
-    // [RH.18.8] Sin franja roja plegada: lo dicen el chip y el encabezado de Relojes (la explicación, al abrirlo).
-    expect(el().querySelector('.rf-alerta')).toBeNull();
-    expect(el().querySelector('.rf-resumen')?.textContent?.trim()).toBe('1 sin señal');
+    expect(el().querySelector('button.mc-vivo')).not.toBeNull();   // la puerta a Relojes, donde está el detalle
+    expect(el().querySelector('app-rh-relojes-franja')).toBeNull();
   });
 
   it('[RH.13.5] con todos los relojes al día no hay franja: ya lo dicen «En vivo» y el botón Relojes', async () => {
     relojes = [reloj({ semaforo: 'ok' })];
     await render({ claves: [Permission.HR_ATTENDANCE_VER] });
-    expect(el().querySelector('.mc-vivo')).not.toBeNull();
+    // [RH.18.11] El chip es la puerta a Relojes (quien los ve).
+    expect(el().querySelector('button.mc-vivo')).not.toBeNull();
     expect(el().querySelector('app-rh-relojes-franja')).toBeNull();
-    expect(boton('Relojes')).toBeDefined();
   });
 
-  it('[RH.13.5] un reloj con la hora corrida SÍ trae la franja aunque esté al día (a quien administra relojes)', async () => {
+  it('[RH.18.14] un reloj con la hora corrida ya no trae franja: se ve en el panel de Relojes', async () => {
     relojes = [reloj({ semaforo: 'ok', desfaseRelojSeg: 600 })];
     await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] });
-    expect(el().querySelector('app-rh-relojes-franja')).not.toBeNull();
+    expect(el().querySelector('app-rh-relojes-franja')).toBeNull();
   });
 
   it('⛔ si no se pudo leer el estado de los relojes, no se pinta ni chip ni franja', async () => {

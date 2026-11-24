@@ -14,6 +14,7 @@ import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { RhMarcoComponent } from '../components/rh-marco.component';
+import { RhAvisosSemanaComponent, RhFiltrosComponent } from '../components/rh-semana-barra.component';
 import { RhReporteSemanalComponent } from '../components/rh-reporte-semanal.component';
 import { RhPersonaDiasComponent } from '../components/rh-persona-dias.component';
 import { RhExpedienteFirmasComponent } from '../components/rh-expediente-firmas.component';
@@ -51,13 +52,13 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
   standalone: true,
   imports: [
     NgTemplateOutlet, FormsModule, ButtonModule, InputTextModule, SelectModule, PopoverModule, LoadStateComponent, SidePeekComponent,
-    RhMarcoComponent, RhReporteSemanalComponent, RhPersonaDiasComponent, RhExpedienteFirmasComponent, RhCapturaIncidenciaComponent,
+    RhMarcoComponent, RhFiltrosComponent, RhAvisosSemanaComponent, RhReporteSemanalComponent, RhPersonaDiasComponent, RhExpedienteFirmasComponent, RhCapturaIncidenciaComponent,
     RhFaltasComponent, RhToleranciaComponent, RhIncidenciasComponent, RhRelojesComponent, RhNombresPorConfirmarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ra-page">
-      <app-rh-marco [barra]="true" [franja]="true" [personas]="true" />
+      <app-rh-marco [barra]="true" [enLinea]="true" />
       <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
       @if (!est.sinPlazas()) {
 
@@ -72,7 +73,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             Faltas@if (est.datos()) {&ngsp;<b class="ra-ver-n">{{ est.nFaltas() }}</b> }
           </button>
           <button type="button" [attr.aria-pressed]="ver() === 'tolerancia'" (click)="irAVer('tolerancia')">
-            Tolerancia<span class="ra-largo"> rebasada</span>@if (est.datos() && est.nRebasados() !== null) {&ngsp;<b class="ra-ver-n">{{ est.nRebasados() }}</b> }
+            Tolerancia@if (est.datos() && est.nRebasados() !== null) {&ngsp;<b class="ra-ver-n">{{ est.nRebasados() }}</b> }
           </button>
         </div>
         @if (ver() === 'semana' && !unica() && est.datos() && !vacio()) {
@@ -85,16 +86,23 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
                 {{ est.soloIrregulares() ? 'Ver a todos' : 'Solo irregulares' }}
               </button>
             }
+            <app-rh-avisos-semana />
           </p>
-          <div class="ra-rep-acc">
+        } @else {
+          <p class="ra-resumen"><app-rh-avisos-semana class="solo" /></p>
+        }
+        <!-- [RH.18.11] «Filtros» siempre a la vista (también vacío o en Faltas): si filtra, se tiene que poder quitar. -->
+        <div class="ra-rep-acc">
+          <app-rh-filtros [personas]="true" />
+          @if (ver() === 'semana' && !unica() && est.datos() && !vacio()) {
             @if (puedeGestionar()) {
               <p-button label="Horario" icon="pi pi-clock" ariaLabel="Horario" styleClass="ra-icono-chico" severity="secondary" [outlined]="true" (onClick)="abrirHorario(null)" />
             }
             <!-- [RH.13.5] Sólo el PDF para firmar (David, 13-nov: sin Excel). Una sola salida no necesita menú. Sale lo que se ve:
                  si hay filtro, el resumen de la izquierda ya lo dice («solo SISTEMAS»). -->
             <p-button label="PDF para firmar" icon="pi pi-file-pdf" ariaLabel="PDF para firmar" styleClass="ra-icono-chico" severity="secondary" [outlined]="true" [loading]="exportando()" [disabled]="est.loading()" (onClick)="pdfPlaza()" />
-          </div>
-        }
+          }
+        </div>
       </div>
 
       @switch (ver()) {
@@ -124,6 +132,13 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
               }
               @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
               <app-rh-persona-dias [persona]="p" [columnas]="columnas()" [hoy]="est.hoy()" [mideRetardo]="mide()" />
+              <!-- [RH.15.11] Sus firmas de la semana (celular o papel). Ligado a su persona: las de todas sus plazas.
+                   [RH.18.12] Vienen de la ficha: aquí está todo lo de UNA persona (sus días, el registro para la autoridad y el PDF). -->
+              @if (p.userId) {
+                <app-rh-expediente-firmas [userId]="p.userId" />
+              } @else if (est.sitio(); as site) {
+                <app-rh-expediente-firmas [site]="site" [persona]="p.codigo" />
+              }
             </div>
           </section>
         } @else {
@@ -304,19 +319,12 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             }
             @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
 
-            <!-- [RH.18.9] La incidencia se levanta en la tabla de la semana (la celda del día), no aquí: un solo lugar. -->
-            <app-rh-persona-dias [persona]="p" [columnas]="columnas()" [hoy]="est.hoy()" [mideRetardo]="mide()" />
-
+            <!-- [RH.18.10] (David, 23-nov) La ficha ya no repite la semana día por día: eso se ve (y se captura) en la tabla de
+                 la semana. [RH.18.12] (David, 24-nov: «esto quítalo») Tampoco trae el registro para la autoridad, el PDF ni sus
+                 firmas: los tres viven en «Ver solo a esta persona», que es la puerta que se queda. -->
             <div class="ra-acciones">
               <p-button label="Ver solo a esta persona" severity="secondary" [outlined]="true" size="small" (onClick)="soloEsta(p)" />
-              <p-button label="PDF para firmar" icon="pi pi-file-pdf" [text]="true" size="small" [loading]="exportando()" (onClick)="pdfPersona(p)" />
             </div>
-            <!-- [RH.15.11] Sus firmas de la semana (celular o papel). Ligado a su persona: las de todas sus plazas. -->
-            @if (p.userId) {
-              <app-rh-expediente-firmas [userId]="p.userId" />
-            } @else if (est.sitio(); as site) {
-              <app-rh-expediente-firmas [site]="site" [persona]="p.codigo" />
-            }
           </div>
         }
       </app-side-peek>
@@ -509,7 +517,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
       .ra-resumen { order: 3; flex: 1 1 100%; }
     }
     @media (max-width: 34rem) {
-      .ra-ley-dc, .ra-largo { display: none; }
+      .ra-ley-dc { display: none; }
     }
     @media (max-width: 40rem) {
       .ra-page { padding: var(--sp-3); }
