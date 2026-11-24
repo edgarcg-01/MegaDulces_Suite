@@ -47,7 +47,27 @@ describe('[RH.18.1] el formulario de un día', () => {
     expect(formNuevo('101', '2026-10-02')).toMatchObject({ person_code: '101', date_from: '2026-10-02', incident_type: '', entrada: '' });
   });
 
-  it('⭐ si eligen «Horario distinto», ya trae la entrada, la salida y la comida que checó', () => {
+  it('⭐ [RH.20.3] «Horario distinto» trae SU HORARIO de ese día; RH cambia sólo la salida y se manda el día completo', () => {
+    const d = dia({ atrasoMin: 25, entrada: '8:25', salida: '18:00', comidaMin: 45, referencia: '08:00', salidaEsperada: '17:00' });
+    const f = formDelDia('118', '2026-10-01', d);
+    expect([f.entrada, f.salida, f.comidaDia, f.deHorario]).toEqual(['08:00', '17:00', undefined, true]);
+    // Salió antes con permiso: sólo cambia la salida. La entrada sigue en su horario (⛔ no se perdona el retardo de 25 min).
+    f.salida = '15:00';
+    const b = cuerpoCaptura({ ...f, incident_type: 'horario_distinto', reason: 'Cita', authorized_by_name: 'Jefe Prueba' }, 'PH');
+    expect([b.minutes, b.end_minutes, b.break_minutes]).toEqual([480, 900, undefined]);
+    // Y al revés: sólo la entrada.
+    const g = formDelDia('118', '2026-10-01', d);
+    g.entrada = '10:00';
+    const c = cuerpoCaptura({ ...g, incident_type: 'horario_distinto', reason: 'Tráfico', authorized_by_name: 'Jefe Prueba' }, 'PH');
+    expect([c.minutes, c.end_minutes]).toEqual([600, 1020]);
+  });
+
+  it('⛔ NEGATIVA [RH.20.3] — sin su horario de ese día, trae lo que checó (no inventa un horario)', () => {
+    const f = formDelDia('118', '2026-10-01', dia({ atrasoMin: 25, entrada: '8:25', salida: '18:00', comidaMin: 45, referencia: null, salidaEsperada: null }));
+    expect([f.entrada, f.salida, f.deHorario]).toEqual(['08:25', '18:00', undefined]);
+  });
+
+  it('si eligen «Horario distinto» sin horario, ya trae la entrada, la salida y la comida que checó', () => {
     const f = formDelDia('118', '2026-10-01', dia({ atrasoMin: 25, entrada: '8:25', salida: '18:00', comidaMin: 45 }));
     expect([f.person_code, f.date_from]).toEqual(['118', '2026-10-01']);
     expect([f.entrada, f.salida, f.comidaDia]).toEqual(['08:25', '18:00', '45']);

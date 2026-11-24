@@ -21,6 +21,8 @@ export interface FormCaptura {
   /** `[RH.17.2]` Horario distinto: a qué hora salió ese día y su comida en minutos (opcionales). */
   salida?: string;
   comidaDia?: string;
+  /** `[RH.20.3]` La entrada y la salida vienen de SU HORARIO de ese día (no de lo que checó). */
+  deHorario?: boolean;
   /** `[RH.6.6]` Visita fuera: a qué hora lo recogieron y a qué hora lo dejaron en su casa. */
   recogida?: string;
   entrega?: string;
@@ -153,10 +155,22 @@ const hhmm = (h: string | null | undefined): string => {
  */
 export function formDelDia(persona: string, fecha: string, d: HrDiaAsistencia | undefined): FormCaptura {
   const f = formNuevo(persona, fecha);
-  if (!d || d.estado === 'marca_faltante') return f;
-  f.entrada = hhmm(d.entrada);
-  f.salida = hhmm(d.salida);
-  if (d.comidaMin != null) f.comidaDia = String(d.comidaMin);
+  if (!d) return f;
+  // `[RH.20.3]` (David, 2026-11-24: «en un único día tuvo una hora de entrada o de salida distinta») «Horario distinto»
+  // arranca con SU HORARIO de ese día y RH cambia sólo la que fue distinta: la entrada, la salida o las dos. Antes traía
+  // lo que checó, y guardarlo tal cual perdonaba el retardo o la salida temprana sin que nadie lo decidiera.
+  const ent = hhmm(d.referencia), sal = hhmm(d.salidaEsperada);
+  if (ent && sal) {
+    f.entrada = ent;
+    f.salida = sal;
+    f.deHorario = true;
+  } else if (d.estado !== 'marca_faltante') {
+    // Sin su horario de ese día, lo que checó (como en `[RH.18.1]`).
+    f.entrada = hhmm(d.entrada);
+    f.salida = hhmm(d.salida);
+    if (d.comidaMin != null) f.comidaDia = String(d.comidaMin);
+  }
+  if (d.estado === 'marca_faltante') return f;
   // Los minutos de la pausa que se pasó (la comida antes que el desayuno): sirven si eligen «Comida / Desayuno distintos».
   if ((d.comidaExcesoMin ?? 0) > 0 && d.comidaMin != null) f.minutos = String(d.comidaMin);
   else if ((d.desayunoExcesoMin ?? 0) > 0 && d.desayunoMin != null) f.minutos = String(d.desayunoMin);

@@ -340,7 +340,7 @@ export class HrAttendanceEnrollmentsService {
     const motivo = this.motivoDeBaja(b?.motivo);
     return this.run(async (trx, tenant) => {
       const dueno = await this.bajaEn(trx, tenant, site, codigo, motivo);
-      const sin = await this.sinPlazas(trx, tenant, dueno);
+      const sin = dueno ? await this.sinPlazas(trx, tenant, dueno) : null;
       return { ok: true as const, ...(sin ? { sin_plazas: sin } : {}) };
     });
   }
@@ -352,16 +352,19 @@ export class HrAttendanceEnrollmentsService {
   }
 
   /** La baja de UN código en la plaza, dentro de la transacción que se le dé. Devuelve a su dueño. */
-  private async bajaEn(trx: Knex.Transaction, tenant: string, site: string, codigo: string, motivo: string): Promise<{ id: string; nombre: string | null; role_name: string; status: string | null }> {
+  private async bajaEn(trx: Knex.Transaction, tenant: string, site: string, codigo: string, motivo: string): Promise<{ id: string; nombre: string | null; role_name: string; status: string | null } | null> {
     const dueno = await this.duenoDe(trx, tenant, site, codigo);
-    if (!dueno) throw new ConflictException('Ese código no está ligado a nadie: en Relojes se liga o se ignora.');
+    // `[RH.20.2]` (David, 2026-11-24: «que no haya una barrera con ninguno») Sin ligar también se da de baja en la plaza:
+    // la ficha es del código. Sin persona no hay bitácora; quién y cuándo quedan en la ficha (`updated_by`).
+    if (!dueno && !(await this.hayReloj(trx, tenant, site, codigo))) throw new NotFoundException('Ese código no está en ningún reloj de esta plaza.');
+    if (!dueno) this.logger.log(`[RH.20.2] baja sin ligar en ${site} #${codigo}: ${motivo.slice(0, 120)}`);
     const antes = await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo }).forUpdate().first('is_active');
     if (antes && antes.is_active === false) throw new ConflictException('Ya está de baja en esta plaza.');
     const q = this.quien();
     await trx('hr.person_site_profiles').insert({
       tenant_id: tenant, site_code: site, person_code: codigo, is_active: false, source: 'suite', updated_by: q.id,
     }).onConflict(['tenant_id', 'site_code', 'person_code']).merge({ is_active: false, updated_by: q.id, updated_at: trx.fn.now() });
-    await this.asentar(trx, tenant, dueno.id, 'baja_en_plaza', { site_code: site, codigo, motivo: motivo.slice(0, 300) });
+    if (dueno) await this.asentar(trx, tenant, dueno.id, 'baja_en_plaza', { site_code: site, codigo, motivo: motivo.slice(0, 300) });
     return dueno;
   }
 
@@ -389,7 +392,7 @@ export class HrAttendanceEnrollmentsService {
       for (const codigo of codigos) {
         try {
           const d = await trx.transaction((sp) => this.bajaEn(sp, tenant, site, codigo, motivo));
-          duenos.set(d.id, d);
+          if (d) duenos.set(d.id, d);
           out.dados_de_baja.push(codigo);
         } catch (e) {
           out.fallaron.push({ person_code: codigo, error: e instanceof Error ? e.message : String(e) });

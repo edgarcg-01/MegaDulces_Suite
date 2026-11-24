@@ -96,11 +96,14 @@ const guardarAutorizo = (v: string): void => { try { localStorage.setItem(LLAVE_
           </div>
         }
         @if (f.incident_type === 'horario_distinto') {
-          <label>Entró a las <input pInputText type="time" name="entrada" [(ngModel)]="f.entrada" required /></label>
-          <label>Salió a las (opcional) <input pInputText type="time" name="salida" [(ngModel)]="f.salida" /></label>
+          <label>Entrada de ese día <input pInputText type="time" name="entrada" [(ngModel)]="f.entrada" required /></label>
+          <label>Salida de ese día <input pInputText type="time" name="salida" [(ngModel)]="f.salida" /></label>
           <label>Comida ese día, en minutos (opcional)
             <input pInputText type="number" inputmode="numeric" name="comidaDia" min="0" max="240" [(ngModel)]="f.comidaDia" /></label>
-          @if (deLoChecado()) {
+          @if (f.deHorario) {
+            <!-- [RH.20.3] Trae su horario: se cambia sólo la hora que fue distinta. -->
+            <p class="ci-ancho ci-ayuda ci-propuesto">Ya trae su horario de ese día: cambia la entrada o la salida que fue distinta.</p>
+          } @else if (deLoChecado()) {
             <p class="ci-ancho ci-ayuda ci-propuesto">Ya trae lo que checó ese día: corrígelo con el horario que se autorizó.</p>
           }
           <p class="ci-ancho ci-ayuda">Con la salida, ese día se mide de la entrada a la salida: retardo, salida temprana y horas extra. Sin la salida sólo cambia la entrada. Sin la comida se descuenta la de su horario. Su horario de siempre no cambia.</p>

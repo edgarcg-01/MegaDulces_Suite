@@ -97,6 +97,12 @@ suite('[RH.20.1] la ficha de quien no está en la Suite, contra la base', () => 
         await svc.editarFicha({ site_code: SITIO, person_code: '51', seccion: 'VENTAS' });
         r['soloSeccion'] = [(await personas()) - antes2,
           (await trx('hr.person_site_profiles').where({ tenant_id: TENANT, site_code: SITIO, person_code: '51' }).first('report_section'))?.report_section];
+
+        // `[RH.20.2]` Baja sin ligar: queda fuera de la plaza y en la papelera; ⛔ un código sin reloj sigue siendo «no existe».
+        await svc.darDeBaja({ site_code: SITIO, person_code: '51', motivo: 'ya no trabaja aquí' });
+        r['bajaSinLigar'] = [(await trx('hr.person_site_profiles').where({ tenant_id: TENANT, site_code: SITIO, person_code: '51' }).first('is_active'))?.is_active,
+          (await svc.bajas(SITIO)).some((b) => b.person_code === '51')];
+        r['bajaNoExiste'] = await fallo(() => svc.darDeBaja({ site_code: SITIO, person_code: '404', motivo: 'no es nadie' }));
         throw ROLLBACK;
       });
     } catch (e) {
@@ -112,5 +118,7 @@ suite('[RH.20.1] la ficha de quien no está en la Suite, contra la base', () => 
     expect(r['eventos']).toEqual(['alta_desde_reloj', 'ficha_plaza_editada']);
     expect(r['ficha']).toBe(true);
     expect(r['soloSeccion']).toEqual([0, 'VENTAS']);
+    expect(r['bajaSinLigar']).toEqual([false, true]);
+    expect(r['bajaNoExiste']).toBe('NotFoundException');
   }, 60_000);
 });

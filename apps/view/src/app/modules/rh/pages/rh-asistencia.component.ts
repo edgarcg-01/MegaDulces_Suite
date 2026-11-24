@@ -243,7 +243,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
 
             <!-- [RH.7.1] Su ficha en esta plaza: lo que agrupa el reporte y lo que exige el cierre semanal. -->
             <!-- [RH.20.1] (David, 24-nov: «a todos se les pueda modificar aunque no estén en la Suite») La ficha se edita
-                 también sin ligar: al guardar, el servidor la da de alta sin acceso. La baja sigue pidiendo persona. -->
+                 también sin ligar: al guardar, el servidor la da de alta sin acceso. [RH.20.2] Y se da de baja igual. -->
             @if (!p.registrado && puedeEditarFicha()) {
               <p class="ra-form-nota" role="note">Todavía no está en la Suite: al guardar su ficha se da de alta, sin acceso.</p>
             }
@@ -258,7 +258,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
                 @if (puedeEditarFicha()) { <p-button label="Editar" severity="secondary" [outlined]="true" size="small" (onClick)="abrirFicha(p)" /> }
               </div>
               <!-- [RH.7.2] Baja en ESTA plaza, separada de lo diario y con motivo (Von Restorff): se deshace en Bajas. -->
-              @if (puedeEditarFicha() && p.registrado) {
+              @if (puedeEditarFicha()) {
                 @if (bajaDe() === p.codigo) {
                   <form class="ra-form ra-baja" (ngSubmit)="darDeBaja(p)" aria-label="Dar de baja en esta plaza">
                     <label class="ra-ancho">Motivo
