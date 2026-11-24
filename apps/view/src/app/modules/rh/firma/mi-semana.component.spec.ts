@@ -11,7 +11,8 @@ import { RUTAS_PUBLICAS, esRutaPublica } from '../../../core/auth/rutas-publicas
  * reloj). Lo que importa que no se rompa: dice para QUIÉN es la liga, muestra la semana, el botón de firmar no se
  * enciende sin trazo, manda sólo el trazo, y una liga muerta lo dice sin dejar seguir.
  */
-const TOKEN = 'AAAAAAAAAAAAAAAAAAAAAOx2v_9k-ZmQ3hT1cW8yLr0aBcDe';
+// Una liga inventada y sin entropía: un literal aleatorio aquí lo marca `generic-api-key` del escaneo de secretos.
+const TOKEN = 'A'.repeat(43) + '-prueba';
 const liga: HrFirmaPublicaDto = {
   nombre: 'PRUEBA UNO', site_name: 'Plaza de prueba', period_start: '2026-11-05', period_end: '2026-11-11',
   expires_at: '2026-11-20T18:00:00.000Z', horas_semana: '8:00', faltas: 1,
