@@ -896,11 +896,37 @@ pasa a `user_id` y el FK va por **`(tenant_id, user_id)`** contra `identity.user
 compuesto existe, y así un alias no puede nombrar a alguien de otro tenant—. ⛔ `hr.employees`
 **no se borra** (regla 5): retirarla es una decisión aparte. Lo demás de la tabla queda intacto.
 
-⚠️ **NO MEDIDO: que Postgres acepte esa DDL.** El Docker local no levanta (el demonio no responde) y
-el ensayo con `ROLLBACK` contra prod quedó sin autorización. Probada **en seco**, con un `knex` que
-sólo anota el SQL: **5 de 5** —el `up`, el `up` corrido dos veces (idempotencia), el `down`, y las
-**dos negativas** de que `up` y `down` *paran* si la tabla trae filas—. Falta correrla contra una
-base de verdad antes de aplicarla.
+⭐ **Medida contra un Postgres de verdad** (2026-11-24): `database/tests/test-newdb-ne013-alias-user-id.js`,
+**28 ✔ · 0 ✖** en **PostgreSQL 18.4**; prod corre **18.6** (`system_identifier` verificado), misma
+versión mayor. El ensayo aplica primero la migración de ayer, después ésta, y comprueba:
+
+| qué | cómo |
+|---|---|
+| las posconditions | leídas **del catálogo** (`pg_constraint`, `pg_indexes`, `pg_policy`, `has_table_privilege`), no del texto de `pg_get_constraintdef` |
+| que lo demás **no** se tocó | los 4 CHECKs, el único por `(system, external_code)`, la RLS forzada, la política de tenant y los permisos de `app_runtime` |
+| ⭐ la negativa que el ensayo en seco **no podía dar** | un alias que nombra a una persona de **otro tenant** es rechazado (`23503`) |
+| las otras negativas | un empate por nombre sin nota es rechazado (`23514`); `up` y `down` **paran** si la tabla trae filas; el guardia de destino **se niega** si lo apuntan a algo que parece prod |
+
+⚠️ **Dos cosas que el rojo enseñó, y las dos eran el instrumento, no la migración:** la primera
+versión comparaba el **texto** del constraint, que omite el esquema cuando la tabla está en el
+`search_path` —habría dicho lo mismo apuntando a otra tabla llamada `users`—; la segunda comparaba
+un arreglo que Postgres devuelve como texto crudo. *Todo instrumento arranca con un control cuya
+respuesta ya se conoce*, y acá el control positivo fue el que avisó.
+
+⛔ **El `npm run dev:up` de esta máquina no sirve**: Docker no arranca porque WSL2 no puede
+(`HCS_E_HYPERV_NOT_INSTALLED` — la virtualización está apagada, y encenderla pide BIOS y reinicio).
+Y aunque arrancara, su Postgres pide el puerto **5432, ocupado por el PostgreSQL 18 instalado en la
+laptop**. El ensayo se hizo con un clúster desechable levantado con `initdb`/`pg_ctl` en otro
+puerto: receta en el encabezado del test, 20 segundos y sin Docker.
+
+⛔ **Una trampa de esa receta, pisada acá:** el scratchpad es por sesión, **el puerto no**. La
+primera corrida eligió un puerto que ya tenía el clúster desechable de **otra sesión de Claude en
+esta misma máquina**; `pg_ctl` falló *y* `psql` conectó igual, así que el ensayo corrió —verde— en
+una base ajena. Se repitió sobre un clúster propio, confirmando antes que
+`current_setting('data_directory')` cayera en esta sesión. **Si `pg_ctl` no arranca pero `psql`
+contesta en ese puerto, el que contesta es de otro.**
+
+**Falta** aplicarla en prod (una por una, `apply-one-migration-prod.js`), después de empujar.
 
 #### Lo que esto cambia en el frente
 
