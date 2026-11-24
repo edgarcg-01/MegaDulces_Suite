@@ -178,7 +178,7 @@ interface FilaPlana {
       -->
       <p-table [value]="filas()" dataKey="l.product_id" rowGroupMode="subheader" groupRowsBy="grupo"
                [scrollable]="true" scrollHeight="58vh"
-               styleClass="p-datatable-sm dt-stack surf-table surf-table--plain surf-table--frozen-first">
+               size="small" class="dt-stack surf-table surf-table--plain surf-table--frozen-first">
         <ng-template #caption>
           <span class="text-xs text-content-muted">
             El pedido a {{ destino() }}, partido en {{ armado().ordenes.length }}
