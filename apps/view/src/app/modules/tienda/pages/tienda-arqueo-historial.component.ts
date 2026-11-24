@@ -15,7 +15,7 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { imprimirTicket } from '../ticket-arqueo';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { ARQUEO_TABS } from '../arqueo-tabs';
+import { ArqueoAvisoService } from '../arqueo-revision.service';
 
 /**
  * Tienda — Arqueos por cajera (/tienda/arqueos).
@@ -39,7 +39,7 @@ import { ARQUEO_TABS } from '../arqueo-tabs';
   template: `
     <div class="surf-page in ah-page">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="arqueoTabs" />
+      <app-page-tabs [tabs]="arqueoTabs()" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Arqueos por cajera</h1>
@@ -332,7 +332,9 @@ export class TiendaArqueoHistorialComponent implements OnInit {
 
   /** Espeja la regla del backend: solo quien valida ve el cuadre. */
   /** Misma seccion que /tienda/arqueo: el acto y la persona, en pestanas. */
-  readonly arqueoTabs = ARQUEO_TABS;
+  // [SM.55] Las pestañas con el aviso («Retiros por revisar 3»): turnos cuyos retiros no empatan y nadie explicó.
+  private readonly aviso = inject(ArqueoAvisoService);
+  readonly arqueoTabs = this.aviso.tabs;
 
   readonly revela = this.perms.isAdmin()
     || this.auth.user()?.permissions?.[Permission.RECONCILIATION_VER] === true;
@@ -384,6 +386,7 @@ export class TiendaArqueoHistorialComponent implements OnInit {
   });
 
   ngOnInit() {
+    this.aviso.refrescar();
     this.load();
     // Ya miraba si la pestaña se veia, pero se quedaba esperando al timer al
     // volver. El primitivo agrega esa puesta al dia.
