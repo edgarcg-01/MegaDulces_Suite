@@ -91,12 +91,9 @@ exports.up = async function up(knex) {
   await knex.raw(`CREATE INDEX IF NOT EXISTS ix_${T}_usuario ON hr.${T} (tenant_id, user_id)`);
 
   await knex.raw(`COMMENT ON COLUMN hr.${T}.user_id IS
-    'La persona, en el padrón que de verdad existe: identity.users (1,038 cargadas por [RH.1.4]). ' ||
-    'Antes apuntaba a hr.employees, que nunca recibió una fila y cuyo único cargador es un importer.'`);
+    'La persona, en el padrón que de verdad existe: identity.users (1,038 cargadas por [RH.1.4]). Antes apuntaba a hr.employees, que nunca recibió una fila y cuyo único cargador es un importer.'`);
   await knex.raw(`COMMENT ON TABLE hr.${T} IS
-    '[NE.0.4] Cómo nombra cada sistema a la misma persona. matched_by dice CÓMO se ligó: un empate ' ||
-    'por nombre queda marcado como tal y se puede auditar y reemplazar por una llave real. ' ||
-    '[NE.0.13] Apunta a identity.users, no a hr.employees.'`);
+    '[NE.0.4] Cómo nombra cada sistema a la misma persona. matched_by dice CÓMO se ligó: un empate por nombre queda marcado como tal y se puede auditar y reemplazar por una llave real. [NE.0.13] Apunta a identity.users, no a hr.employees.'`);
 
   console.log(`  [ne013] hr.${T}.employee_id -> user_id, ahora contra identity.users. Ya se puede llenar.`);
 };
