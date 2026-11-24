@@ -153,6 +153,57 @@ describe('[AB.NI.5] El pedido abierto', () => {
     expect(f.componentInstance.filas()).toHaveLength(1);
   });
 
+  it('⭐ D1 · las unidades chicas comparten documento, y la pantalla dice cuáles', () => {
+    // CJA grande (documento propio) + KG 3 + BTO 2: las dos chicas se juntan.
+    const cja = Array.from({ length: 14 }, (_, i) =>
+      linea({ product_id: `c${i}`, nombre: `CAJA ${i}`, linea: 'LINEA CJA' }));
+    const chicas = [
+      ...Array.from({ length: 3 }, (_, i) => linea({
+        product_id: `k${i}`, nombre: `KILO ${i}`, linea: 'LINEA KG',
+        a_pedir: { cantidad: 2, unidad: 'KG', factor: 1, cantidad_base: 2, regla: 'granel', clase: 'unica', falta_mayor: 2 } as never,
+      })),
+      ...Array.from({ length: 2 }, (_, i) => linea({
+        product_id: `b${i}`, nombre: `BULTO ${i}`, linea: 'LINEA BTO',
+        a_pedir: { cantidad: 1, unidad: 'BTO', factor: 1, cantidad_base: 1, regla: 'cajas', clase: 'mayor', falta_mayor: 1 } as never,
+      })),
+    ];
+    const f = montar([...cja, ...chicas]);
+
+    const ordenes = f.componentInstance.armado().ordenes;
+    expect(ordenes).toHaveLength(2);
+    expect(f.componentInstance.hayCola()).toBe(true);
+    expect(f.componentInstance.unidadesEnCola()).toBe(2);
+    expect(f.componentInstance.renglonesEnCola()).toBe(5);
+
+    const t = texto(f);
+    expect(t).toContain('otras unidades');
+    // La banda de la orden mixta nombra las unidades que junta, no finge ser una. Van en el
+    // mismo orden que sus bandas: alfabetico, para que el rotulo y la tabla no se contradigan.
+    expect(t).toContain('BTO, KG');
+    expect(t).toContain('no llevan documento propio');
+  });
+
+  it('⛔ sin cola, la pantalla NO habla de «otras unidades»', () => {
+    const f = montar(Array.from({ length: 14 }, (_, i) =>
+      linea({ product_id: `c${i}`, nombre: `CAJA ${i}` })));
+    expect(f.componentInstance.hayCola()).toBe(false);
+    expect(texto(f)).not.toContain('otras unidades');
+    expect(texto(f)).not.toContain('no llevan documento propio');
+  });
+
+  it('en la orden mixta, dos unidades con la MISMA línea no se funden en una banda', () => {
+    const mismaLinea = 'ACME SA DE CV';
+    const f = montar([
+      ...Array.from({ length: 14 }, (_, i) => linea({ product_id: `c${i}`, nombre: `CAJA ${i}`, linea: 'OTRA' })),
+      linea({ product_id: 'k1', nombre: 'KILO', linea: mismaLinea,
+        a_pedir: { cantidad: 2, unidad: 'KG', factor: 1, cantidad_base: 2, regla: 'granel', clase: 'unica', falta_mayor: 2 } as never }),
+      linea({ product_id: 'b1', nombre: 'BULTO', linea: mismaLinea,
+        a_pedir: { cantidad: 1, unidad: 'BTO', factor: 1, cantidad_base: 1, regla: 'cajas', clase: 'mayor', falta_mayor: 1 } as never }),
+    ]);
+    const grupos = new Set(f.componentInstance.filas().filter((x) => x.mixta).map((x) => x.grupo));
+    expect(grupos.size).toBe(2);
+  });
+
   it('las filas aplanadas abren la banda de orden una sola vez por orden', () => {
     const f = montar([
       linea({ product_id: 'a', nombre: 'A', linea: 'AAA' }),
