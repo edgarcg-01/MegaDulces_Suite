@@ -38,6 +38,7 @@ import { makeDebouncedSearch } from '../../../shared/util/debounced-search.util'
 import { moverEntreCampos, pasoPorTecla } from '../../../shared/util/captura-teclado.util';
 import { VentaPorMesComponent } from '../../../shared/components/venta-por-mes/venta-por-mes.component';
 import { AutoabastoService, AutoabastoWarehouseOpt } from '../autoabasto.service';
+import { AutoabastoOrdenesComponent } from './autoabasto-ordenes.component';
 import { qty, cuandoTexto, cuandoPorQue, surtePorQue, faltaNetaPorQue, estadoPorQue } from '../porques.util';
 import { descargarPdfMiPedido, type MiPedidoPdfGrupo } from '../mi-pedido-pdf';
 
@@ -124,6 +125,7 @@ type DestinoEnvio = 'sucursal' | 'compras';
     CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, InputTextModule, TooltipModule, TagModule,
     CheckboxModule, DialogModule, TextareaModule, PopoverModule, MenuModule, VentaPorMesComponent,
     LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, ContextHelpComponent, SucursalPipe,
+    AutoabastoOrdenesComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -131,10 +133,28 @@ type DestinoEnvio = 'sucursal' | 'compras';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Autoabasto</h1>
-          <p class="surf-page-sub">Tu pedido ya está armado: corrige lo que haga falta y mándalo a Compras. Todo se guarda solo.</p>
+          <!--
+            [AB.NI.4] El subtítulo decía «mándalo a Compras», y desde [PQ.143] son DOS destinos:
+            la matriz (que sale al ERP en el acto) y Compras (que va con el calendario). Decirle a
+            alguien que mande a Compras lo que en realidad le pide a su matriz es informarle mal.
+          -->
+          <p class="surf-page-sub">Tu pedido ya está hecho. Revisa lo que te marque abajo y mándalo. Todo se guarda solo.</p>
         </div>
         <div class="ab-actions">
           <app-context-help topic="almacen-autoabasto" />
+          <!--
+            [AB.NI.5] La entrada al pedido abierto: el mismo pedido, partido en las órdenes en que
+            se va a armar. No es un filtro más de la tabla — es la otra lectura de la misma mesa.
+          -->
+          @if (!detalle() && aSucursal().renglones > 0) {
+            <button pButton type="button" class="p-button-sm p-button-text"
+                    (click)="verDetalle('sucursal')"
+                    pTooltip="Ve el pedido ya partido en las órdenes en que se va a armar: por unidad, por línea y en alfabético."
+                    tooltipPosition="bottom">
+              <span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span>
+              <span class="p-button-label">Ver los {{ aSucursal().renglones }} renglones</span>
+            </button>
+          }
           <!-- [AB.43] Todos los papeles en UN botón: el pedido completo, cada origen y el reporte del almacén. -->
           <button pButton type="button" class="p-button-sm p-button-outlined"
                   (click)="menuPdf.toggle($event)" [disabled]="loading() || !data() || imprimiendo() || generandoReporte()"
@@ -416,6 +436,39 @@ type DestinoEnvio = 'sucursal' | 'compras';
         </div>
       }
 
+      <!--
+        [AB.NI.3] LO QUE IMPIDE MANDAR, antes que nada. Un renglón sin unidad en la ficha de Kepler
+        tira el documento ENTERO en el ERP: hasta hoy el pedido rebotaba sin decir por qué.
+        Medido el 2026-11-23 en el pedido real de Morelia Madero: 21 de 294 renglones, $2,262.
+        ⛔ Si no hay ninguno, el aviso NO se pinta: un ✓ verde permanente enseña a ignorar los avisos.
+      -->
+      @if (sinUnidadPedido().length > 0) {
+        <p class="ab-note ab-warn" role="note">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <span>
+            <strong>{{ sinUnidadPedido().length }}
+              {{ sinUnidadPedido().length === 1 ? 'renglón no tiene' : 'renglones no tienen' }}
+              unidad en la ficha de Kepler</strong>
+            y por eso no pueden salir. Quedan fuera y el resto sí se manda.
+            <button type="button" class="link-accion" (click)="verDetalle('sucursal')">Ver cuáles</button>
+          </span>
+        </p>
+      }
+
+      <!--
+        [AB.NI.5] EL PEDIDO ABIERTO. Reemplaza la tabla mientras está abierto: son dos lecturas
+        distintas de la misma mesa y tenerlas a la vez obliga a elegir dónde mirar.
+      -->
+      @if (detalle(); as det) {
+        <app-autoabasto-ordenes
+          [lineas]="lineasDeDestino(det)"
+          [destino]="nombreDestino(det)"
+          [calculadoEn]="cargadoEn()"
+          (cerrar)="detalle.set(null)"
+          (pedir)="abrirEnvio(det)"
+          (quitar)="quitarRenglones($event)" />
+      } @else {
+
       <app-load-state [loading]="loading()" [error]="error()" [isEmpty]="!!data() && !gruposVisibles().length"
                       [emptyTitle]="hayFiltro() ? 'Nada con estos filtros' : 'Nada que pedir'"
                       [emptyHint]="hayFiltro() ? 'Quita algún filtro o elige «Todos».' : 'Con la venta de los últimos 30 días y lo que ya viene, este almacén está cubierto.'"
@@ -577,6 +630,7 @@ type DestinoEnvio = 'sucursal' | 'compras';
           </article>
         }
       </app-load-state>
+      }
 
       <!-- [PQ.143] Confirmar el envío. Un diálogo por destino: lo que sale, a quién, y qué pasa al confirmar. -->
       <p-dialog [visible]="!!envioAbierto()" (visibleChange)="$event || envioAbierto.set(null)" [modal]="true"
@@ -1439,6 +1493,56 @@ export class AlmacenAutoabastoComponent {
   readonly aSucursal = computed(() => this.porEnviarDe('sucursal'));
   /** Lo que se le pide a los proveedores, por Compras. */
   readonly aCompras = computed(() => this.porEnviarDe('compras'));
+
+  // ── [AB.NI.5] El pedido abierto ────────────────────────────────────────────────────────────
+
+  /** Qué destino tiene el detalle abierto. `null` = la mesa normal. */
+  readonly detalle = signal<DestinoEnvio | null>(null);
+
+  /** Los renglones que van a UN destino, que es lo que `armarOrdenes` sabe partir. */
+  lineasDeDestino(destino: DestinoEnvio): AutoabastoPedidoLinea[] {
+    const tipo = destino === 'sucursal' ? 'matriz' : 'proveedor';
+    return (this.data()?.grupos ?? [])
+      .filter((g) => g.tipo === tipo)
+      .flatMap((g) => g.lineas)
+      // Lo que de verdad lleva el pedido: el ajuste de la persona manda sobre el sugerido. Un
+      // renglón en cero no es parte del pedido y no debe ocupar un renglón de una orden.
+      .filter((l) => this.cantidad(l) > 0);
+  }
+
+  /** El nombre del que surte. ⛔ Nunca el código: «08» no le dice a nadie que es Morelia Abastos. */
+  nombreDestino(destino: DestinoEnvio): string {
+    if (destino === 'compras') return 'Compras';
+    const g = this.aSucursal().grupos;
+    return g.length === 1 ? warehouseName(g[0].nombre) : 'la sucursal';
+  }
+
+  verDetalle(destino: DestinoEnvio): void {
+    this.detalle.set(destino);
+  }
+
+  /**
+   * `[AB.NI.3]` Los renglones del pedido a la matriz que **no pueden salir** porque Kepler no
+   * rotula su unidad. Se cuentan sobre lo que de verdad lleva cantidad: un renglón en cero no es
+   * un problema, es un renglón que no va.
+   */
+  readonly sinUnidadPedido = computed<AutoabastoPedidoLinea[]>(() =>
+    this.lineasDeDestino('sucursal').filter((l) => !l.a_pedir?.unidad),
+  );
+
+  /**
+   * Quitar renglones desde el detalle: dejarlos en cero es exactamente «no lo pidas». Usa el mismo
+   * `fijar` que el − / + de la mesa, así que lleva la misma huella y el mismo guardado diferido:
+   * no hay un segundo camino de escritura que pueda divergir.
+   */
+  quitarRenglones(ids: string[]): void {
+    for (const id of ids) {
+      for (const g of this.data()?.grupos ?? []) {
+        const l = g.lineas.find((x) => x.product_id === id);
+        if (l) { this.fijar(g, l, 0); break; }
+      }
+    }
+  }
 
   /**
    * `[PQ.143]` El texto del botón diario. La sucursal se **nombra**, nunca se numera

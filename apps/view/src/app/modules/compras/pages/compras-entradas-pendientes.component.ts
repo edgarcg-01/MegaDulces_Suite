@@ -179,8 +179,14 @@ interface Hoja {
           <p class="ep-verdict" [class.is-done]="faltan(r) === 0" [class.is-late]="r.kpis.atrasadas > 0">
             @if (faltan(r) === 0) {
               <i class="pi pi-check-circle" aria-hidden="true"></i> Todo al día — no te falta subir nada.
+              @if (r.kpis.internas) {
+                · <button type="button" class="ep-late-btn" (click)="setEstado('interna')">{{ r.kpis.internas }} internas no llevan factura</button>
+              }
             } @else {
               Te faltan <b>{{ faltan(r) }}</b> facturas de {{ r.kpis.entradas }}
+              @if (r.kpis.internas) {
+                · <button type="button" class="ep-late-btn" (click)="setEstado('interna')">{{ r.kpis.internas }} internas no llevan factura</button>
+              }
               @if (r.kpis.atrasadas > 0) {
                 · <button type="button" class="ep-late-btn" (click)="soloAtrasadas()"
                           [pTooltip]="'Más de ' + r.settings.sla_capture_days + ' días sin factura'" tooltipPosition="bottom">
@@ -407,6 +413,12 @@ interface Hoja {
                           <span class="ep-descartada">
                             <i class="pi pi-ban" aria-hidden="true"></i>
                             {{ motivoDescarteLabel(c.descarte_motivo) || 'Fuera del proceso' }}
+                          </span>
+                        } @else if (c.interna) {
+                          <!-- [RE.87] Nadie la tiene que subir: el proveedor es la propia empresa. El motivo va escrito, no sólo en el tooltip. -->
+                          <span class="ep-descartada" [pTooltip]="MOTIVO_INTERNA" tooltipPosition="left">
+                            <i class="pi pi-building" aria-hidden="true"></i>
+                            Interna · no lleva factura{{ c.concepto ? ' · ' + c.concepto : '' }}
                           </span>
                         } @else if (dragFila() === clave(c)) {
                           <b class="ep-drophere"><i class="pi pi-download" aria-hidden="true"></i> Suelta acá el PDF</b>
@@ -1267,7 +1279,11 @@ export class ComprasEntradasPendientesComponent {
     // descartadas: si no, un folio que venía persiguiendo desaparece de la lista y del buscador
     // sin explicación, que es justo lo que se le critica al descarte.
     { label: 'Descartadas', value: 'descartada' },
+    // `[RE.87]` Las internas (el proveedor es la propia empresa) no se le piden a nadie, pero se pueden ver con su motivo.
+    { label: 'Internas', value: 'interna' },
   ];
+  /** `[RE.87]` El porqué de una entrada interna, el mismo texto del servidor (`MOTIVO_ENTRADA_INTERNA`). */
+  readonly MOTIVO_INTERNA = 'El proveedor es la propia empresa: es un movimiento interno (alta de códigos de promoción, kit o mercancía que regresa de una promoción) y no lleva factura de proveedor.';
   readonly verDescartadas = computed(() => this.estado() === 'descartada');
   motivoDescarteLabel = motivoDescarteLabel;
 

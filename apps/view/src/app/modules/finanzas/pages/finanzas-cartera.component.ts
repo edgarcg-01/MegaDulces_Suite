@@ -33,8 +33,8 @@ const fechaMx = (iso: string): string =>
 const normalizar = (s: string | null | undefined): string =>
   (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, TelefonosCuenta, CarteraFiltros, CarteraQuery, CanalContacto, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto, CuentaKind, VentaVendedorResp } from '../cartera.service';
-/** `[CXC.52]` El periodo de la venta por vendedor. */
-type PeriodoVenta = '30d' | 'mes' | 'mes_ant' | '3m' | 'rango';
+/** `[CXC.53]` El periodo del Resumen de Cartera (venta, DSO, pago, venta por vendedor y tendencia). */
+type PeriodoResumen = '30d' | '90d' | 'mes' | 'mes_ant' | 'rango';
 /** Una fecha del calendario (hora local del navegador) como AAAA-MM-DD, sin pasar por UTC. */
 const isoLocal = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -43,7 +43,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CarteraSegmentsComponent } from '../cartera-segments.component';
 import { mensajeEstadoCuenta, mensajeVendedor, pdfPublicoDelEnlace, type PeriodoMensaje } from '../estado-cuenta-mensaje';
-import { MESES_ESTADO_CUENTA_POR_DEFECTO, PERIODOS_ESTADO_CUENTA, dateFromDelPeriodo, masNuevaPrimero, pagadaEnPeriodo, proximoVencimiento, restarMeses, resumenPeriodo, type PeriodoEstadoCuenta } from '@megadulces/contracts';
+import { MESES_ESTADO_CUENTA_POR_DEFECTO, PERIODOS_ESTADO_CUENTA, dateFromDelPeriodo, masNuevaPrimero, pagadaEnPeriodo, proximoVencimiento, resumenPeriodo, type PeriodoEstadoCuenta } from '@megadulces/contracts';
 import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarPdf } from '../../../shared/util/abrir-pdf';
 import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 
@@ -172,19 +172,32 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 
         @if (showResumen() && resumen(); as rs) {
           <section class="card-premium card-flat ct-resumen">
-            <h3 class="ct-card-title"><i class="pi pi-chart-bar" aria-hidden="true"></i> Resumen gerencial <span class="muted">lo que el reporte de Kepler no da</span></h3>
+            <div class="ct-rs-head">
+              <h3 class="ct-card-title"><i class="pi pi-chart-bar" aria-hidden="true"></i> Resumen gerencial <span class="muted">lo que el reporte de Kepler no da</span></h3>
+              <!-- [CXC.53] Edgar, 2026-11-23: «que todo el resumen se haga dinámico». UN periodo: venta, DSO, pago, venta por
+                   vendedor y tendencia. Lo que es foto de hoy lo dice en su rótulo. -->
+              <p-select [options]="periodosResumen" [ngModel]="periodoResumen()" (ngModelChange)="cambiarPeriodo($event)"
+                        optionLabel="etiqueta" optionValue="clave" ariaLabel="Periodo del resumen"
+                        styleClass="ct-sel" data-testid="periodo-resumen" />
+              @if (periodoResumen() === 'rango') {
+                <p-datepicker [ngModel]="rangoResumen" (ngModelChange)="cambiarRango($event)" selectionMode="range"
+                              dateFormat="yy-mm-dd" [maxDate]="hoyFecha()" [showIcon]="true" appendTo="body"
+                              placeholder="Desde – hasta" ariaLabel="Rango del resumen" data-testid="rango-resumen" />
+              }
+              <span class="muted ct-rs-periodo" data-testid="periodo-texto">del {{ rs.periodo.desde }} al {{ rs.periodo.hasta }} ({{ rs.periodo.dias }} días)</span>
+            </div>
             <div class="ct-rs-kpis">
-              <div class="ct-rs-kpi"><span class="ct-rs-num">{{ rs.dso ?? '—' }}</span><span class="ct-rs-lbl">DSO (días cartera)</span></div>
-              <div class="ct-rs-kpi"><span class="ct-rs-num">{{ rs.pct_vencido }}%</span><span class="ct-rs-lbl">del saldo vencido</span></div>
-              <div class="ct-rs-kpi"><span class="ct-rs-num">{{ rs.concentracion.top10_pct }}%</span><span class="ct-rs-lbl">en top-10 clientes</span></div>
-              <div class="ct-rs-kpi"><span class="ct-rs-num">{{ money(rs.ventas_90d) }}</span><span class="ct-rs-lbl">ventas 90d (base DSO)</span></div>
+              <div class="ct-rs-kpi"><span class="ct-rs-num">{{ rs.dso ?? '—' }}</span><span class="ct-rs-lbl">DSO (días cartera, con la venta del periodo)</span></div>
+              <div class="ct-rs-kpi"><span class="ct-rs-num">{{ rs.pct_vencido }}%</span><span class="ct-rs-lbl">del saldo vencido, hoy</span></div>
+              <div class="ct-rs-kpi"><span class="ct-rs-num">{{ rs.concentracion.top10_pct }}%</span><span class="ct-rs-lbl">en top-10 clientes, hoy</span></div>
+              <div class="ct-rs-kpi"><span class="ct-rs-num">{{ money(rs.ventas_periodo) }}</span><span class="ct-rs-lbl">venta a crédito del periodo (base DSO)</span></div>
               @if (rs.pago; as pg) {
-                <div class="ct-rs-kpi"><span class="ct-rs-num">{{ pg.mediana }}d</span><span class="ct-rs-lbl">mediana real de pago ({{ pg.n | number }} facturas)</span></div>
-                <div class="ct-rs-kpi"><span class="ct-rs-num">{{ pg.tarde_30d | number }}</span><span class="ct-rs-lbl">pagos a más de 30 días</span></div>
+                <div class="ct-rs-kpi"><span class="ct-rs-num">{{ pg.mediana }}d</span><span class="ct-rs-lbl">mediana real de pago ({{ pg.n | number }} facturas pagadas en el periodo)</span></div>
+                <div class="ct-rs-kpi"><span class="ct-rs-num">{{ pg.tarde_30d | number }}</span><span class="ct-rs-lbl">pagadas a más de 30 días, en el periodo</span></div>
               }
             </div>
             <div class="ct-rs-proy">
-              <h4 class="ct-rs-h4">Proyección de cobranza <span class="muted">cuánto debería entrar y cuándo</span></h4>
+              <h4 class="ct-rs-h4">Proyección de cobranza <span class="muted">cuánto debería entrar y cuándo, desde hoy</span></h4>
               <div class="ct-proy-row">
                 <div class="ct-proy-cell ct-proy-venc"><span class="ct-proy-num">{{ money(rs.proyeccion.vencido) }}</span><span class="ct-proy-lbl">Vencido (cobrar ya)</span></div>
                 <div class="ct-proy-cell"><span class="ct-proy-num">{{ money(rs.proyeccion.d0_7) }}</span><span class="ct-proy-lbl">Vence ≤ 7 días</span></div>
@@ -194,11 +207,11 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
               </div>
             </div>
 
-            @if (tendencia().length > 1) {
+            @if (tendenciaPeriodo().length > 1) {
               <div class="ct-rs-trend">
-                <h4 class="ct-rs-h4">Tendencia de cartera <span class="muted">saldo · vencido</span></h4>
+                <h4 class="ct-rs-h4">Tendencia de cartera <span class="muted">saldo · vencido @if (tendenciaDesde(); as td) { · hay fotos diarias desde el {{ td }} }</span></h4>
                 <div class="ct-trend-bars">
-                  @for (t of tendencia(); track t.fecha) {
+                  @for (t of tendenciaPeriodo(); track t.fecha) {
                     <div class="ct-trend-col" [title]="t.fecha + ': ' + money(t.saldo_total) + ' (' + money(t.vencido_total) + ' vencido)'">
                       <div class="ct-trend-bar" [style.height.%]="trendPct(t.saldo_total)"><div class="ct-trend-venc" [style.height.%]="t.saldo_total > 0 ? (t.vencido_total / t.saldo_total) * 100 : 0"></div></div>
                     </div>
@@ -223,19 +236,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 
             <div class="ct-rs-grid">
               <div>
-                <div class="ct-rs-vend-head">
-                  <h4 class="ct-rs-h4">Cartera por vendedor</h4>
-                  <!-- [CXC.52] Edgar, 2026-11-23: «un selector de tiempo, por mes, tres meses o un rango». Cambiarlo pide
-                       SÓLO la venta (su propio endpoint), no recarga la cartera. -->
-                  <p-select [options]="periodosVenta" [ngModel]="periodoVenta()" (ngModelChange)="cambiarPeriodoVenta($event)"
-                            optionLabel="etiqueta" optionValue="clave" ariaLabel="Periodo de la venta por vendedor"
-                            styleClass="ct-sel" data-testid="periodo-venta" />
-                  @if (periodoVenta() === 'rango') {
-                    <p-datepicker [ngModel]="rangoVenta" (ngModelChange)="cambiarRangoVenta($event)" selectionMode="range"
-                                  dateFormat="yy-mm-dd" [maxDate]="hoyFecha()" [showIcon]="true" appendTo="body"
-                                  placeholder="Desde – hasta" ariaLabel="Rango de la venta por vendedor" data-testid="rango-venta" />
-                  }
-                </div>
+                <h4 class="ct-rs-h4">Cartera por vendedor <span class="muted">saldo y vencido de hoy · venta del periodo</span></h4>
                 <!-- [CXC.20] Con NOMBRE, y la fila es (sucursal, código). Antes listaba «1», «2»,
                      «10001»: el join a kduv existía en el ODS y nadie lo hacía. Y agrupar por el
                      código pelado habría fundido dos carteras — 11 de 81 códigos nombran a
@@ -859,8 +860,9 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-resumen { flex-basis: 100%; margin: .25rem 0 0; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
     .ct-resumen-dif { color: var(--warn-soft-fg); }
     .ct-rs-total td { font-weight: 700; border-top: 1px solid var(--border); }
-    .ct-rs-vend-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-    .ct-rs-vend-head .ct-rs-h4 { margin-right: auto; }
+    .ct-rs-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+    .ct-rs-head .ct-card-title { margin-right: auto; }
+    .ct-rs-periodo { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
     .ct-det-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
     .ct-det-table th, .ct-det-table td { padding: .4rem .6rem; text-align: left; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
     .ct-det-table th { color: var(--text-muted); font-weight: 600; }
@@ -1060,15 +1062,19 @@ export class FinanzasCarteraComponent implements OnInit {
     };
   }
 
-  // ── `[CXC.52]` La venta por vendedor, con su periodo (Edgar: «por mes, tres meses o un rango») ─────────────────────
-  readonly periodosVenta: { clave: PeriodoVenta; etiqueta: string }[] = [
-    { clave: '30d', etiqueta: 'Últimos 30 días' }, { clave: 'mes', etiqueta: 'Este mes' },
-    { clave: 'mes_ant', etiqueta: 'Mes anterior' }, { clave: '3m', etiqueta: 'Últimos 3 meses' },
+  // ── `[CXC.53]` UN periodo para todo el Resumen (Edgar, 2026-11-23: «que todo el resumen se haga dinámico») ──────
+  // Siguen al periodo: la venta (y el DSO que la usa), el comportamiento de pago, la venta por vendedor y la
+  // tendencia. Saldo, vencido, concentración, proyección y cartera por vendedor/zona son foto de HOY: el saldo de
+  // una fecha pasada no se reconstruye exacto (medido: 1–10 % de desvío contra las fotos diarias).
+  readonly periodosResumen: { clave: PeriodoResumen; etiqueta: string }[] = [
+    { clave: '30d', etiqueta: 'Últimos 30 días' }, { clave: '90d', etiqueta: 'Últimos 90 días' },
+    { clave: 'mes', etiqueta: 'Este mes' }, { clave: 'mes_ant', etiqueta: 'Mes anterior' },
     { clave: 'rango', etiqueta: 'Rango…' },
   ];
-  readonly periodoVenta = signal<PeriodoVenta>('30d');
+  /** Por defecto 90 días: la base con la que nació el DSO (el número no cambia al abrir). */
+  readonly periodoResumen = signal<PeriodoResumen>('90d');
   /** El rango del calendario (`[desde, hasta]`); se pide hasta que tiene las dos fechas. */
-  rangoVenta: (Date | null)[] | null = null;
+  rangoResumen: (Date | null)[] | null = null;
   readonly venta = signal<VentaVendedorResp | null>(null);
   readonly ventaCargando = signal(false);
   readonly ventaError = signal<string | null>(null);
@@ -1080,42 +1086,62 @@ export class FinanzasCarteraComponent implements OnInit {
     const h = this.data()?.hoy;
     return h ? new Date(`${h}T12:00:00`) : new Date();
   });
+  /** La tendencia recortada al periodo del Resumen (las fotos diarias existen desde el 24-sep-2026). */
+  readonly tendenciaPeriodo = computed(() => {
+    const p = this.resumen()?.periodo;
+    const t = this.tendencia();
+    return p ? t.filter((x) => x.fecha >= p.desde && x.fecha <= p.hasta) : t;
+  });
+  /** Si el periodo empieza antes de la primera foto, se dice desde cuándo hay: no se dibuja lo que no existe. */
+  readonly tendenciaDesde = computed(() => {
+    const p = this.resumen()?.periodo;
+    const primera = this.tendencia()[0]?.fecha;
+    return p && primera && primera > p.desde ? primera : null;
+  });
 
   /** La venta de la fila; `null` = sin venta con esa clave en el periodo (no es cero). */
   ventaDe(v: { sucursal: string; vendedor: string }): number | null {
     return this.ventaMapa().get(`${v.sucursal}||${v.vendedor}`) ?? null;
   }
 
-  cambiarPeriodoVenta(p: PeriodoVenta) {
-    this.periodoVenta.set(p);
-    if (p !== 'rango') this.cargarVenta();
+  cambiarPeriodo(p: PeriodoResumen) {
+    this.periodoResumen.set(p);
+    if (p !== 'rango') this.recargarPeriodo();
   }
-  cambiarRangoVenta(r: (Date | null)[] | null) {
-    this.rangoVenta = r;
-    if (r?.[0] && r?.[1]) this.cargarVenta();
+  cambiarRango(r: (Date | null)[] | null) {
+    this.rangoResumen = r;
+    if (r?.[0] && r?.[1]) this.recargarPeriodo();
+  }
+  /** Todo lo que sigue al periodo: la cartera (venta, DSO, pago), la venta por vendedor y la tendencia. */
+  private recargarPeriodo() {
+    this.load();
+    this.cargarVenta();
   }
 
-  /** Las fechas que viajan para el periodo elegido; `null` = el rango todavía no está completo. */
-  fechasVenta(): { date_from?: string; date_to?: string } | null {
+  /**
+   * Las fechas del periodo elegido. `{}` = el default del servidor (90 días), que sólo se usa antes de saber `hoy`;
+   * `null` = el rango todavía no está completo.
+   */
+  fechasPeriodo(): { date_from?: string; date_to?: string } | null {
     const hoy = this.data()?.hoy;
-    const p = this.periodoVenta();
-    if (p === '30d' || !hoy) return {};
+    const p = this.periodoResumen();
     if (p === 'rango') {
-      const [a, b] = this.rangoVenta || [];
+      const [a, b] = this.rangoResumen || [];
       return a && b ? { date_from: isoLocal(a), date_to: isoLocal(b) } : null;
     }
-    const [y, m] = hoy.split('-').map(Number);
+    if (!hoy) return {};
+    const [y, m, d] = hoy.split('-').map(Number);
+    const atras = (dias: number) => new Date(Date.UTC(y, m - 1, d - (dias - 1))).toISOString().slice(0, 10);
+    if (p === '30d') return { date_from: atras(30), date_to: hoy };
+    if (p === '90d') return { date_from: atras(90), date_to: hoy };
     if (p === 'mes') return { date_from: `${hoy.slice(0, 7)}-01`, date_to: hoy };
-    if (p === 'mes_ant') {
-      const ini = new Date(Date.UTC(y, m - 2, 1));
-      const fin = new Date(Date.UTC(y, m - 1, 0));
-      return { date_from: ini.toISOString().slice(0, 10), date_to: fin.toISOString().slice(0, 10) };
-    }
-    return { date_from: restarMeses(hoy, 3), date_to: hoy }; // '3m'
+    const ini = new Date(Date.UTC(y, m - 2, 1));
+    const fin = new Date(Date.UTC(y, m - 1, 0));
+    return { date_from: ini.toISOString().slice(0, 10), date_to: fin.toISOString().slice(0, 10) }; // 'mes_ant'
   }
 
   cargarVenta() {
-    const q = this.fechasVenta();
+    const q = this.fechasPeriodo();
     if (!q) return;
     this.ventaSub?.unsubscribe();
     this.ventaCargando.set(true);
@@ -1324,6 +1350,9 @@ export class FinanzasCarteraComponent implements OnInit {
       incluir_saldados: this.incluirSaldados ? '1' : undefined,
       // `[CXC.42]` Todas las cuentas del filtro: la búsqueda y el orden se resuelven aquí.
       limit: 5000,
+      // `[CXC.53]` El periodo del Resumen; sin fechas (antes de saber hoy), el servidor usa los mismos 90 días.
+      period_from: this.fechasPeriodo()?.date_from,
+      period_to: this.fechasPeriodo()?.date_to,
     };
   }
 
@@ -1352,7 +1381,13 @@ export class FinanzasCarteraComponent implements OnInit {
   }
   private loadTendencia() {
     this.tendSub?.unsubscribe();
-    this.tendSub = this.svc.tendencia({ sucursal: this.sucursal || undefined, dias: 90 })
+    // `[CXC.53]` Las fotos desde el inicio del periodo (mínimo 90 días, como antes; tope de un año).
+    const f = this.fechasPeriodo();
+    const hoy = this.data()?.hoy;
+    const dias = f?.date_from && hoy
+      ? Math.min(366, Math.max(90, Math.round((Date.parse(hoy) - Date.parse(f.date_from)) / 86400000) + 1))
+      : 90;
+    this.tendSub = this.svc.tendencia({ sucursal: this.sucursal || undefined, dias })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (t) => { this.tendencia.set(t); this.tendenciaCargada.set(true); },

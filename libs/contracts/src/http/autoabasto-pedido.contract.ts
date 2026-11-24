@@ -363,6 +363,16 @@ export interface AutoabastoPedidoLinea {
   product_id: string;
   sku: string;
   nombre: string;
+  /**
+   * `[AB.NI.1]` La **línea** del producto —el fabricante— derivada de `analytics.v_erp_product_lines`
+   * (PQ.144). Es el segundo nivel de agrupación del pedido: unidad → línea → alfabético. `null` = el
+   * catálogo del ERP no la resuelve, y entonces el renglón cae en «(sin línea)»: **no se rellena con
+   * un default** (ADR-056). Opcional: un servidor anterior no la manda y la pantalla lo soporta.
+   *
+   * ⚠️ El rótulo llega **tal cual** del ERP, truncado a 30 caracteres y a veces con basura
+   * (`CANEL?S S.A. DE C.V.`). Corregirlo acá sería inventar un catálogo que no existe.
+   */
+  linea?: string | null;
   venta_30d: number | null;
   existencia: number;
   objetivo: number | null;

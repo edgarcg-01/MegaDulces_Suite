@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB, TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { FINANCE_NOTIFIER_PORT, FinanceNotifierPort } from '@megadulces/contracts';
+import { esEntradaInternaSql } from './entrada-interna';
 
 /**
  * `[RE.27.C]` — La cola de entradas deja de ser invisible.
@@ -119,7 +120,9 @@ export class ReceiptSlaService {
       const slaCaptura = Number(cfg?.sla_capture_days ?? 3);
       const arranque = cfg?.reception_start ?? '2026-08-01';
 
-      const { rows } = await trx.raw(SQL_SLA, {
+      const conCatalogo = !!(await trx.raw(`SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('catalog.suppliers')
+        AND attname = 'is_internal' AND NOT attisdropped) AS ok`)).rows[0]?.ok;
+      const { rows } = await trx.raw(SQL_SLA(conCatalogo), {
         tenant: tenantId, sla_revision: slaRevision, sla_captura: slaCaptura, arranque,
       });
       return (rows as FilaSla[]).map((r) => ({
@@ -221,7 +224,8 @@ export interface FilaSla {
  *   · sólo el carril **al día** (`receipt_date >= reception_start`): el rezago
  *     anterior al arranque del proceso no tiene plazo, por definición.
  */
-const SQL_SLA = `
+/** `[RE.87]` Función y no constante: la regla de la entrada interna necesita saber si existe la columna del catálogo. */
+const SQL_SLA = (conCatalogo: boolean): string => `
 WITH ult AS (
   SELECT p.sucursal, p.folio,
          (array_agg(p.status      ORDER BY p.created_at DESC, (p.status = 'recibido') DESC, p.id DESC))[1] AS status,
@@ -244,6 +248,8 @@ base AS (
      AND NOT EXISTS (
        SELECT 1 FROM finance.goods_receipt_discards x
         WHERE x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio)
+     -- [RE.87] la entrada interna (el proveedor es la propia empresa) no lleva factura: no se le avisa a nadie
+     AND NOT ${esEntradaInternaSql(conCatalogo)}
 )
 SELECT b.sucursal,
        w.name AS sucursal_nombre,

@@ -15,6 +15,7 @@ import { vi } from 'vitest';
 
 import { ItemBandeja, TeleventaQuoteNewComponent } from './televenta-quote-new.component';
 import { PricedLine, QuotesService, WholesaleCustomer } from '../quotes.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 
 const OSITOS: ItemBandeja = {
   id: 'r1', sku: '99686', name: 'OSITOS BACK PACK JELLY', barcode: null, content: null,
@@ -45,6 +46,9 @@ describe('TeleventaQuoteNewComponent — la bandeja sigue a la sucursal', () => 
       },
       listSalespersons: () => of([]),
       stock: (branch: string) => of({ branch, stock_as_of: null, items: [] }),
+      // [COT.55] El cliente sin «solo precio 1» (sin fila): el cobro de siempre.
+      precioListaCliente: (branch: string, customer: string) =>
+        of({ branch, erp_customer_code: customer, list_price_only: false, updated_at: null, updated_by_name: null, can_change: false }),
     };
     TestBed.configureTestingModule({
       imports: [TeleventaQuoteNewComponent],
@@ -67,7 +71,7 @@ describe('TeleventaQuoteNewComponent — la bandeja sigue a la sucursal', () => 
   it('al cambiar de sucursal, cada renglón se cotiza con la NUEVA', () => {
     const c = conBandeja('02');
     c.onSucursalChange('01');
-    expect(pedidas).toEqual([{ branch: '01', sku: '99686', quantity: 1, rung: 'base' }]);
+    expect(pedidas).toEqual([{ branch: '01', sku: '99686', quantity: 1, rung: 'base', list_price_only: false }]);
     respuestas['01'].next(previa('01', 124.51, 'promo_qty'));
     expect(c.bandeja()[0]).toMatchObject({ unit_price: 124.51, line_total: 124.51, price_source: 'promo_qty' });
   });
@@ -182,5 +186,43 @@ describe('[COT.49] el buscador sube en pantalla de dedo', () => {
     const { c, scrollIntoView } = montar(false);
     c.onFocoArticulo();
     expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+});
+
+describe('[COT.55] «Solo precio 1 (sin mayoreo)» en la cotización nueva', () => {
+  function montar(puede: boolean) {
+    const pedidas: Array<{ list_price_only?: boolean }> = [];
+    const svc: Partial<QuotesService> = {
+      pricePreview: (input) => { pedidas.push(input); return of(previa('01', 132.46, 'list')); },
+      listSalespersons: () => of([]),
+      stock: (branch: string) => of({ branch, stock_as_of: null, items: [] }),
+    };
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [TeleventaQuoteNewComponent],
+      providers: [
+        provideZonelessChangeDetection(), provideRouter([]), MessageService,
+        { provide: QuotesService, useValue: svc },
+        { provide: PermissionsService, useValue: { has: () => puede, hasAny: () => puede, isAdmin: () => false } },
+      ],
+    });
+    const c = TestBed.createComponent(TeleventaQuoteNewComponent).componentInstance;
+    c.sucursal.set('01');
+    c.bandeja.set([{ ...OSITOS }]);
+    return { c, pedidas };
+  }
+
+  it('con permiso, moverlo vuelve a cotizar lo capturado sin mayoreo', () => {
+    const { c, pedidas } = montar(true);
+    c.cambiarListaSola(true);
+    expect(c.listaSola()).toBe(true);
+    expect(pedidas.at(-1)).toMatchObject({ sku: '99686', list_price_only: true });
+  });
+
+  it('sin permiso no se mueve ni re-cotiza', () => {
+    const { c, pedidas } = montar(false);
+    c.cambiarListaSola(true);
+    expect(c.listaSola()).toBe(false);
+    expect(pedidas).toEqual([]);
   });
 });

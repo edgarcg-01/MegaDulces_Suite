@@ -211,6 +211,9 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
                       Descartadas <i [class]="sortIcon(sort(), 'descartadas')" aria-hidden="true"></i>
                     </button>
                   </th>
+                  <!-- [RE.87] Las internas tampoco llevan factura (el proveedor es la propia empresa): fuera del %, a la vista. -->
+                  <th scope="col" class="comm-num surf-def"
+                      pTooltip="Entradas cuyo proveedor es la propia empresa (códigos de promoción, kits, regreso de promoción). No llevan factura y están fuera del % de arriba." tooltipPosition="top">Internas</th>
                   <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </thead>
@@ -273,6 +276,11 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
                            [pTooltip]="motivosDescarte(c)" tooltipPosition="left">{{ c.descartadas }}</a>
                       } @else { <span class="muted">—</span> }
                     </td>
+                    <td class="comm-num">
+                      @if (c.internas) {
+                        <a class="ec-link" [routerLink]="['/compras/entradas']" [queryParams]="{ suc: c.sucursal, estado: 'interna' }">{{ c.internas }}</a>
+                      } @else { <span class="muted">—</span> }
+                    </td>
                     <td class="ec-acts">
                       <!-- RE.16.9 — el supervisor que sólo observa (VER, sin GESTIONAR ni
                            VALIDAR) no ve atajos a pantallas donde el guard lo rebota. "ver
@@ -323,6 +331,7 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
                   <td></td>
                   <td class="comm-num">{{ moneyShort(tot().monto_pendiente) }}</td>
                   <td class="comm-num">{{ tot().descartadas || '—' }}</td>
+                  <td class="comm-num">{{ tot().internas || '—' }}</td>
                   <td></td>
                 </tr>
               </tfoot>
@@ -482,7 +491,7 @@ export class ComprasEntradasControlComponent {
     const r = this.rows();
     const acc = {
       entradas: 0, con_evidencia: 0, validadas: 0, por_validar: 0, atrasadas: 0,
-      monto_pendiente: 0, descartadas: 0,
+      monto_pendiente: 0, descartadas: 0, internas: 0,
       por_validar_vencidas: 0, monto_revision: 0, dias_peor_revision: 0,
     };
     for (const c of r) {
@@ -490,6 +499,7 @@ export class ComprasEntradasControlComponent {
       acc.validadas += c.validadas; acc.por_validar += c.por_validar;
       acc.atrasadas += c.atrasadas; acc.monto_pendiente += c.monto_pendiente;
       acc.descartadas += c.descartadas ?? 0;
+      acc.internas += c.internas ?? 0;
       acc.por_validar_vencidas += c.por_validar_vencidas ?? 0;
       acc.monto_revision += c.monto_revision ?? 0;
       // El peor caso de la red es el peor de las sucursales, no la suma.

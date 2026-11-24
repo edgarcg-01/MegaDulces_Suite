@@ -109,6 +109,30 @@ export class CommercialQuotesController {
     return this.service.suggestWholesaleCustomers(branch, search ?? '', all === '1' || all === 'true');
   }
 
+  /** `[COT.55]` «Solo precio 1 (sin mayoreo)» por defecto del cliente. ⚠️ Antes de `:id`, como las demás. */
+  @Get('wholesale-customers/:code/pricing')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
+  @ApiOperation({ summary: '[COT.55] Si el cliente cotiza sólo a precio 1 (sin mayoreo) por defecto, y si quien pide lo puede cambiar.' })
+  @ApiQuery({ name: 'branch', required: true })
+  precioListaCliente(
+    @Param('code') code: string,
+    @Query('branch') branch: string,
+    @Req() req: ConQuien,
+  ): ReturnType<CommercialQuotesService['precioListaCliente']> {
+    return this.service.precioListaCliente(branch, code, req?.user);
+  }
+
+  @Patch('wholesale-customers/:code/pricing')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_PRECIO_LISTA)
+  @ApiOperation({ summary: '[COT.55] Fija «solo precio 1 (sin mayoreo)» para el cliente. Aplica a las cotizaciones NUEVAS; las hechas no cambian.' })
+  fijarPrecioListaCliente(
+    @Param('code') code: string,
+    @Body() body: { branch: string; list_price_only: boolean },
+    @Req() req: ConQuien,
+  ): ReturnType<CommercialQuotesService['fijarPrecioListaCliente']> {
+    return this.service.fijarPrecioListaCliente(body?.branch, code, body?.list_price_only, req?.user);
+  }
+
   /**
    * ⚠️ Va **antes** de `@Get(':id')`. Nest resuelve por orden de declaración: abajo de la ruta
    * paramétrica, `catalog` entraría como si fuera un id de cotización y devolvería 404/500.
@@ -278,9 +302,12 @@ export class CommercialQuotesController {
       lines?: CreateQuoteLine[];
       /** `[COT.54]` Cuánto costó capturarla (sólo se reporta agregado). */
       capture?: CapturaCotizacion | null;
+      /** `[COT.55]` «Solo precio 1 (sin mayoreo)». Sin valor = el del cliente; otro pide COMMERCIAL_QUOTES_PRECIO_LISTA. */
+      list_price_only?: boolean | null;
     },
+    @Req() req: ConQuien,
   ): Promise<CreatedQuote> {
-    return this.service.create(body);
+    return this.service.create(body, req?.user);
   }
 
   @Post(':id/cancel')
@@ -329,7 +356,9 @@ export class CommercialQuotesController {
       'Cotiza un renglón SIN guardarlo: devuelve el precio y el desglose completo de cómo se llegó a él (lista → volumen → promo), más lo que NO se aplicó y por qué. Es lo que la pantalla usa para mostrar el precio antes de agregar, y lo que consumirá el agente.',
   })
   pricePreview(
-    @Body() body: { branch: string; sku: string; quantity: number; rung?: Rung },
+    // `[COT.55]` list_price_only: la pantalla cotiza «solo precio 1». Sólo es vista previa (no se guarda):
+    // el que se guarda lo decide la cotización, y moverlo en ella pide COMMERCIAL_QUOTES_PRECIO_LISTA.
+    @Body() body: { branch: string; sku: string; quantity: number; rung?: Rung; list_price_only?: boolean },
   ): Promise<PricedLine> {
     return this.pricing.previewLine(body);
   }

@@ -65,6 +65,9 @@ import { QuoteTrackingComponent, marcaRenglon } from '../components/quote-tracki
 import type { CambioContraCotizacion, SeguimientoCotizacion } from '../quotes.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { branchName } from '../../../core/constants/store-branches';
+import { PrecioListaToggleComponent } from '../components/precio-lista-toggle.component';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 /**
  * `[COT.1b]` — El renglon de una cotizacion.
@@ -100,6 +103,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
   selector: 'app-televenta-quote-detail',
   standalone: true,
   imports: [
+    PrecioListaToggleComponent,
     CommonModule,
     FormsModule,
     RouterModule,
@@ -208,6 +212,21 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
           <span class="tl"><span class="tl-lbl">Vigencia:</span> <b [class.vencida]="q.days_to_expiry < 0">{{ fechaCorta(q.valid_until) }}</b> <span class="t-sub">{{ vigenciaHint(q) }}</span></span>
           <span class="tl-sep" aria-hidden="true"></span>
           <span class="tl"><span class="tl-lbl">Condiciones:</span> {{ fuenteTerms(q.terms_source) }}</span>
+          <!-- [COT.55] Solo precio 1 (sin mayoreo): en el borrador se mueve aquí y re-cotiza; enviada sólo se dice. -->
+          @if (editable()) {
+            <span class="tl-sep" aria-hidden="true"></span>
+            <app-precio-lista-toggle class="tl"
+              [valor]="q.list_price_only === true"
+              [delCliente]="listaCliente()"
+              [puede]="puedePrecioLista()"
+              [ocupado]="guardandoLista()"
+              (cambiar)="cambiarListaSola($event)"
+              (fijarCliente)="fijarListaCliente(q)"
+            />
+          } @else if (q.list_price_only) {
+            <span class="tl-sep" aria-hidden="true"></span>
+            <span class="tl"><span class="tl-lbl">Precio:</span> <b>sólo precio 1, sin mayoreo</b></span>
+          }
           @if (vendedorAsignado(q); as vend) {
             <span class="tl-sep" aria-hidden="true"></span>
             <span class="tl"><i class="pi pi-user tl-ico" aria-hidden="true"></i><span class="tl-lbl">Vendedor:</span> <b>{{ vend }}</b></span>
@@ -1330,6 +1349,59 @@ export class TeleventaQuoteDetailComponent implements OnInit {
 
   readonly cot = signal<QuoteDetail | null>(null);
 
+  // ── [COT.55] Solo precio 1 (sin mayoreo) ──────────────────────────────────────────────────
+  private readonly perms = inject(PermissionsService);
+  readonly puedePrecioLista = computed(() => this.perms.has(Permission.COMMERCIAL_QUOTES_PRECIO_LISTA));
+  /** El valor por defecto del cliente; null = sin cliente de Kepler o no se pudo leer. */
+  readonly listaCliente = signal<boolean | null>(null);
+  readonly guardandoLista = signal(false);
+
+  /** Se mueve en el borrador: el servidor pide el permiso, guarda y re-cotiza los renglones. */
+  cambiarListaSola(v: boolean): void {
+    const q = this.cot();
+    if (!q || !this.puedePrecioLista() || (q.list_price_only === true) === v) return;
+    this.guardandoLista.set(true);
+    this.svc.editarCabecera(this.id, { list_price_only: v }).subscribe({
+      next: () => {
+        this.guardandoLista.set(false);
+        this.toast.add({ severity: 'success', summary: v ? 'Sólo precio 1, sin mayoreo' : 'Con mayoreo', detail: 'Los renglones se volvieron a cotizar.' });
+        this.recargar(true);
+      },
+      error: (err) => {
+        this.guardandoLista.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se cambió el precio', detail: err?.error?.message || 'El servidor no respondió.' });
+        this.recargar(true); // el interruptor vuelve a lo que de verdad tiene la cotización
+      },
+    });
+  }
+
+  /** «Dejarlo así para este cliente»: sus cotizaciones nuevas ya nacen así (ésta no cambia). */
+  fijarListaCliente(q: QuoteDetail): void {
+    const cliente = q.erp_customer_code?.trim();
+    if (!cliente || !q.source_branch || !this.puedePrecioLista()) return;
+    this.guardandoLista.set(true);
+    this.svc.fijarPrecioListaCliente(q.source_branch, cliente, q.list_price_only === true).subscribe({
+      next: (v) => {
+        this.guardandoLista.set(false);
+        this.listaCliente.set(v.list_price_only);
+        this.toast.add({ severity: 'success', summary: 'Guardado para el cliente', detail: (q.erp_customer_name || cliente) + ': ' + (v.list_price_only ? 'sólo precio 1, sin mayoreo.' : 'con mayoreo.') });
+      },
+      error: (err) => {
+        this.guardandoLista.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se guardó para el cliente', detail: err?.error?.message || 'Intenta de nuevo.' });
+      },
+    });
+  }
+
+  private cargarListaCliente(q: QuoteDetail): void {
+    const cliente = q.erp_customer_code?.trim();
+    if (!cliente || !q.source_branch || q.status !== 'draft') { this.listaCliente.set(null); return; }
+    this.svc.precioListaCliente(q.source_branch, cliente).subscribe({
+      next: (v) => this.listaCliente.set(v.list_price_only),
+      error: () => this.listaCliente.set(null),
+    });
+  }
+
   /**
    * `[E.25]` Subtotal, IVA e IEPS con la tasa de CADA renglón: la misma función del servidor
    * (`recalcTotals`) y del papel. Antes el riel mostraba «Impuestos» calculados al 16 % sobre todo.
@@ -1535,7 +1607,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
           }
           this.cotizando.set(true);
           return this.svc
-            .pricePreview({ branch: q.source_branch, sku, quantity: qty, rung: this.rung() })
+            .pricePreview({ branch: q.source_branch, sku, quantity: qty, rung: this.rung(), list_price_only: q.list_price_only === true })
             .pipe(
               catchError((err) => {
                 this.toast.add({
@@ -1616,6 +1688,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.svc.getOne(this.id).subscribe({
       next: (q) => {
         this.cot.set(q);
+        this.cargarListaCliente(q); // [COT.55]
         this.resolverAgregado(q);
         this.error.set(null);
         this.revisar();

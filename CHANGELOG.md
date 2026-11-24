@@ -9,11 +9,15 @@
 ---
 
 ## [Unreleased]
-### Changed — Finanzas › Cartera: la ficha del cliente, igual que su estado de cuenta (CXC.51 · 2026-11-23 · en código, sin soltar)
+### Changed — Finanzas › Cartera › Resumen: todo sigue un periodo, y la venta de cada vendedor (CXC.52 · CXC.53 · 2026-11-24 · en producción)
+- Un selector en el Resumen gerencial: últimos 30 días, últimos 90 (el de siempre), este mes, mes anterior o un rango. La venta a crédito, el DSO, la mediana real de pago, los pagos a más de 30 días, la venta por vendedor y la tendencia siguen ese periodo.
+- Lo que es foto de hoy (vencido, concentración, proyección de cobranza, saldo por vendedor y por zona) lo dice en su rótulo: el saldo de una fecha pasada no se puede reconstruir exacto.
+- «Cartera por vendedor» suma la venta de cada vendedor en el periodo: lo facturado en Kepler con su clave, contado y crédito. «—» quiere decir que no vendió con esa clave, no que vendió cero; la sucursal Oficinas dejó de facturar el 1 de octubre. Al pie, el total de todos los vendedores con cartera.
+- Con 90 días la mediana real de pago pasa de 3 a 19 días: ahora mide lo que se pagó en el periodo, no toda la historia.
+### Changed — Finanzas › Cartera: la ficha del cliente, igual que su estado de cuenta (CXC.51 · 2026-11-24 · en producción)
 - Las facturas van de la más reciente a la más antigua, como en el PDF que se le envía al cliente.
 - Una línea con el resumen del periodo elegido: saldo al inicio + facturado − cobros − notas y devoluciones = saldo en facturas. Lo que no cuadra se dice en ámbar.
 - Junto al saldo, el próximo vencimiento y cuánto vence ese día.
-### Changed — El estado de cuenta del cliente se lee como el de un banco (CXC.50 · 2026-11-23 · en código, sin soltar)
 ### Fixed — Finanzas › Calendario de pagos: lo que queda de una factura ya pagada en parte vuelve a ofrecerse (PGP.206 · 2026-11-23)
 - Cuando una factura se pagó desde el Calendario y Kepler ya registró ese pago, lo que todavía debe se puede volver a programar. Antes el Calendario restaba el pago dos veces (el saldo de Kepler ya lo descontaba) y la factura no aparecía en «Agregar facturas». Caso: INDULMI, Morelia Abastos, factura 0000095, que quedó debiendo $2,805.35 por una nota de crédito hecha por error y cancelada. Aparecen también Charly ($472,501.51), Canel's y Pepsico, y Arrendamex recupera $47,472.
 - El estado de cuenta de acreedores ya no dice «Kepler aún no la aplica: no la vuelvas a programar» cuando Kepler sí la aplicó, aunque el pago no esté ligado a su documento.
