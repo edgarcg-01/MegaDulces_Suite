@@ -776,7 +776,11 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     const p = (saldo: number, importe: number, saldada = false) => ({ saldo_documento: saldo, importe, saldada }) as never;
     expect(c.esResto(p(0.37, 15730.37))).toBe(true);
     expect(c.esResto(p(0.08, 0.08))).toBe(false);
-    expect(c.esResto(p(1.5, 100))).toBe(false);
+    // `[GP.R.1]` (b1de283a6, D-R1) subió el tope de CLIENTES a $10 (`RESTO_TOLERADO_CLIENTE`): $1.50 ya es
+    // resto. El borde es inclusivo ($10 sí) y lo que lo pasa no: el caso que esta línea vigilaba con $1.
+    expect(c.esResto(p(1.5, 100))).toBe(true);
+    expect(c.esResto(p(10, 100))).toBe(true);
+    expect(c.esResto(p(10.5, 100))).toBe(false);
     expect(c.esResto(p(0, 100, true))).toBe(false);
   });
 });
