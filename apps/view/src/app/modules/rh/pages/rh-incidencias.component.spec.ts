@@ -145,7 +145,17 @@ describe('[RH.1.7] RhIncidenciasComponent', () => {
       site_code: 'PH', person_code: '101', incident_type: 'vacaciones', date_from: '2026-10-02', date_to: '2026-10-03',
       note: undefined, minutes: undefined, reason: undefined, authorized_by_name: undefined, deliver: undefined,
     });
-    expect(c.cuerpoCaptura({ ...base, incident_type: 'horas_extra', horas: '01:30' }, 'PH').minutes).toBe(90);
+    // `[NE.0.15]` El uso de horas extra ya va con motivo y autorizante: la pantalla los manda.
+    const he = c.cuerpoCaptura({ ...base, incident_type: 'horas_extra', horas: '01:30', reason: 'tomó la tarde', authorized_by_name: 'Jefe Prueba' }, 'PH');
+    expect(he.minutes).toBe(90);
+    expect(he.reason).toBe('tomó la tarde');
+    expect(he.authorized_by_name).toBe('Jefe Prueba');
+    expect(c.conAutorizacion('horas_extra')).toBe(true);
+    // Y la pregunta es la suya, no la de los «distintos».
+    expect(c.etiquetaMotivo('horas_extra')).toBe('Por qué usó sus horas extra');
+    expect(c.etiquetaMotivo('horario_distinto')).toBe('Por qué ese día fue distinto');
+    // NEGATIVA: un tipo que NO pide autorización sigue sin mandar esos campos.
+    expect(c.cuerpoCaptura({ ...base, incident_type: 'vacaciones', reason: 'x', authorized_by_name: 'y' }, 'PH').reason).toBeUndefined();
     // Horario distinto: es de UN día (no lleva «hasta») y lleva la hora de entrada, el motivo y quién autorizó.
     const hd = c.cuerpoCaptura({ ...base, incident_type: 'horario_distinto', entrada: '10:15', reason: 'Cita médica', authorized_by_name: 'Jefe Prueba' }, 'PH');
     expect(hd.date_to).toBeUndefined();

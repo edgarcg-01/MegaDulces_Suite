@@ -63,8 +63,16 @@ const DE_UN_DIA = new Set(['horario_distinto', 'desayuno_distinto', 'comida_dist
 const NOTA_OBLIGATORIA: Record<string, string> = {
   otros: 'Motivo', visita_fuera: 'A dónde fue y por qué', pago_horas_extra: 'Referencia del pago (p. ej. nómina del 15)',
 };
-/** Los que piden motivo y quién lo autorizó. */
-const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comida_distinta']);
+/** Los que piden motivo y quién lo autorizó, con la pregunta que le cabe a cada uno. */
+const CON_AUTORIZACION: Record<string, string> = {
+  horario_distinto: 'Por qué ese día fue distinto',
+  desayuno_distinto: 'Por qué ese día fue distinto',
+  comida_distinta: 'Por qué ese día fue distinto',
+  // `[NE.0.15]` El uso de horas extra BAJA un saldo, así que se captura diciendo por qué y con
+  // permiso de quién. Medido en prod el 2026-11-24: de los 25 usos que había, 0 traían motivo y
+  // 0 traían autorizante — porque el formulario no los pedía.
+  horas_extra: 'Por qué usó sus horas extra',
+};
 
 @Component({
   selector: 'app-rh-incidencias',
@@ -195,7 +203,7 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
             <p class="ri-ancho ri-ayuda">Esos días cuentan como descanso (no como falta ni como vacaciones), y su descanso de siempre no se mueve. Sirve para quien descansa dos días esa semana, o para quitarle a unas vacaciones el día que de todos modos descansaba.</p>
           }
           @if (conAutorizacion(f.incident_type)) {
-            <label class="ri-ancho">Por qué ese día fue distinto <input pInputText name="motivo" [(ngModel)]="f.reason" required /></label>
+            <label class="ri-ancho">{{ etiquetaMotivo(f.incident_type) }} <input pInputText name="motivo" [(ngModel)]="f.reason" required /></label>
             <label>Quién lo autorizó <input pInputText name="autorizo" [(ngModel)]="f.authorized_by_name" required /></label>
           }
           <label class="ri-ancho">{{ etiquetaNota(f.incident_type) }} <input pInputText name="nota" [(ngModel)]="f.note" [required]="notaObligatoria(f.incident_type)" /></label>
@@ -543,7 +551,7 @@ export class RhIncidenciasComponent implements OnInit {
     };
     const t = f.incident_type;
     const pausa = t === 'desayuno_distinto' || t === 'comida_distinta';
-    const autoriza = CON_AUTORIZACION.has(t);
+    const autoriza = t in CON_AUTORIZACION;
     const minPausa = String(f.minutos ?? '').trim() === '' ? undefined : Math.round(Number(f.minutos));
     // `[RH.6.6]` La recogida va como horario base y el lapso hasta la entrega, como minutos (lo valida el servidor).
     const recogida = t === 'visita_fuera' ? aMin(f.recogida ?? '') : undefined;
@@ -572,7 +580,8 @@ export class RhIncidenciasComponent implements OnInit {
   deUnDia(tipo: string): boolean { return DE_UN_DIA.has(tipo); }
   notaObligatoria(tipo: string): boolean { return tipo in NOTA_OBLIGATORIA; }
   etiquetaNota(tipo: string): string { return NOTA_OBLIGATORIA[tipo] ?? 'Nota (folio, motivo)'; }
-  conAutorizacion(tipo: string): boolean { return CON_AUTORIZACION.has(tipo); }
+  conAutorizacion(tipo: string): boolean { return tipo in CON_AUTORIZACION; }
+  etiquetaMotivo(tipo: string): string { return CON_AUTORIZACION[tipo] ?? 'Por qué ese día fue distinto'; }
 
   /** `[RH.1.10]` El saldo de horas extra de la persona, para capturar su uso sabiendo cuánto tiene. */
   readonly saldoUso = signal<string | null>(null);

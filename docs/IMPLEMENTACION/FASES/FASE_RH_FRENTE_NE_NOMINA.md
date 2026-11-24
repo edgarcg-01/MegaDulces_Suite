@@ -877,7 +877,7 @@ es la diferencia entre tomarse el día y tomarse un rato.
 | hallazgo | medido |
 |---|---|
 | el universo | 25 usos de 12 personas, del 24-sep —el día en que arranca el banco— al 2-nov |
-| ⛔ **ninguno lleva motivo ni quién autorizó** | **0 de 25**. El formulario no los pide para este tipo, mientras que `horario_distinto` y `visita_fuera` **sí exigen los dos**. Un movimiento que baja un saldo se captura sin decir por qué ni con permiso de quién |
+| ⛔ **ninguno lleva motivo ni quién autorizó** | **0 de 25**. El formulario no los pedía para este tipo, mientras que `horario_distinto` y `visita_fuera` **sí exigen los dos**. Un movimiento que baja un saldo se capturaba sin decir por qué ni con permiso de quién. → **corregido en `[NE.0.15]`**: desde ahora los pide, con la pregunta que le cabe («Por qué usó sus horas extra») |
 | ⛔ **el pago de horas extra nunca se usó** | **0 registros** desde que existe el tipo (`[RH.6.7]`, 6-nov) |
 
 ⚠️ **NO MEDIDO, y es la única pregunta que queda viva:** si alguien **gastó más de lo que tenía**.
