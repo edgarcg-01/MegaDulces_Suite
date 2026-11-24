@@ -594,10 +594,16 @@ Mismo cruce, con `analizarPersona()` de producción, sobre 1,066 persona-semana 
 | ≥ 1 retardo | **100.0 %** | 40.9 % | **+59.1 pp** |
 | ≥ 2 retardos | 90.9 % | 23.0 % | **+67.9 pp** |
 | ≥ 3 retardos | 69.7 % | 15.1 % | +54.6 pp |
-| ≥ 1 falta | 0 % | 0 % | 0 pp |
+| ≥ 1 falta | ~~0 %~~ **12.1 %** | ~~0 %~~ **12.5 %** | **−0.4 pp** |
 
 ⭐ **Los 33 castigos caen dentro, sin una sola excepción**: el sistema nunca ve limpio a alguien a
-quien RH castigó. Y las faltas dan cero en los dos lados — el día de descanso está bien resuelto.
+quien RH castigó.
+
+⛔ **La fila de faltas está corregida (ver §11.13):** el «0 % en los dos lados» que decía antes era un
+**defecto mío**, no un hecho — le pasaba a la lógica sólo los días **con** checada, y sin los días
+vacíos nunca hay faltas ni descansos. Con los días completos **sí hay faltas**, pero la conclusión
+no cambia y ahora está bien medida: **la falta no separa nada (−0.4 pp)**. RH castiga por **retardo**,
+no por faltar.
 
 ⚠️ **La regla se aplica 1 de cada 8 veces.** Las persona-semana que cumplen «≥2 retardos» son 268;
 RH castigó 33. Eso es un problema de **equidad**, no de dinero.
@@ -736,3 +742,78 @@ disciplina; lo único que no se hace es cerrar.
 → **Baja el riesgo del frente:** el supuesto que estaba marcado como el más frágil no existe. Queda
 uno menor y acotado: estas incidencias **sólo cubren a quien está enrolado en un reloj**, así que
 para las 49 personas sin puente la ausencia justificada sigue sin verse.
+
+### 11.13 El cruce de una semana real, y el tercer cero que era un defecto
+
+#### ⛔ El defecto: sin los días vacíos no hay faltas
+
+A `analizarPersona()` le estaba pasando **sólo los días con checada**. Los días sin marca no existían
+para el cálculo, así que **nunca podía haber una falta ni un descanso**. De ahí el «0 % en los dos
+lados» de §11.5. Pasándole el periodo completo —cada día entre la primera y la última checada de la
+persona, con `marcas: []` donde no hubo—:
+
+| | sin los días vacíos (mal) | **con el periodo completo** |
+|---|---:|---:|
+| persona-semana con ≥1 falta | 0 | **158** |
+| ≥1 falta: castigados vs no castigados | 0 % vs 0 % | **12.1 % vs 12.5 % → −0.4 pp** |
+| faltas que las incidencias justifican | — | **130 de 288 (45 %)** |
+
+⭐ **La conclusión de §11.5 no cambia, y ahora está bien medida:** la falta **no separa nada**. Sí
+hay faltas —158 persona-semana— y **ninguna tiene consecuencia en el recibo**. RH castiga por
+**retardo**, no por faltar. El retardo sigue en **100 % vs 37.3 % (+62.7 pp)**.
+
+⚠️ **Tercera vez en este frente que un cero perfecto resultó un defecto del instrumento** y no un
+hecho del negocio (las otras dos, en §11.4). La regla práctica: **un cero redondo se audita antes de
+publicarse**, siempre.
+
+#### La prenómina de una semana real
+
+Semana de nómina **sáb 07-nov → vie 13-nov**, la última completa, contra sus 254 recibos:
+
+| | |
+|---|---:|
+| recibos de la semana | 254 |
+| sin puente a un usuario de la Suite | 47 |
+| con puente pero sin checadas esa semana | 55 |
+| **con prenómina calculable** | **152 = 59.8 %** |
+
+De esas 152: **147** tienen horario deducido (se les puede medir retardo), **114** con horario
+marcado *confiable*, 114 fijos y 33 rotativos. La prenómina de la semana diría **648 días a tiempo ·
+148 con retardo · 22 faltas · 167 descansos · 31 días con una sola marca** (a esos no se les puede
+medir la jornada) y una mediana de **51.9 horas brutas** por persona.
+
+Contra el recibo de esa misma semana: **38 personas con ≥2 retardos según el sistema**, y el recibo
+le castigó la puntualidad a **8** — de las cuales 5 están entre esas 38. El **17 %** de los recibos
+lleva algún ajuste a mano.
+
+⛔ **El techo de hoy es el puente, no el cálculo**: 4 de cada 10 recibos no se pueden respaldar
+porque la persona no liga con un usuario (47) o no checa (55). Por sucursal va de **88 %** (CEDIS) a
+**13 %** (Logística) — las áreas cuya gente no usa reloj por su función quedan fuera, y eso **no es
+una falla**: es que a esa gente no se le mide así.
+
+#### Las 26 incidencias de tipo «otros» (el hueco que quedaba declarado)
+
+Leídas una por una, **no son un cajón de sastre: son tipos que faltan o que no se usaron**:
+
+| qué son | casos | ya existe su tipo |
+|---|---:|---|
+| **bajas** (una persona que dejó de trabajar) | 4 · **60 de los 97 días** | ⛔ no, y **no debería ser una incidencia de asistencia** |
+| **comisión**: fue a otra sucursal, apoyo, capacitación, ruta | **9** | ⛔ **no existe — es el tipo que falta** |
+| castigo / amonestación | 3 | sí (`amonestacion`) |
+| permiso | 3 | sí (`permiso_con_goce` / `_sin_goce`) |
+| descanso | 2 | sí (`descanso`) |
+| falta injustificada | 1 | sí (`falta_injustificada`) |
+| incapacidad y marca faltante | 2 | sí |
+
+⭐ **Dos cosas concretas que arreglar:** un tipo **«comisión / trabajó en otra sede»** (9 de 26 casos,
+y hoy se ven como ausencia), y sacar las **bajas** de aquí — una baja es un cambio de estado de la
+persona, no una incidencia de un día.
+
+⭐ **Y un control que salió redondo**, cruzando cada incidencia contra si la persona checó esos días:
+`horario_distinto` **144 de 144 checó todos los días** (es un ajuste, no una ausencia) ·
+`permiso_con_goce` 7/7, `permiso_sin_goce` 3/3 e `incapacidad` 3/3 **nunca checaron** ·
+`vacaciones` 68 de 72. **Cada tipo se comporta como su nombre dice.**
+
+⚠️ **NO MEDIDO:** `horas_extra` tiene **19 de 24** incidencias en días en que la persona **no checó**.
+O se capturan con otra fecha, o son de gente que no usa reloj. Hay que entenderlo antes de usar
+`horasExtraGanadasMin` para alimentar el recibo.
