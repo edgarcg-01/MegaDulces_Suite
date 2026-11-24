@@ -25,8 +25,11 @@
  *    8. resolver la orden → el padre se resuelve SOLO, con la nota de la orden.
  *    9. una orden cancelada NO resuelve al padre: se anota y espera a la coordinación.
  *   10. CONTROL: TI sigue igual (cualquiera levanta, sin descripción, sin dictamen).
+ *   11. `[MSP.5]` reposición: el catálogo le sigue escondiendo Presupuestos a la coordinación de TI, pero `transfer-targets` se la ofrece
+ *       (y a la cajera → 403); TI traslada con la cotización como nota interna (la cajera no la ve); Presupuestos autoriza, espera al
+ *       proveedor y, al llegar, manda la orden de instalación a TI a nombre de la cajera; TI la resuelve → la original se resuelve sola.
  *
- * Pre-requisitos: API en :3334 levantada DESDE el código que trae `[MSP.2]`, y `[MSP.0.1]` aplicada en la base local.
+ * Pre-requisitos: API en :3334 levantada DESDE el código que trae `[MSP.2]` (y `[MSP.5.0]` para el bloque 11), y `[MSP.0.1]` aplicada en la base local.
  * Uso: node database/tests/http-service-desk-presupuestos-test.js
  */
 const path = require('path');
@@ -285,6 +288,48 @@ async function crearUsuario(etiqueta, { puesto = null, permisos = [], membresias
     const tiOk = await req('POST', `${SD}/requests`, cajera.token, { category_id: catTi.id, title: 'SMOKE MSP: TI sin descripción', warehouse_code: '03' });
     check('⭐ en TI cualquiera levanta (la cajera) y sin descripción, como siempre', okHttp(tiOk), dump(tiOk));
     check('y TI no declara dictamen', tiOk.body?.requires_decision === false && tiOk.body?.decision === null);
+
+    // ── 11. [MSP.5] Reposición: TI traslada a Presupuestos y la instalación regresa a TI (el piloto, de punta a punta) ──
+    // Sin usuarios nuevos: el login admite 5 por minuto y esta prueba ya usa 5. La cola efímera de Presupuestos también manda órdenes a
+    // TI, como la real (`work_order_queue_codes` = mantenimiento, ti).
+    console.log('\n11 — [MSP.5] reposición: de TI a Presupuestos y de regreso');
+    await knex('servicedesk.queues').where({ id: pres.id }).update({ work_order_queue_codes: knex.raw('?::text[]', [[mto.code, 'ti']]) });
+    const catCoordTi = await req('GET', `${SD}/catalog`, coordTi.token);
+    check('el hallazgo: «Nueva solicitud» NO le ofrece Presupuestos a la coordinación de TI (y así se queda)', !ve(catCoordTi, pres.id), dump(catCoordTi));
+    const dest = await req('GET', `${SD}/transfer-targets`, coordTi.token);
+    check('⭐ [MSP.5.0] la lista de traslado SÍ le ofrece Presupuestos, con sus categorías', okHttp(dest) && dest.body?.queues?.some((q) => q.id === pres.id) && dest.body?.categories?.some((c) => c.queue_id === pres.id), dump(dest));
+    check('⛔ y la lista de puestos NO sale en la respuesta', !JSON.stringify(dest.body ?? {}).includes('requester_positions'));
+    const destCaj = await req('GET', `${SD}/transfer-targets`, cajera.token);
+    check('⭐ NEGATIVA: a quien sólo reporta (la cajera) → 403', destCaj.status === 403, dump(destCaj));
+    const rep = await req('POST', `${SD}/requests`, cajera.token, { category_id: catTi.id, title: 'SMOKE MSP.5: la impresora ya no imprime', warehouse_code: '03' });
+    check('la cajera reporta en TI', okHttp(rep), dump(rep));
+    const repId = rep.body?.id;
+    check('TI la toma', okHttp(await req('POST', `${SD}/requests/${repId}/take`, coordTi.token)));
+    const cot = await req('POST', `${SD}/requests/${repId}/messages`, coordTi.token, { body: 'SMOKE cotización: 3,500 con el proveedor de siempre', visibility: 'internal' });
+    check('D11: TI deja la cotización como nota interna', okHttp(cot), dump(cot));
+    const tr = await req('POST', `${SD}/requests/${repId}/transfer`, coordTi.token, { queue_id: pres.id, category_id: catPres.id, reason: 'La impresora no tiene reparación; pasa a Presupuestos para autorizar la compra' });
+    check('⭐ TI la traslada a Presupuestos (D8: no exige el puesto de la cajera)', okHttp(tr) && tr.body?.queue_id === pres.id, dump(tr));
+    const enPres = await req('GET', `${SD}/requests/${repId}`, coordPres.token);
+    check('⭐ Presupuestos la ve con el MISMO folio y con la cotización de TI', okHttp(enPres) && enPres.body?.folio === rep.body?.folio && (enPres.body?.messages ?? []).some((m) => /SMOKE cotización/.test(m.body ?? '')), dump(enPres));
+    const verCaj = await req('GET', `${SD}/requests/${repId}`, cajera.token);
+    check('⛔ la cajera ve el traslado y su motivo, pero NO la cotización', okHttp(verCaj) && (verCaj.body?.messages ?? []).some((m) => m.kind === 'transfer' && /no tiene reparación/.test(m.body ?? '')) && !(verCaj.body?.messages ?? []).some((m) => /SMOKE cotización/.test(m.body ?? '')), dump(verCaj));
+    check('Presupuestos la toma', okHttp(await req('POST', `${SD}/requests/${repId}/take`, coordPres.token)));
+    const dic = await req('POST', `${SD}/requests/${repId}/decision`, coordPres.token, { decision: 'autorizado', note: 'Se compra la impresora' });
+    check('y la autoriza', okHttp(dic) && dic.body?.decision?.decision === 'autorizado', dump(dic));
+    await req('POST', `${SD}/requests/${repId}/status`, coordPres.token, { status: 'en_proceso' });
+    const esp = await req('POST', `${SD}/requests/${repId}/status`, coordPres.token, { status: 'en_espera', pause_reason: 'proveedor', note: 'Esperando la impresora' });
+    check('⭐ D10: espera al proveedor mientras llega el equipo', okHttp(esp) && esp.body?.status === 'en_espera' && esp.body?.pause_reason === 'proveedor', dump(esp));
+    const inst = await req('POST', `${SD}/requests/${repId}/work-orders`, coordPres.token, { queue_id: ti.id, category_id: catTi.id, instructions: 'Instalar la impresora nueva' });
+    check('⭐ llegó: la orden de instalación a TI sale SIN reanudar a mano, y el padre ahora espera a la orden', okHttp(inst) && inst.body?.status === 'en_espera' && inst.body?.pause_reason === 'orden_servicio', dump(inst));
+    const woI = inst.body?.work_orders?.[0];
+    const hijaI = woI?.id ? await knex('servicedesk.requests').where({ id: woI.id }).first() : null;
+    check('⭐ la orden nace a nombre de la cajera (quien reportó), con su sucursal, en TI', hijaI?.requester_id === cajera.id && hijaI?.warehouse_code === '03' && hijaI?.queue_id === ti.id, JSON.stringify(hijaI && { r: hijaI.requester_id, w: hijaI.warehouse_code, q: hijaI.queue_id }));
+    check('TI toma la orden', okHttp(await req('POST', `${SD}/requests/${woI?.id}/take`, coordTi.token)));
+    await req('POST', `${SD}/requests/${woI?.id}/status`, coordTi.token, { status: 'en_proceso' });
+    const resI = await req('POST', `${SD}/requests/${woI?.id}/status`, coordTi.token, { status: 'resuelto', note: 'Impresora nueva instalada y probada' });
+    check('y la resuelve', okHttp(resI), dump(resI));
+    const finCaj = (await req('GET', `${SD}/requests/${repId}`, cajera.token)).body;
+    check('⭐ la solicitud original de la cajera quedó RESUELTA sola, con la nota de la instalación', finCaj?.status === 'resuelto' && (finCaj?.resolution_note ?? '').includes('Impresora nueva instalada'), `${finCaj?.status} · ${finCaj?.resolution_note}`);
   } finally {
     const ids = creados;
     if (ids.length) {
