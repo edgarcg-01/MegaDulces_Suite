@@ -286,11 +286,19 @@ export class AutoabastoPedidoService {
     // no devuelven nada); abajo se descartan igual si no está medida, como antes.
     const kepler = <T>(trx: Knex.Transaction, sql: string): Promise<T[]> =>
       trx.raw(sql, binds).then((r: { rows?: T[] }) => r.rows ?? []);
-    const [{ filas, skus, escaleras }, propio, llega] = await Promise.all([
+    const [{ filas, skus, escaleras, lineasProducto }, propio, llega] = await Promise.all([
       this.motor.criticalStock({ warehouse_id: almacen.id, target_basis: 'demanda', export: true, ligero: true }, area)
         .then(async (mesa) => {
           const skus = [...new Set(mesa.rows.map((f) => String(f['sku'])))];
-          return { filas: mesa.rows, skus, escaleras: await this.escalerasDe(skus) };
+          // `[AB.NI.1]` La escalera y la línea se leen JUNTAS: las dos son atributos del producto y
+          // las dos las necesita el mismo renglón. Si la vista de líneas no existe todavía en esta
+          // base, `lineasDe` devuelve un mapa vacío y el renglón sale con `linea: null` — la pantalla
+          // lo agrupa en «(sin línea)» y lo dice, en vez de tirar el pedido entero.
+          const [escaleras, lineasProducto] = await Promise.all([
+            this.escalerasDe(skus),
+            this.lineasDe(tenantId, almacen.code, skus),
+          ]);
+          return { filas: mesa.rows, skus, escaleras, lineasProducto };
         }),
       this.tk.run(async (trx: Knex.Transaction) => {
         // `[AB.18]` El borrador guardado y lo que la persona ya ajustó. Sólo LEE: abrir el pedido no
@@ -364,7 +372,9 @@ export class AutoabastoPedidoService {
       const productId = String(f['product_id']);
       // `[AB.26]` La cuenta del renglón vive en `libs/contracts` (`armarRenglon`). Acá sólo se le pasa
       // lo que el servidor leyó; ninguna resta se escribe aquí.
-      return { fila: f, cf, ...armarRenglon({
+      // `[AB.NI.1]` La línea se pega DESPUÉS de la cuenta: no interviene en ninguna resta, sólo
+      // agrupa. Así `armarRenglon` sigue siendo la misma función pura que ya estaba probada.
+      const armado = armarRenglon({
         product_id: productId,
         sku,
         nombre: String(f['nombre'] ?? ''),
@@ -388,7 +398,8 @@ export class AutoabastoPedidoService {
         existencia_base: numONull(f['on_hand_nat']),
         // `[AB.40c]` Un solo costo: el de la caja que viaja a Compras (`enviar` manda este mismo).
         caja_cost: numONull(f['caja_cost']),
-      }) };
+      });
+      return { fila: f, cf, ...armado, linea: { ...armado.linea, linea: lineasProducto.get(sku) ?? null } };
     });
     return { renglones, docs, planDocs, reqDocs, sinUnidad, medidos, borrador, guardable, posiciones };
   }
@@ -821,6 +832,38 @@ export class AutoabastoPedidoService {
   private escalerasDe(skus: string[]): Promise<Map<string, EscaleraUnidades>> {
     if (!skus.length) return Promise.resolve(new Map());
     return this.tk.run((trx: Knex.Transaction) => leerEscaleras(trx, skus));
+  }
+
+  /**
+   * `[AB.NI.1]` La **línea** (el fabricante) de cada SKU, de `analytics.v_erp_product_lines` (PQ.144).
+   * Es el segundo nivel con que se arma el pedido: unidad → línea → alfabético.
+   *
+   * ⛔ **Derive-no-copy**: la vista sale del ODS, no hay tabla ni importer. Y es **tolerante**: si la
+   * vista todavía no existe en esta base (migración sin aplicar), devuelve un mapa vacío en vez de
+   * reventar — el pedido se sirve igual y los renglones caen en «(sin línea)». Un pedido que no se
+   * puede abrir es peor que un pedido sin agrupar.
+   *
+   * Medido el 2026-11-23 en `RQ-2026-03239`: 102 líneas para 294 renglones, la más grande de 12.
+   */
+  private async lineasDe(tenantId: string, sucCode: string, skus: string[]): Promise<Map<string, string>> {
+    const fuera = new Map<string, string>();
+    if (!skus.length) return fuera;
+    try {
+      const filas: Array<{ sku: string; linea: string | null }> = await this.tk.run((trx: Knex.Transaction) =>
+        trx('analytics.v_erp_product_lines')
+          .where({ tenant_id: tenantId, suc_code: sucCode })
+          .whereIn('sku', skus)
+          .select('sku', 'linea'),
+      );
+      for (const f of filas) {
+        const v = typeof f.linea === 'string' ? f.linea.trim() : '';
+        if (v) fuera.set(String(f.sku), v);
+      }
+    } catch (e: unknown) {
+      // Se DECLARA en el log y se sigue: sin línea el pedido se agrupa en «(sin línea)», no se cae.
+      this.logger.warn(`[AB.NI.1] no se pudo leer la línea del producto: ${String((e as { message?: string })?.message ?? e).slice(0, 200)}`);
+    }
+    return fuera;
   }
 
   // ── [AB.18] Ajustes del almacenista y su huella ─────────────────────────────────────────────

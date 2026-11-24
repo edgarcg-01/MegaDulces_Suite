@@ -133,7 +133,7 @@
 | **LM** | Última Milla (entrega a domicilio local en moto) | ⏸️ |
 | **VR** | Venta en Ruta (autoventa offline-first, lap/móvil) | ⏸️ |
 | **Maat** | AI de Finanzas (conocimiento + chat + patrones) | ⏸️ |
-| **AB** | Autoabasto: Compras decide el traspaso, cada sucursal ve su mesa (ADR-100). **Pausada por cupo (2026-11-06).** | ⏸️ |
+| **AB** | Autoabasto: Compras decide el traspaso, cada sucursal ve su mesa (ADR-100). **Reabierta por Edgar el 2026-11-23 por encima del cupo** para rediseñar la interfaz ([anexo](docs/IMPLEMENTACION/FASES/FASE_AB_ANEXO_INTERFAZ_2026-11-23.md)): el pedido ya está hecho, la pantalla muestra sólo lo que pide decisión y el detalle se abre partido en las órdenes en que se arma | 🔨 |
 | **CC** | Comprobantes de Cobranza (ficha de depósito + OCR) | ⏸️ |
 | **LC** | Libro de Compras (el proceso aquí, a ContPAQi solo el TXT) | ⏸️ |
 | **MR** | Motor de Rentabilidad (cascada de margen) | ⚠️ |
