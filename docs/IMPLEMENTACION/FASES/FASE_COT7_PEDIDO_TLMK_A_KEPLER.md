@@ -336,9 +336,10 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
   Ahora (`esPrecioPactado`): la revisión no los cuenta como cambio; re-cotizar (y mover «solo precio 1», que re-cotiza)
   los deja como están; cambiar la cantidad conserva el precio y recalcula importe y subtotal; con otra presentación el
   pacto ya no aplica y precia el motor. Pruebas: 3 (mutante que nunca reconoce el pacto → rojo); 233/233 de
-  cotizaciones. **Pendiente (parte 2):** escribir el precio pactado desde la pantalla, con permiso (Edgar decide si es
-  `COMMERCIAL_QUOTES_PRECIO_LISTA` o uno propio), con quién y por qué. **NO MEDIDO:** la revisión (`checkQuote`) con un
-  pacto contra base real — se verifica con COT-2026-00650 al soltar.
+  cotizaciones. ⛔ **Es para un CASO ESPECIAL, no una función** (Edgar, 2026-11-24: «sólo es para este caso especial»):
+  no hay pantalla para pactar precios y no se va a construir; un precio `manual` sólo nace de una escritura directa en la
+  base pedida por el PM. Medido ese día: los únicos renglones `manual` de prod son los 8 de COT-2026-00650. **NO
+  MEDIDO:** la revisión (`checkQuote`) con un pacto contra base real — se verifica con COT-2026-00650 al soltar.
 
 - **2026-11-24** — 🧪 **[COT.56] Paquete o caja, la cantidad y el precio con descuento, a la vista** (observaciones de
   quien cotiza, que Edgar trajo: «que aparezca marcado el contorno en rojo cuando seleccionas si es paquete o caja», «el
