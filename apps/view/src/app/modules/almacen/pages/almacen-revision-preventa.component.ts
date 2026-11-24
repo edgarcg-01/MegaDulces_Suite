@@ -894,9 +894,12 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     const d = this.detalle();
     if (!d || d.order.state === 'revisado') return true;
     const q = String(texto ?? '').trim();
-    // [MCP.31] Un faltante se completa escaneándolo sólo si ya se señaló (escaneado, tocado o contado): el primer
-    // escaneo de un faltante es de los que SÍ vinieron.
-    const { escaneo, progreso } = alEscanear(d.lines, this.progreso(), q, this.elegido());
+    // [MCP.31] Un faltante se completa escaneándolo si la cajera lo está atendiendo: lo tiene abierto en grande (su
+    // tarjeta dice «cuando te lo traiga, escanéalo») o ya lo señaló (escaneado, tocado o contado). Antes contaba
+    // sólo lo tocado, y con la tarjeta ya abierta hacían falta DOS escaneos (David, 2026-11-24: «un escaneo basta»).
+    const a = this.actual();
+    const atendiendo = a && this.estadoDe(a) === 'falta' ? a.key : this.elegido();
+    const { escaneo, progreso } = alEscanear(d.lines, this.progreso(), q, atendiendo);
     if (escaneo.tipo === 'vacio') return true;
     this.editando.set(null);
     this.otrosPedidos.set(null);

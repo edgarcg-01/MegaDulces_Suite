@@ -15,8 +15,8 @@ La pantalla donde la cajera revisa cada pedido de preventa que terminó el surti
     o por SKU) lo marca **bien entero**, aunque sean 12 (D17: un escaneo = todo el renglón); el aviso dice la cantidad.
     Escribir el nombre sólo lo señala: escribir no prueba que el producto esté en la mano.
   - **Lo que faltó:** se corrige como siempre («No coincide», «Trajo otra cantidad», «Seguir con otro»); cuando el
-    surtidor lo trae, se escanea y queda **completo**. El primer escaneo de un faltante sólo lo señala (lo que hay en el
-    carrito son los que sí vinieron).
+    surtidor lo trae, se escanea y queda **completo**: con su tarjeta abierta en grande basta **un** escaneo (David,
+    2026-11-24: al probarlo hacían falta dos). Si en grande hay otro producto, el primer escaneo lo trae al frente.
   - **A mano sólo lo que no se puede escanear:** si el producto no tiene código ni SKU, o no llegaron los códigos de
     Kepler, aparece «Marcar bien a mano» (y «Ya se completó (a mano)») con su porqué.
   - **Etiqueta del pedido** en el ticket de caja (80 mm): «Etiqueta» en el encabezado del pedido y «Imprimir la
