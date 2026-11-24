@@ -40,6 +40,54 @@ describe('[BFU.7.6] coberturaDeCategoria — con categoría + por qué y de qui�
   });
   it('sin renglones: ceros, no inventa nada', () => {
     expect(coberturaDeCategoria([], HOY, 0)).toEqual({ evaluados: 0, con_categoria: { n: 0, monto: 0 }, por_resolver: [],
-      sin_motivo: { n: 0, monto: 0 }, suma_cuadra: true, vencidos_al_leer: 0 });
+      sin_motivo: { n: 0, monto: 0 }, suma_cuadra: true, vencidos_al_leer: 0, por_area: [] });
+  });
+});
+
+describe('[BFU.4.5.2] coberturaDeCategoria — por área: cada renglón tiene a quién le toca, o el grupo declarado', () => {
+  const filas: FilaDeCobertura[] = [
+    f({ con_categoria: true, area: 'credito_cobranza', entra: true, n: 10, monto: 5000 }),
+    f({ con_categoria: true, area: 'compras', entra: false, n: 3, monto: 900 }),
+    f({ con_categoria: true, area: null, entra: false, n: 2, monto: 40 }), // categoría sin área → Otros
+    f({ motivo: 'pareo_debil', responsable: 'tesoreria', entra: false, n: 1, monto: 700 }),
+    f({ motivo: 'cuenta_sin_categoria', responsable: 'contabilidad', entra: false, n: 1, monto: 60 }),
+    f({ motivo: 'kepler_no_lo_tiene', responsable: 'area', entra: false, fecha: '2026-11-03', n: 2, monto: 300 }),
+    f({ motivo: 'kepler_no_lo_tiene', responsable: 'area', entra: true, fecha: '2026-11-03', n: 4, monto: 800 }),
+    f({ motivo: 'kepler_aun_no_lo_tiene', responsable: 'nadie_todavia', entra: false, fecha: '2026-11-13', n: 1, monto: 50 }), // vencido
+    f({ motivo: 'kepler_aun_no_lo_tiene', responsable: 'nadie_todavia', entra: true, fecha: '2026-11-20', n: 5, monto: 250 }), // en plazo
+    f({ motivo: null, n: 1, monto: 5 }),
+  ];
+  const c = coberturaDeCategoria(filas, HOY, 30);
+  const de = (a: string) => c.por_area.find((g) => g.area === a);
+
+  it('⛔ la partición por área suma el total: ningún renglón se pierde ni se cuenta dos veces', () => {
+    expect(c.evaluados).toBe(30);
+    expect(c.por_area.reduce((s, g) => s + g.n, 0)).toBe(c.evaluados);
+    expect(c.por_area.reduce((s, g) => s + g.monto, 0)).toBe(8105);
+    expect(c.por_area.reduce((s, g) => s + g.sin_categoria.n, 0)).toBe(c.evaluados - c.con_categoria.n);
+  });
+  it('con categoría: el área de la categoría; sin área, «Otros», que atiende Tesorería (BFU.4.5.1)', () => {
+    expect(de('credito_cobranza')).toMatchObject({ atiende: 'credito_cobranza', n: 10, sin_categoria: { n: 0, monto: 0 } });
+    expect(de('otros')).toMatchObject({ atiende: 'tesoreria', n: 2, monto: 40 });
+  });
+  it('sin categoría: el responsable que dejó el motor, si es un departamento', () => {
+    expect(de('tesoreria')).toMatchObject({ n: 1, monto: 700, sin_categoria: { n: 1, monto: 700 } });
+    expect(de('contabilidad')).toMatchObject({ n: 1, monto: 60 });
+  });
+  it('⛔ «el área» sin nombre se decide por la dirección: el retiro, Tesorería lo asigna; el depósito, a quien lo captura', () => {
+    // 2 retiros que Kepler no tiene + 1 que venció al leer = 3 por asignar.
+    expect(de('por_asignar')).toMatchObject({ atiende: 'tesoreria', n: 3, monto: 350 });
+    expect(de('quien_captura')).toMatchObject({ atiende: null, n: 4, monto: 800 });
+  });
+  it('en plazo es de nadie todavía, y lo que no tiene motivo se declara aparte', () => {
+    expect(de('en_plazo')).toMatchObject({ atiende: null, n: 5 });
+    expect(de('sin_motivo')).toMatchObject({ atiende: null, n: 1, monto: 5 });
+  });
+  it('[negativa] sin dirección conocida, «el área» NO se manda a quien captura: queda por asignar', () => {
+    const d = coberturaDeCategoria([f({ motivo: 'kepler_no_lo_tiene', responsable: 'area', fecha: '2026-11-03' })], HOY);
+    expect(d.por_area).toEqual([{ area: 'por_asignar', atiende: 'tesoreria', n: 1, monto: 100, sin_categoria: { n: 1, monto: 100 } }]);
+  });
+  it('el de más dinero primero', () => {
+    expect(c.por_area[0].area).toBe('credito_cobranza');
   });
 });

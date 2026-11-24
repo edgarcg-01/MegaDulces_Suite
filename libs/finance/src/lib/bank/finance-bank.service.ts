@@ -1506,12 +1506,16 @@ export class FinanceBankService {
       // [BFU.7.6] La cobertura del motor de categoría sobre la descarga del banco: por estado, motivo, responsable y día
       // (el día, para recalcular «todavía no» al leer). El total sale de OTRA consulta, para contrastar el agrupado.
       // Medido en prod (2026-11-23, nov): 18 ms y 12 ms de ejecución.
+      // [BFU.4.5.2] + el área dueña de la categoría (BFU.4.5.1) y la dirección del dinero, para repartir por área.
       const filasCob = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('st.period', period).whereNull('bm.deleted_at').where('bm.sync_source', 'banco')
-        .groupByRaw(`(bm.category_id IS NOT NULL), bm.category_reason, bm.category_evidence->>'responsable', to_char(bm.movement_date, 'YYYY-MM-DD')`)
+        .groupByRaw(`(bm.category_id IS NOT NULL), bm.category_reason, bm.category_evidence->>'responsable', to_char(bm.movement_date, 'YYYY-MM-DD'),
+          mc.owner_department_code, (bm.amount_in > 0)`)
         .select(trx.raw('(bm.category_id IS NOT NULL) AS con_categoria'), trx.raw('bm.category_reason AS motivo'),
           trx.raw(`bm.category_evidence->>'responsable' AS responsable`), trx.raw(`to_char(bm.movement_date, 'YYYY-MM-DD') AS fecha`),
+          trx.raw('mc.owner_department_code AS area'), trx.raw('(bm.amount_in > 0) AS entra'),
           trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric AS monto')) as FilaDeCobertura[];
       const totBanco = await trx('finance.bank_movements as bm')
         .whereNull('bm.deleted_at').where('bm.sync_source', 'banco')
