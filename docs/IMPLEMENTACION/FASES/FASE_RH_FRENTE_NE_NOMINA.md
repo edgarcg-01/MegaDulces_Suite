@@ -653,9 +653,10 @@ para dar el puente por probado.
 - **49 de 259** personas de la nómina no ligan con ningún usuario de la Suite (el puente sigue
   siendo el nombre escrito; ver §8). La gente **por horas** es justo la que menos liga.
 - **83 de 353** personas no tienen horario deducible (checan una sola vez al día, o muy poco).
-- **Vacaciones, incapacidad y permiso no se registran en ningún lado**: hoy una ausencia justificada
-  se ve idéntica a una falta. Es el supuesto más frágil de todo el frente.
 - El puente de horas está medido sobre **3 casos**.
+
+⛔⛔ **Corregido el mismo día:** acá decía que «vacaciones, incapacidad y permiso no se registran en
+ningún lado» y **es falso** — ver §11.12. Se registran, y en la Suite, no en el Access.
 
 ### 11.9 ⭐⭐ No hay nada que resolver: 78 de 88 semanas se cierran HOY
 
@@ -693,3 +694,45 @@ falta para cerrarlas?* Lo que se aprenda de esa respuesta es lo que de verdad fa
 3. Resolver el desfase de semana (D4) y recién entonces escribir el puente prenómina → recibo.
 4. Registrar vacaciones / incapacidad / permiso: sin eso, toda ausencia justificada es una falta.
 5. ⛔ **No** construir cálculo nuevo ni cargar horarios a mano.
+
+### 11.12 ⛔⛔ Corrección: las ausencias SÍ se registran — y mi cálculo las ignoraba
+
+§11.8 decía que vacaciones, incapacidad y permiso «no se registran en ningún lado». **Es falso en
+las dos mitades**, y las dos importan:
+
+- ⛔ **El Access NO las tiene.** `0 T Colaboradores Vaciones` devuelve **cero filas** para todo
+  2026: esa tabla está muerta.
+- ⭐⭐ **La Suite SÍ.** En la ventana medida, `hr.attendance_incidents` tiene **304 incidencias
+  calificadas**, las 304 con su persona resuelta:
+
+| tipo | incidencias | días |
+|---|---:|---:|
+| `horario_distinto` | 144 | 144 |
+| `vacaciones` | 72 | 172 |
+| `otros` | 25 | 97 |
+| `horas_extra` | 24 | 25 |
+| `descanso` | 23 | 24 |
+| `permiso_con_goce` · `permiso_sin_goce` | 7 · 3 | 8 · 5 |
+| `incapacidad` | 3 | 10 |
+| `falta_injustificada` | **1** | 1 |
+
+⭐ **En esto la Suite ya sabe MÁS que el Access**, y es el primer lugar del frente donde pasa. Y una
+sola falta injustificada en dos meses, capturada por RH, concuerda con que el reloj no vea faltas.
+
+**Mi corrida de §11.5 ignoró estas incidencias**, y eso **sobreestimaba el retardo**: los 144 días
+con `horario_distinto` los juzgué contra el turno normal. Repetida como la hace la pantalla
+—alimentando `horarioDelDia`, `laboralPorFecha` y los justificantes—:
+
+| señal | sin incidencias (mal) | **con incidencias** |
+|---|---:|---:|
+| ≥1 retardo: castigados vs no | 100 % vs 40.9 % → +59.1 pp | **100 % vs 37.4 % → +62.6 pp** |
+| ≥2 retardos: castigados vs no | 90.9 % vs 23.0 % → +67.9 pp | 87.9 % vs 21.4 % → +66.5 pp |
+| persona-semana con ≥2 retardos | 268 | **250** (18 eran falsos) |
+
+⭐ **La separación MEJORA y la sensibilidad se mantiene en 100 %.** Lo que RH captura a mano no es
+burocracia: es el insumo que limpia el cálculo. Y refuerza §11.6 — el módulo se está operando con
+disciplina; lo único que no se hace es cerrar.
+
+→ **Baja el riesgo del frente:** el supuesto que estaba marcado como el más frágil no existe. Queda
+uno menor y acotado: estas incidencias **sólo cubren a quien está enrolado en un reloj**, así que
+para las 49 personas sin puente la ausencia justificada sigue sin verse.
