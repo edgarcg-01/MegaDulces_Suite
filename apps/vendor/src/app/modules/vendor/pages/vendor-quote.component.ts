@@ -3,22 +3,23 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MessageService } from 'primeng/api';
-import { concatMap, forkJoin, from, last, of, switchMap } from 'rxjs';
+import { forkJoin, of, switchMap } from 'rxjs';
 import { VendorService, type VendorCustomer } from '../vendor.service';
 import { VendorQuoteService } from '../vendor-quote.service';
 import type { PriceRow } from '../../portal/portal.service';
 import {
   type CotizacionDetalle,
   type RenglonCotizado,
+  existenciaParaCotizar,
   fechaCorta,
   linkWhatsApp,
   mensajeWhatsApp,
   numeroWhatsApp,
-  paraPedido,
   renglonDe,
   rungDeUnidad,
 } from '../cotizacion';
 import { normalizarBusqueda, tokensDeBusqueda } from '@megadulces/ui-web';
+import type { PasoAVenta } from '@megadulces/contracts';
 import { DictarBusquedaComponent } from '../components/dictar-busqueda.component';
 import { ChecadorPreciosService } from '../checador-precios.service';
 import { CodigoTecleado } from '../codigo-tecleado';
@@ -34,7 +35,7 @@ const TOPE = 60;
  * Reutiliza lo que ya existe: el servidor de cotizaciones de telemarketing (`commercial/quotes`, el
  * precio lo calcula él con Kepler; `origin = route_visit`) y el cliente, la sucursal y el catálogo de la
  * toma de pedido. Una cotización NO aparta mercancía ni llega al surtidor. Al final: el documento para
- * el cliente (WhatsApp o PDF) y «Convertir en pedido» (abre la toma de pedido con esos productos).
+ * el cliente (WhatsApp o PDF) y `[MCP.34]` «Pasar a venta» (el servidor arma y confirma el pedido con precios de hoy).
  */
 @Component({
   selector: 'app-vendor-quote',
@@ -89,6 +90,8 @@ const TOPE = 60;
                     </span>
                   }
                 </div>
+                <!-- [MCP.35] Lo que hay en la sucursal, en la unidad que se cotiza: la misma lectura que «Tomar pedido». -->
+                @if (existencia(p); as ex) { <div class="cq-stk" [ngClass]="'cq-stk-' + ex.tono">{{ ex.texto }}</div> }
               </div>
               <div class="cq-step" role="group" [attr.aria-label]="'Cantidad de ' + p.product_name">
                 <button type="button" (click)="mover(p, -1)" [disabled]="ocupado() === p.product_id || cantidadDe(p) === 0" [attr.aria-label]="'Menos ' + p.product_name">−</button>
@@ -129,13 +132,43 @@ const TOPE = 60;
           <div class="cq-tot"><span>Total</span><span>{{ dinero(cot()?.total) }}</span></div>
           <p class="cq-vig">Precios de {{ sucursal()?.name || 'tu sucursal' }}{{ cot()?.valid_until ? ', válidos hasta el ' + fecha(cot()!.valid_until) : '' }}. La existencia se confirma al levantar el pedido.</p>
         </article>
+        <!-- [MCP.34] Pasar a venta: un toque, el día, y el pedido llega al surtidor. -->
+        @if (cot()?.order_id) {
+          <p class="cq-venta-hecha" role="status"><i class="pi pi-check-circle" aria-hidden="true"></i>
+            Ya es venta: pedido <b>{{ cot()?.order_code || 'registrado' }}</b>.</p>
+        } @else if (venta(); as v) {
+          <section class="cq-venta" aria-label="Pasar a venta">
+            <label class="cq-venta-l" for="cq-dia">¿Qué día se entrega?</label>
+            <input id="cq-dia" class="cq-venta-dia" type="date" [min]="hoyIso" [value]="v.fecha" (change)="elegirDia($any($event.target).value)" />
+            @if (v.estado === 'calculando') {
+              <p class="cq-note"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Calculando con los precios de hoy…</p>
+            } @else if (v.estado === 'error') {
+              <p class="cq-err" role="alert">{{ v.error }}</p>
+            } @else if (v.previa; as pv) {
+              <div class="cq-venta-tot">
+                <span>Cotizaste <b>{{ dinero(pv.quote_total) }}</b></span>
+                <span>Con los precios de hoy: <b>{{ dinero(pv.order_total) }}</b></span>
+                @if (diferencia(pv); as d) { <span class="cq-venta-dif">{{ d }}</span> }
+              </div>
+              @if (pv.sin_producto.length) {
+                <p class="cq-err">No pasan al pedido (no están en el catálogo): {{ pv.sin_producto.join(', ') }}.</p>
+              }
+            }
+            <button type="button" class="cq-btn cq-btn-go" [disabled]="v.estado !== 'lista' || pasando()" (click)="confirmarVenta()">
+              @if (pasando()) { <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> } Confirmar venta · {{ diaLargo(v.fecha) }}
+            </button>
+            <button type="button" class="cq-btn cq-btn-link" [disabled]="pasando()" (click)="venta.set(null)">Cancelar</button>
+          </section>
+        }
         <div class="cq-acts">
+          @if (!cot()?.order_id && !venta()) {
+            <button type="button" class="cq-btn cq-btn-go" (click)="abrirVenta()"><i class="pi pi-shopping-cart" aria-hidden="true"></i> Pasar a venta</button>
+          }
           <a class="cq-btn cq-btn-ok" [href]="linkWa()" target="_blank" rel="noopener"><i class="pi pi-whatsapp" aria-hidden="true"></i> Enviar por WhatsApp</a>
           <button type="button" class="cq-btn cq-btn-ghost" (click)="imprimir()"><i class="pi pi-file-pdf" aria-hidden="true"></i> Guardar PDF / imprimir</button>
-          <button type="button" class="cq-btn cq-btn-ghost" [disabled]="convirtiendo()" (click)="convertir()">
-            @if (convirtiendo()) { <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> } Convertir en pedido
-          </button>
-          <button type="button" class="cq-btn cq-btn-link" (click)="vista.set('armar')">Seguir cotizando</button>
+          @if (!cot()?.order_id) {
+            <button type="button" class="cq-btn cq-btn-link" (click)="vista.set('armar')">Seguir cotizando</button>
+          }
         </div>
       }
     </div>
@@ -199,8 +232,20 @@ const TOPE = 60;
     .cq-tot span:last-child { font-family: var(--font-mono); }
     .cq-vig { margin: 0; font-size: 0.76rem; color: var(--brand-900); background: var(--ember-soft); border-radius: var(--r-sm, 8px); padding: 0.4rem 0.55rem; }
     .cq-acts { display: flex; flex-direction: column; gap: 0.5rem; }
+    /* [MCP.35] existencia: verde/ámbar/rojo como en «Tomar pedido»; sin dato en gris, nunca en verde. */
+    .cq-stk { margin-top: 0.15rem; font-size: 0.76rem; font-weight: 600; }
+    .cq-stk-ok { color: var(--ok-fg); } .cq-stk-warn { color: var(--warn-fg); } .cq-stk-bad { color: var(--bad-fg); }
+    .cq-stk-nd { color: var(--text-muted); font-weight: 500; }
+    /* [MCP.34] pasar a venta */
+    .cq-venta { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.8rem; border: 1.5px solid var(--action); border-radius: var(--r-lg, 16px); background: var(--card-bg); }
+    .cq-venta-l { font-size: 0.9rem; font-weight: 800; }
+    .cq-venta-dia { min-height: 3rem; padding: 0 0.75rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); background: var(--card-bg); color: var(--text-main); font: inherit; font-size: 1rem; }
+    .cq-venta-tot { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.88rem; }
+    .cq-venta-tot b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .cq-venta-dif { font-weight: 700; color: var(--warn-fg); }
+    .cq-venta-hecha { margin: 0; display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem; border-radius: var(--r-md, 12px); background: var(--ok-soft-bg); color: var(--ok-soft-fg); font-size: 0.9rem; }
     @media print {
-      .cq-top, .cq-acts, .cq-err, .cq-note { display: none !important; }
+      .cq-top, .cq-acts, .cq-err, .cq-note, .cq-venta, .cq-venta-hecha { display: none !important; }
       .cq-doc { border: 0; padding: 0; }
     }
   `],
@@ -235,7 +280,11 @@ export class VendorQuoteComponent implements OnInit {
   readonly vista = signal<'armar' | 'doc'>('armar');
   /** El producto cuyo renglón se está guardando (un toque a la vez por producto). */
   readonly ocupado = signal<string | null>(null);
-  readonly convirtiendo = signal(false);
+  /** `[MCP.34]` El panel de «Pasar a venta»: el día elegido y la vista previa del servidor. */
+  readonly venta = signal<{ fecha: string; estado: 'calculando' | 'lista' | 'error'; previa: PasoAVenta | null; error: string | null } | null>(null);
+  readonly pasando = signal(false);
+  /** Hoy en México: el calendario no deja elegir antes. */
+  readonly hoyIso = diaMx(0);
   /** Unidad elegida por producto (sin elegir = la del renglón cotizado, o la base). */
   private readonly unidadElegida = signal<Record<string, string>>({});
   readonly hoy = new Intl.DateTimeFormat('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date());
@@ -416,34 +465,86 @@ export class VendorQuoteComponent implements OnInit {
     try { window.print(); } catch { this.toast.add({ severity: 'warn', summary: 'Este teléfono no permite imprimir desde la app: usa «Enviar por WhatsApp».', life: 6000 }); }
   }
 
+  /** `[MCP.35]` La existencia del producto en la unidad que se está cotizando. */
+  existencia(p: PriceRow): { texto: string; tono: 'ok' | 'warn' | 'bad' | 'nd' } {
+    return existenciaParaCotizar(p, this.unidadDe(p));
+  }
+
   /**
-   * Convertir en pedido: abre el borrador del cliente (el mismo de «Tomar pedido») y le agrega los
-   * productos en la unidad cotizada. ⚠️ El pedido toma los precios DEL DÍA (los de la toma de pedido),
-   * no los de la cotización; los regalos los recalcula el pedido. Luego abre «Tomar pedido».
+   * `[MCP.34]` Pasar a venta (decisión de David, 2026-11-24): un toque abre el día de entrega (mañana por
+   * omisión; libre hacia adelante, domingos incluidos, nunca al pasado) y la VISTA PREVIA del servidor
+   * (`dry_run`): el total con los precios de HOY contra lo cotizado. «Confirmar venta» arma el pedido, lo
+   * manda al surtidor y liga la cotización, todo en el servidor y en un paso (un segundo toque no duplica).
    */
-  convertir(): void {
-    const s = this.sucursal();
+  abrirVenta(): void {
+    if (!this.cot()) return;
+    this.venta.set({ fecha: diaMx(1), estado: 'calculando', previa: null, error: null });
+    this.calcularVenta();
+  }
+
+  elegirDia(fecha: string): void {
+    const v = this.venta();
+    if (!v || !fecha || fecha === v.fecha) return;
+    this.venta.set({ ...v, fecha, estado: 'calculando', error: null });
+    this.calcularVenta();
+  }
+
+  private calcularVenta(): void {
     const c = this.cot();
-    if (!s || !c) return;
-    const { renglones, sinProducto } = paraPedido(c.lines);
-    if (!renglones.length) { this.toast.add({ severity: 'warn', summary: 'La cotización no tiene productos que se puedan pedir.', life: 5000 }); return; }
-    this.convirtiendo.set(true);
-    this.api.ensureDraftForCustomer(this.customerId, s.id, 'route')
-      .pipe(
-        switchMap((draft) => from(renglones).pipe(
-          concatMap((r) => this.api.addLine(draft.id, r.product_id, r.quantity, r.sello)),
-          last(),
-        )),
-        takeUntilDestroyed(this.destroyRef),
-      )
+    const v = this.venta();
+    if (!c || !v) return;
+    const pedida = v.fecha;
+    this.quotes.pasarAVenta(c.id, { requested_delivery_date: pedida, dry_run: true })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
-          this.convirtiendo.set(false);
-          if (sinProducto.length) this.toast.add({ severity: 'warn', summary: `No se pasaron al pedido: ${sinProducto.join(', ')}`, life: 7000 });
-          this.router.navigate(['/vendor/take-order', this.customerId]);
+        next: (pv) => {
+          if (this.venta()?.fecha !== pedida) return; // ya eligió otro día: manda la respuesta de ése
+          if (pv.ya_existia) { this.cot.update((x) => (x ? { ...x, order_id: pv.order_id, order_code: pv.order_code } : x)); this.venta.set(null); return; }
+          this.venta.set({ fecha: pedida, estado: 'lista', previa: pv, error: null });
         },
-        error: (e) => { this.convirtiendo.set(false); this.toast.add({ severity: 'error', summary: mensaje(e, 'No se pudo pasar a pedido.'), life: 7000 }); },
+        error: (e) => {
+          if (this.venta()?.fecha !== pedida) return;
+          this.venta.set({ fecha: pedida, estado: 'error', previa: null, error: errorDeVenta(e) });
+        },
       });
+  }
+
+  confirmarVenta(): void {
+    const c = this.cot();
+    const v = this.venta();
+    if (!c || !v || v.estado !== 'lista' || this.pasando()) return;
+    this.pasando.set(true);
+    this.quotes.pasarAVenta(c.id, { requested_delivery_date: v.fecha })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.pasando.set(false);
+          this.venta.set(null);
+          this.cot.update((x) => (x ? { ...x, status: 'accepted', order_id: r.order_id, order_code: r.order_code } : x));
+          this.toast.add({
+            severity: 'success',
+            summary: r.ya_existia ? `Esta cotización ya era el pedido ${r.order_code ?? ''}.` : `Venta lista: pedido ${r.order_code ?? ''} para el ${this.diaLargo(r.requested_delivery_date ?? v.fecha)}.`,
+            life: 6000,
+          });
+          if (r.sin_producto.length) this.toast.add({ severity: 'warn', summary: `No pasaron al pedido: ${r.sin_producto.join(', ')}`, life: 8000 });
+        },
+        error: (e) => {
+          this.pasando.set(false);
+          this.venta.set({ ...v, estado: 'error', error: errorDeVenta(e) });
+        },
+      });
+  }
+
+  /** «Sube $12.40» / «Baja $3.00»; nada si es igual (al centavo). */
+  diferencia(pv: PasoAVenta): string | null {
+    const d = Math.round(((pv.order_total ?? 0) - pv.quote_total) * 100) / 100;
+    if (!d) return null;
+    return `${d > 0 ? 'Sube' : 'Baja'} ${this.dinero(Math.abs(d))} desde que cotizaste`;
+  }
+
+  diaLargo(f: string | null | undefined): string {
+    if (!f || !/^\d{4}-\d{2}-\d{2}$/.test(f)) return f ?? '';
+    return new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${f}T12:00:00Z`));
   }
 
   volver(): void {
@@ -460,4 +561,15 @@ export class VendorQuoteComponent implements OnInit {
 function mensaje(e: unknown, def: string): string {
   const m = (e as { error?: { message?: string | string[] } })?.error?.message;
   return Array.isArray(m) ? m.join(' · ') : m || def;
+}
+
+/** `[MCP.34]` Sin señal se dice así (status 0); lo demás, el mensaje del servidor. */
+function errorDeVenta(e: unknown): string {
+  if ((e as { status?: number })?.status === 0) return 'Sin señal: pasar a venta necesita conexión. Inténtalo cuando tengas señal.';
+  return mensaje(e, 'No se pudo pasar a venta.');
+}
+
+/** El día de México dentro de `d` días, `YYYY-MM-DD`. */
+function diaMx(d: number): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date(Date.now() + d * 86_400_000));
 }

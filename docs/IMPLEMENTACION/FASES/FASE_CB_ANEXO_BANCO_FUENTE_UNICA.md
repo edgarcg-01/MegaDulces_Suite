@@ -160,10 +160,11 @@ libro después de E3.
 | **D12** (ídem) | Kepler registró el pago en otra cuenta de banco | (a) la categoría sale del documento igual · (b) motivo para Tesorería | **(b)** en el motor de hoy (no se casa por cuenta ajena); BFU.7.5 decide si además da la categoría |
 | **D13** (ídem) | Plazo para «Kepler todavía no lo tiene» | días hábiles | **5** (mediana de captura 2–5, CB.53); después el motivo pasa al área dueña |
 | **D10** ✅ Edgar, 2026-11-19 («ya no se vuelve a usar workbook») | El libro CUENTAS ¿se sigue cargando mientras pasan las cuentas? | — | **No se vuelve a cargar.** La subida y la sincronización de Sheets se niegan desde ya (BFU.5.1); las cuentas que todavía no cuadran quedan con su libro al 10-nov hasta que su descarga se complete y pasen |
-| **D14** (Claude, 2026-11-23; Edgar vio la maqueta: «me agrada», sin firma) | Con qué área arranca BFU.4.5 | (a) Compras, RH y Tesorería, como se escribió el 20-nov · (b) Crédito y Cobranza y Tesorería; Compras y RH sólo ven | **(b)**: medido en noviembre, Compras tiene 4 pendientes y RH 5 (ya explican 97–98 % de sus pesos); Cobranza tiene 453 depósitos sin cliente y Tesorería 196 |
+| **D14** (Claude, 2026-11-23; Edgar vio la maqueta: «me agrada», sin firma) | Con qué área arranca BFU.4.5 | (a) Compras, RH y Tesorería, como se escribió el 20-nov · (b) Crédito y Cobranza y Tesorería; Compras y RH sólo ven | **(b)**: medido en noviembre, Compras tiene 4 pendientes y RH 5 (ya explican 97–98 % de sus pesos); Cobranza tiene 453 depósitos sin cliente y Tesorería 196. **⚠️ Corregida el 2026-11-24 (medido):** de esos 453 sólo ~55 son pagos de cliente por transferencia; 144 son cortes de terminal (venta de sucursal) y 187 efectivo (de la sucursal o de un cliente: lo decide el documento de Kepler). Ver D18 |
 | **D15** (ídem) | Qué ve un área | (a) sus movimientos, sin saldos de las cuentas · (b) todo Bancos | **(a)**: el área necesita lo suyo para explicarlo; el saldo es de Tesorería |
 | **D16** (ídem) | Qué es «ligar» | (a) el área confirma una propuesta del sistema; la liga definitiva es el documento de Kepler, que el área captura allá y el motor casa solo · (b) la suite guarda la liga y basta | **(a)**: Kepler es el árbitro (ADR-059). Lo que el área confirma queda «identificado, falta en Kepler» hasta que el motor casa el documento; si el documento contradice la identificación, se marca, no se pisa. Buscar a mano es el respaldo, no el camino |
 | **D17** (ídem) | Los mecanismos de liga a mano sin uso (bandeja de captura, cliente declarado, confirmación de pago en ContPAQi, programa de pagos → movimiento: 0 usos medidos el 2026-11-23) | (a) se apaga el que la bandeja reemplace · (b) conviven | **(a)** (ADR-056: un primitivo); se apaga, no se borra (regla 5), y uno por uno, midiendo que nadie lo usa |
+| **D18** (Claude, 2026-11-24, medido; Edgar: «sigue con lo tuyo», sin firma) | «Cobranza» mezcla dos cosas: la **venta de la sucursal** que se deposita (Kepler `U-A-5`, cliente «CONTADO») y el **cobro a un cliente** (`U-A-7`, cliente real). ¿A quién le llega cada una? | (a) todo a Crédito y Cobranza · (b) se separa: venta de sucursal → la sucursal (Cajas) y Tesorería; cobro a cliente → Crédito y Cobranza | **(b)**: con documento, lo dice Kepler (`U-A-5`: 945 casados en noviembre, todos a «CONTADO» o a un punto de venta; `U-A-7`: 588, a más de 170 clientes distintos). Sin documento, el texto del banco separa lo seguro (corte de terminal → sucursal; transferencia → cliente) y el efectivo queda «sin saber» hasta que Kepler lo tenga. Falta de Edgar: quién de la sucursal (Cajas, encargado). **Afinada el mismo día (investigación P13):** un depósito sin documento no dice su sucursal (ni la cuenta ni `bank_movements.sucursal`, que es la sucursal bancaria), pero la cuenta sí dice **quién lo captura**: el pendiente va a las dos personas que capturan en Kepler los depósitos de esa cuenta (90 % de acierto en noviembre, placebo 23 %) |
 
 ---
 
@@ -267,19 +268,44 @@ el área **confirma** donde ya trabaja; la liga definitiva sigue siendo el docum
 **Maqueta** (privada de Edgar; pedirle acceso): <https://claude.ai/artifact/8LH7qxe7zeJjRZxvgmCqLH> — Cuentas por
 área, la bandeja de Cobranza, el cobro dentro del estado de cuenta del cliente y el parámetro categoría → área.
 
+**Investigación** (2026-11-24, catorce preguntas con su medición y placebo): [`FASE_CB_ANEXO_BFU_INVESTIGACION_AREAS.md`](FASE_CB_ANEXO_BFU_INVESTIGACION_AREAS.md).
+Leerla antes de construir cualquier item de BFU.4.5.
+
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
-| BFU.4.5.1 | C0 · **Área dueña por categoría como parámetro**: columna en `finance.movement_categories` hacia `identity.departments` (se extiende, no se copia); Tesorería la cambia en Admin. **🔨 2026-11-23:** migración `20261123175931` (`owner_department_code` + `owner_note`; 32 categorías con área, 5 en «Otros» con su razón en la fila: no hay departamento «Comercial» ni «Dirección»; Edgar, 2026-11-24: «pongámoslos en otros») y candado `test-newdb-bank-area-duena.js`; simulado en prod: 3,934 de noviembre se reparten en 9 áreas + 117 en «Otros» (todos con documento de Kepler) | 🔨 | Cada movimiento del mes cae en un área; la suma por área = el total del mes |
+| BFU.4.5.1 | C0 · **Área dueña por categoría como parámetro**: columna en `finance.movement_categories` hacia `identity.departments` (se extiende, no se copia); Tesorería la cambia en Admin. **🔨 2026-11-23:** migración `20261123175931` (`owner_department_code` + `owner_note`; 32 categorías con área, 5 en «Otros» con su razón en la fila: no hay departamento «Comercial» ni «Dirección»; Edgar, 2026-11-24: «pongámoslos en otros») y candado `test-newdb-bank-area-duena.js`; simulado en prod: 3,934 de noviembre se reparten en 9 áreas + 117 en «Otros» (todos con documento de Kepler). **✅ 2026-11-24:** aplicada en prod (08:27) y remedida: 32 categorías con área en 9 departamentos, 5 en «Otros» con su nota, 0 colgadas, 0 mudas | ✅ | Cada movimiento del mes cae en un área; la suma por área = el total del mes |
 | BFU.4.5.2 | C1 · **El motor resuelve `'area'`** (hoy no apunta a nadie) al departamento dueño, y el diagnóstico (BFU.7.6) da la cobertura **por área** | ⬜ | Suma por área = total, contra un conteo aparte; mutante en rojo |
-| BFU.4.5.3 | C1 · **Propuesta de cliente para un depósito** (= BFU.6.1): folio en el concepto, nombre o RFC del ordenante, ordenante ya confirmado antes. **El importe solo es señal débil y nunca propone solo** | ⬜ | Acierto contra los depósitos de noviembre que ya tienen documento de Kepler, **con placebo** (documentos barajados) |
+| BFU.4.5.3 | C1 · **Propuesta de cliente para un depósito** (= BFU.6.1): folio en el concepto, nombre o RFC del ordenante, ordenante ya confirmado antes. **El importe solo es señal débil y nunca propone solo**. **🧪 Medido 2026-11-24: la señal no alcanza** (ver abajo); no se construye como bandeja de propuestas | 🧪 | Acierto contra los depósitos de noviembre que ya tienen documento de Kepler, **con placebo** (documentos barajados) |
 | BFU.4.5.4 | C1 · **La confirmación del área**: tabla propia (dato HITL) movimiento → cliente/factura, periodo de nómina o contrato, con parcial (1→N), quién, cuándo y señal. Queda «identificado, falta en Kepler» hasta que el motor casa el documento. **Nunca toca importe, fecha ni concepto del banco** | ⬜ | Prueba contra base real con el payload de la pantalla (regla 13); un documento de Kepler que contradice se marca |
 | BFU.4.5.5 | C2 · **«Movimientos de mi área»**, sin saldos (D15); permiso por área **repartido** en prod (regla 20) | ⬜ | Prueba negativa: un usuario de Cobranza no recibe saldos ni movimientos de otra área |
 | BFU.4.5.6 | C3 · **Bancos › Cuentas: «Quién explica cada peso»** por área (= BFU.7.7) | ⬜ | Pantalla viva + `diseno` §0b; suma por área = total |
 | BFU.4.5.7 | C3 · **Bandeja de Cobranza en «Mi trabajo»** (confirmar · es otro cliente · no es cobranza) y el cobro en banco dentro del estado de cuenta del cliente. Después Tesorería; Compras y RH sólo ven (D14) | ⬜ | Pendientes de Cobranza antes/después; e2e con el payload de la pantalla |
 | BFU.4.5.8 | C1 · **Apagar los mecanismos sin uso** que la bandeja reemplace (D17), uno por uno | ⬜ | 0 usos medidos al apagar cada uno; nada se borra |
+| BFU.4.5.9 | C1 · **Un depósito sin documento pasa por el plazo de captura que el motor YA tiene** (`PLAZO_DE_CAPTURA`, 5 días hábiles ≈ 7 naturales; BFU.7.4): antes es «Kepler todavía no lo tiene». **Medido 2026-11-24 (P14):** el plazo existe pero ningún depósito llega a él: el respaldo «depósito → cobranza» decide antes (565 en noviembre: 386 en plazo, 179 vencidos). El item es que ese respaldo ceda, no un plazo nuevo (ADR-056). ⚠️ Toca `motor-de-categoria.ts`, que otra sesión tiene a medias (BFU.7.10) | ⬜ | Mutante: sin ceder, los 179 vencidos siguen en «cobranza» y ninguno en «Kepler no lo tiene» |
+| BFU.4.5.10 | C0 · **El responsable de un depósito sin documento se deriva POR CUENTA**: las dos personas que capturan en Kepler (`kdm1.c67`) los documentos `U-A-5`/`U-A-7` de los depósitos que casaron en esa cuenta en 30 días. Por sucursal no se puede: el depósito no dice su sucursal (P13). Falta el par usuario de Kepler → usuario de la Suite, como parámetro (P6). **🔨 2026-11-24:** migración `20261124100054` (vista `analytics.v_kepler_deposit_capturers` por cuenta, `security_invoker`, 112 ms, 15 cuentas, 12 usuarios; tabla `identity.user_kepler_logins`, vacía hasta que Edgar/Sistemas den los pares) y candado `test-newdb-bank-capturistas.js`. Rehecha por cuenta antes de soltarse | 🔨 | Hold-out noviembre: primer lugar 75 %, dos primeros 90 %, placebo 23 %; cada cuenta con depósitos tiene responsable o lo declara |
+| BFU.4.5.11 | C1 · **«En otra cuenta» también para depósitos** → Tesorería (26 de 187 viejos en noviembre; placebo 1; P5). La pista ya existe (BFU.7.4) y se calcula para depósitos; no llega porque el respaldo «depósito» decide antes (P14): va junto con BFU.4.5.9 | ⬜ | Placebo por importe corrido; los 6 de Canindo BTE 7133 → BB 854 |
 
-**Falta de Edgar:** firmar D14–D17 y nombrar a la persona de cada área (ya pedido el 20-nov). Cupo: BFU sigue
+**Falta de Edgar:** firmar D14–D18 y nombrar a la persona de cada área (ya pedido el 20-nov). Cupo: BFU sigue
 ⬜ propuesta con el tablero por encima de 4 fases 🔨.
+
+**Medido el 2026-11-24 — la premisa de la bandeja de Cobranza no se sostiene** (`pg-prod`, sólo lectura). La maqueta
+mostraba «el sistema propone el cliente y el área confirma con un clic». Se midió si el texto del banco identifica al
+cliente, contra los 588 depósitos de noviembre que Kepler ya casó a un cobro `U-A-7` (cliente conocido), aprendiendo
+de los casados de junio–octubre y con placebo (el cliente de otro renglón al azar):
+
+| Señal | Propone | Acierta | Placebo |
+|---|---:|---:|---:|
+| El mismo texto, sin números, visto 1 vez antes | 124 | 21 | 1 |
+| El mismo texto visto 2 o más veces | 10 | 10 | 0 |
+| Un número largo del texto (cuenta de origen) ya visto con un solo cliente | 6 | 6 | 0 |
+
+Las señales buenas son exactas pero alcanzan a **menos del 3 %** de los depósitos; la que alcanza más se equivoca 4 de
+cada 5. Sobre los 449 pendientes, sólo 5 tendrían una cuenta de origen conocida. **La causa es física, no de software:**
+el pendiente es sobre todo efectivo y cortes de terminal (D18), y su texto no nombra a nadie. **Consecuencia:** lo que
+sí funciona es lo que pidió Edgar el 20-nov: el pendiente llega a quien debe **capturar el documento en Kepler** (la
+sucursal su depósito `U-A-5`, Cobranza su cobro `U-A-7`) y el motor casa solo. La propuesta de cliente queda como
+ayuda para el puñado que la tiene, no como el camino. La bandeja de la maqueta se rehace alrededor de «falta en
+Kepler», no de «confirma la propuesta».
 
 ### E5 · C2–C3 — Apagar el libro
 
@@ -315,6 +341,7 @@ Cada movimiento de la descarga tiene **categoría con su evidencia, o un motivo 
 | BFU.7.6 | C2 · La cobertura en `diagnostico`: con categoría + por motivo y responsable = total | 🧪 | Suma igual al total del mes |
 | BFU.7.7 | C3 · Bancos: «N por resolver», por qué y de quién (con BFU.4.5) | ⬜ | Pantalla viva + `diseno` §0b |
 | BFU.7.8 | C1 · El vocabulario del banco: las abreviaturas de comisión de BBVA | ✅ | Su IVA del 16 % el mismo día, al centavo |
+| BFU.7.11 | C1 · Más vocabulario del banco: «COM. VTA. NAL. AMEX» es comisión bancaria, no compra con tarjeta (35 desde agosto); la compra con tarjeta en gasolinera o caseta es gasto logístico ([investigación](FASE_CB_ANEXO_BFU_INVESTIGACION_AREAS.md) P7). ⚠️ Toca `clasificador.ts`, que otra sesión tiene a medias (BFU.7.10) | ⬜ | Testigo independiente de la comisión (su IVA o el abono de la venta del mismo día) |
 
 ## 9. Riesgos y bloqueos
 
@@ -381,3 +408,6 @@ falta; terciario = el detalle de cada movimiento.
 | 2026-11-23 | BFU.7.5: los cheques de nómina SÍ están en Kepler; los apartaba el candado anti doble-cobro con pareos de enero sin sucursal (los folios se reiniciaron con el corte del 1-oct). Una reclamación ya sólo aparta lo que su corrida alcanzaba: se liberan 465 documentos de octubre y 206 de noviembre | Claude |
 | 2026-11-23 | BFU.7.6: el diagnóstico de Bancos da la cobertura del motor (con categoría + por motivo y responsable + sin motivo), «todavía no» recalculado al leer y la suma contrastada contra un conteo aparte. Falta la pantalla (BFU.7.7) | Claude |
 | 2026-11-23 | «Que cada departamento observe sus movimientos y los ligue»: es BFU.4.5; se desglosa (BFU.4.5.1–4.5.8) con D14–D17 y maqueta. Medido: 77 % de los pesos explicados, 668 por ligar en 5 áreas, 4 mecanismos de liga a mano con 0 usos. El segundo BFU.4.5 («aviso a quien sube») pasa a BFU.4.6 | Edgar / Claude |
+| 2026-11-24 | BFU.4.5.1 en código (migración + candado; las categorías sin departamento van a «Otros», Edgar). BFU.4.5.3 medido: el texto del banco identifica al cliente en menos del 3 % (exacto cuando lo hace, placebo 0); de los 453 depósitos «cobranza» sin documento, 144 son cortes de terminal, 187 efectivo y ~55 transferencias de cliente. D14 corregida, D18 propuesta: el pendiente va a quien captura en Kepler | Claude |
+| 2026-11-24 | Investigación de BFU.4.5 (pedido de Edgar: «exhaustiva, para dudas actuales y futuras»): Kepler captura en 2–3 días (D13 validada), ~190 pendientes reales de 453, 26 depósitos en Kepler en otra cuenta, el responsable se deriva de quien captura, la compra con tarjeta es flotilla, 9 roles gestionan Bancos. Items BFU.4.5.9–4.5.11 y BFU.7.11 | Edgar / Claude |
+| 2026-11-24 | BFU.4.5.10 rehecha POR CUENTA antes de soltarse: el depósito sin documento no dice su sucursal (la «sucursal» del movimiento es la bancaria; la cuenta acierta la sucursal 29 %), pero la cuenta sí dice quién lo captura (dos primeros 90 %, placebo 23 %). La vista pasa a `security_invoker` (le faltaba). BFU.4.5.9 y 4.5.11 corregidos: el plazo y la pista ya existen en el motor; los depósitos no llegan porque el respaldo «depósito» decide antes (P13–P14) | Claude |

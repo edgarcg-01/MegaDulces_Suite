@@ -4,8 +4,10 @@ import { TableModule } from 'primeng/table';
 import { TooltipModule } from 'primeng/tooltip';
 import {
   armarOrdenes,
+  MINIMO_RENGLONES_UNIDAD,
   MOTIVO_FUERA_LABEL,
   TOPE_RENGLONES_ORDEN,
+  UNIDAD_MIXTA,
   type AutoabastoPedidoLinea,
   type RenglonArmable,
 } from '@megadulces/contracts';
@@ -48,6 +50,12 @@ interface FilaPlana {
   lineaRenglones: number;
   /** La primera fila de la orden: es la que pinta la banda de orden encima de la de línea. */
   abreOrden: boolean;
+  /** `true` en la orden que junta las unidades chicas (D1, Edgar 2026-11-24). */
+  mixta: boolean;
+  /** Las unidades reales que junta la orden mixta. Una sola en las órdenes normales. */
+  unidades: string[];
+  /** La unidad de ESTA banda de línea. En la mixta distingue un grupo de otro. */
+  unidadBanda: string;
 }
 
 @Component({
@@ -63,6 +71,7 @@ interface FilaPlana {
     .ao-pill { display: inline-flex; align-items: center; gap: .375rem; padding: .125rem .625rem;
                border: 1px solid var(--border-color); border-radius: 999px; font-size: .75rem; color: var(--text-muted); }
     .ao-pill--on { border-color: var(--action); color: var(--action); }
+    .ao-pill--cola { border-style: dashed; }
     .ao-fuera { display: flex; gap: .75rem; align-items: flex-start; padding: .625rem .75rem;
                 border-radius: .5rem; background: var(--warn-soft-bg); border: 1px solid var(--warn-border);
                 color: var(--warn-soft-fg); font-size: .8125rem; line-height: 1.5; flex: 0 1 30rem; }
@@ -134,13 +143,23 @@ interface FilaPlana {
             </p>
             <div class="ao-pills">
               @for (u of armado().por_unidad; track u.unidad) {
-                <span class="ao-pill" [class.ao-pill--on]="$first">
+                <span class="ao-pill" [class.ao-pill--on]="$first" [class.ao-pill--cola]="u.mixta">
                   <span class="comm-num">{{ u.unidad }} · {{ u.renglones }}</span>
-                  → {{ u.ordenes }} {{ u.ordenes === 1 ? 'orden' : 'órdenes' }}
+                  @if (u.mixta) { → va en «{{ unidadMixta }}» }
+                  @else { → {{ u.ordenes }} {{ u.ordenes === 1 ? 'orden' : 'órdenes' }} }
                 </span>
               }
               @empty { <span class="ao-pill">Nada que armar</span> }
             </div>
+            @if (hayCola()) {
+              <p class="m-0 mt-2 text-xs text-content-muted">
+                Las unidades de menos de {{ minimoPorUnidad }} renglones no llevan documento propio:
+                se arman juntas al final, en una sola orden. Así
+                <strong class="text-content-main">{{ renglonesEnCola() }}</strong>
+                {{ renglonesEnCola() === 1 ? 'renglón no se lleva' : 'renglones no se llevan' }}
+                {{ unidadesEnCola() }} papeles aparte.
+              </p>
+            }
           </div>
 
           @if (armado().fuera.length > 0) {
@@ -208,7 +227,13 @@ interface FilaPlana {
             <tr class="ao-b-orden">
               <td colspan="7">
                 <div class="ao-b-orden-in">
-                  <span class="text-sm font-bold">Orden {{ f.orden }} de {{ f.ordenes }} · en {{ f.unidad }}</span>
+                  <span class="text-sm font-bold">
+                    Orden {{ f.orden }} de {{ f.ordenes }} · en {{ f.unidad }}
+                    <!-- La orden mixta no finge ser una unidad: dice cuáles junta. -->
+                    @if (f.mixta) {
+                      <span class="font-normal text-content-muted">({{ f.unidades.join(', ') }})</span>
+                    }
+                  </span>
                   <span class="text-xs text-content-muted comm-num">
                     {{ f.ordenRenglones }} {{ f.ordenRenglones === 1 ? 'renglón' : 'renglones' }}
                     @if (f.ordenValor !== null) { · {{ f.ordenValor | currency:'MXN':'symbol-narrow':'1.0-0' }} }
@@ -220,6 +245,10 @@ interface FilaPlana {
           }
           <tr class="surf-rowgroup">
             <td colspan="7">
+              <!-- Dentro de la orden mixta, la banda dice su unidad: es lo que separa un grupo de otro. -->
+              @if (f.mixta) {
+                <span class="ao-pill ao-pill--cola mr-2">{{ f.unidadBanda }}</span>
+              }
               <span class="ao-linea-nom">{{ f.linea }}</span>
               <span class="text-xs text-content-faint comm-num">
                 · {{ f.lineaRenglones }} {{ f.lineaRenglones === 1 ? 'renglón' : 'renglones' }}
@@ -307,6 +336,8 @@ export class AutoabastoOrdenesComponent {
   readonly quitar = output<string[]>();
 
   readonly tope = TOPE_RENGLONES_ORDEN;
+  readonly minimoPorUnidad = MINIMO_RENGLONES_UNIDAD;
+  readonly unidadMixta = UNIDAD_MIXTA;
   readonly verFuera = signal(false);
   readonly marcados = signal<Set<string>>(new Set());
 
@@ -328,7 +359,9 @@ export class AutoabastoOrdenesComponent {
         for (const l of b.renglones) {
           out.push({
             l,
-            grupo: `${o.numero}\u0000${b.linea}`,
+            // La unidad entra a la llave del grupo: en la orden mixta, dos unidades pueden traer
+            // la MISMA línea y sin ella sus renglones caerían bajo una sola banda.
+            grupo: `${o.numero}\u0000${b.unidad}\u0000${b.linea}`,
             orden: o.numero,
             ordenes: a.ordenes.length,
             unidad: o.unidad,
@@ -338,6 +371,9 @@ export class AutoabastoOrdenesComponent {
             linea: b.linea,
             lineaRenglones: b.renglones.length,
             abreOrden: primera,
+            mixta: o.mixta,
+            unidades: o.unidades,
+            unidadBanda: b.unidad,
           });
           primera = false;
         }
@@ -374,6 +410,13 @@ export class AutoabastoOrdenesComponent {
 
   readonly conTransito = computed(() => this.lineas().filter((l) => this.tieneTransito(l)).length);
   readonly bajanDeUnidad = computed(() => this.lineas().filter((l) => this.bajoDeUnidad(l)).length);
+
+  // ── D1 (Edgar, 2026-11-24): las unidades chicas comparten un documento ─────────────────────
+
+  readonly hayCola = computed(() => this.armado().por_unidad.some((u) => u.mixta));
+  readonly unidadesEnCola = computed(() => this.armado().por_unidad.filter((u) => u.mixta).length);
+  readonly renglonesEnCola = computed(() =>
+    this.armado().por_unidad.filter((u) => u.mixta).reduce((n, u) => n + u.renglones, 0));
 
   /** Q.1 El veredicto de la pantalla, arriba de la rejilla. */
   readonly resumen = computed<MetricStripItem[]>(() => {

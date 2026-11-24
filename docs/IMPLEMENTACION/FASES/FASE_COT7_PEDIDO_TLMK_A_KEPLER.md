@@ -328,6 +328,27 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-24** — 🧪 **[COT.56] Paquete o caja, la cantidad y el precio con descuento, a la vista** (observaciones de
+  quien cotiza, que Edgar trajo: «que aparezca marcado el contorno en rojo cuando seleccionas si es paquete o caja», «el
+  precio ya con descuento un poquito más grande y remarcado», «remarcar el cuadro de la cantidad de cajas o que el número
+  aparezca remarcado»; hay errores al elegir paquete o caja). Cinco preguntas: (1) al elegir artículo, primero QUÉ
+  presentación y CUÁNTAS, después el precio que se va a cobrar; (2) nada nuevo en pantalla: se quita peso a lo secundario y
+  se lo da a esas tres cosas; (3) la presentación elegida no depende sólo del color (palomita + `aria-pressed` en el
+  borrador), la cantidad dice su unidad en la tabla y al lector («Cantidad del renglón 3, en CJA»); (4) es la misma
+  presentación que va al pedido de Kepler (`c55`): elegirla mal es pedir cajas por paquetes; (5) alta y borrador, misma
+  regla. Hecho: la presentación elegida lleva contorno rojo de 2 px (`--action`, el mismo del buscador con foco) y
+  palomita; la cantidad, número más grande en negritas y recuadro de 2 px que se pone rojo al escribir, con la unidad en
+  negritas; el precio de la franja sube a 20 px; en la tabla, el precio ya con descuento es lo primero de la celda (16 px,
+  negritas) —con % de cliente es el neto por unidad y abajo «$X − 2 % cliente», como ya hacía Importe— y la cantidad dice
+  su unidad («3 CJA»). Contraste calculado con controles (21.00 y 4.48): rojo sobre tarjeta 5.00:1 en claro y 5.23:1 en
+  oscuro, borde de la cantidad 7.73:1 / 6.91:1. Pruebas: 3 nuevas de la tabla; 178/178 de televenta; `ngc` limpio;
+  `check:pantalla --todas` 0 nuevas; `check:estilos` en verde. **NO MEDIDO:** si con esto bajan los errores al elegir
+  presentación (no hay una medición de «renglón corregido de PAQ a CJA»); **sin validación visual** (el navegador de
+  Playwright estaba ocupado por otra sesión: se mira en prod al soltar).
+- **2026-11-24** — 🚀 **[COT.55] en prod**: llegó con `96c07e4ee` (lo empujó y soltó otra sesión junto con su trabajo); la
+  migración se aplicó a las 08:26 y el permiso quedó en direccion, superadmin, supervisor y supervisor_ventas (medido en
+  prod). Sigue **NO MEDIDO** el ejercicio de los tres caminos que escriben contra la base real.
+
 - **2026-11-23** — 🧪 **[COT.55] «Solo precio 1 (sin mayoreo)»** (Edgar: «un botón de configuración para que ciertos
   pedidos solamente pasen con precio 1, sin precio de mayoreo»). Decisiones suyas, ese día: **dónde** = las dos (el cliente
   trae el valor por defecto y en cada cotización se puede cambiar); **qué quita** = sólo el mayoreo (precio por volumen del

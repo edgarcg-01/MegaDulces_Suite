@@ -1,7 +1,9 @@
 import {
   armarOrdenes,
+  MINIMO_RENGLONES_UNIDAD,
   SIN_LINEA,
   TOPE_RENGLONES_ORDEN,
+  UNIDAD_MIXTA,
   type RenglonArmable,
 } from './autoabasto-ordenes';
 
@@ -59,18 +61,71 @@ const pedidoReal: RenglonArmable[] = [
 ];
 
 describe('[AB.NI.2] armarOrdenes — cómo se parte el pedido', () => {
-  it('⭐ CONTROL · la forma real de RQ-2026-03239 da 8 órdenes y 21 renglones fuera', () => {
+  it('⭐ CONTROL · la forma real de RQ-2026-03239 da 6 órdenes y 21 renglones fuera', () => {
     const a = armarOrdenes(pedidoReal);
 
     expect(pedidoReal).toHaveLength(294);
     expect(a.fuera).toHaveLength(21);
     expect(a.fuera.every((f) => f.motivo === 'sin_unidad')).toBe(true);
     expect(a.renglones_que_salen).toBe(273);
-    expect(a.ordenes).toHaveLength(8);
 
-    // PAQ 166 en líneas de ≤12 no cabe en 2 órdenes de 70 y sobra en la 4ª: son 3.
+    // PAQ 166 en líneas de ≤12 no cabe en 2 órdenes de 70: son 3. CJA 51 y PZA 45, una cada una.
+    // KG 8, BTO 2 y CUB 1 no llegan al mínimo de 12 → una sola orden mixta (D1, Edgar 2026-11-24).
+    expect(a.ordenes).toHaveLength(6);
     const porUnidad = Object.fromEntries(a.por_unidad.map((u) => [u.unidad, u.ordenes]));
-    expect(porUnidad).toEqual({ PAQ: 3, CJA: 1, PZA: 1, KG: 1, BTO: 1, CUB: 1 });
+    expect(porUnidad).toEqual({ PAQ: 3, CJA: 1, PZA: 1, KG: 0, BTO: 0, CUB: 0 });
+    expect(a.por_unidad.filter((u) => u.mixta).map((u) => u.unidad).sort()).toEqual(['BTO', 'CUB', 'KG']);
+  });
+
+  it('⭐ D1 · las unidades chicas se juntan en UNA orden, al final, y dice cuáles', () => {
+    const a = armarOrdenes(pedidoReal);
+    const mixtas = a.ordenes.filter((o) => o.mixta);
+
+    expect(mixtas).toHaveLength(1);
+    const m = mixtas[0];
+    // Al FINAL: es lo último que se arma.
+    expect(m.numero).toBe(a.ordenes.length);
+    expect(m.unidad).toBe(UNIDAD_MIXTA);
+    expect(m.renglones).toBe(11);
+    expect([...m.unidades].sort()).toEqual(['BTO', 'CUB', 'KG']);
+    // Dentro de la mixta la mercancía de cada unidad sigue junta: unidad → línea → alfabético.
+    const us = m.bandas.map((b) => b.unidad);
+    expect(us).toEqual([...us].sort());
+  });
+
+  it('⛔ con UNA sola unidad chica NO se junta nada: conserva su unidad real', () => {
+    // CJA grande + un solo KG de 3 renglones. Juntar uno solo sería renombrarlo sin ahorrar nada.
+    const a = armarOrdenes([...bloque('CJA', 30), ...bloque('KG', 3)]);
+    expect(a.ordenes.some((o) => o.mixta)).toBe(false);
+    expect(a.ordenes.map((o) => o.unidad).sort()).toEqual(['CJA', 'KG']);
+    expect(a.por_unidad.every((u) => !u.mixta)).toBe(true);
+  });
+
+  it('⛔ una unidad que alcanza el mínimo NO entra a la cola, aunque sea la más chica', () => {
+    const justo = MINIMO_RENGLONES_UNIDAD;
+    const a = armarOrdenes([...bloque('CJA', 40), ...bloque('KG', justo), ...bloque('BTO', justo - 1), ...bloque('CUB', 1)]);
+    const porUnidad = Object.fromEntries(a.por_unidad.map((u) => [u.unidad, u.mixta]));
+    expect(porUnidad['KG']).toBe(false);   // 12 → documento propio
+    expect(porUnidad['BTO']).toBe(true);   // 11 → cola
+    expect(porUnidad['CUB']).toBe(true);   // 1  → cola
+    expect(a.ordenes.filter((o) => o.mixta)).toHaveLength(1);
+  });
+
+  it('el junte se puede apagar: con minimoPorUnidad 1 cada unidad va por su lado', () => {
+    const a = armarOrdenes(pedidoReal, { minimoPorUnidad: 1 });
+    expect(a.ordenes).toHaveLength(8);
+    expect(a.ordenes.some((o) => o.mixta)).toBe(false);
+    expect(a.renglones_que_salen).toBe(273);
+  });
+
+  it('la orden mixta también respeta el tope: si no cabe, se parte', () => {
+    // Cuatro unidades chicas de 11 (44 en total) con tope 20 → la cola sale en 3 órdenes mixtas.
+    const chicas = [...bloque('KG', 11, 4), ...bloque('BTO', 11, 4), ...bloque('CUB', 11, 4), ...bloque('LTS', 11, 4)];
+    const a = armarOrdenes(chicas, { tope: 20, minimoPorUnidad: 12 });
+    const mixtas = a.ordenes.filter((o) => o.mixta);
+    expect(mixtas.length).toBeGreaterThan(1);
+    for (const o of mixtas) expect(o.renglones).toBeLessThanOrEqual(20);
+    expect(mixtas.reduce((n, o) => n + o.renglones, 0)).toBe(44);
   });
 
   it('el botón primario cuenta lo que SALE, no el total', () => {
@@ -79,10 +134,18 @@ describe('[AB.NI.2] armarOrdenes — cómo se parte el pedido', () => {
     expect(a.renglones_que_salen).not.toBe(pedidoReal.length);
   });
 
-  it('⛔ ninguna orden mezcla unidades', () => {
+  it('⛔ ninguna orden mezcla unidades — salvo la mixta, que lo DICE', () => {
     for (const o of armarOrdenes(pedidoReal).ordenes) {
-      const unidades = new Set(o.bandas.flatMap((b) => b.renglones.map((x) => x.unidad)));
-      expect([...unidades]).toEqual([o.unidad]);
+      const unidades = [...new Set(o.bandas.flatMap((b) => b.renglones.map((x) => x.unidad)))].sort();
+      // `unidades` de la orden siempre refleja lo que de verdad lleva.
+      expect([...o.unidades].sort()).toEqual(unidades);
+      if (o.mixta) {
+        // La única que mezcla es la cola, y su rótulo no finge ser una unidad de Kepler.
+        expect(o.unidad).toBe(UNIDAD_MIXTA);
+        expect(unidades.length).toBeGreaterThan(1);
+      } else {
+        expect(unidades).toEqual([o.unidad]);
+      }
     }
   });
 
@@ -170,9 +233,10 @@ describe('[AB.NI.2] armarOrdenes — cómo se parte el pedido', () => {
 
   it('las órdenes se numeran 1..n en el orden en que se presentan', () => {
     const a = armarOrdenes(pedidoReal);
-    expect(a.ordenes.map((o) => o.numero)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    // La unidad con más renglones se arma primero: PAQ (166).
+    expect(a.ordenes.map((o) => o.numero)).toEqual([1, 2, 3, 4, 5, 6]);
+    // La unidad con más renglones se arma primero: PAQ (166). La cola, al final.
     expect(a.ordenes[0].unidad).toBe('PAQ');
+    expect(a.ordenes[a.ordenes.length - 1].unidad).toBe(UNIDAD_MIXTA);
   });
 
   it('un tope de 0 o negativo se trata como «sin tope», no como «ninguna orden»', () => {

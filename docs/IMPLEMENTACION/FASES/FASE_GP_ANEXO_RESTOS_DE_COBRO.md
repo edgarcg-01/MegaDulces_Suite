@@ -59,7 +59,10 @@ Nota de crédito (`U-A-21`) 3. **Ajuste Abono (`U-A-30`): 0.**
 - El **30-sep-2026** (corte): uno por sucursal a «CONTADO», de $3 mil a $135 mil, cada uno aplicado a decenas de
   facturas; en la 05, uno por cliente (24).
 - La **02 el 26-nov-2025**: 16 ajustes de $1.16 a $616, capturista `MD`.
-- **IVA en cero en los 51.** Ninguno lleva referencia (`c11`).
+- **IVA en cero en los 51.** ⚠️ **Corrección (2026-11-24): uno SÍ lleva referencia** (`c11 = 'c-1419'`, sucursal
+  00, enero). Aquí decía «ninguno», y de ahí salía la idea de usar `c11` como llave de idempotencia *porque el
+  ajuste manual lo deja vacío*. **Esa premisa es falsa**: 1 de 51. La llave de la Suite tiene que distinguirse
+  **por su forma** (un prefijo propio, verificado contra lo que ya existe), no por «los manuales van vacíos».
 
 ---
 
@@ -77,12 +80,33 @@ telemarketing de la 08.
 | `kdue` de la **factura** | **No se toca.** Kepler no guarda saldo en cartera: `c17` = importe en **632 de 632** facturas, y `c18` es el vendedor. El saldo = importe − Σ `kdm5` | 632 / 632 |
 | Pólizas `md.kdc2AAMM` | **Nada.** Sep-2026 tiene **0** renglones `U-A-30`; el **control** pasa (en el mismo mes `U-A-5` tiene 4,188 y `U-A-21` 698) | 4 meses revisados |
 
-**NO MEDIDO (lo resuelve el ensayo, RC.0b):**
-- El **contador de folios**: el renglón de `md.sqliov` del `U-A-30`. En el pago es `KFXD26..`; aquí se presume
-  `KFUA30..`, sin confirmar.
+### 2.1 Lo que faltaba de §2, cerrado en sólo lectura (2026-11-24)
+
+Dos de las tres incógnitas no necesitaban el ensayo: se contestan leyendo el ODS. Quedan asentadas acá y
+**salen de la lista de NO MEDIDO**.
+
+**① El contador de folios: `KFUA3001.<sucursal>`, y su `c4` guarda el folio SIGUIENTE.**
+Se presumía `KFUA30..`. El renglón real de `kepler_ods.sqliov` es `KFUA3001.<NN>` con `NN` = la **sucursal**, y
+`c4` (texto) es el próximo folio. Verificado contra los documentos reales: `c4 = max(folio) + 1` en **9 de 9
+sucursales** (00→3/2 · 01→2/1 · 02→19/18 · 03→2/1 · 04→2/1 · 05→26/25 · 06→2/1 · 07→2/1 · 08→2/1).
+
+> ⛔ **La trampa: hay DOS renglones por sucursal.** Ocho de los nueve servidores arrastran además una copia de
+> `KFUA3001.02` que **no avanza** (vale 1 en seis sucursales y **17** en la 03, un valor rancio). Sólo en la 02
+> coinciden llave y sucursal, y ahí es el vivo. Una implementación que busque «el renglón de UA3001» encuentra
+> dos y puede tomar el equivocado: **la llave se arma con la sucursal, no se busca por patrón.**
+>
+> ⚠️ Y el contador se lee e incrementa **en el Kepler vivo, dentro de la misma transacción** del ajuste. El ODS
+> sirvió para aprender el nombre de la llave, no para tomar el folio: es una réplica y llegaría tarde.
+
+**② No emite CFDI.** `kepler_ods.kdfe33folxdoc` (la configuración de series de timbrado por sucursal y tipo) sólo
+tiene renglones `U-A` para los subtipos **7, 21, 26, 41 y 42**, en las 9 sucursales. **El 30 no está en ninguna.**
+*Control en los dos sentidos:* aparecen los que sabemos que timbran (`U-A-7` Cobro CFDI y `U-A-21` Nota de
+crédito) y **no** aparece el que sabemos que no (`U-A-5` Cobro simple). Coincide con la otra evidencia: de los 51
+ajustes, ninguno trae folio digital ni `c62`/`c64`.
+
+**NO MEDIDO — lo que sigue necesitando el ensayo (RC.0b):**
 - Los **acumulados del cliente** en `kdud` (los «contadores» que la cartera por evento ve cambiar ~300 veces al
-  día).
-- Si **genera CFDI**. No hay folio digital ni referencia, pero no se cruzó contra los CFDI emitidos.
+  día). Es lo único que exige foto antes/después: lo resuelve el ensayo de RC.3.
 - Pólizas de los meses no revisados.
 
 ---
@@ -103,6 +127,11 @@ la usan los dos lados.
 
 ### 3.2 El cierre en Kepler (C2)
 
+- ⭐ **De dónde viene el disparo.** El cobro **se captura en Kepler**, no en la Suite: `/finanzas/cobranza` sólo
+  le pega la ficha de depósito a un cobro que el ERP ya tiene («no escribe a Kepler, es evidencia read-only»).
+  Así que aquí no hay un pago que escribir — **el pago ya está en Kepler**. Lo que hace la Suite es **ver llegar
+  el cobro** por el ODS y cerrar el resto. (Llevar la captura del cobro a la Suite sería escribir `U-A-5`, un
+  carril nuevo sobre dinero que entra: Edgar lo dejó **fuera** de este anexo el 2026-11-24.)
 - **Disparo por evento** (no cron): al entrar un cobro que deja una factura con resto (la cartera por evento,
   CXC.21, ya lo ve), el resto entra a la bandeja «Restos por cerrar».
 - **Un ajuste por cliente y sucursal** que salda todos sus restos de una vez (`kdm5`, una aplicación por
@@ -138,7 +167,7 @@ Los cobros capturados en Kepler los atrapa §3.2.
 
 | | Pregunta | Recomendación | Estado |
 |---|---|---|---|
-| **D-R1** | Tope del resto que se cierra solo | **$1** (176 de 207). De $1 a $10 (31), los firma Crédito y cobranza; arriba de $10 no es redondeo | ⬜ Edgar |
+| **D-R1** | Tope del resto que se cierra solo | **$10, automático** — lo decidió Edgar el 2026-11-24 (*«facturas que tengan adeudo de menos de 10 pesos … se genera automáticamente un abono»*). La recomendación era $1 solo y $1–$10 con firma; **la diferencia entre los dos topes son 31 facturas y $106**, y no alcanza para partir el criterio en dos. Arriba de $10 no es redondeo y no entra | ✅ **Edgar, 2026-11-24** |
 | **D-R2** | ¿Contabilidad quiere la póliza del redondeo? | Sí, la arma la Suite en el archivo de ContPAQi (§3.3 a) | ⬜ Contabilidad |
 | **D-R3** | ¿Se dejan de usar los «Cobros» de centavos? | Sí: un cobro dice que entró dinero. El Ajuste Abono es el documento correcto | ⬜ Crédito y cobranza |
 | **D-R4** | ¿Escribir en Kepler amplía ADR-117 (la Suite escribe en Kepler) al `U-A-30`? | Sí, con el mismo carril y candados | ⬜ Edgar (ADR) |
@@ -151,7 +180,7 @@ Los cobros capturados en Kepler los atrapa §3.2.
 | # | Resultado | Capa | Depende | ¿Escribe? |
 |---|---|---|---|---|
 | **GP.R.0a** | ✅ Huella del Ajuste Abono en `kdm1`/`kdue`/`kdm5`, sin `kdm2` ni póliza, y el saldo de cartera = importe − Σ `kdm5` (§2) | C0 | — | no |
-| **GP.R.0b** | **Lo NO MEDIDO de §2**: el folio en `sqliov`, los acumulados de `kdud` y el CFDI. Por la réplica (xmin, foto antes/después) cuando Crédito y cobranza capture el próximo ajuste real, o por el ensayo de RC.3 | C0 | — | no |
+| **GP.R.0b** | 🟡 **Lo NO MEDIDO de §2.** ✅ **2 de 3 cerradas en sólo lectura el 2026-11-24** (§2.1): el folio (`KFUA3001.<sucursal>`, 9 de 9) y el CFDI (no timbra, con control en los dos sentidos). ⬜ Falta **sólo `kdud`**, que sí exige foto antes/después. ⛔ Esperar «al próximo ajuste real» **no es un plan**: van 60 días con cero Ajustes Abono. Lo cierra el ensayo de RC.3 | C0 | — | no |
 | **GP.R.0c** | Permisos de `kepler_push` en los 9 servidores: `INSERT` en `md.kdm1`, `md.kdue` y `md.kdm5`; `UPDATE` en `md.sqliov` y lo que diga RC.0b en `kdud`, con su línea `-- verificar:`. Archivo en `ops/prod/kepler-grants/`; lo corre el PM | C0 | GP.R.0b | sí (permiso) |
 | **GP.R.1** | **La regla del resto** movida a un lugar neutro de `libs/contracts`, usada por proveedores y clientes, con sus pruebas negativas. La cartera, la ficha y GP.A.1 la usan; la pantalla muestra «queda $X de redondeo» | C1 | — | — |
 | **GP.R.2** | **Armador del ajuste** en `libs/finance` (función pura): de un cliente y sus facturas con resto → los renglones de `kdm1`, `kdue` y `kdm5`. Valida que cada resto sea exacto, que la factura tenga cobro y que el total no pase el tope | C1 | GP.R.0a · D-R1 | — |
@@ -173,6 +202,8 @@ ContPAQi directo.
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-24 | **D-R1 firmada ($10, automático) y dos tercios de GP.R.0b cerrados SIN escribir** (§2.1): el contador de folios es `KFUA3001.<sucursal>` con el folio siguiente en `c4`, cuadrado contra `max(folio)+1` en **9 de 9** —y con la trampa de los dos renglones por sucursal documentada—, y el Ajuste Abono **no emite CFDI** (no hay serie `U-A-30` en `kdfe33folxdoc` en ninguna sucursal, con control en los dos sentidos: `U-A-7` y `U-A-21` sí están, `U-A-5` no). Queda sólo `kdud` para el ensayo. **Corregida una premisa de §1.3**: 1 de los 51 ajustes sí trae `c11`, así que la idempotencia no puede apoyarse en «los manuales van vacíos». Re-medido hoy: **216 facturas de telemarketing con resto ≤ $10 ($165.53)**, en 01 (95), 06 (69) y 08 (52); la pila crece 50–80 al mes y en 60 días se cerraron **74 restos con un «Cobro» de centavos y cero con Ajuste Abono**. ⭐ Aclarado, porque la pregunta lo destapó: **el cobro se captura en Kepler, no en la Suite** (`/finanzas/cobranza` es evidencia read-only), así que el disparo es ver llegar el cobro por el ODS. Edgar descartó llevar la captura del cobro a la Suite dentro de este anexo | Claude, a pedido de Edgar |
+| 2026-11-24 | ⛔⛔ **El tope era UNA constante para las DOS decisiones, y partirla fue el trabajo de firmar D-R1.** `RESTO_TOLERADO = 1` decía en su propio comentario «es D-C1 (PGP) y D-R1 (GP); si cambia, cambia aquí»: subirla a $10 por la decisión de **clientes** habría movido callado el lado de **proveedores**, donde el anexo afirmaba «ninguno de $1 a $10» (19-nov) y **hoy hay 55 documentos por $193.48**. Ahora son `RESTO_TOLERADO_CLIENTE = 10` y `RESTO_TOLERADO_PROVEEDOR = 1`, y **el tope es parámetro obligatorio** de `esRestoTolerado`/`esRestoDeFactura`: el default silencioso es lo que permitió la confusión. Los 5 consumidores nombran el suyo (cliente: regla de autorizar, cartera, pantalla; proveedor: cierre de pago, nota de centavos). **Antes/después de clientes** (regla 15): 32 facturas más ($108.11) cuentan como pagadas y los «morosos sólo por resto» pasan de **16 a 19**, con el control de que los 1,471 clientes con algún vencido **no cambian**. Pruebas: 2 controles nuevos (los topes no se mueven juntos; $5 es resto de cliente y deuda de proveedor) **con su rojo verificado**, y la prueba espejo del SQL dejó de clavar el literal y ahora se arma con las constantes. `ngc --noEmit`: 0 errores. `check:pantalla` de `finanzas-cartera`: sin falla nueva. ⚠️ **NO MEDIDO**: la pantalla viva (el rótulo del redondeo ahora dice «hasta $10», no se vio en navegador) | Claude |
 | 2026-11-20 | **GP.R.1 (pantalla) 🧪.** `/finanzas/cartera`: el cliente cuyo vencido es puro redondeo dice «Redondeo» en la columna Vencido (con el monto atenuado), no pinta la fila de vencida y en «Más vencido (cobrar)» cuenta como cero; en el detalle, la partida de centavos de una factura cobrada dice «Redondeo» en vez de «Nd» (misma `esRestoDeFactura`). Sin KPI nuevo: $58 contra $64 M no decide nada arriba. Cinco preguntas por escrito en la sesión; 3 pruebas nuevas (28/28) con mutante rojo; `check:pantalla`: 0 fallas nuevas, tipa 0 errores; `check:templates` verde. **Sin validación visual** (no se levantó la app) | Claude |
 | 2026-11-20 | **GP.R.1 (servidor) 🧪.** La regla vive en `libs/contracts/src/finance/resto-tolerado.contract.ts` (`esRestoDeFactura`; `cierre-kepler` la re-exporta, mismo objeto). La cartera (`CustomerLedgerService.cartera`) agrega por cliente `resto_redondeo`, `n_restos` y `solo_resto_vencido`, y en el KPI `resto` — **aditivo: `saldo` y `vencido` no cambian** ($64,523,305.85 vencido antes y después). Medido en prod con la misma condición: $57.92 en 188 partidas ≤ $1, **17 clientes vencidos sólo por resto** (15 de telemarketing). Ojo: la cartera lee `customer_receivables.saldo_ajustado` y da 155 restos ≤ $1 de telemarketing; `customer_receivables_current.saldo_documento` da 177 — dos saldos distintos, por conciliar. Pruebas: 5 del contrato + 4 de la cartera, cada una con su mutante rojo. Falta: mostrarlo en la pantalla (C3, skill `diseno`) y usarlo en GP.A.1 | Claude |
 | 2026-11-20 | Nace el anexo. Medido en prod (sólo lectura): 207 facturas de telemarketing con resto ≤ $10 ($161.32, 113 clientes, 17 morosos sólo por eso); hoy se cierran con «Cobros» de centavos; el Ajuste Abono (`U-A-30`) existe y no deja póliza (control `U-A-5`/`U-A-21` en el mismo mes); su huella es `kdm1` + `kdue` + `kdm5`, y Kepler no guarda saldo en la factura de cartera (632/632). Se corrigió una primera lectura que medía proveedores | Claude, a pedido de Edgar |

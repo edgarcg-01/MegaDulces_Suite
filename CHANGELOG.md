@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Compras › Calendario de compras: el manual de capacitación, desde la pantalla (PQ.3.20 · 2026-11-23)
+- En el encabezado, junto a «cargado ahora», el botón «Manual» abre el manual en otra pestaña. La Parte 1 es para quien revisa y la Parte 2 para la gerencia, que define y mantiene las reglas. Trae casos, dos autoevaluaciones y una guía para quien capacita.
+- El manual sigue el tema elegido en la Suite y se lee en el celular.
+- Internal: `app-manual-link` es el botón compartido para la siguiente pantalla con manual (`assets/manuales/<pantalla>.html`). `calendario-compras-manual.spec.ts` falla si la pantalla cambia un rótulo y el manual no.
+### Changed — Finanzas › Cartera: la ficha del cliente, igual que su estado de cuenta (CXC.51 · 2026-11-23 · en código, sin soltar)
 ### Changed — Finanzas › Cartera › Resumen: todo sigue un periodo, y la venta de cada vendedor (CXC.52 · CXC.53 · 2026-11-24 · en producción)
 - Un selector en el Resumen gerencial: últimos 30 días, últimos 90 (el de siempre), este mes, mes anterior o un rango. La venta a crédito, el DSO, la mediana real de pago, los pagos a más de 30 días, la venta por vendedor y la tendencia siguen ese periodo.
 - Lo que es foto de hoy (vencido, concentración, proyección de cobranza, saldo por vendedor y por zona) lo dice en su rótulo: el saldo de una fecha pasada no se puede reconstruir exacto.

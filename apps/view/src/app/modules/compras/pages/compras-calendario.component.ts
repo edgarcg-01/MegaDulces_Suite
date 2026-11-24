@@ -24,6 +24,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { ManualLinkComponent } from '../../../shared/components/manual-link/manual-link.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { motivoHttp } from '../../almacen/shared/http-motivo';
@@ -65,6 +66,7 @@ interface ProveedorDelFormulario {
   imports: [
     FormsModule, RouterLink, ButtonModule, TableModule, TagModule, DialogModule, DatePickerModule, InputNumberModule, InputTextModule,
     SelectModule, TextareaModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, SegmentedComponent, SidePeekComponent,
+    ManualLinkComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -77,6 +79,8 @@ interface ProveedorDelFormulario {
           </p>
         </div>
         <div class="cc-head-acc">
+          <!-- [PQ.3.20] El manual de capacitación, a un clic y en otra pestaña (la pantalla de trabajo se queda donde estaba). -->
+          <app-manual-link manual="calendario-compras" titulo="Calendario de compras" />
           <app-freshness-pill measures="fetch" [since]="cargadoEn()" />
         </div>
       </header>

@@ -34,4 +34,4 @@ ssh superoot@192.168.0.222 'rm -f /tmp/ensayo-autorizacion-gpa2.cjs'
 
 | Fecha | Servidor | Pedido | Resultado |
 |---|---|---|---|
-| — | — | — | Sin correr: falta el permiso (GP.A.0d) y la conexión de `kepler_push` |
+| 2026-11-24 | 08 Morelia Abastos | `08-1-0001473` | ✅ `permiso_c11: true` · `escrito` CREADO → AUTORIZADO · `UPDATE` = **1 fila** · `deshecho: true` · control: estatus antes = después = `CREADO`. Corrido el mismo día que el GRANT de GP.A.0d (8 de 9 servidores; CEDIS sin línea de `pg_hba` para `sa`) |

@@ -1,3 +1,4 @@
+import { RESTO_TOLERADO_CLIENTE, RESTO_TOLERADO_PROVEEDOR, SALDO_CERO } from '@megadulces/contracts';
 import { CustomerLedgerService, PARTIDA_RESTO_SQL } from './customer-ledger.service';
 
 /**
@@ -55,7 +56,16 @@ describe('[GP.R.1] cartera: el resto de centavos se dice aparte', () => {
     expect(r.kpi.resto.monto).toBe(0.2);
   });
 
-  it('el SQL usa la misma regla que el contrato: tope, ya cobrada y medio centavo', () => {
-    expect(PARTIDA_RESTO_SQL).toBe('d.res > 0.005 AND d.res <= 1 AND d.res < d.importe - 0.005');
+  /**
+   * El espejo entre el SQL y el contrato. ⛔ Hasta el 2026-11-24 clavaba el literal `<= 1`, así que al cambiar
+   * el tope la prueba se ponía roja sin decir **cuál** de los dos lados estaba mal. Ahora se arma con las
+   * MISMAS constantes: si el SQL se queda atrás, o si alguien le pone el tope de proveedores a la cartera de
+   * clientes, esto truena y señala el lugar.
+   */
+  it('el SQL usa la misma regla que el contrato: tope de CLIENTE, ya cobrada y medio centavo', () => {
+    expect(PARTIDA_RESTO_SQL).toBe(
+      `d.res > ${SALDO_CERO} AND d.res <= ${RESTO_TOLERADO_CLIENTE} AND d.res < d.importe - ${SALDO_CERO}`,
+    );
+    expect(RESTO_TOLERADO_CLIENTE).not.toBe(RESTO_TOLERADO_PROVEEDOR);
   });
 });

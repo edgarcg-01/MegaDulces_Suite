@@ -638,7 +638,8 @@ const ORIGENES = ORIGENES_COTIZACION;
                   ariaLabel="Unidad de venta del artículo"
                 >
                   <ng-template #item let-o>
-                    <i class="pi {{ o.icono }}" aria-hidden="true"></i>
+                    <!-- [COT.56] La elegida lleva palomita además del contorno rojo: no depende sólo del color. -->
+                    <i class="pi {{ o.rung === rung() ? 'pi-check-circle unit-ico-elegida' : o.icono }}" aria-hidden="true"></i>
                     <span class="unit-title">{{ o.titulo }}</span>
                     <span class="unit-sub">· {{ o.detalle }}</span>
                   </ng-template>
@@ -1275,11 +1276,24 @@ const ORIGENES = ORIGENES_COTIZACION;
       .unit-toggle-group { flex: none; }
       .unit-title { font-weight: 700; font-size: var(--fs-sm); }
       .unit-sub { font-size: var(--fs-xs); color: var(--text-muted); }
+      /* [COT.56] La presentación elegida se marca como el buscador con foco: contorno rojo (--action),
+         palomita y texto fuerte. Antes era una pastilla blanca sobre gris, y se elegía mal paquete o caja.
+         ::ng-deep porque el contorno va en el contenido interno del botón de PrimeNG. */
+      :host ::ng-deep .unit-toggle-group .p-togglebutton-checked .p-togglebutton-content {
+        box-shadow: inset 0 0 0 2px var(--action);
+      }
+      :host ::ng-deep .unit-toggle-group .p-togglebutton-checked .unit-sub { color: var(--text-main); }
+      .unit-ico-elegida { color: var(--action); }
 
       /* Cantidad: − [campo][unidad] + — se teclea (dictado) y Enter agrega */
       .touch-stepper { width: auto; flex: none; }
-      .qty-num { width: 4.5rem; text-align: center; font-size: var(--fs-body); font-weight: 800; font-variant-numeric: tabular-nums; }
-      .qty-lbl { font-size: var(--fs-xs); text-transform: uppercase; font-weight: 600; }
+      /* [COT.56] La cantidad remarcada: número más grande y en negritas, recuadro de 2 px, rojo al escribir. */
+      .qty-num {
+        width: 5rem; text-align: center; font-size: var(--fs-lg); font-weight: var(--fw-black); font-variant-numeric: tabular-nums;
+        color: var(--text-main); border-width: 2px; border-color: var(--text-muted);
+      }
+      .qty-num:focus { border-color: var(--action); }
+      .qty-lbl { font-size: var(--fs-sm); text-transform: uppercase; font-weight: var(--fw-black); color: var(--text-main); }
 
       .touch-presets { display: flex; gap: 0.25rem; }
 
@@ -1298,7 +1312,8 @@ const ORIGENES = ORIGENES_COTIZACION;
       }
       .previa-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; display: block; }
       .previa-price-row { display: flex; align-items: baseline; gap: 0.35rem; }
-      .previa-amount { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
+      /* [COT.56] El precio (ya con mayoreo o promoción) es lo más grande de la franja. */
+      .previa-amount { font-size: var(--fs-h2); font-weight: var(--fw-black); font-variant-numeric: tabular-nums; color: var(--text-main); }
       .previa-unit-sub { font-size: var(--fs-xs); color: var(--text-muted); }
       .previa-menor-sub { font-size: var(--fs-micro); color: var(--text-muted); font-weight: 600; display: block; }
       .previa-total-amount { font-size: 1.05rem; font-weight: 800; color: var(--text-main); font-variant-numeric: tabular-nums; }

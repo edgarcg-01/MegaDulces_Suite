@@ -2341,6 +2341,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
       },
       {
+        // [SM.55] Revisión de turnos: la encargada justifica los turnos con retiros o cajón sin contar.
+        // RECONCILIATION_VER, como «Por cajera»: muestra montos de Kepler (el arqueo de la cajera es ciego).
+        // El backend también la cobra (403 en /store/arqueo-revision): el guard es comodidad.
+        path: 'arqueo/revision',
+        loadComponent: () => import('./modules/tienda/pages/tienda-arqueo-revision.component').then(m => m.TiendaArqueoRevisionComponent),
+        canActivate: [permissionGuard(Permission.RECONCILIATION_VER)],
+        canDeactivate: [unsavedChangesGuard]
+      },
+      {
         // [MKT.18] Pestaña del arqueo: quién vendió cada ticket con promoción del turno (opcional, no bloquea el conteo).
         path: 'arqueo/promociones',
         loadComponent: () => import('./modules/tienda/pages/tienda-arqueo-promos.component').then(m => m.TiendaArqueoPromosComponent),

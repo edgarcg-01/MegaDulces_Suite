@@ -95,6 +95,8 @@ Todo contra **prod, sólo lectura, 2026-11-23**, sobre la requisición **`RQ-202
 | CUB | 1 | 1 | $3,681 |
 | *(sin unidad)* | **21** | 8 | $2,262 |
 
+Con `MINIMO_RENGLONES_UNIDAD = 12`: **PAQ, CJA y PZA** llevan documento propio (3 + 1 + 1 = 5 órdenes) y **KG, BTO y CUB** se arman juntas en una sexta. Total: **6 órdenes**, no 8.
+
 ---
 
 ## 4. Las tres cosas que la medición cambió del diseño
@@ -106,15 +108,50 @@ que **la línea más grande tiene 12 renglones**, así que una orden no es una f
 cuarenta líneas apiladas. El agrupado sigue sirviendo —el almacenista arma por fabricante y
 encuentra la mercancía junta— pero **la pantalla no debe prometer «pedidos por familia»**.
 
-### 4.2 ⛔ Las unidades reales no son tres, son seis
+### 4.2 ⛔ Las unidades reales no son tres, son seis — y la cola comparte documento
 
 Se diseñó para caja / paquete / pieza. En el pedido real salen **PAQ, CJA, PZA, KG, BTO y CUB**.
-Con la regla «una orden no mezcla unidades», eso da **8 órdenes**, y tres de ellas son para
+Con la regla «una orden no mezcla unidades» eso daba **8 órdenes**, y tres de ellas eran para
 **11 renglones en total** (KG 8, BTO 2, CUB 1).
 
-> **D1 — abierta, es de Edgar.** ¿KG, BTO y CUB se juntan en una orden «otras unidades», o se
-> aguantan los tres documentos? Mientras no se decida, el motor arma los tres: la regla escrita
-> manda sobre la comodidad.
+> ✅ **D1 — resuelta por Edgar el 2026-11-24: «sí, júntalos».** Las unidades que no llegan a
+> `MINIMO_RENGLONES_UNIDAD` se arman **juntas, en una sola orden, al final**. El pedido de Morelia
+> Madero pasa de **8 órdenes a 6**.
+
+**El umbral se midió, no se eligió a ojo.** El 2026-11-24, en prod y sólo lectura, sobre las **26
+requisiciones de sucursal de 30+ renglones** de los últimos 60 días (**86 bloques** unidad ×
+documento):
+
+| Renglones por bloque | p10 | p25 | **p50** | p75 | p90 | máx |
+|---|---:|---:|---:|---:|---:|---:|
+| | 1 | 2 | **11** | 25 | 36 | 166 |
+
+| Umbral | Bloques en la cola | % de bloques | % de renglones | Órdenes que ahorra |
+|---:|---:|---:|---:|---:|
+| 5 | 34 | 39.5 % | 3.9 % | 12 |
+| 10 | 41 | 47.7 % | 7.1 % | 17 |
+| **12** | **45** | **52.3 %** | **10.3 %** | **20 de 86 (23 %)** |
+| 15 | 52 | 60.5 % | 17.1 % | 27 |
+| 20 | 57 | 66.3 % | 23.5 % | 32 |
+
+Se tomó **12**, por tres razones: es el **p50 redondeado hacia arriba** (la mitad de los bloques
+cabe ahí); a ese umbral la cola es **más de la mitad del papeleo por una décima parte de la
+mercancía**; y ⛔ **con 5 u 8 el KG de Morelia Madero (8 renglones) se habría quedado con documento
+propio**, que es justo lo que Edgar mandó evitar.
+
+**Tres reglas que acompañan la decisión:**
+
+1. ⛔ **Con una sola unidad en la cola NO se junta nada.** Renombrar una unidad a «otras unidades»
+   escondería su unidad real sin ahorrar un documento.
+2. **La orden mixta va al final** y **dice qué unidades junta** — no finge ser una unidad de Kepler.
+3. **Dentro de la mixta se conserva la jerarquía** unidad → línea → alfabético, para que la
+   mercancía de la misma unidad siga junta aunque el documento sea mixto.
+
+⚠️ **La regla es por tamaño medido, no por una lista de unidades principales.** Sólo PAQ y CJA
+aparecen en los 26 documentos; KG en 16, PZA en 12, y BTO, CUB y **un rótulo basura de la ficha
+(`500`)** en uno cada uno. Una lista se queda vieja, y una sucursal donde KG pese se quedaría sin
+su documento. Ese `500` **no se corrige aquí**: con la regla nueva cae solo en la cola, que es lo
+correcto, y arreglar el rótulo es trabajo del catálogo.
 
 ### 4.3 ⛔ Veintiún renglones no pueden salir, y hasta hoy nadie lo veía
 
@@ -175,7 +212,8 @@ Un bloque por destino, con su total y **la diferencia dicha en palabras**:
   rechaza con motivo.»
 
 Bajo el traspaso, las unidades como fichas (`166 en PAQ`, `51 en CJA`, …) y una ficha punteada:
-**«se arma en 8 órdenes: una orden no mezcla unidades»**.
+**«se arma en 6 órdenes»**. Las unidades que viajan en la orden mixta lo dicen en su propia ficha
+(«KG · 8 → va en *otras unidades*»), nunca con un número de órdenes que no tienen.
 
 Bajo Compras, el aviso ámbar de mínimos de compra cuando aplica.
 
@@ -209,7 +247,7 @@ partido en las órdenes en que se va a armar**.
 ### 6.1 Cabecera
 
 *Volver al resumen* · **«Lo que le pides a \<matriz\>»** · `294 renglones · 102 líneas · $158,503 ·
-se arma en 8 órdenes`. A la derecha, *Quitar lo marcado* y el primario con su cuenta real.
+se arma en 6 órdenes`. A la derecha, *Quitar lo marcado* y el primario con su cuenta real.
 
 ### 6.2 La tira de «cómo se parte»
 
@@ -217,6 +255,9 @@ Una frase y las fichas por unidad:
 
 > **Una orden no mezcla unidades** — el armado se hace por unidad — y se corta en 70 renglones,
 > siempre al terminar una línea.
+
+Y, debajo, la excepción dicha completa: **las unidades de menos de 12 renglones no llevan documento
+propio y se arman juntas al final**, con la cuenta de renglones que eso ahorra en papeles.
 
 Al lado, en ámbar, los renglones que **no pueden salir**, con su importe, sus líneas y su enlace.
 
@@ -226,7 +267,7 @@ Tres niveles, en este orden exacto (Edgar, 2026-11-22: «primero agrupa por unid
 por línea, y finalmente ordena los renglones por alfabético»):
 
 ```
-Orden 1 de 8 · en PAQ                       hasta 70 renglones · se cierra al terminar una línea
+Orden 1 de 6 · en PAQ                       hasta 70 renglones · se cierra al terminar una línea
     ABARROTES · 1 renglón
       99444   ***DESC. JABON FOCA 1 KG / 1              1 PAQ · de 0.100 cja      $32    ×
     AGROALIMENTOS SANTOYO SPR · 1 renglón
@@ -282,9 +323,13 @@ abajo verificada.**
 
 ### 7.1 Criterios de aceptación verificables
 
-1. `armarOrdenes()` sobre los **294 renglones reales** de `RQ-2026-03239` devuelve **8 órdenes** y
-   **21 renglones** en «no puede salir».
-2. Ninguna orden mezcla unidades. **Prueba negativa:** una orden con dos unidades es un fallo.
+1. `armarOrdenes()` sobre los **294 renglones reales** de `RQ-2026-03239` devuelve **6 órdenes** y
+   **21 renglones** en «no puede salir», con **KG, BTO y CUB en una sola orden mixta de 11**.
+2. Ninguna orden mezcla unidades **salvo la mixta, que lo dice**: su rótulo es «otras unidades» y
+   lista las que junta. **Prueba negativa:** una orden NO mixta con dos unidades es un fallo.
+3. Con **una sola** unidad en la cola no se junta nada. **Prueba negativa:** una unidad sola
+   renombrada «otras unidades» es un fallo.
+4. Una unidad que alcanza el mínimo **no** entra a la cola, aunque sea la más chica del pedido.
 3. Ninguna orden pasa de 70 renglones. **Prueba negativa:** tope 70 con una línea de 71 renglones
    la deja sola en su orden y **no la parte**.
 4. Dentro de una orden, las líneas van alfabéticas y los renglones alfabéticos por nombre.
@@ -308,7 +353,7 @@ abajo verificada.**
 
 | # | Qué | Quién |
 |---|---|---|
-| D1 | KG, BTO y CUB: ¿una orden «otras unidades» o tres documentos? | Edgar |
+| ~~D1~~ | ~~KG, BTO y CUB: ¿una orden «otras unidades» o tres documentos?~~ → **resuelta 2026-11-24: se juntan**, con el umbral medido de 12 renglones (§4.2) | Edgar |
 | D2 | Los 21 sin unidad: ¿se pide la ficha a Compras desde aquí, o sólo se listan? | Edgar |
 | — | `on_hand` en `branch` (`[AB.NI.6]`) | equipo |
 | — | Los rótulos de línea llegan sucios del ERP (`CANEL?S S.A. DE C.V.`, truncados a 30 caracteres). Se muestran **tal cual**: corregirlos aquí sería inventar un catálogo | equipo |

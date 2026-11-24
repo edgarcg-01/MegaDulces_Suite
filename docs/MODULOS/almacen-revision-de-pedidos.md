@@ -5,6 +5,35 @@ La pantalla donde la cajera revisa cada pedido de preventa que terminó el surti
 
 ---
 
+## Revisar escaneando, la etiqueta del pedido y abrirlo leyendo su etiqueta (MCP.31–33, 2026-11-24 — en código, sin desplegar)
+
+- **Problema:** lo normal era tocar «Está bien» producto por producto: un toque que no prueba que el producto esté en
+  la mano. El escaneo existía (MCP.10.3) pero sólo confirmaba un renglón de UNA pieza en su misma unidad; lo demás
+  seguía pidiendo el toque. Y al entregar, nada en la bolsa decía de qué pedido y de qué cliente era.
+- **Solución (decisiones D17–D19 de David):**
+  - **Se quitan «Está bien» y «Ya se completó».** Escanear un producto por revisar (por código, en cualquier unidad,
+    o por SKU) lo marca **bien entero**, aunque sean 12 (D17: un escaneo = todo el renglón); el aviso dice la cantidad.
+    Escribir el nombre sólo lo señala: escribir no prueba que el producto esté en la mano.
+  - **Lo que faltó:** se corrige como siempre («No coincide», «Trajo otra cantidad», «Seguir con otro»); cuando el
+    surtidor lo trae, se escanea y queda **completo**. El primer escaneo de un faltante sólo lo señala (lo que hay en el
+    carrito son los que sí vinieron).
+  - **A mano sólo lo que no se puede escanear:** si el producto no tiene código ni SKU, o no llegaron los códigos de
+    Kepler, aparece «Marcar bien a mano» (y «Ya se completó (a mano)») con su porqué.
+  - **Etiqueta del pedido** en el ticket de caja (80 mm): «Etiqueta» en el encabezado del pedido y «Imprimir la
+    etiqueta del pedido» al terminar. Lleva folio, cliente, vendedor, día de entrega, QR (el folio) y código de barras.
+  - **Leer la etiqueta:** en la lista, «Escanea la etiqueta del pedido» abre ese pedido (o dice que no está en los por
+    revisar de tu sucursal, o que no es etiqueta de pedido); dentro de un pedido, escanear la etiqueta de otro lo abre.
+- **Implementada:** `revision-caja.ts` (`alEscanear` con la regla nueva y `sePuedeEscanear`),
+  `almacen-revision-preventa.component.ts`, `pedido-etiqueta-impresion.ts` (HTML puro, escapado; QR con el
+  generador de `libs/ui-web`, barras con `codigoDeBarrasDePedido` de `libs/contracts`).
+- **Por qué así:** el código de barras lleva sólo números (`99` + año + folio a 6) para caber en la etiqueta de
+  32 mm del almacén; el mismo formato lo leen la Suite y la app del vendedor.
+- **Probado:** `revision-caja.spec` 28 (con sabotaje de «el nombre no confirma» → rojo), pantalla 31,
+  `pedido-etiqueta-impresion.spec` 8; almacén 949/949; `check:pantalla -- almacen` sin fallas nuevas.
+- **NO MEDIDO:** la impresión real en la impresora de tickets y que el lector de mano lea el QR y las barras; la
+  pantalla en un navegador.
+
+
 ## Un día a la vez y por vendedor (MCP.24, 2026-11-12 — en código, sin desplegar)
 
 - **Problema:** la lista mezclaba días. Medido en prod: **52 pedidos por revisar de 18 días distintos**, desde el

@@ -22,6 +22,8 @@ import { VendorRecuentoDiaComponent } from '../components/recuento-dia.component
 import { OfflineOrderService, type PendingOrderSummary } from '../../../core/services/offline-order.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
+import { LectorCodigoComponent } from '../components/lector-codigo.component';
+import { folioDeLectura } from '@megadulces/contracts';
 
 /** `[MCP.16]` Qué pestaña se ve; la dice la URL (`?ver=cotizaciones`). Cualquier otra cosa = pedidos. */
 type VistaPedidos = 'pedidos' | 'cotizaciones';
@@ -57,7 +59,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
 @Component({
   selector: 'app-vendor-mis-pedidos',
   standalone: true,
-  imports: [CommonModule, RouterLink, ConfirmDialogModule, VendorMisCotizacionesComponent, VendorRecuentoDiaComponent, VendorMotivoSheetComponent],
+  imports: [CommonModule, RouterLink, ConfirmDialogModule, LectorCodigoComponent, VendorMisCotizacionesComponent, VendorRecuentoDiaComponent, VendorMotivoSheetComponent],
   providers: [ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -115,6 +117,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
 
       <!-- [MCP.28] Buscar un pedido de cualquier día (60 días): folio, cliente o producto, cada palabra en cualquier
            orden y sin acentos. Con 2 letras o más, la lista de abajo son los resultados; la X regresa al día. -->
+      <!-- [MCP.33] La cámara lee la etiqueta del pedido (QR o código de barras) y lo busca por su folio. -->
+      <div class="mp-bs-fila">
       <div class="mp-bs" role="search">
         <i class="pi pi-search" aria-hidden="true"></i>
         <input type="search" class="mp-bs-in" [value]="busqueda()" (input)="buscar($any($event.target).value)"
@@ -124,6 +128,9 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
           <button type="button" class="mp-bs-x" (click)="limpiarBusqueda()" aria-label="Borrar la búsqueda"><i class="pi pi-times" aria-hidden="true"></i></button>
         }
       </div>
+        <app-lector-codigo [conQr]="true" etiqueta="Leer la etiqueta de un pedido con la cámara" (leido)="alLeerEtiqueta($event)" (sinCamara)="avisoEtiqueta.set($event)" />
+      </div>
+      @if (avisoEtiqueta(); as av) { <p class="mp-nota mp-etq-aviso" role="status"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ av }}</p> }
 
       @if (enBusqueda()) {
         <div class="mp-res">
@@ -545,7 +552,9 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
       color: var(--text-main); text-decoration: none; min-height: 2.75rem; font-size: var(--fs-sm); }
     .mp-llevar > .pi:first-child { color: var(--action); }
     /* [MCP.28] El buscador: un campo, 44 px, 16 px de letra (iOS no hace zoom al enfocarlo). */
-    .mp-bs { position: relative; margin-bottom: var(--sp-3); }
+    .mp-bs-fila { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+    .mp-bs { position: relative; flex: 1; min-width: 0; }
+    .mp-etq-aviso { margin: calc(var(--sp-2) * -1) 0 var(--sp-3); }
     .mp-bs > .pi-search { position: absolute; left: var(--sp-3); top: 50%; transform: translateY(-50%); color: var(--text-faint); pointer-events: none; }
     .mp-bs-in { width: 100%; min-height: var(--tap-min); padding: 0 var(--tap-min) 0 calc(var(--sp-3) * 2 + 1rem); font-family: inherit; font-size: 1rem;
       border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); }
@@ -657,6 +666,8 @@ export class VendorMisPedidosComponent implements OnInit {
   readonly enBusqueda = computed(() => largoUtil(this.busqueda()) >= BUSQUEDA_MINIMO);
   readonly resultados = signal<PresaleSellerSearchResponse | null>(null);
   readonly errorBusqueda = signal<string | null>(null);
+  /** `[MCP.33]` Lo que pasó con la última lectura de la cámara (no era etiqueta de pedido, o no hay cámara). */
+  readonly avisoEtiqueta = signal<string | null>(null);
   readonly sinSenal = signal(false);
   private readonly busquedas = new Subject<string>();
 
@@ -799,6 +810,20 @@ export class VendorMisPedidosComponent implements OnInit {
     if (!this.enBusqueda()) return;
     this.errorBusqueda.set(null);
     this.busquedas.next(this.busqueda());
+  }
+
+  /**
+   * `[MCP.33]` Lo que leyó la cámara: si es la etiqueta de un pedido (QR con el folio, o los 12 dígitos del código
+   * de barras), se busca ese folio con el mismo buscador; si no, se dice qué se leyó (no se busca basura).
+   */
+  alLeerEtiqueta(codigo: string): void {
+    const folio = folioDeLectura(codigo);
+    if (!folio) {
+      this.avisoEtiqueta.set(`Leí «${codigo}» y no es la etiqueta de un pedido. Apunta a la etiqueta que imprimió el surtidor o la caja.`);
+      return;
+    }
+    this.avisoEtiqueta.set(null);
+    this.buscar(folio);
   }
 
   limpiarBusqueda(): void {

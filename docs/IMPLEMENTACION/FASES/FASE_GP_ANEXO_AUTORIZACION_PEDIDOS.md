@@ -654,7 +654,7 @@ de E4.
 | **GP.A.7** | El seguimiento de la cotización dice «Autorizado solo», «Esperando a Crédito y cobranza desde las 12:31» o «Rechazado: motivo» | C3 | GP.A.2 | — |
 | **GP.A.8** | Dos semanas de piloto: % automático, motivos de los excedidos, sugerencias aceptadas, y cuántos autorizados solos terminaron con vencido de más de 45 días (control de la regla) | C0 | GP.A.3 en prod | no |
 
-### 5b. Encender el Paso 1 — los candados, en orden (medido el 2026-11-23)
+### 5b. Encender el Paso 1 — los candados, en orden (medido el 2026-11-23, actualizado el 2026-11-24)
 
 > ⛔ **«Construido» y «encendido» no son lo mismo**, y aquí hay seis candados distintos. Esta tabla es el estado
 > real, medido en prod en sólo lectura. Cada renglón dice **quién lo abre**.
@@ -664,15 +664,92 @@ de E4.
 | 1 | El código, en prod | ✅ desplegado en `e80e10be4` (regla, bitácora, `POST`, bandeja, pantalla) | — |
 | 2 | Migración `20261120145451` | ✅ aplicada el 2026-11-20 19:44; `finance.order_authorizations` existe, **0 filas** | — |
 | 3 | Llave `FINANCE_PEDIDOS_AUTORIZAR` | ✅ repartida: `credito_cobranza` + `superadmin` (regla 20) | — |
-| 4 | **Permiso en Kepler (GP.A.0d)** | ⬜ **no corrido**, ni GP.A.0d ni GP.12.0e | ⭐ **el PM**: `node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/gpa0d_kdm1_update_c11.sql --aplicar` (pide la contraseña de superusuario) |
-| 5 | Ensayo con ROLLBACK en el Kepler vivo | ⬜ sin correr (depende del 4) | Claude, apenas exista el 4 (`ops/prod/ensayo-autorizacion-kepler`) |
-| 6 | `KEPLER_AUTORIZACION_PEDIDOS=encendida` | ⬜ **la bandera no existe** en los secretos de k3s (`prod-env`/`kepler-push`) | el PM, igual que `KEPLER_GASTO_AUTORIZACION` en PGP.79: va en el secreto `prod/kepler-push` (ningún manifiesto lo define, así sobrevive a `aplicar-k3s-prod.sh`) y después `rollout restart deploy/api`. ⛔ Nunca `--from-env-file`: ese secreto tiene llaves que su maestro no |
-| 7 | Interruptor por sucursal (`kepler_push_switch`, tipo `autorizacion`) | ⬜ **9 de 9 apagados, sin tope** | el PM decide la sucursal piloto; encender = se puede **a mano**. El automático pide además un **tope del día** (D-A14) |
+| 4 | **Permiso en Kepler (GP.A.0d)** | ✅ **aplicado el 2026-11-24 en 8 de 9** (Edgar autorizó; corrido desde `md` con `KSU=sa`). Verificado con el testigo independiente —`kepler_push` preguntándose a sí mismo— y no con la comprobación del propio script: `has_column_privilege(… 'c11','UPDATE')` da `true` en 01, 02, 03, 04, 05, 06, 07 y 08. ⚠️ **CEDIS (00) quedó fuera**: su `pg_hba` no tiene línea para `sa` desde `md` («sin cifrado»). **No bloquea nada**: CEDIS tiene **0 pedidos por autorizar y 2 TELEMARK en 90 días** (medido el 2026-11-24) | — (CEDIS: higiene, cuando haya ventana con quien administra Kepler) |
+| 5 | Ensayo con ROLLBACK en el Kepler vivo | ✅ **corrido el 2026-11-24** sobre Morelia Abastos, pedido `08-1-0001473`: `permiso_c11 = true`, el `UPDATE` tocó **1 fila**, `CREADO → AUTORIZADO`, `deshecho: true`, y el control cerró con **estatus antes = después = CREADO**. El carril de escritura funciona de punta a punta sin haber escrito nada | — |
+| 6 | `KEPLER_AUTORIZACION_PEDIDOS=encendida` | ✅ **encendida el 2026-11-24** en el secreto `prod/kepler-push` con `kubectl patch --type=merge` (54 → 55 llaves, ninguna perdida) y `rollout restart deploy/api`: 2 réplicas con `maxUnavailable: 0`, **sin corte de servicio**. Verificado dentro del pod (`printenv`) y con `/api/health` | — |
+| 7 | Interruptor por sucursal (`kepler_push_switch`, tipo `autorizacion`) | ✅ **las 8 sucursales con permiso, encendidas el 2026-11-24 a las 11:30** (Edgar: *«activémoslo en todas las sucursales»*, por encima del piloto de GP.A.8). ⚠️ **CEDIS (00) queda apagada** porque le falta el candado 4: sin el `GRANT` la escritura fallaría y la persona vería un **error** en vez del aviso «hazlo en Kepler». La transacción revierte si no quedan exactamente 8 encendidas, si CEDIS queda encendida, o si alguna trae `tope_dia`. `tope_dia` sigue NULL en las nueve: habilita autorizar **a mano**, no el automático | — |
 
-**Qué pasa hoy, con 4–7 cerrados:** Crédito y cobranza ya puede **rechazar** con motivo (no toca Kepler) y lo
-rechazado sale de su lista (GP.A.4b); **Autorizar** está apagado y la pantalla dice en qué sucursal y dónde se
-hace mientras tanto. Al abrir 4–7 en una sucursal, autorizar a mano empieza a escribir `kdm1.c11`. El automático
-es lo último, y pide GP.A.3 (el disparo por evento), que **no está construido**.
+### 5c. ⭐⭐ La primera autorización real desde la Suite — 2026-11-24, 10:11 (Morelia Abastos)
+
+**Los siete candados se abrieron el mismo día** y el Paso 1 pasó de «construido» a **operando en una sucursal**.
+La primera decisión la tomó el PM desde la pantalla de prod, sobre el pedido `08-1-0001642` ($3,605.63, llegado
+ese día), elegido por él como canario: excede el límite **por poco** y el cliente paga **a 13 días con plazo de
+15**, con peor atraso de 5.
+
+**Lo que se verificó, y con qué testigo** (ninguno es «lo que dijo la pantalla»):
+
+| Qué | Testigo | Resultado |
+|---|---|---|
+| El panel no miente al sumar | aritmética sobre lo que publica | por cobrar + este pedido − límite = **el excedente que rotula**, al centavo |
+| Nació la fila de la bitácora | `finance.order_authorizations` leída aparte | 1 fila: `autorizar` · estado **`escrito`** · `kepler_resultado.estado` = `escrito` · `automatica: false` · con motivo y autor |
+| El pedido cambió **en Kepler** | `kepler_ods.kdm1` (réplica del vivo), no la respuesta del `POST` | `c11` = **`AUTORIZADO`** |
+| Salió de la bandeja | conteo de `CREADO` en la sucursal | 9 → **8** |
+| El interruptor acota de verdad | el panel, al avanzar al pedido siguiente | en otra sucursal aparece «Autorizar desde la Suite está apagado en …», con Rechazar sí disponible — **la prueba negativa, sin montarla** |
+
+⭐ **Con esto se cierra el hueco de la regla 13**: el endpoint que escribe quedó ejercido contra base real, con el
+payload de la pantalla, y la bitácora dejó de tener cero filas. Hasta ese momento «cero filas» era indistinguible
+de «nadie lo usa» — y de hecho **nadie había abierto la pantalla nunca** (telemetría en 0 a 30 días).
+
+⛔ **Los nombres de los clientes NO se escriben aquí**: el repo es público. Para identificar un caso va el folio
+(`08-1-0001642`); el nombre vive en la bitácora de prod, que es donde tiene que estar.
+
+⭐ **La segunda llegó sola, 46 minutos después**: `08-1-0001644` ($14,338.18) a las 10:57, también `escrito` /
+`escrito`. Nadie la pidió como prueba — es la pantalla usándose. La bitácora pasó de 0 filas (desde que existe
+la tabla) a 2 en una mañana.
+
+**Qué sigue**: el automático es aparte: pide un **tope del día** (D-A14) y GP.A.3, el disparo por evento, que
+**no está construido**. (El piloto de dos semanas en una sola sucursal que proponía este renglón lo levantó
+Edgar el mismo día: ver §5d.)
+
+⭐ **Quién opera de verdad este canal** (pedidos TELEMARK, medido el 2026-11-24): **Padre Hidalgo** (1,571 en
+90 días), **Canindo** (1,362) y **Morelia Abastos** (859). Yurécuaro, Morelia Madero y CEDIS no tienen trabajo
+vivo en este canal.
+
+### 5d. ⭐⭐ Encendido en las ocho sucursales con permiso — 2026-11-24, 11:30
+
+Edgar lo pidió el mismo día de la primera autorización (*«activémoslo en todas las sucursales»*), por encima del
+piloto de dos semanas que proponía §5c. Antes de tocar el interruptor se midieron los tres candados **por
+sucursal**, porque encender donde falta uno no deja un aviso: deja un **error** delante de la persona.
+
+| Sucursal | Permiso en Kepler | Interruptor | Bandeja del día | Viejos, aparte |
+|---|---|---|---:|---:|
+| 00 CEDIS | ❌ **falta el `GRANT`** | ⛔ **queda apagada** | 0 | 0 |
+| 01 Padre Hidalgo | ✅ | ✅ encendida | **5** ($110,161.85) | 4 |
+| 02 La Piedad Abastos | ✅ | ✅ encendida | 0 | 2 |
+| 03 8 Esquinas | ✅ | ✅ encendida | 0 | 1 |
+| 04 Yurécuaro | ✅ | ✅ encendida | 0 | 0 |
+| 05 Zamora Centro | ✅ | ✅ encendida | 0 | **782** |
+| 06 Canindo | ✅ | ✅ encendida | **9** ($228,488.50) | 7 |
+| 07 Morelia Madero | ✅ | ✅ encendida | 0 | 0 |
+| 08 Morelia Abastos | ✅ | ✅ (desde las 10:08) | **3** ($33,493.71) | 6 |
+
+**Lo que esto destrabó hoy:** 17 pedidos esperando decisión en tres sucursales, de los cuales 15 necesitan
+autorización (2 son de contado) — **$372,144.06**. Dos tercios estaban en Canindo y Padre Hidalgo, donde hasta
+esta mañana la pantalla sólo ofrecía Rechazar.
+
+⛔⛔ **Corrección a §5c, por medición:** ahí escribí que los 782 pedidos viejos de Zamora *«al encender el
+interruptor aparecerían todos juntos»*. **Es falso, y vale decir por qué.** El interruptor sólo gobierna la
+**escritura**; la lista ya se veía. Y la regla clasifica como `aparte` todo pedido con más de
+`pedidoViejoDias = 2` días sin movimiento, así que los 782 caen en **«Viejos, aparte»**, no en la bandeja del
+día. Medido en la pantalla viva: **«Esperan tu decisión: 15» contra «Viejos, aparte: 802»** — y 802 es
+exactamente 4+2+1+782+7+6, la suma de la columna de esta tabla. El `pedidoViejoDias = 2` no es una suposición:
+sale de contar que de 1,387 pedidos de 31–60 días sólo 18 seguían vivos. **El diseño ya protegía lo que yo
+declaré como riesgo.**
+
+**Verificado con testigos independientes**, no con la salida del `UPDATE`:
+
+| Qué | Testigo | Resultado |
+|---|---|---|
+| El permiso existe donde se encendió | `kepler_push` preguntándose `has_column_privilege(…'c11','UPDATE')` en los 9 Kepler, desde `md` | `true` en 8; `false` en CEDIS |
+| Se escribió en el clúster correcto | `pg_control_system()` | `system_identifier = 7688376744939610156` (`pg-prod`) |
+| Quedó exactamente lo pedido | la transacción revierte si no hay 8 encendidas, si CEDIS queda encendida o si aparece un `tope_dia` | 7 filas actualizadas, la verificación pasó |
+| **La API corriendo lo ve** | la pantalla de prod, en una sucursal que antes decía «apagado» | **Autorizar habilitado en Canindo**, sin el aviso de apagado. El interruptor se lee en cada consulta (no hay caché) |
+| La bandeja no miente al contar | mi SQL contra la pantalla, por separado | 15 y 802 en los dos instrumentos |
+
+⚠️ **Lo que NO se midió:** que una persona de Crédito y cobranza complete una decisión en una sucursal distinta
+de Morelia Abastos. El carril quedó abierto y probado; **ejercido, sólo en 08** (dos autorizaciones reales, las
+de las 10:11 y las 10:57). Hasta que eso pase, de las otras siete sucursales se puede decir que están
+**encendidas**, no que estén **probadas**.
 
 **Fuera de este anexo:** cancelar pedidos en Kepler desde la Suite, escribir el límite en Kepler (ALC D1-b),
 y limpiar la 05 (D-A4).

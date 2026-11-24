@@ -12,7 +12,7 @@ import { ChecadorPreciosService, type ClaveDeCodigo } from '../checador-precios.
 /**
  * `[MCP.12]` Cotizar en la app del vendedor, montada de verdad con los servidores simulados: el
  * precio lo pone el servidor de cotizaciones, la cotización nace con el primer producto, el
- * documento dice lo mismo que la cotización, y «Convertir en pedido» pasa los renglones al borrador.
+ * documento dice lo mismo que la cotización, y (MCP.34) «Pasar a venta» lo hace el servidor en un paso.
  */
 const paleta = {
   id: 'pr-1', product_id: 'p1', product_name: 'PALETA PAYASO GRANDE', sku: '30117', price: 9.8, price_list_id: 'pl1',
@@ -24,6 +24,12 @@ const COT = (lineas: CotizacionDetalle['lines'] = []): CotizacionDetalle => ({
   id: 'q1', code: 'COT-2026-00147', status: 'draft', valid_until: '2026-11-10',
   total: lineas.reduce((s, l) => s + Number(l.line_total), 0), recipient_name: 'ABARROTES CARMELITA', created_by_name: 'Vendedor Prueba', lines: lineas,
 });
+/** La respuesta del servidor a «Pasar a venta» (MCP.34): hoy cobra $240 lo que se cotizó en $228. */
+const PASO = (b: { requested_delivery_date: string; dry_run?: boolean }) => ({
+  quote_id: 'q1', quote_code: 'COT-2026-00147', quote_total: 228, order_id: 'o50', order_code: 'PD-2026-00050', order_total: 240,
+  requested_delivery_date: b.requested_delivery_date, sin_producto: [] as string[], ya_existia: false, dry_run: b.dry_run === true,
+});
+const manana = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date(Date.now() + 86_400_000));
 const renPaleta = { id: 'l1', line_number: 1, product_id: 'p1', product_name: 'PALETA PAYASO GRANDE', product_sku: '30117', requested_text: null,
   quantity: 1, qty_unit: 'CJA', qty_factor: 24, unit_price: 228, line_total: 228, parent_line_number: null };
 
@@ -41,6 +47,7 @@ function montar(o: { sucursal?: unknown; checador?: { claveDeCodigo: (c: string,
     updateLine: vi.fn(() => of({})),
     removeLine: vi.fn(() => of({})),
     get: vi.fn(() => of(COT([renPaleta]))),
+    pasarAVenta: vi.fn((_id: string, b: { requested_delivery_date: string; dry_run?: boolean }) => of(PASO(b))),
   };
   const toast = { add: vi.fn() };
   TestBed.configureTestingModule({
@@ -106,16 +113,6 @@ describe('VendorQuoteComponent · cotizar al cliente (MCP.12)', () => {
     const wa = el.querySelector('a.cq-btn-ok') as HTMLAnchorElement;
     expect(wa.href).toContain('https://wa.me/524431234567?text=');
     expect(decodeURIComponent(wa.href)).toContain('PALETA PAYASO GRANDE (SKU 30117)');
-  });
-
-  it('⭐ convertir en pedido: los renglones pasan al borrador en su unidad y abre «Tomar pedido»', () => {
-    const { cmp, vendor } = montar();
-    const nav = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
-    cmp.cot.set(COT([renPaleta]));
-    cmp.convertir();
-    expect(vendor.ensureDraftForCustomer).toHaveBeenCalledWith('c1', 'w1', 'route');
-    expect(vendor.addLine).toHaveBeenCalledWith('o1', 'p1', 1, { qty_unit: 'CJA', qty_factor: 24 });
-    expect(nav).toHaveBeenCalledWith(['/vendor/take-order', 'c1']);
   });
 
   it('⛔ sin sucursal de surtido no se cotiza y se dice por qué', () => {
@@ -245,5 +242,72 @@ describe('[BU.4.1] Cotización · código de barras tecleado o de pistola', () =
     const { el, checador } = conTraductor({ estado: 'no_se_pudo' });
     pistola(el, 'mazapan');
     expect(checador.claveDeCodigo).not.toHaveBeenCalled();
+  });
+});
+
+describe('[MCP.34] [MCP.35] Cotización · existencia y pasar a venta', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  const enDoc = (m: ReturnType<typeof montar>, cot = COT([renPaleta])) => { m.cmp.cot.set(cot); m.cmp.vista.set('doc'); m.fix.detectChanges(); };
+
+  it('MCP.35 cada producto dice su existencia en la unidad que se cotiza; sin lectura dice «Sin dato», no 0', () => {
+    const m2 = montar();
+    expect(m2.texto()).toContain('Sin dato de existencia');
+    m2.cmp.prices.set([{ ...paleta, stock_state: 'con_existencia', stock_available: 50, stock_checked_at: new Date().toISOString() } as PriceRow, mazapan]);
+    m2.fix.detectChanges();
+    expect(m2.texto()).toContain('Existencias: 50 pzas');
+    m2.cmp.elegirUnidad(paleta, 'CJA');
+    m2.fix.detectChanges();
+    expect(m2.texto()).toContain('Existencias: 2 CJA');
+  });
+
+  it('⭐ MCP.34 un toque: vista previa con el total de HOY (sin guardar), y Confirmar manda el pedido con el día', () => {
+    const m = montar();
+    enDoc(m);
+    m.boton('Pasar a venta')!.click();
+    m.fix.detectChanges();
+    expect(m.quotes.pasarAVenta).toHaveBeenCalledWith('q1', { requested_delivery_date: manana, dry_run: true });
+    expect(m.texto()).toContain('Cotizaste $228.00');
+    expect(m.texto()).toContain('Con los precios de hoy: $240.00');
+    expect(m.texto()).toContain('Sube $12.00 desde que cotizaste');
+    m.boton('Confirmar venta')!.click();
+    m.fix.detectChanges();
+    expect(m.quotes.pasarAVenta).toHaveBeenLastCalledWith('q1', { requested_delivery_date: manana });
+    expect(m.texto()).toContain('Ya es venta: pedido PD-2026-00050');
+    expect(m.boton('Pasar a venta')).toBeUndefined();
+    expect(m.toast.add).toHaveBeenCalledWith(expect.objectContaining({ severity: 'success' }));
+  });
+
+  it('cambiar el día vuelve a calcular con ese día', () => {
+    const m = montar();
+    enDoc(m);
+    m.cmp.abrirVenta();
+    m.cmp.elegirDia('2099-01-05');
+    expect(m.quotes.pasarAVenta).toHaveBeenLastCalledWith('q1', { requested_delivery_date: '2099-01-05', dry_run: true });
+  });
+
+  it('⛔ [negativa] el servidor la rechaza: se dice su motivo y no se puede confirmar', () => {
+    const m = montar();
+    m.quotes.pasarAVenta.mockReturnValueOnce(throwError(() => ({ status: 409, error: { message: 'Esta cotización es de telemarketing: se vuelve pedido desde Telemarketing, no desde la app.' } })));
+    enDoc(m);
+    m.boton('Pasar a venta')!.click();
+    m.fix.detectChanges();
+    expect(m.texto()).toContain('es de telemarketing');
+    expect(m.boton('Confirmar venta')!.disabled).toBe(true);
+  });
+
+  it('⛔ [negativa] sin señal se dice que necesita conexión (no un error genérico)', () => {
+    const m = montar();
+    m.quotes.pasarAVenta.mockReturnValueOnce(throwError(() => ({ status: 0 })));
+    enDoc(m);
+    m.boton('Pasar a venta')!.click();
+    m.fix.detectChanges();
+    expect(m.texto()).toContain('Sin señal: pasar a venta necesita conexión');
+  });
+
+  it('una cotización que ya es venta no ofrece pasarla otra vez y dice su pedido', () => {
+    const m = montar();
+    enDoc(m, { ...COT([renPaleta]), status: 'accepted', order_id: 'o50', order_code: 'PD-2026-00050' });
+    expect(m.boton('Pasar a venta')).toBeUndefined();
+    expect(m.texto()).toContain('Ya es venta: pedido PD-2026-00050');
   });
 });

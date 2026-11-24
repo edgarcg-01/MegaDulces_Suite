@@ -515,10 +515,12 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                           type="button"
                           class="unit-toggle-btn"
                           [class.unit-toggle-active]="rung() === o.rung"
+                          [attr.aria-pressed]="rung() === o.rung"
                           (click)="setRung(o.rung)"
                           [disabled]="guardando()"
                         >
-                          <i class="pi {{ o.icono }}" aria-hidden="true"></i>
+                          <!-- [COT.56] La elegida lleva palomita: no depende sólo del color del borde. -->
+                          <i class="pi {{ rung() === o.rung ? 'pi-check-circle' : o.icono }}" aria-hidden="true"></i>
                           <span class="unit-title">{{ o.titulo }}</span>
                           <span class="unit-sub">{{ o.detalle }}</span>
                           @if (o.rung === rung() && previa()?.volume_tier; as vt) {
@@ -1176,7 +1178,12 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       }
       .unit-toggle-btn i { font-size: var(--fs-sm); color: var(--text-muted); }
       .unit-toggle-btn:hover { border-color: var(--action); }
-      .unit-toggle-active { border-color: var(--action); background: color-mix(in srgb, var(--action) 8%, transparent); }
+      /* [COT.56] La elegida, con contorno rojo de 2 px (como el buscador con foco), sin mover el botón. */
+      .unit-toggle-active {
+        border-color: var(--action); box-shadow: inset 0 0 0 0.5px var(--action);
+        background: color-mix(in srgb, var(--action) 8%, transparent);
+      }
+      .unit-toggle-active .unit-sub { color: var(--text-main); }
       .unit-toggle-active i { color: var(--action); }
       .unit-title { font-weight: 700; font-size: var(--fs-sm); color: var(--text-main); }
       .unit-sub { font-size: var(--fs-micro); color: var(--text-muted); }
@@ -1193,12 +1200,13 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       }
       .btn-touch-step:active { background: var(--hover-bg); transform: scale(0.96); }
       .btn-touch-step:disabled { opacity: 0.4; cursor: not-allowed; }
+      /* [COT.56] El recuadro de la cantidad, remarcado (2 px). */
       .touch-qty-readout {
-        min-width: 5.5rem; height: 34px; padding: 0 0.5rem; border-radius: 6px; border: 1px solid var(--border-color);
+        min-width: 5.5rem; height: 34px; padding: 0 0.5rem; border-radius: 6px; border: 2px solid var(--text-muted);
         background: var(--card-bg); display: flex; align-items: baseline; justify-content: center; gap: 0.3rem;
         font-variant-numeric: tabular-nums; line-height: 32px;
       }
-      .qty-num { font-size: 1rem; font-weight: 800; color: var(--text-main); }
+      .qty-num { font-size: var(--fs-lg); font-weight: var(--fw-black); color: var(--text-main); }
       /* [COT.33] La cantidad tecleable conserva el aspecto de la lectura que reemplaza. */
       /* [COT.34] Editar la cabecera del borrador. */
       .tl-editar { margin-left: auto; }
@@ -1221,7 +1229,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       .atajos kbd { font-family: var(--font-mono, monospace); font-size: var(--fs-micro); padding: 0 0.3rem; border: 1px solid var(--surface-border); border-radius: 4px; background: var(--surface-ground); color: var(--text-main); }
       /* [COT.49] En el celular no hay Alt ni flechas: los atajos sólo con teclado y mouse. */
       @media (hover: none) and (pointer: coarse) { .atajos { display: none; } }
-      .qty-lbl { font-size: var(--fs-micro); color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
+      .qty-lbl { font-size: var(--fs-sm); color: var(--text-main); text-transform: uppercase; font-weight: var(--fw-black); }
 
       .touch-presets { display: flex; gap: 0.25rem; flex-wrap: wrap; }
       .preset-btn {
@@ -1252,7 +1260,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       }
       .previa-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; display: block; }
       .previa-price-row { display: flex; align-items: baseline; gap: 0.35rem; }
-      .previa-amount { font-size: 1.05rem; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-main); }
+      /* [COT.56] El precio (ya con mayoreo o promoción) es lo más grande de la franja. */
+      .previa-amount { font-size: var(--fs-h2); font-weight: var(--fw-black); font-variant-numeric: tabular-nums; color: var(--text-main); }
       .previa-unit-sub { font-size: var(--fs-xs); color: var(--text-muted); }
       .previa-menor-sub { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 600; margin-left: 0.25rem; }
       .previa-total-amount { font-size: 1.05rem; font-weight: 800; color: var(--text-main); font-variant-numeric: tabular-nums; }

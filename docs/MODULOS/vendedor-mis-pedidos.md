@@ -6,6 +6,55 @@ nuevas van arriba.
 
 ---
 
+## Pasar una cotización a venta, ver la existencia al cotizar y leer la etiqueta del pedido (MCP.33–35, 2026-11-24)
+
+- **Problema:** una cotización que el cliente aceptaba se volvía a capturar: «Convertir en pedido» copiaba los
+  productos a un borrador y abría «Tomar pedido», donde había que revisarlo y mandarlo. La cotización nunca quedaba
+  «aceptada» ni ligada a su pedido (el esquema ya tenía `commercial.quotes.order_id` para eso y nadie lo llenaba), así
+  que no se podía saber cuántas cotizaciones se volvieron venta; y un segundo toque podía duplicar renglones. Al
+  cotizar no se veía la existencia: el documento decía «la existencia se confirma al levantar el pedido». Y al llegar
+  a caja o al almacén, el vendedor no tenía cómo saber de qué pedido y de qué cliente es cada bolsa sin preguntar.
+- **Solución:**
+  - **Pasar a venta (MCP.34):** en la cotización lista, «Pasar a venta» pide el día de entrega (mañana por omisión,
+    libre hacia adelante, domingos incluidos) y enseña **el total con los precios de hoy contra lo cotizado**
+    («Sube $12.00 desde que cotizaste»). «Confirmar venta» manda el pedido al surtidor y la cotización queda
+    «Ya es venta: pedido PD-…». Si un renglón no tiene producto del catálogo, se dice que no pasó.
+  - **Existencia al cotizar (MCP.35):** cada producto del catálogo de cotizar dice «Existencias: 2 CJA» en la unidad
+    que se está cotizando (o «5 pzas» si no completa una), «Sin existencias», «No se maneja en tu sucursal» o
+    «Sin dato de existencia» — nunca un 0 inventado.
+  - **Leer la etiqueta del pedido (MCP.33):** junto al buscador de Mis pedidos, el botón de la cámara lee la etiqueta
+    que imprimen el surtidor o la caja (QR o código de barras) y busca ese pedido. Lo que no es etiqueta de pedido
+    se dice («Leí «7501…» y no es la etiqueta de un pedido») y no se busca.
+- **Implementada:**
+  - Servidor: `POST /api/commercial/orders/from-quote/:quoteId` (`CommercialOrdersService.pasarCotizacionAVenta`,
+    permiso `COMMERCIAL_ORDERS_CONFIRMAR`, sólo quien hizo la cotización y sólo las de la app, `route_visit`). En una
+    transacción: bloquea la cotización, arma el borrador (`createDraftEnTrx`), agrega los renglones propios en su
+    unidad (`addLineEnTrx`, el precio lo pone el motor del pedido), lo confirma (`placeEnTrx`) y deja la cotización
+    `accepted` + `accepted_at` + `order_id`. Con `dry_run: true` hace todo y lo deshace (la vista previa no guarda ni
+    gasta folio). Reglas puras en `cotizacion-a-pedido.engine.ts`; la copia de la app (`paraPedido`) se retiró para
+    que la regla viva en un solo lugar.
+  - App: `vendor-quote.component.ts` (panel «Pasar a venta», existencia por producto con `existenciaParaCotizar` de
+    `cotizacion.ts`); `vendor-mis-pedidos.component.ts` (cámara con `conQr`); el lector compartido
+    (`libs/ui-web/src/camara/lector-codigos.ts`) lee QR **sólo si se le pide**. El formato del código vive en
+    `libs/contracts/src/http/pedido-etiqueta.ts` (`codigoDeBarrasDePedido`, `folioDeLectura`), el mismo que usa la
+    Suite para imprimir.
+- **Por qué así:**
+  - **Precio de hoy** (decisión de David): el pedido usa el mismo motor que la cotización (Kepler por sucursal), así
+    que la diferencia que se enseña es real, no de dos motores distintos.
+  - **Todo en el servidor y en un paso:** dos toques, o una respuesta perdida sin señal, no hacen dos pedidos; el
+    segundo encuentra el `order_id` y devuelve el mismo.
+  - **No se frena por existencia** (ADR-115): el surtidor marca el faltante como hoy.
+  - **El código de barras lleva sólo números** (`99` + año + folio a 6): el folio completo no cabe en la etiqueta de
+    32 mm; el QR sí lleva el folio completo. El lector acepta los dos y también el folio tecleado con `'` en lugar de
+    `-` (lectores de mano con el teclado en español).
+- **Probado:** reglas puras 4 (servidor) + 8 (app) + 6 (formato del código) + 1 (QR sólo si se pide); prueba de
+  integración `pasar-a-venta.it.spec.ts` **contra Postgres real (local) 4/4** —vista previa sin escritura, venta
+  confirmada y ligada, el segundo toque devuelve el mismo pedido, y tres negativas (de otro 403, de telemarketing 409,
+  fecha pasada 400) sin nada escrito— y **un sabotaje** (quitar la protección del doble toque) salió en rojo; app del
+  vendedor 682/682; typecheck de plantillas de las cuatro apps sin errores.
+- **NO MEDIDO:** la lectura con la cámara de un teléfono real sobre una etiqueta impresa; el camino con renglones en
+  caja/paquete contra una base con factores de Kepler (la prueba usa piezas); validación visual en el teléfono.
+
 ## Buscar un pedido, mover el día de entrega y buscar en «Por entregar» (MCP.28–29, 2026-11-20)
 
 - **Problema:** cuando hay un problema con un pedido («ese día no estoy», «ya no quiero ese producto», «no me llegó»),
