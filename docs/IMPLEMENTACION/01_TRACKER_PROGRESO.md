@@ -2037,12 +2037,14 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       los 10 visibles; sin clientes, que se contarían dos veces; oculto con uno solo). Tiempo: 30 días 0.29 s, 3 meses 0.8 s
       (el cutover como CASE: unirlo llevaba 30 días de 0.3 a 1.5 s). Servicio 114/114, pantalla 41/41; mutantes (venta por
       clave sin sucursal; contar antes del cutover; «—» cuando la lectura falló) en rojo. Sin validación visual.
-- [ ] **[CXC.52.1]** ⬜ **El índice de la venta por vendedor** (`ix_kdm1_venta_vendedor`, parcial U-D, INCLUDE de las
-      columnas que lee la consulta). La migración `20261123171332` llegó a `main` el 2026-11-23 sin aplicarse y se SACÓ el
-      2026-11-24 (08:11, horario hábil): una migración pendiente congela el despliegue de todos y un `CREATE INDEX
-      CONCURRENTLY` sobre `kdm1` (810 MB, el carril la reescribe cada 2 s) no va en horario. Vuelve en la noche, se aplica
-      con la receta de `entrega` §5 y se mide 3 meses / un año antes y después. Sin garantía: sólo el 56 % de `kdm1` está
-      «todo visible»; si un año no baja de 500 ms, lo siguiente es un agregado diario por vendedor.
+- [x] **[CXC.52.1]** ❌ (revertido el 2026-11-24, Edgar: «córrelo de una») **El índice de la venta por vendedor NO sirve.**
+      Creado en prod a las 8:30 con  (6.5 s, 43 MB, válido; sin transacciones viejas; prod por
+      ). Medido antes/después con la consulta del código: 3 meses 0.72–0.86 s → 0.74–0.84 s, un año
+      1.5–2.6 s → 1.4–1.6 s. El planificador NO lo usa (estima 1 fila y sigue con ), y forzándolo
+      tampoco hace index-only scan. Un índice sin uso sólo cuesta (43 MB y escritura extra en la tabla que el carril reescribe
+      cada 2 s): se quitó con ; nunca entró a  y la migración ya no está en
+      el repo. Hallazgo útil: con el índice de fecha apagado, Postgres elige un escaneo paralelo y un año baja a 0.93 s — tampoco
+      cabe en 500 ms. Lo que sí alcanzaría: un agregado diario por (sucursal, vendedor), decisión pendiente de Edgar.
 - [x] **[CXC.53]** ✅ (en prod el 2026-11-24, `96c07e4ee`; lo soltó la sesión df con sus 5 cambios) **Todo el Resumen de Cartera sigue UN periodo** (Edgar, 2026-11-23: «que
       todo el resumen se haga dinámico»). Selector en el encabezado: 30 días, 90 (default: la base de siempre del DSO), este
       mes, mes anterior o rango. Siguen al periodo la venta a crédito y el DSO (con los días del periodo), la mediana y los
