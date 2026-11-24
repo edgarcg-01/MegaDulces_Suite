@@ -375,6 +375,14 @@ export interface PriceLineInput {
   list_price_only?: boolean;
 }
 
+/**
+ * `[COT.57]` Precio PACTADO a mano en el renglón (`price_source = 'manual'`): lo decidió una persona, no
+ * el motor. Ni la revisión «cambió de precio» ni re-cotizar lo tocan; el pedido a Kepler lleva ese precio.
+ */
+export function esPrecioPactado(priceSource: string | null | undefined): boolean {
+  return priceSource === 'manual';
+}
+
 /** `[COT.55]` Por qué no se aplicó el volumen en una cotización «solo precio 1». */
 export const MOTIVO_SIN_MAYOREO = 'Mayoreo apagado: esta cotización va sólo a precio 1.';
 
@@ -1229,7 +1237,8 @@ export class QuotePricingService {
       }
 
       const cur = await trx.raw(
-        `SELECT id, line_number, product_id, requested_text, parent_line_number, qty_unit
+        `SELECT id, line_number, product_id, requested_text, parent_line_number, qty_unit,
+                price_source, unit_price, iva_rate, ieps_rate
            FROM commercial.quote_lines
           WHERE id = :lid AND quote_id = :qid`,
         { lid: lineId, qid: quoteId },
@@ -1248,6 +1257,25 @@ export class QuotePricingService {
       const qty = Number(input.quantity);
       if (!Number.isFinite(qty) || qty <= 0) {
         throw new BadRequestException('La cantidad tiene que ser mayor que cero. Para quitarlo, usa borrar el renglón.');
+      }
+
+      // `[COT.57]` Precio pactado y misma presentación: cambia la cantidad, el precio se queda. Con otra
+      // presentación el precio pactado ya no aplica y lo calcula el motor.
+      if (esPrecioPactado(line.price_source) && input.rung === undefined && line.unit_price !== null) {
+        const unit = Number(line.unit_price);
+        const total = this.round(unit * qty, 2);
+        const tasas = line.iva_rate === null && line.ieps_rate === null
+          ? null
+          : ({ iva_rate: line.iva_rate === null ? null : Number(line.iva_rate), ieps_rate: line.ieps_rate === null ? null : Number(line.ieps_rate) } as PricedLine);
+        await trx.raw(
+          `UPDATE commercial.quote_lines
+              SET quantity = :q, line_total = :t, line_subtotal = :s, updated_at = now(), updated_by = :u
+            WHERE id = :lid AND quote_id = :qid`,
+          { q: qty, t: total, s: this.round(total / this.divisorImpuesto(tasas), 2), u: userId, lid: line.id, qid: quoteId },
+        );
+        await this.recalcTotals(trx, quoteId);
+        const c = await trx.raw(`SELECT count(*)::int AS n FROM commercial.quote_lines WHERE quote_id = :id`, { id: quoteId });
+        return { quote_id: quoteId, lines: Number(c.rows[0].n), priced: null };
       }
 
       const priced = await this.retarificarRenglonTrx(trx, quoteId, quote.source_branch, line, qty, input.rung, userId, undefined, quote.list_price_only === true);
@@ -1443,6 +1471,7 @@ export class QuotePricingService {
            FROM commercial.quote_lines ql
            LEFT JOIN catalog.products p ON p.id = ql.product_id
           WHERE ql.quote_id = :qid AND ql.parent_line_number IS NULL
+            AND ql.price_source IS DISTINCT FROM 'manual' -- [COT.57] el precio pactado no se re-cotiza
           ORDER BY ql.line_number`,
         { qid: quoteId },
       );
@@ -1548,7 +1577,7 @@ export class QuotePricingService {
 
       const lines = await trx.raw(
         `SELECT ql.id, ql.line_number, ql.qty_unit, ql.qty_factor, ql.quantity, ql.unit_price, ql.list_price,
-                ql.iva_rate, ql.ieps_rate, btrim(p.sku) AS sku
+                ql.iva_rate, ql.ieps_rate, ql.price_source, btrim(p.sku) AS sku
            FROM commercial.quote_lines ql
            LEFT JOIN catalog.products p ON p.id = ql.product_id
           WHERE ql.quote_id = :qid AND ql.parent_line_number IS NULL
@@ -1558,7 +1587,7 @@ export class QuotePricingService {
       const filas = lines.rows as Array<{
         id: string; line_number: number; qty_unit: string | null; qty_factor: string | null; quantity: string;
         unit_price: string | null; list_price: string | null; iva_rate: string | null; ieps_rate: string | null;
-        sku: string | null;
+        price_source: string | null; sku: string | null;
       }>;
       const skus = [...new Set(filas.map((l) => l.sku).filter((x): x is string => !!x))];
       const pre = await this.precargarPrecios(trx, branch, skus);
@@ -1591,7 +1620,9 @@ export class QuotePricingService {
           saved_unit_price: guardado,
           saved_list_price: num(l.list_price),
           now,
-          price_changed: l.sku !== null
+          // `[COT.57]` Un precio pactado a mano (`manual`) NO es «cambió en Kepler»: es una decisión, no un
+          // precio viejo. Contarlo frenaba el pedido y empujaba a re-cotizar, que lo borraba.
+          price_changed: l.sku !== null && !esPrecioPactado(l.price_source)
             && (guardado === null ? hoy !== null : hoy === null || Math.round(guardado * 100) !== Math.round(hoy * 100)),
           tax_recorded: l.iva_rate !== null || l.ieps_rate !== null,
           stock: base === undefined || !l.sku

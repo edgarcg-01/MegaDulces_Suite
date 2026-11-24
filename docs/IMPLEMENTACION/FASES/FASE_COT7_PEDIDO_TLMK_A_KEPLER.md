@@ -328,6 +328,18 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-24** — 🧪 **[COT.57] (parte 1) El precio pactado a mano se respeta.** Caso: COT-2026-00650 (cliente ENVIOS
+  ONLINE) tenía que llevar los precios de un pedido en línea ya cobrado (Edgar: «pásame estos precios, excepto los totis y
+  la nucita»). Se escribieron en prod a mano (8 renglones `price_source = 'manual'`, con candado de `updated_at`, la cuenta
+  de `totalesCotizacion` y nota interna; total $4,478.51, los 8 importes idénticos al pedido). Y la Suite los trataba como
+  precio viejo: la revisión decía «cambió en Kepler», frenaba «Aceptar → pedido» y pedía re-cotizar, que los borraba.
+  Ahora (`esPrecioPactado`): la revisión no los cuenta como cambio; re-cotizar (y mover «solo precio 1», que re-cotiza)
+  los deja como están; cambiar la cantidad conserva el precio y recalcula importe y subtotal; con otra presentación el
+  pacto ya no aplica y precia el motor. Pruebas: 3 (mutante que nunca reconoce el pacto → rojo); 233/233 de
+  cotizaciones. **Pendiente (parte 2):** escribir el precio pactado desde la pantalla, con permiso (Edgar decide si es
+  `COMMERCIAL_QUOTES_PRECIO_LISTA` o uno propio), con quién y por qué. **NO MEDIDO:** la revisión (`checkQuote`) con un
+  pacto contra base real — se verifica con COT-2026-00650 al soltar.
+
 - **2026-11-24** — 🧪 **[COT.56] Paquete o caja, la cantidad y el precio con descuento, a la vista** (observaciones de
   quien cotiza, que Edgar trajo: «que aparezca marcado el contorno en rojo cuando seleccionas si es paquete o caja», «el
   precio ya con descuento un poquito más grande y remarcado», «remarcar el cuadro de la cantidad de cajas o que el número
