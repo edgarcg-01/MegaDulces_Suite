@@ -1045,3 +1045,61 @@ días— y es la única de las dos que se puede construir bien.**
 ⚠️ **NO MEDIDO:** cuántas de las 200 personas ligables por ContPAQi son las mismas 201 del `.mdb`
 (se puede cruzar, no se hizo); si los 36 sin candidato son gente que la Suite no tiene o nombres
 escritos distinto.
+
+---
+
+### 11.16 `[NE.0.17]` El empate deja de ser un script: un primitivo para las DOS fuentes
+
+Edgar contestó **D6: ambos** — el alias se registra contra ContPAQi **y** contra el padrón del
+`.mdb`. Son dos sistemas distintos, pero **el empate es el mismo**, así que no se escribe dos veces:
+vive en [`libs/hr/src/lib/nomina/puente-padrones.ts`](../../../libs/hr/src/lib/nomina/puente-padrones.ts)
+(ADR-056: un primitivo inventado en una fase vive en `libs/`, no en el script de una sesión).
+
+Lógica **pura** —no toca base ni red—, con las cuatro reglas que las mediciones obligaron, cada una
+con su cifra en el encabezado del archivo:
+
+| regla | por qué |
+|---|---|
+| **1 · «Activo» no es la población viva** | de 1,246 internos, 263 `active` y **435 `invited`** que nunca entraron y cobran igual. *Filtrar por «activo» hundió el empate de 77.6 % a 39 %, y el error no se veía: daba un número plausible* |
+| **2 · Un 1:N no es un empate** | salvo que **uno solo** esté vigente (los otros son registros viejos sin dar de baja). Dejó la ambigüedad en 1 de 259 |
+| **3 · El nivel 3 es un JUICIO, no un empate** | coincidir sólo en apellidos + primer nombre **no liga**: sale como rechazo para que lo resuelva una persona (`[NE.0.5]`) |
+| **4 · Dos códigos para UNA persona sí; dos PERSONAS bajo un usuario, nunca** | se distinguen por la llave dura (CURP · RFC · NSS), no por el nombre |
+
+⭐ Y una decisión que estaba implícita y ahora está escrita: **la `Ñ` se pliega a `N`**, igual que
+los acentos, porque los dos padrones escriben el mismo apellido de las dos formas. La prueba lo
+fija, para que nadie lo «corrija» y pierda empates reales.
+
+**Todo el universo queda clasificado**: `ligados + rechazados === universo`, y el resumen trae
+`cierra` para que se note si alguna vez deja de cumplirse (ADR-056: lo que no liga se declara con
+su motivo, no se pierde).
+
+#### Cómo se probó
+
+**11 pruebas** (`puente-padrones.spec.ts`), con las negativas que importan: ⭐ **nombres deformados
+a propósito no ligan con nadie** —el mismo control negativo que se corrió contra prod—; `invited`
+liga y una baja **no**, pero tampoco se confunde con «no existe»; dos tocayos sin llave común **no
+ligan ninguno**; y sin llave dura **no se presume** que dos filas sean la misma persona (si los
+rellenos `-`/vacío/`0` empataran, todos serían la misma persona).
+
+⭐⭐ **Y el cruce que de verdad lo valida: el primitivo contra los datos REALES de prod reproduce,
+exactamente, lo que había medido el script de sesión** — en las dos fuentes:
+
+| | universo | ligados | nivel 1 | nivel 2 | duplicados en el origen |
+|---|---:|---:|---:|---:|---:|
+| padrón del `.mdb` | 259 | **201** | 126 | 75 | 1 |
+| ContPAQi | 248 | **200** | 83 | 117 | 0 |
+
+Dos implementaciones, el mismo resultado. Toda la librería `hr` queda en **633 ✔** y el typecheck
+de la API en verde.
+
+#### Lo que falta para que haya filas en la tabla
+
+El primitivo decide; **todavía no hay quién escriba**. Falta la capa de arriba:
+
+1. **C2 · el servicio** que alimenta el primitivo desde `contpaqi_ods` y escribe `hr.person_aliases`
+   corriendo **como la aplicación** (`app_runtime` es el único con `INSERT`), con su permiso y su
+   prueba contra base real.
+2. **La fuente del `.mdb`** sigue sin camino: el archivo está fuera de la base y no puede entrar ni
+   por el repo (público) ni por un importer (regla 1). **D7 sigue abierta**, y es la misma pregunta
+   que `[NE.0.7]` para la serie histórica.
+3. Nada de esto llega a prod sin desplegar.
