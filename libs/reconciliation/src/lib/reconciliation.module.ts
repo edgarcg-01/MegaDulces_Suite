@@ -9,14 +9,17 @@ import { CashCountSlaService } from './cash-count-sla.service';
 import { ReconciliationActionsService } from './reconciliation-actions.service';
 import { ReconciliationController } from './reconciliation.controller';
 import { StoreArqueoController } from './store-arqueo.controller';
+// [SM.55] Turnos por revisar: la encargada justifica lo que quedó sin contar.
+import { StoreArqueoRevisionController } from './store-arqueo-revision.controller';
+import { TurnoRevisionService } from './turno-revision.service';
 
 /**
  * Supervisor de Movimientos (ADR-029) — motor de cuadre + bandeja de descuadres.
  * SM.1 = Plano caja · SM.2 = Plano inventario (merma) · SM.5 = cron nocturno + alerta.
  */
 @Module({
-  controllers: [ReconciliationController, StoreArqueoController],
-  providers: [MovementReconcileService, ReconciliationFindingsService, ReconciliationQueryService, ReconciliationScannerService, BlindCountService, CashCutsSyncService, CashCountSlaService, ReconciliationActionsService],
+  controllers: [ReconciliationController, StoreArqueoController, StoreArqueoRevisionController],
+  providers: [MovementReconcileService, ReconciliationFindingsService, ReconciliationQueryService, ReconciliationScannerService, BlindCountService, CashCutsSyncService, CashCountSlaService, ReconciliationActionsService, TurnoRevisionService],
   exports: [MovementReconcileService, ReconciliationFindingsService],
 })
 export class ReconciliationModule {}

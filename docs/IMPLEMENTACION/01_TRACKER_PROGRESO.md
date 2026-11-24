@@ -1,7 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 3191 KB, 15525 líneas, 78 secciones.
-> **Índice navegable** — 3199 KB, 15538 líneas, 78 secciones.
+> **Índice navegable** — 3207 KB, 15570 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -11,107 +10,81 @@
 | 91 | 98 | 15 | Tracker de Progreso |
 | 99 | 199 | 288 | 📊 Estado global de fases |
 | 200 | 226 | 1 | 🚦 Estado por item (granular) |
-| 227 | 4428 | 812 | 🎯 EN PROGRESO |
-| 4445 | 4482 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 4483 | 4516 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 4517 | 4601 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 4602 | 4705 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 4706 | 4772 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 4773 | 4876 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 4877 | 4960 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 4961 | 5130 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 5131 | 5193 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 5194 | 5266 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 5267 | 5318 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 5319 | 6269 | 217 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 6270 | 6283 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 6284 | 6308 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 6309 | 6331 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 6332 | 6370 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 6371 | 7172 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 7173 | 7357 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 7358 | 7400 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 7401 | 7478 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 7479 | 7572 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 7573 | 7708 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 7709 | 7725 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 7726 | 7779 | 97 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 7780 | 7847 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 7848 | 8100 | 20 | Fase CH — Checadores / Control de asistencia |
-| 8101 | 8166 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 8167 | 8194 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 8195 | 8361 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 8362 | 8390 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
-| 8391 | 8797 | 196 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 5319 | 6268 | 216 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 6269 | 6282 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 6283 | 6307 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 6308 | 6330 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 6331 | 6369 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 6370 | 7171 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 7172 | 7356 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 7357 | 7399 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 7400 | 7477 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 7478 | 7571 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 7572 | 7707 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 7708 | 7724 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 7725 | 7778 | 97 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 7779 | 7846 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 7847 | 8099 | 20 | Fase CH — Checadores / Control de asistencia |
-| 8100 | 8165 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 8166 | 8193 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 8194 | 8360 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 8361 | 8389 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
-| 8390 | 8797 | 198 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 8798 | 8860 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 8861 | 8990 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 8991 | 9053 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 9054 | 9214 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 9215 | 9285 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 9286 | 9334 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 9335 | 9367 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 9368 | 9924 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 9925 | 10056 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 10057 | 10110 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 10111 | 10150 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 10151 | 10203 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 10204 | 10270 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 10271 | 10433 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 10434 | 10717 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 10718 | 10885 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 10886 | 13316 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 13317 | 13325 | 1 | Fase RR — Ventas por ruta |
-| 13326 | 13645 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 13646 | 13656 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 13657 | 13677 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 13678 | 13688 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 13689 | 13700 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 13701 | 13760 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 13761 | 14188 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 14189 | 14203 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 14204 | 14245 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14246 | 14412 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14413 | 14444 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14445 | 14744 | 74 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14745 | 14814 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14815 | 14823 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14824 | 14884 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14891 | 14900 | 1 | 📝 Convenciones |
-| 14901 | 14938 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14939 | 14957 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14958 | 15010 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 15011 | 15416 | 109 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15417 | 15447 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15448 | 15469 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15470 | 15503 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15504 | 15552 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15553 | 15615 | 46 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
-| 15011 | 15417 | 110 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15418 | 15448 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15449 | 15470 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15471 | 15504 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15505 | 15553 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15554 | 15628 | 51 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 227 | 4458 | 815 | 🎯 EN PROGRESO |
+| 4475 | 4512 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 4513 | 4546 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 4547 | 4631 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 4632 | 4735 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 4736 | 4802 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 4803 | 4906 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 4907 | 4990 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 4991 | 5160 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 5161 | 5223 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 5224 | 5296 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 5297 | 5348 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 5349 | 6299 | 217 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 6300 | 6313 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 6314 | 6338 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 6339 | 6361 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 6362 | 6400 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 6401 | 7202 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 7203 | 7387 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 7388 | 7430 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 7431 | 7508 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 7509 | 7602 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 7603 | 7738 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 7739 | 7755 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 7756 | 7810 | 100 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 7811 | 7878 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 7879 | 8131 | 20 | Fase CH — Checadores / Control de asistencia |
+| 8132 | 8197 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 8198 | 8225 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 8226 | 8392 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 8393 | 8421 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
+| 8422 | 8829 | 198 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 8830 | 8892 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 8893 | 9022 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 9023 | 9085 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 9086 | 9246 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 9247 | 9317 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 9318 | 9366 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 9367 | 9399 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 9400 | 9956 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 9957 | 10088 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 10089 | 10142 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 10143 | 10182 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 10183 | 10235 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 10236 | 10302 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 10303 | 10465 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 10466 | 10749 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 10750 | 10917 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 10918 | 13348 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 13349 | 13357 | 1 | Fase RR — Ventas por ruta |
+| 13358 | 13677 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 13678 | 13688 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 13689 | 13709 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 13710 | 13720 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 13721 | 13732 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 13733 | 13792 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 13793 | 14220 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 14221 | 14235 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 14236 | 14277 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 14278 | 14444 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14445 | 14476 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14477 | 14776 | 74 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14777 | 14846 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14847 | 14855 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14856 | 14916 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14923 | 14932 | 1 | 📝 Convenciones |
+| 14933 | 14970 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14971 | 14989 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14990 | 15042 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 15043 | 15449 | 110 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15450 | 15480 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15481 | 15502 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15503 | 15536 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15537 | 15585 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15586 | 15660 | 51 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -7805,6 +7778,7 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 - [x] **[SM.33]** 🔧 **Local 2026-09-10** — **La cajera ve sus cortes del DÍA, no su historial.** Pedido desde la operación. Medido antes de diseñar: el rol real es **`cajero` (32 usuarios activos)**, no `cajera` (el rol de SM.9 quedó con 0), y **`auxiliar_tienda` (4)** tiene exactamente los mismos permisos — captura arqueo y **no** revela el cuadre. Así que el corte se hace por **`revela`** (el mismo discriminante que ya separa a la encargada en todo el controlador), no por nombre de rol: cualquier rol futuro que capture sin supervisar queda cubierto solo. Del otro lado quedan `encargado_tienda` (9), `superadmin` (10) y `direccion` (1), que SÍ necesitan el historial para perseguir un descuadre viejo. **Tres piezas:** (1) `list()` y `historial()` recortan al día en SQL cuando `!revela` — y el `from`/`to` del cliente **se ignora**, porque esto no es un filtro de pantalla sino el límite de lo que se devuelve; (2) `/store/arqueo/por-cajera` **se niega con 403**, no se recorta: es el acumulado por cajera, o sea un historial, y a quien no supervisa no le sirve ni su propia fila (mismo patrón que `cumplimiento`); (3) la pestaña «Por cajera» y su ruta pasan a pedir `RECONCILIATION_VER` — pedían `STORE_ARQUEO_VER`, que **la cajera tiene** (es lo que le abre su propia pantalla), así que la pestaña se le mostraba; con un solo tab visible la barra se oculta sola. **La ventana son DOS condiciones unidas por OR, y la segunda no es de adorno:** el turno que cierra pasada la medianoche conserva el `business_date` del día que abrió, así que con `business_date = hoy` a secas la cajera guardaba su arqueo a las 00:30 y lo veía **desaparecer**; se agrega `OR captured_at >= <medianoche MX>`. La hora la pone la **DB** (`now() AT TIME ZONE 'America/Mexico_City'`), no el reloj de Node: el server puede estar en UTC y a las 19:00 de México ya sería mañana. El rótulo de la tarjeta cambia a «Tus cortes de hoy» porque el CONTENIDO cambió — decir «recientes» sobre una lista de un día le haría creer que perdió arqueos. **Hallazgo de paso:** ese controlador tenía un **byte NUL commiteado** dentro de un literal (`user?.username || '\u0000'`, donde los otros dos usos ponen `' '`); Postgres no admite NUL en `text`, así que un usuario sin username daba **500** en vez de lista vacía — `grep` lo delataba con «Binary file matches» y se había pasado por alto. También se borran 15 líneas de proyección que el 403 dejó inalcanzables. Smoke `http-store-arqueo-test` extendido de 47 a **56 checks, todos verde**, con las dos mitades de la ventana probadas por separado (el de hace 40 días NO aparece; el de ayer capturado hoy SÍ) y `from/to` explícitos comprobando que no la burlan. Trampas nuevas en `GOTCHAS §43` (nx desde un worktree compila el otro checkout **y sale verde** — me hizo perder media hora buscando el bug en mi código) y **§44** (el byte NUL). **Pendiente: PR + merge + redeploy api+view.** Sin migraciones ni permisos nuevos → **sin re-login**.
 - [x] **[SM.36]** 🔨 **Local 2026-09-20** — **El arqueo de las RUTAS (RD y RV).** Pedido de Edgar: dos pestañas más junto a Retiro · Cierre · Relevo, para que la encargada cuente el efectivo que le entrega el vendedor de ruta. **RD** = ruta de reparto / venta a bordo · **RV** = ruta vecinal / preventa. Hoy de esa entrega **no queda absolutamente nada registrado**. **Medido antes de diseñar:** las **24 rutas** del catálogo tienen tienda asignada en `commercial.route_warehouses`, así que el vínculo NO se inventa — se deriva cruzando con `analytics.v_route_warehouse`. Padre Hidalgo (01) concentra **7 RD** (21,22,23,26,27,28,29) **+ 2 RV**; Zamora Centro (05) 5 RD + 1 RV; La Piedad Abastos (02) sólo RVLPA01; Canindo (06) 501 y 502; MD-30 y MD-32 las de Morelia. ⭐ **El alcance por sucursal resuelve solo la ambigüedad del catálogo** que JZ.2 dejó abierta: `501`/`502` los reclaman ZAMORA y CANINDO y `VECINAL1` los dos Morelia, pero como la encargada sólo ve las de SU tienda nunca se le ofrecen las dos — no hubo que corregir el catálogo. ⛔ **Lo que esta entrega NO habilita, y se DECLARA: una diferencia.** El esperado de una caja sale de Kepler (`c15`); el de una ruta **no existe**: medido contra `analytics.v_route_sales_lines`, las filas vivas (`source='push'`) traen el **vendedor vacío** —el código ya lo decía: *"en RD la ruta ES el vendedor, Kepler no trae vendedor"*— y `forma_pago_credito`/`forma_pago_tarjeta` en **NULL**, así que no se puede separar el efectivo del crédito ni de la tarjeta. El conteo se guarda como **custodia** (quién entregó cuánto, con desglose por denominación y sello) y la diferencia sale `medible: false` / `motivo_no_medible: sin_esperado` — nunca dibujada en cero (ADR-056). Cuando aparezca la fuente del esperado entra por el mismo `cuadreTurno()` sin tocar la pantalla. **Permiso NUEVO `STORE_ARQUEO_RUTA_CAPTURAR`**, y es el corazón del pedido ("sólo encargadas y auxiliares"): medido en prod, `STORE_ARQUEO_CAPTURAR` lo tienen **5 roles** incluidos **`cajero` y `piso_tienda`**, así que colgarlo del permiso viejo habría dado la pestaña a toda la caja. Repartido por mig `20260920120100` **sólo** a `encargado_tienda` (5 activos) y `auxiliar_tienda` (3) — y la migración **declara en el log** a qué roles llegó, porque un UPDATE de 0 filas se lee igual que "ya estaba puesto". ⭐ **Endpoint APARTE (`POST /store/arqueo/ruta`), no un `tipo` más del `POST /`**: si fuera el mismo endpoint, cualquier cajera mandando `tipo:"rd"` pasaría la puerta vieja y el permiso nuevo sería decorativo. El backend además **revalida** que la ruta esté dada de alta en la sucursal del usuario — sin eso el alcance sería una sugerencia del frontend. Mig `20260920120000`: `tipo` gana `rd`/`rv`, columna **`route_code`** propia (⛔ NO se mete la ruta en `caja`, que significa "estación de cobro" — este repo ya pagó caro las columnas cuyo nombre miente), CHECK que ata `route_code` a esos dos tipos **en las dos direcciones**, y la **clave única gana la ruta**: sin eso Padre Hidalgo sólo podría arquear UNA ruta por día y la segunda pisaría a la primera en silencio (⚠️ el `ON CONFLICT` de `submit()` se movió en el mismo commit — GOTCHAS §50). Frontend: `tipoOptions` pasa a `computed` gateado por el permiso (sin él **la pestaña no se dibuja**, no sale deshabilitada invitando a pedirla), selector de ruta, y una tienda sin rutas **dice por qué** está vacía (el caso de 8ESQ hoy). `nx build api` + `nx build view` OK; `nx test view` **364 ✓ / 7 ✗**, y los 7 son de `landing-guards.spec.ts` (SN.4) **preexistentes** — verificado corriendo la suite con y sin mi cambio de `authz-tree`: idéntico. ⚠️ **`nx build view` NO detecta un tipo inexistente** (`RutaArqueo` sin importar compiló sin chistar, incluso con `--skip-nx-cache`): el gate es más débil de lo que aparenta. ⛔ **PENDIENTE Y DECLARADO: las 2 migraciones y el smoke `test-newdb-arqueo-rutas.js` (con 4 pruebas negativas y su control positivo) NO se han ejecutado contra ninguna DB** — el Docker local no está levantado (los contenedores se mudaron a `md` en la Fase VL) y `192.168.0.245` no responde desde esta máquina; la única alcanzable es prod y no se toca sin autorización. **Falta: correr migraciones + smoke + validación visual + redeploy api+view + re-login** (el permiso viaja en el JWT).
 - [x] **[SM.40]** 🔨 **Local 2026-09-29** — **El arqueo deja de tener horario: Kepler avisa al abrir y ya nada bloquea.** Reportado en vivo: *"hicieron dos cortes de caja y se les bloqueó, o sea que ya no los deja hacer más cortes y aún no se le acaba el turno a la cajera"*. ⭐ **La causa inmediata era otra y se midió antes de tocar código: la ingesta llevaba 6 días caída** — último latido de todo lo que corre en `md` el **23/09 10:16** (148 h), `kepler_ods.kdpv_folio_caja` **sin una sola fila del 24 al 29**, y sólo vivos los dos carriles de Wincaja que corren en `.249`. El turno de hoy de la cajera existía en Kepler y para la app no existía. **Pero lo que convirtió un atraso de datos en un mostrador parado fueron tres candados cuya única llave está del otro lado del ODS**, y eso sí es nuestro. Medido en prod: **25 cajeras** con su turno congelado "abierto" el 23/09; **`C01` con bloqueo duro literal** (suc 07 caja 1 + suc 08 caja 1 el mismo día) y un mensaje que le pedía cerrar en Kepler algo que ya había cerrado; y **4 cajeras activas trabadas por la regla de orden** — `40VMC` desde el **31 de enero (235 días)** — cuya única salida era capturar un conteo falso. **Se van los tres:** `exigirElMasViejo()` (SM.16, los cortes en orden — se apoyaba en que el turno viejo se puede cerrar, y `turnosPendientes` deja entrar SIEMPRE los abiertos sin importar la fecha por la excepción de SM.37, así que un turno que nadie va a cerrar quedaba clavado primero para siempre); `exigirUnaSolaCaja()` (SM.38, el 409 — **la detección se queda** y pasa a ser un aviso al lado de la captura, que sigue habilitada); y **la ventana del día** (`TURNOS_DIAS_CAJERA = 0` más el tope que impedía ampliarla → una sola ventana para cajera y supervisor, 7 días con tope 30). Además **el turno deja de ser obligatorio para capturar**: sin turno se cuenta igual y el arqueo queda **sin folio**, o sea `matched: false` y visible como tal — un conteo que no cuadra vale muchísimo más que ningún conteo. **Lo que se agrega es el único aviso que pidió Edgar:** `avisarAperturas()` + `motivo: 'apertura'` — cuando Kepler abre la caja llega *"Tu caja está abierta — podés arquear cuando quieras, no hay horario"*. Ventana de **14 h por la vida del EVENTO, no por la persona**: sin ese corte avisaría para siempre sobre los 25 turnos colgados (uno abierto desde enero) y se aprendería a ignorarlo — la lección de VL.4b. ⚠️ **Lo que NO se toca, a propósito: el arqueo ciego** (la cajera sigue sin ver el esperado ni la diferencia), **`atribuir()`** (el conteo queda a su nombre, y en la captura sin turno el campo de cajero es **de sólo lectura** para quien no supervisa — un campo editable que el servidor descarta en silencio miente) **y el alcance por sucursal**. Quitar los candados de horario no es quitar la identidad del conteo. **Pruebas:** `tienda-arqueo.component.spec.ts` **NUEVO** (4 casos) — el componente que maneja efectivo era el único de su carpeta sin spec, y cada caso es uno de los candados escrito como la situación que lo disparaba en prod; **PRUEBA NEGATIVA corrida**: con el `[disabled]="i > 0"` de vuelta el caso de los turnos se pone rojo (1 de 2 pulsables) y sin él verde. `test-newdb-doble-caja.js` **6/6** (el predicado no cambió, sí su consecuencia: se actualiza el vocabulario para que el test no afirme un bloqueo que ya no existe). `nx build api` + `nx build view` + `nx test view` OK — los 2 fallos de `etiquetas-precio-vivo` son **preexistentes de otra rama**, verificado revirtiendo mi cambio. Gates locales verdes (`check:templates`, `check-provenance`, `lint-boundary-gate` sólo marca archivos ajenos sin commitear). **De paso:** el banner usaba `var(--danger-fg, ...)`, **un token que NO existe en `tokens.css`** — siempre caía al literal y no cambiaba en modo oscuro; ahora usa `--warn-fg`, que sí está declarado y además es el tono correcto. **Sin migraciones ni permisos → sin re-login. Pendiente: redeploy api+view + validación visual.** ⛔ **Lo que este PR NO arregla y sigue abierto: la ingesta caída.** Mientras `md` no vuelva, la pantalla puede capturar pero el turno de hoy no aparece — el arreglo es operativo, no de código.
+- [ ] **[SM.55]** 🧪 **Local 2026-11-24** — **Retiros por revisar: emparejar el total de retiros de la Suite con el de Kepler (/tienda/arqueo/revision).** Pedido de David (2026-11-23: revisa la encargada de la sucursal; 2026-11-24: la primera versión —4 contadores, 3 vistas, causa/acción/cierre/firma— abrumaba; **la meta es emparejar Suite ↔ Kepler**). **Medido en prod (solo lectura, 1–22 nov):** 94 de 749 turnos cerrados con retiros de Kepler sin contar completos en la Suite (57 sin ninguno; en 51 de esos tampoco se contó el cajón), 280 sin cajón contado; /almacen/cuadre tiene 2,591 hallazgos de caja con 0 respuestas; Validar arqueo 0/1,309. **Qué ve la encargada (versión simple):** pestaña «Retiros por revisar N» (N = turnos cuyos retiros no empatan y nadie explicó; RECONCILIATION_VER: encargado_tienda sí, cajero no — medido en prod) → arriba **Kepler · Suite · Diferencia** (neta en grande; abajo cuánto no empata SIN signo, para que un + no esconda un −) → una lista por cajera (mayor descuadre primero) con sus totales y sus turnos siempre visibles, cada uno con Kepler/Suite/Diferencia y «Justificar» → panel: lectura en llano + causa del catálogo + nota (≥10). El **cajón sin contar** va como una línea por cajera («Además, N cierres sin contar el cajón · Ver su historial»), **no se justifica**. Si la cajera cuenta tarde y empata, el turno sale solo. Se queda aparte de «Por cajera» (historial; esa pestaña liga conteos con su propia regla `porCajera` y no con `armarCajasDelDia`: deuda con nombre). **C1:** turno-revision.ts — el estado es el de los RETIROS (`MOTIVOS_RETIROS`, `descuadraRetiros`), totales por cajera y `totalesRetiros`, todo sobre armarCajasDelDia (SM.48). **C2:** GET /store/arqueo-revision (+ /resumen, + `totales`), POST / (causa: solo turnos con retiros que no empatan); /accion y /dia se conservan en el servidor, fuera de la pantalla. Todo en el motor de hallazgos (ADR-056): reglas turno_sin_verificar y dia_revisado registradas APAGADAS, status confirmado/corregido (fuera de la bandeja) + discrepancy_feedback (historial). **Sin migración ni permiso nuevo.** **Pruebas:** turno-revision.spec.ts 24 (rota a propósito → 4 rojas) · test-newdb-arqueo-revision.js 40 ✓ contra base real con los payloads de la pantalla, filas leídas, negativas (incluye justificar un turno con SOLO el cajón sin contar → rechazado; encontró now() = misma hora en una transacción → clock_timestamp()) · component spec 8 (rota a propósito → roja) · check:pantalla Retiros por revisar 0 fallas · tsc sin errores en los archivos tocados. **NO MEDIDO:** 403 por HTTP, validación visual en navegador, arranque de la API en CI, latencia del GET en la API (2 consultas por día). **Pendiente:** el aviso en /tienda/arqueo (archivo con cambios de otra sesión), avisar a Edgar (toca SM.34 y su motor), mergeo del PM y despliegue, medir en 2 semanas la diferencia neta por sucursal y el % de turnos explicados al día siguiente. Doc: docs/MODULOS/tienda-arqueo-revision-de-turnos.md.
 - [ ] **[SM.54]** 🧪 **Local 2026-11-23** — **La cajera reimprime el ticket de sus arqueos de HOY («Tus arqueos de hoy»).** Pedido de la jefa de zona; revierte en parte SM.51, que le quitó todo historial. **D1 (David):** solo los suyos, no los de sus compañeras. **Qué cambia (solo pantalla):** para quien no valida sale, debajo del conteo, hora · tipo · caja · contado · Reimprimir; sin esperado ni diferencia, sin buscador; sin arqueos no se dibuja; si la lista falla, aviso + Reintentar. El recorte «suyos + hoy» ya lo hacía el servidor (SM.33: cajero_code = usuario y solo_hoy en GET /store/arqueo); se reusan rows() y reimprimir() que SM.51 dejó sin dibujar. **Pruebas:** 4 en tienda-arqueo.component.spec.ts (sus 2 arqueos y Reimprimir manda ESE; sin arqueos no hay sección; NEGATIVA: error → aviso y reintento; quien valida no la ve), rotas a propósito → 2 rojas · tienda 486/486 · check:pantalla 0 nuevas (O.4 deja de fallar en tienda-arqueo) · check:templates y check:estilos verdes. **NO MEDIDO:** qué cajeras de prod tienen STORE_ARQUEO_CAPTURAR sin STORE_ARQUEO_VER (las migraciones los dan juntos; sin VER la lista daría 403 y verían el aviso de error). **Visto en local 2026-11-23** como cajera (10c02) desde el menú: escritorio en tabla; a 500 px se apila con .dt-stack (antes la tabla base daba 120 px por columna y escondía «Contado» tras un scroll, y width:1% dejaba el botón fuera de vista); Reimprimir sacó el ticket del renglón correcto marcado REIMPRESION y sin esperado. Las filas fueron SIMULADAS en el navegador: en la base local /users/me/scope y /store/arqueo dan 500 y la pantalla mostró el aviso de error, como debe. Causa medida (solo lectura, base local): la base local va atrasada — a trade.zones le falta la columna kind (ZN.0) y no existe analytics.v_pos_cashiers (CANON.6.1); ajeno a este cambio. Sin servidor ni migraciones. **PR abierto 2026-11-23.**
 - [ ] **[SM.53]** 🧪 **Local 2026-11-11** — **«Sucursales y sus cajas»: Ruta Directa, Ruta Vecinal y Conteos de efectivo, cada una en su sección y con su total.** Pedido de la operación: los conteos de rutas salían mezclados con el conteo de efectivo en una sola lista («Rutas y conteos de efectivo (sin caja)»), sin total. **Qué cambia (solo pantalla, el servidor ya mandaba los datos):** debajo de las cajas de cada sucursal salen tres secciones fijas, en este orden: **Ruta Directa**, **Ruta Vecinal** y **Conteos de efectivo**. Cada una dice cuántos conteos y su total, y lista cada conteo por hora (ruta, quién, monto, reimprimir). Una sección sin conteos se ve con «Sin conteos.» (no se dibuja un $0). Un tipo desconocido no se pierde: cae en Conteos de efectivo. Sigue la nota de que no suman a ninguna caja ni cuadre. **Pruebas:** 2 nuevas en `arqueo-cajas.component.spec.ts` (orden RD → RV → efectivo con su total y las vacías con «Sin conteos»; agrupa y suma por tipo con montos en texto, NEGATIVA: un RD no cae en RV y un tipo raro se conserva) · tienda 468/468 · `check:pantalla` barrido 0 nuevas · `check:templates` y `check:estilos` verdes. Visto en local con datos simulados en el navegador. Sin servidor ni migraciones.
 - [ ] **[SM.51]** 🔨 **Local 2026-11-05** — **La cajera escribe SU caja; fuera la lista de turnos, los avisos y su historial.** Pedido de la operación. **Medido en prod (solo lectura):** la lista «Tienes N cortes sin arquear» le mostraba a 48 cajeras 159 cortes, **132 de días anteriores** (hasta 11 por cajera), con avisos de cajas abiertas de otros días y el recuadro de «lo que toca» antes de la primera casilla. **Qué cambia (solo pantalla):** (1) la captura queda siempre con caja: la cajera la escribe y el equipo la recuerda por sucursal (localStorage; la de otra tienda no se arrastra). El arqueo **se guarda con esa caja**: ya no se preselecciona un turno de Kepler ni viaja su folio; el servidor ya lo liga por detrás por caja + hora (SM.48). (2) Se quitan la lista de turnos, el aviso de dos cajas / de días anteriores, el aviso de dato viejo de esa lista y el recuadro de «lo que toca». (3) La cajera ya no tiene historial («Tus cortes de hoy» y su buscador): sólo quien valida lo ve («Sucursales y sus cajas»). Incluye a SM.50. **Pendiente con nombre (SM.52):** el selector con las cajas que Kepler usó en la sucursal necesita un endpoint nuevo; va en su propio PR. ⚠️ **Cambios de comportamiento:** la cajera ya no reimprime arqueos anteriores (sólo al guardar); el menú ya no se pone solo en «Retiro de caja» cuando Kepler pide la sangría. `check:pantalla`: se sella O.4 en esta pantalla (queda la `<table>` del diálogo de confirmación, resumen de solo lectura). **Deuda con nombre:** funciones sin uso en el componente (lista de turnos, buscador, detalle del historial). **Pruebas:** pantalla 6 nuevas (se guarda con la caja escrita y sin folio; sin caja no se guarda; recuerda la caja; la de otra sucursal no se arrastra; con turnos y avisos en la respuesta no aparece nada ni se preselecciona turno; la cajera sin historial), mutadas a rojo · tienda 487/487 · compuertas verdes. Sin servidor ni migraciones.
