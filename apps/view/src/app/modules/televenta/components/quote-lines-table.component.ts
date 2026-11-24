@@ -232,11 +232,13 @@ export interface CambioCantidad {
                   (focus)="$any($event.target).select()"
                   [attr.inputmode]="r.admiteFraccion ? 'decimal' : 'numeric'"
                   [disabled]="bloqueado()"
-                  [attr.aria-label]="'Cantidad del renglón ' + r.numero"
+                  [attr.aria-label]="'Cantidad del renglón ' + r.numero + (r.unidad ? ', en ' + r.unidad : '')"
                 />
+                <!-- [COT.56] La unidad junto al número: «3 CJA» y no sólo «3», para no confundir cajas con paquetes. -->
+                @if (r.unidad) { <span class="qty-unidad" aria-hidden="true">{{ r.unidad }}</span> }
               </div>
             } @else {
-              {{ r.cantidad }}
+              <span class="qty-fija">{{ r.cantidad }}</span>@if (r.unidad) {<span class="qty-unidad">{{ ' ' + r.unidad }}</span>}
             }
           </td>
           <td class="num dt-num" role="cell" data-label="Existencia hoy">
@@ -252,13 +254,20 @@ export interface CambioCantidad {
           <td class="num dt-num" role="cell" data-label="Precio">
             @if (r.precio !== null) {
               <div class="p-unit-cell">
-                <span class="p-unit-main">{{ r.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                @if (r.desglose.length) {
-                  <span class="p-unit-sub-breakdown">(@for (p of r.desglose; track p.unidad; let ultimo = $last) {<span>{{ p.cantidad }} {{ p.unidad }} {{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>@if (!ultimo) { · }})</span>
-                }
-                <!-- [COT.43] Lo que paga el cliente por unidad con el % del cliente ya aplicado (importe neto ÷ cantidad). -->
+                <!-- [COT.56] El precio YA con descuento es lo primero que se lee, más grande y en negritas
+                     (pedido de quien cotiza). Con % de cliente es el neto por unidad (importe neto ÷
+                     cantidad, COT.43) y abajo va el de Kepler antes del %, como en la columna Importe. -->
                 @if (netoUnidad(r); as nu) {
-                  <span class="p-neto">Con −{{ clientePct() }} %: <strong>{{ nu.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong>@if (r.unidad) { {{ r.unidad }}}@for (p of nu.pasos; track p.unidad) { · {{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }} {{ p.unidad }}}</span>
+                  <span class="p-unit-main p-con-dto">{{ nu.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (r.unidad) {<span class="p-uni">{{ ' ' + r.unidad }}</span>}</span>
+                  @if (nu.pasos.length) {
+                    <span class="p-unit-sub-breakdown">(@for (p of nu.pasos; track p.unidad; let ultimo = $last) {<span>{{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }} {{ p.unidad }}</span>@if (!ultimo) { · }})</span>
+                  }
+                  <span class="imp-antes">{{ r.precio | currency:'MXN':'symbol-narrow':'1.2-2' }} <span class="junto">− {{ clientePct() }} % cliente</span></span>
+                } @else {
+                  <span class="p-unit-main p-con-dto">{{ r.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (r.unidad) {<span class="p-uni">{{ ' ' + r.unidad }}</span>}</span>
+                  @if (r.desglose.length) {
+                    <span class="p-unit-sub-breakdown">(@for (p of r.desglose; track p.unidad; let ultimo = $last) {<span>{{ p.cantidad }} {{ p.unidad }} {{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>@if (!ultimo) { · }})</span>
+                  }
                 }
               </div>
             } @else {
@@ -368,12 +377,20 @@ export interface CambioCantidad {
       .p-unit-main { font-weight: 700; }
       .p-unit-sub-breakdown { font-size: var(--fs-micro); color: var(--text-muted); font-weight: 500; }
       .imp-antes { display: block; font-size: var(--fs-micro); color: var(--text-muted); white-space: normal; }
-      /* [COT.43] El neto por unidad: debajo del desglose, mismo tamaño, el precio en el color del texto principal. */
-      .p-neto { display: block; font-size: var(--fs-micro); color: var(--text-muted); white-space: normal; }
-      .p-neto strong { color: var(--text); font-weight: 600; }
+      /* [COT.56] El precio ya con descuento: más grande y en negritas (16 px sobre la celda de 13). */
+      .p-con-dto { font-size: var(--fs-h3); font-weight: var(--fw-black); color: var(--text-main); font-variant-numeric: tabular-nums; }
+      .p-uni { font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--text-muted); }
       .imp-antes .junto { white-space: nowrap; }
-      .inline-qty-box { display: flex; justify-content: flex-end; }
-      .qty-inline { width: 4rem; text-align: right; font-variant-numeric: tabular-nums; }
+      .inline-qty-box { display: flex; justify-content: flex-end; align-items: center; gap: var(--sp-1); }
+      /* [COT.56] La cantidad remarcada: número en negritas y recuadro de 2 px (rojo al escribir, como el buscador). */
+      .qty-inline {
+        width: 4.25rem; text-align: right; font-variant-numeric: tabular-nums;
+        font-size: var(--fs-body); font-weight: var(--fw-black); color: var(--text-main);
+        border-width: 2px; border-color: var(--text-muted);
+      }
+      .qty-inline:focus { border-color: var(--action); }
+      .qty-fija { font-weight: var(--fw-black); color: var(--text-main); }
+      .qty-unidad { font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--text-main); }
       .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
     `,
   ],

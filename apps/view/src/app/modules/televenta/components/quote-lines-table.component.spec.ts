@@ -190,3 +190,37 @@ describe('[COT.47] buscar, filtrar y ordenar los renglones', () => {
     expect(el.querySelector('#renglon-x0')).not.toBeNull();
   });
 });
+
+describe('[COT.56] lo importante se ve: precio con descuento y cantidad con su unidad', () => {
+  function montar(r: RenglonTabla, clientePct: number | null) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ imports: [QuoteLinesTableComponent], providers: [provideZonelessChangeDetection()] });
+    const f = TestBed.createComponent(QuoteLinesTableComponent);
+    f.componentRef.setInput('renglones', [r]);
+    f.componentRef.setInput('clientePct', clientePct);
+    f.detectChanges();
+    return f.nativeElement as HTMLElement;
+  }
+  const texto = (e: Element | null | undefined) => (e?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  it('con % de cliente, lo grande es el precio que paga (neto por unidad) y abajo el de antes del %', () => {
+    const el = montar({ ...PEELERZ, neto: 724.42 }, 2);
+    const celda = el.querySelector('td[data-label="Precio"]');
+    expect(texto(celda?.querySelector('.p-con-dto'))).toBe('$724.42 CJA');
+    expect(texto(celda?.querySelector('.imp-antes'))).toBe('$739.20 − 2 % cliente');
+  });
+
+  it('sin % de cliente, lo grande es el precio del renglón (ya con mayoreo o promoción)', () => {
+    const el = montar(PEELERZ, null);
+    expect(texto(el.querySelector('td[data-label="Precio"] .p-con-dto'))).toBe('$739.20 CJA');
+    expect(el.querySelector('td[data-label="Precio"] .imp-antes')).toBeNull();
+  });
+
+  it('la cantidad dice su unidad, editable o no (3 CJA, no sólo 3)', () => {
+    const fija = montar({ ...PEELERZ, cantidad: 3 }, null);
+    expect(texto(fija.querySelector('td[data-label="Cantidad"]'))).toBe('3 CJA');
+    const editable = montar({ ...PEELERZ, cantidad: 3, editable: true }, null);
+    expect(texto(editable.querySelector('td[data-label="Cantidad"] .qty-unidad'))).toBe('CJA');
+    expect(editable.querySelector('input.qty-inline')?.getAttribute('aria-label')).toBe('Cantidad del renglón 1, en CJA');
+  });
+});
