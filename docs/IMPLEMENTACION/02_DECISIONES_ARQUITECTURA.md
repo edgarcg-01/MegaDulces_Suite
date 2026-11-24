@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 522 KB, 4877 líneas, 126 secciones.
+> **Índice navegable** — 522 KB, 4880 líneas, 126 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -130,9 +130,9 @@
 | 4672 | 4742 | 5 | ADR-122 — La versión que ve una persona es «producto · fecha», el commit queda para las máquinas, y el estado  |
 | 4743 | 4783 | 2 | ADR-123 — JIT apagado para la app (`app_runtime`), no consulta por consulta |
 | 4784 | 4830 | 3 | ADR-124 — Mesa de Servicio: quién levanta, el dictamen y la orden de servicio se configuran POR COLA; la orden |
-| 4831 | 4884 | 4 | ADR-125 — Caducidades: FEFO se alimenta en la unidad BASE del producto con el factor de su presentación en la  |
-| 4885 | 4918 | 2 | ADR-126 — El catálogo de conceptos de Kepler se administra desde la Suite sin copiarlo (propuesto, 2026-11-22) |
-| 4919 | 5015 | 7 | ADR-127 — El pedido de sucursal lo decide la sucursal y la Suite lo ESCRIBE en Kepler como `U-D-40`; el pedido |
+| 4831 | 4887 | 5 | ADR-125 — Caducidades: FEFO se alimenta en la unidad BASE del producto con el factor de su presentación en la  |
+| 4888 | 4921 | 2 | ADR-126 — El catálogo de conceptos de Kepler se administra desde la Suite sin copiarlo (propuesto, 2026-11-22) |
+| 4922 | 5018 | 7 | ADR-127 — El pedido de sucursal lo decide la sucursal y la Suite lo ESCRIBE en Kepler como `U-D-40`; el pedido |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4830,7 +4830,7 @@ que ADR-081 evitó; trasladar el ticket (MS.7.11) le quitaría a Presupuestos la
 
 ## ADR-125 — Caducidades: FEFO se alimenta en la unidad BASE del producto con el factor de su presentación en la plaza; sin factor no se alimenta y el renglón dice por qué
 
-**Fecha:** 2026-11-20 · **Estado:** ⏳ propuesto · **Fase:** FEFO / P2.9 paso 4 · **Extiende:** ADR-022 (FEFO), ADR-056 (verdad y procedencia) ·
+**Fecha:** 2026-11-20 · **Estado:** ✅ Aceptado — en prod desde el 2026-11-21 (PR #593, fusionado por Edgar; migración batch 1233) · **Fase:** FEFO / P2.9 paso 4 · **Extiende:** ADR-022 (FEFO), ADR-056 (verdad y procedencia) ·
 **Decisión de negocio:** D4 del PM, 2026-10-19 («FEFO sólo cuando la unidad sea convertible, en un PR aparte»: *«Así está bien.»*,
 [FASE_FEFO_CADUCIDAD](FASES/FASE_FEFO_CADUCIDAD.md) §P2.9) · **Mide:** prod, sid `7688376744939610156`, sólo lectura
 
@@ -4878,6 +4878,9 @@ cuando la del almacén no publica el SKU; (d) cambiar `fefo_qty` a la base (romp
 - Prueba de pantalla en local (2026-11-21, API y pantalla de la copia contra `:5442`, **antes** de fusionar CANON.7.4c): caja,
   pieza de escalera, kg parcial, sin presentaciones y sin clave dicen lo correcto al guardar y en la hoja impresa. No se
   repitió en pantalla después de la fusión.
+- **Después, en prod (2026-11-24, sólo lectura):** 38 renglones con el código nuevo (5 sucursales): 29 fecharon todo, 4
+  parcial, 5 sin existencia sin fecha, 0 por la unidad o sin clave; 8 en una presentación con factor fecharon 768 unidades
+  base de 75 capturadas (antes, 75).
 - Pantalla: la negativa (la frase «no hay existencia sin fecha» ya no sale si el motivo es el factor) da 3 rojos con el código viejo.
 
 ---

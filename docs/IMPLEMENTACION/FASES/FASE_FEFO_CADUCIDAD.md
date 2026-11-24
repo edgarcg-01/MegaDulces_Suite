@@ -162,7 +162,7 @@ Un código sin match también pasa al paso 2 (la hoja acepta el renglón raw, re
 
 ### P2.9 — Unidades de medida de la captura: pieza · paquete · caja · bulto · kg · bolsa de 250 g · bolsa de 500 g (2026-10-19)
 
-> **Estado (2026-11-20): paso 0 ✅ medido · pasos 1 y 2 ✅ (en prod desde el 2026-11-04, PR #484; uso real medido, §4e; métrica re-medida: 24 de 25 = 96 %, §4f) · paso 3 🚀 en prod (PR #511, fusionado el 2026-11-08) · paso 4 🧪 en PR (FEFO en la unidad base, §4f, ADR-125).** Antes: ⬜ decisiones tomadas el 2026-10-19. Pedido del PM: *«en el módulo de caducidades necesitamos agregar las unidades de medida: pieza, paquete, caja, bulto, kilogramo, 250 gr y 500 gr»*. El PM contestó D1–D6 (§3); lo que sigue en §4 puede empezar, salvo el paso 0 (necesita la cuenta de sólo lectura de prod).
+> **Estado (2026-11-24): paso 0 ✅ medido · pasos 1 y 2 ✅ (en prod desde el 2026-11-04, PR #484; uso real medido, §4e; métrica re-medida: 24 de 25 = 96 %, §4f) · paso 3 🚀 en prod (PR #511, fusionado el 2026-11-08) · paso 4 ✅ en prod desde el 2026-11-21 (PR #593; FEFO en la unidad base, §4f, ADR-125; el «después», medido).** Antes: ⬜ decisiones tomadas el 2026-10-19. Pedido del PM: *«en el módulo de caducidades necesitamos agregar las unidades de medida: pieza, paquete, caja, bulto, kilogramo, 250 gr y 500 gr»*. El PM contestó D1–D6 (§3); lo que sigue en §4 puede empezar, salvo el paso 0 (necesita la cuenta de sólo lectura de prod).
 
 ```
 OBJETIVO:  que quien captura una caducidad pueda decir en qué unidad la contó, y que se guarde ESA y no otra
@@ -279,7 +279,7 @@ Misma pregunta que el paso 0 (¿la unidad capturada es una que el producto tiene
 - **No medido:** la fecha exacta en que el paso 3 llegó a prod; por eso no se sabe cuáles de los 4 renglones posteriores al 2026-11-08 pasaron ya por el selector filtrado.
 - Siguen: el **paso 4** (FEFO con conversión; la escalera llega sin factor, §4d) y el hallazgo del campo de código que recibe nombres (§4d).
 
-#### 4f. Paso 4 — FEFO en la unidad base (2026-11-20, 🧪 en PR; ADR-125)
+#### 4f. Paso 4 — FEFO en la unidad base (2026-11-20; ✅ en prod desde el 2026-11-21, PR #593; ADR-125)
 
 **Medido antes (C0, prod, cuenta `sistemas` de sólo lectura, `system_identifier` 7688376744939610156, 2026-11-20).** Cada renglón se clasificó contra `analytics.v_label_presentations` de **su** plaza:
 
@@ -323,8 +323,22 @@ Misma pregunta que el paso 0 (¿la unidad capturada es una que el producto tiene
 
 En los cuatro productos, la suma de los lotes es igual a la existencia. Los servidores se apagaron al terminar.
 
+**Medido después en prod (2026-11-24, cuenta `sistemas` de sólo lectura, `system_identifier` verificado).** La migración se aplicó el 2026-11-21 (batch 1233, después del merge de #593 y antes de soltar); el primer renglón escrito por el código nuevo es del 2026-11-23. Con la misma clasificación de arriba:
+
+| Renglones con el código nuevo (23 y 24-nov, 5 sucursales) | Renglones |
+|---|---:|
+| fecharon todo | 29 |
+| parcial (`existencia_sin_fecha_insuficiente`) | 4 |
+| no fecharon: `sin_existencia_sin_fecha` | 5 |
+| no fecharon por la unidad o por no tener clave de Kepler | **0** |
+| **Total** | **38** |
+
+- **8 renglones en una presentación con factor fecharon 768 unidades base de 75 capturadas.** Antes del paso 4 habrían fechado 75: es la corrección que pedía D4, ya en la operación.
+- Ninguno cayó en un motivo de unidad: en estos dos días, toda captura fue en una unidad con factor en su plaza (métrica de P2.9: 38 de 38). Los 9 que no fecharon todo fue por la existencia sin fecha de Kepler (CANON.7.4c), no por la conversión.
+- Un renglón más, del 2026-11-21 a las 18:41 UTC, es anterior a la migración y quedó como se fechaba antes.
+
 **No medido / pendiente:**
-- **El «después» en prod** (criterio de cierre): lo que entra a FEFO con las capturas nuevas, con la misma clasificación. Se mide cuando el paso 4 esté en prod.
+- ~~**El «después» en prod**~~ **medido (2026-11-24):** ver la tabla de arriba.
 - ~~**Arranque de la API**~~ **medido (2026-11-21):** la API de la copia arrancó con el código **anterior a la fusión** («Nest application successfully started») contra `:5442`. Con el código fusionado **no se re-midió**: la fusión no toca constructores ni decoradores (`lotes-declarados` son funciones, no un proveedor), y ese import ya arranca en `main`.
 - **`[P2.9.4.D1]` — decisión del PM:** los **113** renglones viejos (47 convertibles + 66 en unidad ajena) siguen fechados tal cual. Reconvertirlos movería lotes que ya se consumieron en parte. Opciones: no tocarlos (recomendado: son de oct-nov y su caducidad ya pasó o está cerca), o un ajuste puntual por sucursal.
 - **Equivalencias «esto son N …»** (opcional en el plan): no se construyeron. Con `fefo_factor` guardado, la hoja podría decir «3 cajas = 72 paquetes». Queda para cuando el PM lo pida.

@@ -84,7 +84,7 @@
 - En pantallas táctiles el buscador dice «Código de barras, SKU o nombre», el teclado muestra «Buscar» y ya no aparecen los atajos de teclado (Alt, Ctrl y flechas no existen en el celular).
 - En computadora no cambia nada.
 
-### Fixed — Caducidades: lo capturado entra al control de caducidad en la unidad del inventario (P2.9 paso 4 · 2026-11-20)
+### Fixed — Caducidades: lo capturado entra al control de caducidad en la unidad del inventario (P2.9 paso 4 · 2026-11-20 · en producción desde el 2026-11-21, #593)
 - Una caducidad capturada en cajas fechaba en el inventario el mismo número, pero en paquetes o piezas: 3 cajas de 24 paquetes fechaban 3 paquetes. Ahora fecha 72, con el factor de la presentación en Kepler de esa sucursal. En el historial, 47 renglones fecharon 1,248 unidades donde eran 24,365.
 - Si Kepler no dice cuánto trae esa unidad (la pieza de la escalera de mayoreo, una unidad que el producto no tiene, un producto sin presentaciones), la caducidad se guarda pero no se fecha en el inventario, y la pantalla dice por qué en vez de «no hay existencia sin fecha».
 - La hoja impresa y el expediente siguen diciendo la cantidad en la unidad capturada («3 cajas»).
