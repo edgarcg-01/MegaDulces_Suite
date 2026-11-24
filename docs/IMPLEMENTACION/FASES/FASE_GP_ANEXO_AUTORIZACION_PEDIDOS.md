@@ -666,14 +666,35 @@ de E4.
 | 3 | Llave `FINANCE_PEDIDOS_AUTORIZAR` | ✅ repartida: `credito_cobranza` + `superadmin` (regla 20) | — |
 | 4 | **Permiso en Kepler (GP.A.0d)** | ✅ **aplicado el 2026-11-24 en 8 de 9** (Edgar autorizó; corrido desde `md` con `KSU=sa`). Verificado con el testigo independiente —`kepler_push` preguntándose a sí mismo— y no con la comprobación del propio script: `has_column_privilege(… 'c11','UPDATE')` da `true` en 01, 02, 03, 04, 05, 06, 07 y 08. ⚠️ **CEDIS (00) quedó fuera**: su `pg_hba` no tiene línea para `sa` desde `md` («sin cifrado»). **No bloquea nada**: CEDIS tiene **0 pedidos por autorizar y 2 TELEMARK en 90 días** (medido el 2026-11-24) | — (CEDIS: higiene, cuando haya ventana con quien administra Kepler) |
 | 5 | Ensayo con ROLLBACK en el Kepler vivo | ✅ **corrido el 2026-11-24** sobre Morelia Abastos, pedido `08-1-0001473`: `permiso_c11 = true`, el `UPDATE` tocó **1 fila**, `CREADO → AUTORIZADO`, `deshecho: true`, y el control cerró con **estatus antes = después = CREADO**. El carril de escritura funciona de punta a punta sin haber escrito nada | — |
-| 6 | `KEPLER_AUTORIZACION_PEDIDOS=encendida` | ⬜ **la bandera no existe** en los secretos de k3s (`prod-env`/`kepler-push`) | el PM, igual que `KEPLER_GASTO_AUTORIZACION` en PGP.79: va en el secreto `prod/kepler-push` (ningún manifiesto lo define, así sobrevive a `aplicar-k3s-prod.sh`) y después `rollout restart deploy/api`. ⛔ Nunca `--from-env-file`: ese secreto tiene llaves que su maestro no |
-| 7 | Interruptor por sucursal (`kepler_push_switch`, tipo `autorizacion`) | ⬜ **9 de 9 apagados, sin tope** | el PM decide la sucursal piloto; encender = se puede **a mano**. El automático pide además un **tope del día** (D-A14) |
+| 6 | `KEPLER_AUTORIZACION_PEDIDOS=encendida` | ✅ **encendida el 2026-11-24** en el secreto `prod/kepler-push` con `kubectl patch --type=merge` (54 → 55 llaves, ninguna perdida) y `rollout restart deploy/api`: 2 réplicas con `maxUnavailable: 0`, **sin corte de servicio**. Verificado dentro del pod (`printenv`) y con `/api/health` | — |
+| 7 | Interruptor por sucursal (`kepler_push_switch`, tipo `autorizacion`) | ✅ **Morelia Abastos encendida el 2026-11-24**, y sólo ella (la transacción revierte si no queda exactamente una). `tope_dia` queda NULL a propósito: habilita autorizar **a mano**, no el automático | — (las demás, cuando el piloto rinda) |
 
-**Qué pasa hoy, con 6 y 7 cerrados** (4 y 5 se abrieron el 2026-11-24): Crédito y cobranza ya puede **rechazar**
-con motivo (no toca Kepler) y lo rechazado sale de su lista (GP.A.4b); **Autorizar** sigue apagado, y el servidor
-corta en el candado 7 —antes de insertar nada— con «Autorizar desde la Suite está apagado en esta sucursal».
-Al abrir 6 y 7 en una sucursal, autorizar a mano empieza a escribir `kdm1.c11`. El automático es lo último, y
-pide GP.A.3 (el disparo por evento), que **no está construido**.
+### 5c. ⭐⭐ La primera autorización real desde la Suite — 2026-11-24, 10:11 (Morelia Abastos)
+
+**Los siete candados se abrieron el mismo día** y el Paso 1 pasó de «construido» a **operando en una sucursal**.
+La primera decisión la tomó el PM desde la pantalla de prod, sobre el pedido `08-1-0001642` ($3,605.63, llegado
+ese día), elegido por él como canario: excede el límite **por poco** y el cliente paga **a 13 días con plazo de
+15**, con peor atraso de 5.
+
+**Lo que se verificó, y con qué testigo** (ninguno es «lo que dijo la pantalla»):
+
+| Qué | Testigo | Resultado |
+|---|---|---|
+| El panel no miente al sumar | aritmética sobre lo que publica | por cobrar + este pedido − límite = **el excedente que rotula**, al centavo |
+| Nació la fila de la bitácora | `finance.order_authorizations` leída aparte | 1 fila: `autorizar` · estado **`escrito`** · `kepler_resultado.estado` = `escrito` · `automatica: false` · con motivo y autor |
+| El pedido cambió **en Kepler** | `kepler_ods.kdm1` (réplica del vivo), no la respuesta del `POST` | `c11` = **`AUTORIZADO`** |
+| Salió de la bandeja | conteo de `CREADO` en la sucursal | 9 → **8** |
+| El interruptor acota de verdad | el panel, al avanzar al pedido siguiente | en otra sucursal aparece «Autorizar desde la Suite está apagado en …», con Rechazar sí disponible — **la prueba negativa, sin montarla** |
+
+⭐ **Con esto se cierra el hueco de la regla 13**: el endpoint que escribe quedó ejercido contra base real, con el
+payload de la pantalla, y la bitácora dejó de tener cero filas. Hasta ese momento «cero filas» era indistinguible
+de «nadie lo usa» — y de hecho **nadie había abierto la pantalla nunca** (telemetría en 0 a 30 días).
+
+⛔ **Los nombres de los clientes NO se escriben aquí**: el repo es público. Para identificar un caso va el folio
+(`08-1-0001642`); el nombre vive en la bitácora de prod, que es donde tiene que estar.
+
+**Qué sigue**: dos semanas de piloto en Morelia Abastos (GP.A.8) antes de encender otra sucursal. El automático
+es aparte: pide un **tope del día** (D-A14) y GP.A.3, el disparo por evento, que **no está construido**.
 
 ⭐ **Dónde conviene el piloto** (pedidos TELEMARK, medido el 2026-11-24): las que de verdad operan este canal son
 **Padre Hidalgo** (1,566 en 90 días, 4 esperando), **Canindo** (1,360, 14) y **Morelia Abastos** (856, 9).
