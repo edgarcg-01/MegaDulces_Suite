@@ -21,6 +21,8 @@ export interface FormCaptura {
   /** `[RH.17.2]` Horario distinto: a qué hora salió ese día y su comida en minutos (opcionales). */
   salida?: string;
   comidaDia?: string;
+  /** `[RH.20.3]` La entrada y la salida vienen de SU HORARIO de ese día (no de lo que checó). */
+  deHorario?: boolean;
   /** `[RH.6.6]` Visita fuera: a qué hora lo recogieron y a qué hora lo dejaron en su casa. */
   recogida?: string;
   entrega?: string;
@@ -95,6 +97,18 @@ export const COMO_LE_DICEN: Readonly<Record<string, string>> = {
 /** La etiqueta con su nombre de Mega Talento, si tiene: «Incapacidad · cita médica». */
 export const etiquetaConAlias = (tipo: string, etiqueta: string): string => (COMO_LE_DICEN[tipo] ? `${etiqueta} · ${COMO_LE_DICEN[tipo]}` : etiqueta);
 
+/**
+ * `[RH.19.1]` TRABAJÓ CORRIDO (RH, 2026-11-24). Un día con sólo entrada y salida puede ser que no salió a comer… o que
+ * comió y no checó. No se adivina: se OFRECE «Trabajó corrido», que es «Comida distinta» con 0 min (motivo, quién lo
+ * autorizó y la califica otra persona). Calificada, la comida que no tomó cuenta como trabajo para las horas extra.
+ */
+export const TRABAJO_CORRIDO = 'trabajó corrido';
+export const trabajoCorrido = (d: HrDiaAsistencia | undefined): boolean =>
+  !!d && d.marcas === 2 && !!d.entrada && !!d.salida && d.comidaMin == null;
+/** El nombre que lleva un tipo SÓLO ese día (`trabajó corrido` para la comida de 0 min). */
+export const aliasDelDia = (d: HrDiaAsistencia | undefined): Record<string, string> =>
+  (trabajoCorrido(d) ? { comida_distinta: TRABAJO_CORRIDO } : {});
+
 const AUSENCIA = ['permiso_sin_goce', 'incapacidad', 'otros', 'vacaciones', 'permiso_con_goce', 'falta_injustificada'];
 const POR_VENIR = ['vacaciones', 'permiso_sin_goce', 'permiso_con_goce', 'descanso', 'cambio_descanso'];
 
@@ -118,6 +132,7 @@ export function sugerenciasDelDia(d: HrDiaAsistencia | undefined, fecha: string,
     case 'descanso': return ['cambio_descanso', 'visita_fuera', 'otros'];
     case 'justificado': return ['otros', 'horario_distinto'];
     default: {
+      if (trabajoCorrido(d)) return ['comida_distinta', 'horario_distinto', 'horas_extra'];
       if ((d.comidaExcesoMin ?? 0) > 0) return ['comida_distinta', 'horario_distinto', 'horas_extra'];
       if ((d.desayunoExcesoMin ?? 0) > 0) return ['desayuno_distinto', 'horario_distinto', 'horas_extra'];
       if ((d.atrasoMin ?? 0) > 0 || (d.salidaAntesMin ?? 0) > 0) return ['horario_distinto', 'otros', 'permiso_sin_goce'];
@@ -140,10 +155,22 @@ const hhmm = (h: string | null | undefined): string => {
  */
 export function formDelDia(persona: string, fecha: string, d: HrDiaAsistencia | undefined): FormCaptura {
   const f = formNuevo(persona, fecha);
-  if (!d || d.estado === 'marca_faltante') return f;
-  f.entrada = hhmm(d.entrada);
-  f.salida = hhmm(d.salida);
-  if (d.comidaMin != null) f.comidaDia = String(d.comidaMin);
+  if (!d) return f;
+  // `[RH.20.3]` (David, 2026-11-24: «en un único día tuvo una hora de entrada o de salida distinta») «Horario distinto»
+  // arranca con SU HORARIO de ese día y RH cambia sólo la que fue distinta: la entrada, la salida o las dos. Antes traía
+  // lo que checó, y guardarlo tal cual perdonaba el retardo o la salida temprana sin que nadie lo decidiera.
+  const ent = hhmm(d.referencia), sal = hhmm(d.salidaEsperada);
+  if (ent && sal) {
+    f.entrada = ent;
+    f.salida = sal;
+    f.deHorario = true;
+  } else if (d.estado !== 'marca_faltante') {
+    // Sin su horario de ese día, lo que checó (como en `[RH.18.1]`).
+    f.entrada = hhmm(d.entrada);
+    f.salida = hhmm(d.salida);
+    if (d.comidaMin != null) f.comidaDia = String(d.comidaMin);
+  }
+  if (d.estado === 'marca_faltante') return f;
   // Los minutos de la pausa que se pasó (la comida antes que el desayuno): sirven si eligen «Comida / Desayuno distintos».
   if ((d.comidaExcesoMin ?? 0) > 0 && d.comidaMin != null) f.minutos = String(d.comidaMin);
   else if ((d.desayunoExcesoMin ?? 0) > 0 && d.desayunoMin != null) f.minutos = String(d.desayunoMin);

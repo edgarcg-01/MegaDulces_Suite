@@ -250,10 +250,12 @@ suite('[RH.1.12] ligar códigos de reloj a personas, contra la base', () => {
     expect(r['padron2']).toEqual(['Ana López Ruiz Corregida', 'ALMACÉN GENERAL']);
     // [RH.7.2]
     expect(r['bajaSinMotivo']).toBe('BadRequestException');
-    expect(r['bajaSinPersona']).toBe('ConflictException');
+    // `[RH.20.2]` Sin ligar también se da de baja en la plaza (David, 2026-11-24: «que no haya una barrera con ninguno»).
+    expect(r['bajaSinPersona']).toBe('sin error');
     expect(r['bajaDoble']).toBe('ConflictException');
     expect(r['padronBaja']).toBe(false);
-    expect(r['papelera']).toEqual([2, 'renunció el viernes', 'suite', true, 1, true, 'rh.prueba']);
+    // `[RH.20.2]` 3: también el código «1» sin ligar que se dio de baja arriba.
+    expect(r['papelera']).toEqual([3, 'renunció el viernes', 'suite', true, 1, true, 'rh.prueba']);
     expect(r['papeleraMt']).toEqual(['mega_talento', null, 'Beto Gómez Paz Prueba', 'CAJAS']);
     expect(r['papeleraOtraPlaza']).toBe(0);
     expect(r['padronReactivada']).toBe(true);

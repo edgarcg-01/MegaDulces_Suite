@@ -3,7 +3,7 @@ import { of } from 'rxjs';
 import { vi } from 'vitest';
 import type { HrTipoIncidenciaDto } from '@megadulces/contracts';
 import { RhService } from '../rh.service';
-import { formNuevo } from '../incidencia-captura';
+import { TRABAJO_CORRIDO, formNuevo } from '../incidencia-captura';
 import { RhCapturaIncidenciaComponent } from './rh-captura-incidencia.component';
 
 /**
@@ -92,5 +92,43 @@ describe('[RH.18.4] RhCapturaIncidenciaComponent (propuesta A)', () => {
     const fix = await montar([]);
     expect(botones(fix)).toEqual([]);
     expect(el(fix).querySelector('p-select')).not.toBeNull();
+  });
+});
+
+describe('[RH.19.1] «Trabajó corrido» en la captura', () => {
+  const CON_COMIDA: HrTipoIncidenciaDto[] = [...TIPOS, { tipo: 'comida_distinta', etiqueta: 'Comida distinta', codigo: 'CD', excusaFalta: false }];
+  async function montar(alias: Record<string, string>) {
+    await TestBed.configureTestingModule({
+      imports: [RhCapturaIncidenciaComponent],
+      providers: [{ provide: RhService, useValue: { capturar: vi.fn(() => of({ id: 'i-1', status: 'capturada' })), bancoHorasExtra: vi.fn(() => of({ personas: [] })) } }],
+    }).compileComponents();
+    const fix = TestBed.createComponent(RhCapturaIncidenciaComponent);
+    fix.componentRef.setInput('site', 'PH');
+    fix.componentRef.setInput('tipos', CON_COMIDA);
+    fix.componentRef.setInput('sugeridos', ['comida_distinta', 'horario_distinto']);
+    fix.componentRef.setInput('alias', alias);
+    fix.componentInstance.form.set({ ...formNuevo('118', '2026-10-06'), entrada: '08:00', salida: '18:00' });
+    fix.detectChanges();
+    await fix.whenStable();
+    fix.detectChanges();
+    return fix;
+  }
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('⭐ el botón dice «Trabajó corrido»; elegirlo pone 0 min de comida y deja el motivo VACÍO (es el justificante)', async () => {
+    const fix = await montar({ comida_distinta: TRABAJO_CORRIDO });
+    const b = Array.from((fix.nativeElement as HTMLElement).querySelectorAll('button.ci-boton'))[0] as HTMLButtonElement;
+    expect(b.textContent?.replace(/\s+/g, ' ').trim()).toBe('Trabajó corrido Comida distinta');
+    b.click();
+    fix.detectChanges();
+    const f = fix.componentInstance.form()!;
+    expect([f.incident_type, f.minutos, f.reason]).toEqual(['comida_distinta', '0', '']);
+    expect(fix.componentInstance.resumen()).toContain('Trabajó corrido');
+  });
+
+  it('⛔ NEGATIVA — sin el alias del día, «Comida distinta» no inventa los 0 minutos', async () => {
+    const fix = await montar({});
+    fix.componentInstance.elegir('comida_distinta');
+    expect(fix.componentInstance.form()!.minutos).toBe('');
   });
 });

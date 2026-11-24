@@ -7,7 +7,7 @@ import { ButtonModule } from 'primeng/button';
 import type { HrIncidenciaDto, HrTipoIncidenciaDto } from '@megadulces/contracts';
 import { RhService, rhError } from '../rh.service';
 import { diaLargo, firmaHoras, horasTexto } from '../reporte-formato';
-import { COMO_LE_DICEN, type FormCaptura, conAutorizacion, cuerpoCaptura, deUnDia, etiquetaConAlias, etiquetaNota, notaObligatoria } from '../incidencia-captura';
+import { COMO_LE_DICEN, TRABAJO_CORRIDO, type FormCaptura, conAutorizacion, cuerpoCaptura, deUnDia, etiquetaConAlias, etiquetaNota, notaObligatoria } from '../incidencia-captura';
 
 interface GrupoTipos { label: string; items: HrTipoIncidenciaDto[]; }
 /** `[RH.18.4]` Un botón de tipo: el nombre que usa RH arriba («Personal»), el tipo oficial abajo («Permiso sin goce»). */
@@ -96,11 +96,14 @@ const guardarAutorizo = (v: string): void => { try { localStorage.setItem(LLAVE_
           </div>
         }
         @if (f.incident_type === 'horario_distinto') {
-          <label>Entró a las <input pInputText type="time" name="entrada" [(ngModel)]="f.entrada" required /></label>
-          <label>Salió a las (opcional) <input pInputText type="time" name="salida" [(ngModel)]="f.salida" /></label>
+          <label>Entrada de ese día <input pInputText type="time" name="entrada" [(ngModel)]="f.entrada" required /></label>
+          <label>Salida de ese día <input pInputText type="time" name="salida" [(ngModel)]="f.salida" /></label>
           <label>Comida ese día, en minutos (opcional)
             <input pInputText type="number" inputmode="numeric" name="comidaDia" min="0" max="240" [(ngModel)]="f.comidaDia" /></label>
-          @if (deLoChecado()) {
+          @if (f.deHorario) {
+            <!-- [RH.20.3] Trae su horario: se cambia sólo la hora que fue distinta. -->
+            <p class="ci-ancho ci-ayuda ci-propuesto">Ya trae su horario de ese día: cambia la entrada o la salida que fue distinta.</p>
+          } @else if (deLoChecado()) {
             <p class="ci-ancho ci-ayuda ci-propuesto">Ya trae lo que checó ese día: corrígelo con el horario que se autorizó.</p>
           }
           <p class="ci-ancho ci-ayuda">Con la salida, ese día se mide de la entrada a la salida: retardo, salida temprana y horas extra. Sin la salida sólo cambia la entrada. Sin la comida se descuenta la de su horario. Su horario de siempre no cambia.</p>
@@ -195,6 +198,8 @@ export class RhCapturaIncidenciaComponent {
   readonly tipos = input<HrTipoIncidenciaDto[]>([]);
   /** `[RH.18.1]` Los tipos que tienen sentido para el día, el más probable primero (vacío = la lista completa). */
   readonly sugeridos = input<string[]>([]);
+  /** `[RH.19.1]` El nombre que lleva un tipo sólo ese día (`aliasDelDia`): «Trabajó corrido» para la comida de 0 min. */
+  readonly alias = input<Record<string, string>>({});
   /** Desde la ficha: el nombre de la persona (su número ya va en el formulario y no se edita). */
   readonly persona = input<string | null>(null);
   readonly titulo = input('Capturar incidencia');
@@ -228,7 +233,7 @@ export class RhCapturaIncidenciaComponent {
     return this.sugeridos().map((s) => tipos.find((t) => t.tipo === s)).filter((t): t is HrTipoIncidenciaDto => !!t)
       .slice(0, MAX_BOTONES)
       .map((t) => {
-        const alias = COMO_LE_DICEN[t.tipo];
+        const alias = this.alias()[t.tipo] ?? COMO_LE_DICEN[t.tipo];
         return alias ? { tipo: t.tipo, titulo: alias.charAt(0).toUpperCase() + alias.slice(1), sub: t.etiqueta } : { tipo: t.tipo, titulo: t.etiqueta, sub: '' };
       });
   });
@@ -242,7 +247,9 @@ export class RhCapturaIncidenciaComponent {
       if (!f) return f;
       const motivo = tipo === 'horario_distinto' && !f.reason.trim() ? 'Tráfico' : f.reason;
       const autorizo = conAutorizacion(tipo) && !f.authorized_by_name.trim() ? leerAutorizo() : f.authorized_by_name;
-      return { ...f, incident_type: tipo, reason: motivo, authorized_by_name: autorizo };
+      // `[RH.19.1]` «Trabajó corrido» = comida de 0 min. El motivo NO se llena: es el justificante, lo escribe RH.
+      const minutos = tipo === 'comida_distinta' && this.alias()[tipo] === TRABAJO_CORRIDO ? '0' : f.minutos;
+      return { ...f, incident_type: tipo, reason: motivo, authorized_by_name: autorizo, minutos };
     });
   }
 

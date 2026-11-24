@@ -712,6 +712,29 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     expect(c.aviso()?.texto).toBe('De baja: Prueba Uno Ejemplo');
   });
 
+  it('⭐ [RH.20.1] sin ligar también se edita: «Editar» está, avisa que se dará de alta, manda nombre y sección; [RH.20.2] y «Dar de baja»', async () => {
+    const sinLigar = persona({ codigo: '777', nombre: 'APODO RELOJ', nombreCompleto: 'APODO RELOJ', registrado: false, departamento: 'ALMACEN' });
+    await render({ datos: asistencia([sinLigar]), claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] });
+    const c = fix.componentInstance;
+    const p = c.todas().find((x) => x.codigo === '777')!;
+    c.abrir(p);
+    await ciclo();
+    const cuerpo = () => document.body.textContent ?? '';
+    expect(cuerpo()).toContain('al guardar su ficha se da de alta');
+    const botones = () => Array.from(document.querySelectorAll('p-button')).map((b) => b.getAttribute('label') ?? b.textContent?.trim());
+    expect(botones()).toContain('Editar');
+    expect(botones()).toContain('Dar de baja');
+    c.abrirFicha(p);
+    // El apodo del reloj no se ofrece como nombre.
+    expect(c.fichaForm()?.nombre).toBe('');
+    const f = c.fichaForm()!;
+    f.nombre = 'Persona Nueva Prueba';
+    c.guardarFicha(p);
+    // Aunque la sección no cambió, va: sin ella el servidor no puede darla de alta.
+    expect(api['editarFicha']).toHaveBeenLastCalledWith({ site_code: 'PH', person_code: '777', nombre: 'Persona Nueva Prueba', seccion: 'ALMACEN' });
+    expect(c.aviso()?.texto).toContain('Dada de alta en la Suite');
+  });
+
   it('[RH.7.1] ⛔ sin HR_DEVICES_GESTIONAR no se ofrece editar la ficha', async () => {
     await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR] });
     expect(fix.componentInstance.puedeEditarFicha()).toBe(false);
