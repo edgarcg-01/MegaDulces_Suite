@@ -1,0 +1,1959 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Manual del Calendario de Compras</title>
+<!-- [PQ.3.20] Manual de capacitación del Calendario de compras. Lo abre el botón «Manual» de /compras/calendario.
+     Si cambia un rótulo de la pantalla, cambia aquí: calendario-compras-manual.spec.ts lo compara. -->
+<script>
+  // El manual sigue el tema que la persona eligió en la Suite: mismo origen, mismas claves que ThemeService.
+  (function () {
+    try {
+      if (localStorage.getItem('tradeMarketingThemeUserChoice') === 'true') {
+        var oscuro = JSON.parse(localStorage.getItem('tradeMarketingThemeMode') || 'false');
+        document.documentElement.setAttribute('data-theme', oscuro ? 'dark' : 'light');
+      }
+    } catch (e) { /* sin almacenamiento: sigue al sistema */ }
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: manual de campo en una columna. Cada lección = para qué → la pantalla anotada (las maquetas copian la Suite) → pasos → error común → compruébalo. */
+:root{
+  --bg:#F6F6F7; --paper:#FFFFFF; --sunk:#F0F0F2; --ink:#18181B; --ink-2:#4B4B53; --ink-3:#686871; --line:#E4E4E7; --line-2:#D4D4D8;
+  --action:#C8401A; --action-ink:#FFFFFF; --action-soft:#FBE7DF; --action-line:#F0BFAC;
+  --ok:#166534; --ok-bg:#DCFCE7; --warn:#92400E; --warn-bg:#FEF3C7; --bad:#991B1B; --bad-bg:#FEE2E2; --mute:#3F3F46; --mute-bg:#E9E9EC;
+  --bad-num:#DC2626; --warn-num:#B45309;
+  --shadow:0 1px 2px rgba(24,24,27,.06),0 10px 28px rgba(24,24,27,.07);
+  --f:"Hanken Grotesk",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --m:"Geist Mono",ui-monospace,SFMono-Regular,Consolas,monospace;
+  --r:12px; --r-s:7px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111111; --paper:#18181B; --sunk:#202024; --ink:#F4F4F5; --ink-2:#BDBDC5; --ink-3:#93939C; --line:#2B2B30; --line-2:#3B3B42;
+    --action:#F05A28; --action-ink:#18181B; --action-soft:rgba(240,90,40,.15); --action-line:rgba(240,90,40,.42);
+    --ok:#86EFAC; --ok-bg:rgba(34,197,94,.16); --warn:#FCD34D; --warn-bg:rgba(251,191,36,.15); --bad:#FCA5A5; --bad-bg:rgba(239,68,68,.17); --mute:#D4D4D8; --mute-bg:#2B2B30;
+    --bad-num:#F87171; --warn-num:#FBBF24;
+    --shadow:0 1px 2px rgba(0,0,0,.45),0 10px 28px rgba(0,0,0,.35);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111111; --paper:#18181B; --sunk:#202024; --ink:#F4F4F5; --ink-2:#BDBDC5; --ink-3:#93939C; --line:#2B2B30; --line-2:#3B3B42;
+  --action:#F05A28; --action-ink:#18181B; --action-soft:rgba(240,90,40,.15); --action-line:rgba(240,90,40,.42);
+  --ok:#86EFAC; --ok-bg:rgba(34,197,94,.16); --warn:#FCD34D; --warn-bg:rgba(251,191,36,.15); --bad:#FCA5A5; --bad-bg:rgba(239,68,68,.17); --mute:#D4D4D8; --mute-bg:#2B2B30;
+  --bad-num:#F87171; --warn-num:#FBBF24;
+  --shadow:0 1px 2px rgba(0,0,0,.45),0 10px 28px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:64px}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+body{background:var(--bg);color:var(--ink);font-family:var(--f);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:1040px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3,h4{text-wrap:balance;margin:0;line-height:1.15}
+p{margin:0}
+a{color:var(--action);text-underline-offset:3px}
+:focus-visible{outline:2px solid var(--action);outline-offset:2px;border-radius:4px}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--m)}
+
+/* ── Portada ─────────────────────────────────────────────── */
+.cover{padding-block:44px 36px}
+.cover-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:40px;align-items:center}
+.kicker{font:600 12px/1 var(--m);letter-spacing:.08em;text-transform:uppercase;color:var(--action)}
+.cover h1{font-size:clamp(34px,5.4vw,54px);font-weight:800;letter-spacing:-.02em;margin-top:14px}
+.cover .lead{font-size:19px;color:var(--ink-2);margin-top:16px;max-width:36ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.meta span{font-size:13px;color:var(--ink-2);background:var(--paper);border:1px solid var(--line);border-radius:999px;padding:5px 11px}
+.oneliner{margin-top:26px;padding:16px 18px;border-left:3px solid var(--action);background:var(--paper);border-radius:0 var(--r-s) var(--r-s) 0;font-size:17px;max-width:52ch}
+.oneliner b{color:var(--ink)}
+.hero-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:18px}
+.hero-card .hc-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;color:var(--ink-3)}
+.hero-card .hc-top b{color:var(--ink);font-size:15px}
+.hero-card ul{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}
+.hero-card li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-s);font-size:13.5px}
+.hero-card li span:first-child{font-weight:600;min-width:0}
+.hero-card li small{display:block;font-weight:400;color:var(--ink-3);font-size:12px}
+.hero-card .hc-foot{margin-top:12px;font-size:12.5px;color:var(--ink-3)}
+
+/* ── Rutas ───────────────────────────────────────────────── */
+.routes{padding-block:8px 40px}
+.routes h2{font-size:22px}
+.routes .sub{color:var(--ink-2);margin-top:6px}
+.route-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px}
+.route{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:18px;display:flex;flex-direction:column;gap:10px}
+.route h3{font-size:18px}
+.route .who-list{font-size:13.5px;color:var(--ink-2)}
+.route .time{font:600 12px/1 var(--m);color:var(--action);letter-spacing:.04em}
+.route ol{margin:0;padding-left:20px;font-size:14px;color:var(--ink-2);display:grid;gap:3px}
+.route.main{border-color:var(--action-line);box-shadow:0 0 0 3px var(--action-soft)}
+#avance{font-size:13px;color:var(--ink-3);margin-top:14px}
+
+/* ── Índice pegajoso ─────────────────────────────────────── */
+.toc{position:sticky;top:env(safe-area-inset-top,0px);z-index:6;background:var(--bg);border-block:1px solid var(--line)}
+.toc-row{display:flex;gap:6px;overflow-x:auto;padding-block:9px;scrollbar-width:thin}
+.toc a{flex:none;font-size:13px;font-weight:600;color:var(--ink-2);text-decoration:none;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--paper);white-space:nowrap}
+.toc a:hover{color:var(--ink);border-color:var(--line-2)}
+.toc a.is-done::after{content:"";display:inline-block;width:5px;height:9px;margin-left:7px;border:solid var(--ok);border-width:0 2px 2px 0;transform:rotate(45deg) translateY(-2px)}
+
+/* ── Lección ─────────────────────────────────────────────── */
+.lesson{padding-block:52px;border-bottom:1px solid var(--line)}
+.l-head{display:grid;gap:10px;max-width:70ch}
+.eyebrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font:600 12px/1 var(--m);letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.eyebrow .n{color:var(--action)}
+.for{font:600 11px/1 var(--f);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:5px;background:var(--mute-bg);color:var(--mute)}
+.lesson h2{font-size:clamp(26px,3.4vw,32px);font-weight:800;letter-spacing:-.01em}
+.why{font-size:18px;color:var(--ink-2)}
+.goal{margin-top:6px;font-size:14.5px;color:var(--ink-2)}
+.goal b{color:var(--ink)}
+.block{margin-top:28px}
+.block > h3{font-size:18px;margin-bottom:12px}
+.prose{max-width:68ch;color:var(--ink-2);display:grid;gap:10px}
+.prose b{color:var(--ink)}
+
+.done-box{margin-top:30px;display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ink-2)}
+.done-box input{width:20px;height:20px;accent-color:var(--action)}
+
+/* ── Antes / ahora ───────────────────────────────────────── */
+.vs{display:grid;grid-template-columns:minmax(0,1fr) 44px minmax(0,1fr);gap:0;align-items:stretch}
+.vs-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+.vs-card.old{background:var(--sunk)}
+.vs-card h4{font-size:15px;margin-bottom:10px;display:flex;gap:8px;align-items:center}
+.vs-card ul{margin:0;padding-left:18px;display:grid;gap:7px;font-size:14.5px;color:var(--ink-2)}
+.vs-mid{display:grid;place-items:center;color:var(--action);font-size:24px;font-weight:800}
+.sheet{display:grid;grid-template-columns:auto repeat(4,1fr);gap:2px;font-size:11px;margin-top:14px}
+.sheet div{padding:4px 6px;background:var(--paper);border-radius:3px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sheet .h{font-weight:700;color:var(--ink);background:transparent}
+.sheet .c1{background:#BBF7D0;color:#14532D}.sheet .c2{background:#FECACA;color:#7F1D1D}.sheet .c3{background:#FDE68A;color:#713F12}.sheet .c0{background:var(--paper)}
+.note-s{font-size:12.5px;color:var(--ink-3);margin-top:10px}
+
+/* ── Tabla de quién ve qué ───────────────────────────────── */
+.scroll{overflow-x:auto}
+.grid-t{width:100%;border-collapse:collapse;font-size:14.5px;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.grid-t th,.grid-t td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.grid-t th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);background:var(--sunk)}
+.grid-t td.c{text-align:center;font-weight:700}
+.yes{color:var(--ok)} .no{color:var(--ink-3);font-weight:400}
+.grid-t tr:last-child td{border-bottom:0}
+
+/* ── Glosario ────────────────────────────────────────────── */
+.words{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px}
+.word{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:8px;align-content:start}
+.word h4{font-size:16px}
+.word p{font-size:14px;color:var(--ink-2)}
+.word .eg{font-size:13px;color:var(--ink-3);border-top:1px dashed var(--line);padding-top:8px}
+.rule-eq{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px}
+.rule-eq span{padding:5px 8px;border-radius:6px;background:var(--sunk);border:1px solid var(--line);font-weight:600}
+.rule-eq i{font-style:normal;color:var(--ink-3);font-weight:700}
+.states{display:grid;gap:10px}
+.state{display:grid;grid-template-columns:150px minmax(0,1fr);gap:14px;align-items:start;padding:12px 14px;background:var(--paper);border:1px solid var(--line);border-radius:var(--r-s)}
+.state p{font-size:14px;color:var(--ink-2)}
+.state p b{color:var(--ink)}
+
+/* ── Etiquetas (igual que p-tag en la Suite) ─────────────── */
+.tag{display:inline-block;font:700 12px/1.25 var(--f);padding:3px 8px;border-radius:5px;white-space:nowrap}
+.tag.bad{background:var(--bad-bg);color:var(--bad)}
+.tag.warn{background:var(--warn-bg);color:var(--warn)}
+.tag.ok{background:var(--ok-bg);color:var(--ok)}
+.tag.mute{background:var(--mute-bg);color:var(--mute)}
+
+/* ── Maquetas de la Suite ────────────────────────────────── */
+.shot{margin:0;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.shot-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:9px 14px;background:var(--sunk);border-bottom:1px solid var(--line);font-size:12px;color:var(--ink-3)}
+.shot-bar b{color:var(--ink-2);font-weight:600}
+.shot-bar .dots{display:inline-flex;gap:5px;margin-right:6px}
+.shot-bar .dots i{width:9px;height:9px;border-radius:50%;background:var(--line-2);display:block}
+.app{padding:20px 22px;font-size:13.5px;color:var(--ink)}
+.app-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.app-h1{font-size:24px;font-weight:700;letter-spacing:-.01em}
+.app-sub{font-size:12.5px;color:var(--ink-3);margin-top:3px}
+.fresh{font-size:12px;color:var(--ink-3);white-space:nowrap}
+.answer{font-size:16px;font-weight:500;line-height:1.5;margin-top:16px;max-width:62ch}
+.scope-line{font-size:12.5px;color:var(--ink-3);margin-top:6px}
+.kpis{display:flex;flex-wrap:wrap;gap:10px 22px;margin-top:14px;padding-bottom:4px}
+.k{display:inline-flex;align-items:baseline;gap:7px;font-size:12px}
+.k b{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}
+.k b.bad{color:var(--bad-num)} .k b.warn{color:var(--warn-num)}
+.k em{font-style:normal;font-weight:700;text-transform:uppercase;letter-spacing:.05em;font-size:11px}
+.k small{color:var(--ink-3);font-size:11.5px}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px}
+.seg{display:inline-flex;flex-wrap:wrap;gap:2px;padding:3px;background:var(--sunk);border:1px solid var(--line);border-radius:9px}
+.seg span{padding:6px 11px;border-radius:7px;font-size:12.5px;font-weight:500;color:var(--ink-2)}
+.seg span.on{background:var(--paper);color:var(--ink);font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.search{flex:1 1 220px;min-width:0;max-width:420px;padding:8px 11px;border:1px solid var(--line-2);border-radius:7px;color:var(--ink-3);font-size:13px;background:var(--paper)}
+.btn{display:inline-flex;align-items:center;gap:6px;font:600 12.5px/1 var(--f);padding:8px 11px;border-radius:7px;border:1px solid var(--line-2);color:var(--ink-2);background:var(--paper);white-space:nowrap}
+.btn.text{border-color:transparent;background:transparent}
+.btn.primary{background:var(--action);border-color:var(--action);color:var(--action-ink)}
+.btn.bad{color:var(--bad);border-color:transparent;background:transparent}
+.acc{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+
+.t{width:100%;border-collapse:collapse;margin-top:14px}
+.t th{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+.t td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.t tr.day-break td{border-top:2px solid var(--line-2)}
+.c{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pri{font-weight:600;color:var(--ink)}
+.sub{color:var(--ink-3);font-size:12px}
+.lnk{color:var(--ink);font-weight:600;text-decoration:underline;text-decoration-color:var(--line-2);text-underline-offset:3px}
+.lnk.act{color:var(--action);text-decoration-color:var(--action-line)}
+@media (max-width:760px){
+  .t thead{display:none}
+  .t,.t tbody,.t tr,.t td{display:block;width:100%}
+  .t tr{border:1px solid var(--line);border-radius:9px;padding:6px 12px;margin-bottom:10px}
+  .t tr.day-break td{border-top:0}
+  .t td{display:grid;grid-template-columns:6.6rem minmax(0,1fr);gap:10px;border:0;padding:7px 0}
+  .t td::before{content:attr(data-label);font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);padding-top:2px}
+}
+
+/* Marcas de la maqueta */
+.pin{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--action);color:var(--action-ink);font:800 12px/1 var(--f);flex:none;vertical-align:middle;box-shadow:0 0 0 3px var(--action-soft)}
+.pinned{display:flex;gap:8px;align-items:flex-start}
+.pinned > .pin{margin-top:1px}
+.legend{list-style:none;margin:20px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:14px 26px}
+.legend li{display:flex;gap:10px;align-items:flex-start;font-size:14.5px;color:var(--ink-2)}
+.legend li b{color:var(--ink)}
+.caption{font-size:12.5px;color:var(--ink-3);margin-top:10px}
+
+/* Diálogo y panel lateral */
+.dlg-stage{background:var(--sunk);border:1px solid var(--line);border-radius:var(--r);padding:24px 16px;display:grid;place-items:center}
+.dlg{width:100%;max-width:560px;background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);font-size:13.5px}
+.dlg-h{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:16px 18px 6px;font-size:17px;font-weight:700}
+.dlg-h .x{color:var(--ink-3);font-weight:400;font-size:18px}
+.dlg-b{padding:8px 18px 18px;display:grid;gap:10px}
+.lbl{font-size:12.5px;font-weight:700;color:var(--ink);margin-top:4px}
+.field{padding:8px 11px;border:1px solid var(--line-2);border-radius:7px;color:var(--ink);background:var(--paper);display:flex;justify-content:space-between;gap:8px}
+.field.empty{color:var(--ink-3)}
+.days{display:flex;flex-wrap:wrap;gap:5px}
+.days span{min-width:44px;text-align:center;padding:8px 6px;border:1px solid var(--line-2);border-radius:7px;font-weight:600;color:var(--ink-2);font-size:12.5px}
+.days span.on{background:var(--action);border-color:var(--action);color:var(--action-ink)}
+.preview{padding:9px 11px;background:var(--sunk);border-radius:7px;font-size:13px}
+.toast{margin-top:14px;padding:10px 12px;border:1px solid var(--ok-bg);background:var(--ok-bg);color:var(--ok);border-radius:8px;font-size:13.5px;font-weight:600}
+.warnbox{padding:9px 11px;background:var(--warn-bg);color:var(--warn);border-radius:7px;font-size:13px}
+.peek{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,380px);min-height:100%}
+.peek-dim{background:var(--sunk);padding:18px;display:grid;align-content:start;gap:10px}
+.peek-dim .ghost{height:14px;border-radius:4px;background:var(--line)}
+.peek-panel{border-left:1px solid var(--line);padding:18px;display:grid;gap:14px;align-content:start}
+.peek-panel h5{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 4px}
+.peek-title{font-size:18px;font-weight:700}
+@media (max-width:760px){.peek{grid-template-columns:1fr}.peek-dim{display:none}.peek-panel{border-left:0}}
+
+/* Embudo */
+.funnel{display:grid;gap:10px;margin-top:14px}
+.funnel-total{font-size:15px;font-weight:600}
+.step-row{display:grid;grid-template-columns:minmax(0,300px) minmax(0,1fr);gap:12px;align-items:center}
+.step-row .bar{height:12px;background:var(--sunk);border:1px solid var(--line);border-radius:999px;overflow:hidden;position:relative}
+.step-row .bar i{position:absolute;inset:0 auto 0 0;background:var(--action);border-radius:999px}
+.step-row .bar s{position:absolute;inset:0 auto 0 0;background:var(--action-soft);border-right:2px solid var(--action-line)}
+.step-row .bar i{z-index:1}
+.step-name{font-size:13px;font-weight:600;text-decoration:underline;text-decoration-color:var(--line-2);text-underline-offset:3px}
+.step-name.on{text-decoration-color:var(--action);text-decoration-thickness:2px}
+.step-sub{font-size:12px;color:var(--ink-3)}
+@media (max-width:640px){.step-row{grid-template-columns:1fr}}
+
+/* ── Diagramas ───────────────────────────────────────────── */
+.life{display:grid;gap:16px}
+.lane{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.lane h4{font-size:14px;color:var(--ink-2);margin-bottom:12px;font-weight:600}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.node{display:grid;gap:4px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--paper);min-width:0}
+.node small{font-size:12px;color:var(--ink-3)}
+.arrow{display:flex;flex-direction:column;align-items:center;font-size:11.5px;color:var(--ink-3);text-align:center;max-width:150px;line-height:1.3}
+.arrow::after{content:"";display:block;width:52px;height:2px;background:var(--ink-3);margin-top:6px;position:relative;
+  -webkit-mask:linear-gradient(#000 0 0);}
+.arrow b{color:var(--action);font-size:20px;line-height:1}
+@media (max-width:760px){.chain{flex-direction:column;align-items:stretch}.arrow{max-width:none;flex-direction:row;gap:8px;justify-content:flex-start;padding-left:12px}.arrow::after{display:none}.arrow b{transform:rotate(90deg)}}
+.side-states{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px}
+.golden{margin-top:16px;padding:14px 16px;border-radius:var(--r-s);background:var(--action-soft);border:1px solid var(--action-line);font-weight:600}
+
+.decide{display:grid;gap:10px;max-width:820px}
+.q-row{display:grid;grid-template-columns:minmax(0,1fr) 70px minmax(0,1fr);gap:0;align-items:center}
+.q{background:var(--paper);border:2px solid var(--ink);border-radius:10px;padding:12px 14px;font-weight:700}
+.yes-arrow{text-align:center;font:700 12px/1.2 var(--f);color:var(--ok)}
+.yes-arrow b{display:block;font-size:20px}
+.r{border-radius:10px;padding:12px 14px;font-size:14.5px;border:1px solid var(--line);background:var(--paper)}
+.r b{display:block}
+.r.good{background:var(--ok-bg);border-color:transparent;color:var(--ok)}
+.r.act{background:var(--action-soft);border-color:var(--action-line)}
+.r.act b{color:var(--ink)}
+.no-arrow{padding-left:22px;font:700 12px/1.2 var(--f);color:var(--bad)}
+@media (max-width:640px){.q-row{grid-template-columns:1fr}.yes-arrow{text-align:left;padding:6px 0 6px 14px}.yes-arrow b{display:inline;transform:rotate(90deg)}}
+
+.steps4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;counter-reset:s}
+.st{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:8px;align-content:start}
+.st .big{font:800 30px/1 var(--f);color:var(--action)}
+.st h4{font-size:15.5px}
+.st p{font-size:13.5px;color:var(--ink-2)}
+@media (max-width:860px){.steps4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.steps4{grid-template-columns:1fr}}
+
+/* Calendarios de ejemplo */
+.examples{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px}
+.ex{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:10px;align-content:start}
+.ex h4{font-size:15.5px}
+.ex .said{font-size:13.5px;color:var(--ink-2);font-style:italic}
+.ex dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;margin:0;font-size:13px}
+.ex dt{color:var(--ink-3)} .ex dd{margin:0;font-weight:600}
+.mcal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;font-size:12px;text-align:center;max-width:300px}
+.mcal .h{font-weight:700;color:var(--ink-3);font-size:10.5px;padding-bottom:2px}
+.mcal span{padding:6px 0;border-radius:5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.mcal .hit{background:var(--action);color:var(--action-ink);font-weight:800}
+.mcal .off{color:var(--ink-3);text-decoration:line-through;background:var(--sunk)}
+.mcal .we{color:var(--ink-3)}
+.mcal-title{font-size:12.5px;font-weight:700}
+.tl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;font-size:11.5px;text-align:center}
+.tl div{padding:8px 2px;border-top:3px solid var(--line-2)}
+.tl .a{border-top-color:var(--ink)} .tl .hit{border-top-color:var(--action);font-weight:700;color:var(--ink)}
+.tl small{display:block;color:var(--ink-3)}
+
+/* Así sí / así no */
+.dd{display:grid;gap:12px}
+.dd-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.dd-c{border-radius:var(--r-s);padding:13px 14px;font-size:14.5px;display:grid;gap:4px}
+.dd-c span{font:800 11px/1 var(--f);letter-spacing:.06em;text-transform:uppercase}
+.dd-c.n{background:var(--bad-bg);color:var(--bad)}
+.dd-c.y{background:var(--ok-bg);color:var(--ok)}
+.dd-c p{color:var(--ink)}
+@media (max-width:640px){.dd-row{grid-template-columns:1fr}}
+
+/* Cajas de compruébalo, casos y tips */
+details.check,details.case{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-s);padding:0;margin-top:22px;max-width:760px}
+details.case{margin-top:0}
+details summary{cursor:pointer;padding:13px 16px;font-weight:600;list-style:none;display:flex;gap:10px;align-items:flex-start}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"+";display:inline-grid;place-items:center;flex:none;width:20px;height:20px;border-radius:5px;background:var(--sunk);color:var(--ink-2);font-weight:800;line-height:1}
+details[open] summary::before{content:"−"}
+details .ans{padding:0 16px 14px 46px;color:var(--ink-2);font-size:14.5px;display:grid;gap:6px}
+details .ans b{color:var(--ink)}
+.cases{display:grid;gap:10px;max-width:820px}
+.case-tag{font:700 11px/1 var(--f);letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-right:4px}
+.tip{display:flex;gap:12px;padding:13px 15px;border-radius:var(--r-s);background:var(--paper);border:1px dashed var(--line-2);font-size:14.5px;color:var(--ink-2);max-width:760px}
+.tip b{color:var(--ink)}
+.tip .ti{font:800 11px/1.6 var(--f);letter-spacing:.05em;text-transform:uppercase;color:var(--action);flex:none}
+.soon{display:flex;gap:12px;padding:13px 15px;border-radius:var(--r-s);background:var(--sunk);border:1px solid var(--line);font-size:14px;color:var(--ink-2);max-width:760px}
+.soon .ti{font:800 11px/1.6 var(--f);letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);flex:none}
+.motivos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:10px}
+.motivo{background:var(--paper);border:1px solid var(--line);border-radius:var(--r-s);padding:11px 13px;font-size:13.5px;color:var(--ink-2)}
+.motivo b{display:block;color:var(--ink);font-size:14px}
+
+.maint{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:12px}
+.mt{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:15px;display:grid;gap:7px;align-content:start}
+.mt .btn{justify-self:start}
+.mt p{font-size:13.5px;color:var(--ink-2)}
+
+/* ── Autoevaluación ──────────────────────────────────────── */
+.quiz{display:grid;gap:14px;max-width:820px}
+.qz{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin:0}
+.qz legend{font-weight:700;font-size:15.5px;padding:0;display:flex;gap:10px}
+.qz legend span{color:var(--action);font-variant-numeric:tabular-nums}
+.opts{display:grid;gap:6px;margin-top:12px}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:8px;cursor:pointer;font-size:14.5px;color:var(--ink-2)}
+.opt:hover{border-color:var(--line-2)}
+.opt input{margin-top:3px;accent-color:var(--action);flex:none}
+.opt.right{border-color:transparent;background:var(--ok-bg);color:var(--ok);font-weight:600}
+.opt.wrong{border-color:transparent;background:var(--bad-bg);color:var(--bad)}
+.fb{margin-top:10px;font-size:14px;color:var(--ink-2)}
+.fb:empty{display:none}
+.score{position:sticky;bottom:max(12px,env(safe-area-inset-bottom,0px));background:var(--paper);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;max-width:820px}
+.score b{font-size:18px}
+.reset{font:600 13px/1 var(--f);padding:9px 12px;border-radius:7px;border:1px solid var(--line-2);background:var(--paper);color:var(--ink);cursor:pointer}
+
+/* ── Tarjeta de bolsillo ─────────────────────────────────── */
+.pocket{max-width:560px;background:var(--paper);border:2px solid var(--ink);border-radius:16px;padding:22px;display:grid;gap:14px}
+.pocket .ph{display:flex;justify-content:space-between;gap:10px;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:10px}
+.pocket .ph b{font-size:19px;font-weight:800}
+.pocket .ph span{font:600 11px/1 var(--m);color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
+.pocket ol{margin:0;padding-left:0;list-style:none;display:grid;gap:9px;counter-reset:p}
+.pocket ol li{counter-increment:p;display:grid;grid-template-columns:26px minmax(0,1fr);gap:8px;font-size:14px}
+.pocket ol li::before{content:counter(p);display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--action);color:var(--action-ink);font-weight:800;font-size:12px}
+.pocket .mini{display:grid;gap:4px;font-size:13px;padding-left:34px;color:var(--ink-2)}
+.pocket .legend-s{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 10px;align-items:center;font-size:13px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:12px}
+.pocket .gold{font-weight:800;font-size:14.5px;text-align:center;padding:10px;border-radius:9px;background:var(--action-soft)}
+
+/* ── Guía de quien capacita ──────────────────────────────── */
+.guide{background:var(--paper);border-top:1px solid var(--line)}
+.princ{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px}
+.pr{border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:6px;align-content:start;background:var(--bg)}
+.pr h4{font-size:15.5px}
+.pr p{font-size:14px;color:var(--ink-2)}
+.pr .src{font-size:12px;color:var(--ink-3)}
+.agenda{display:grid;gap:8px;max-width:860px}
+.ag{display:grid;grid-template-columns:92px minmax(0,1fr);gap:14px;align-items:start;padding:11px 14px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--bg)}
+.ag .tm{font:600 13px/1.4 var(--m);color:var(--action)}
+.ag b{display:block}
+.ag p{font-size:14px;color:var(--ink-2)}
+.ag .mode{font:700 11px/1 var(--f);letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-left:6px}
+.bar60{display:flex;height:16px;border-radius:999px;overflow:hidden;border:1px solid var(--line);max-width:860px;margin-bottom:12px}
+.bar60 i{display:block;height:100%}
+.waves{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.wave{border:1px solid var(--line);border-radius:var(--r);padding:16px;background:var(--bg);display:grid;gap:6px;align-content:start}
+.wave .wn{font:700 12px/1 var(--m);color:var(--action);letter-spacing:.06em;text-transform:uppercase}
+.wave p{font-size:14px;color:var(--ink-2)}
+@media (max-width:760px){.waves{grid-template-columns:1fr}}
+.checklist{list-style:none;margin:0;padding:0;display:grid;gap:8px;max-width:760px}
+.checklist li{display:flex;gap:10px;font-size:14.5px;color:var(--ink-2)}
+.checklist li::before{content:"";flex:none;width:16px;height:16px;border:2px solid var(--line-2);border-radius:4px;margin-top:3px}
+.foot{padding-block:36px 56px;color:var(--ink-3);font-size:13px}
+
+@media (max-width:860px){
+  .cover-grid{grid-template-columns:1fr}
+  .route-grid{grid-template-columns:1fr}
+  .vs{grid-template-columns:1fr}
+  .vs-mid{transform:rotate(90deg);padding-block:4px}
+  .state{grid-template-columns:1fr;gap:6px}
+}
+
+/* ── Parte 2 · Gerencia ──────────────────────────────────── */
+.meta a{font-size:13px;font-weight:700;color:var(--action);background:var(--action-soft);border:1px solid var(--action-line);border-radius:999px;padding:5px 11px;text-decoration:none}
+.route .go{margin-top:auto;font-weight:700;font-size:14px;text-decoration:none}
+.toc a.part{color:var(--action);border-color:var(--action-line);background:var(--action-soft)}
+.part-band{background:var(--action-soft);border-block:1px solid var(--action-line);padding-block:52px}
+.part-band h2{font-size:clamp(30px,4.2vw,42px);font-weight:800;letter-spacing:-.015em;margin-top:12px}
+.part-band .why{margin-top:12px;max-width:68ch}
+.fmap-t{font-size:16px;margin-top:30px}
+.fmap{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px}
+.fn{display:grid;gap:5px;align-content:start;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:14px;text-decoration:none;color:var(--ink)}
+.fn:hover{border-color:var(--action-line)}
+.fn-n{font:700 11px/1 var(--m);color:var(--action);letter-spacing:.06em}
+.fn b{font-size:15px;line-height:1.25}
+.fn small{font-size:12.5px;color:var(--ink-3)}
+@media (max-width:860px){.fmap{grid-template-columns:repeat(2,minmax(0,1fr))}}
+mark.hl{background:var(--action-soft);color:inherit;border-radius:3px;padding:0 3px;box-shadow:0 0 0 1px var(--action-line)}
+.seg span.hl-seg{box-shadow:inset 0 0 0 2px var(--action);color:var(--ink);font-weight:700}
+.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:14px}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:10px;align-content:start;font-size:13.5px}
+.panel .seg{justify-self:start}
+.mgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.mgrid span{text-align:center;padding:6px 0;border:1px solid var(--line-2);border-radius:6px;font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.mgrid span.on{background:var(--action);border-color:var(--action);color:var(--action-ink);font-weight:700}
+.mgrid span.wide{grid-column:span 4}
+.flowh{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+@media (max-width:760px){.flowh{flex-direction:column;align-items:stretch}}
+.multi{max-width:640px;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.multi-h{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;padding:12px 14px;background:var(--sunk);border-bottom:1px solid var(--line)}
+.multi-r{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1.5fr);gap:10px;padding:11px 14px;border-bottom:1px solid var(--line);font-size:14px;align-items:baseline}
+.multi-r:last-child{border-bottom:0}
+@media (max-width:560px){.multi-r{grid-template-columns:1fr;gap:2px}}
+.two-dlg{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));gap:14px}
+.btn.danger-solid{background:var(--bad-num);border-color:var(--bad-num);color:var(--paper)}
+/* Con el dedo, todo lo que se toca del manual mide 44 px (la prueba visual midió el índice en 34 y la liga de regreso en 18). */
+@media (pointer: coarse){
+  .toc a,.backbar a,.route .go,.meta a,.reset,.fn,details summary,.opt,.done-box{min-height:44px}
+  .toc a,.backbar a,.route .go,.meta a{display:inline-flex;align-items:center}
+}
+</style>
+<style>
+/* Lo que el artifact traía de su envoltura y un documento suelto no: márgenes, safe-area y la liga de regreso. */
+:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+.backbar{padding-block:14px 0;font-size:14px}
+.backbar a{font-weight:600;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap backbar"><a href="/compras/calendario">← Ir al Calendario de compras</a></div>
+<!-- ═════════════════ PORTADA ═════════════════ -->
+<header class="cover">
+  <div class="wrap cover-grid">
+    <div>
+      <p class="kicker">Compras · Manual de capacitación</p>
+      <h1>Calendario de compras, desde cero</h1>
+      <p class="lead">Qué es, cómo se lee y qué haces cada día. Para compradores, auxiliares, encargados de tienda y almacenistas, con una parte completa para la gerencia de compras: definir y mantener las reglas.</p>
+      <div class="meta">
+        <span>En la Suite: Compras › Calendario de compras</span>
+        <span>Describe la Suite al lun 23 nov 2026</span>
+        <span>Los proveedores de los ejemplos son inventados</span>
+        <a href="#gerencia">Parte 2: gerencia de compras ›</a>
+      </div>
+      <p class="oneliner">El calendario te dice <b>a qué proveedor le toca la revisión hoy y dónde</b>. Si pediste en Kepler, se marca solo. Si no, lo marcas tú en dos clics.</p>
+    </div>
+    <div class="hero-card" aria-label="Ejemplo de lo que ves al entrar">
+      <div class="hc-top"><b>Por revisar</b><span>hoy, lun 23 nov</span></div>
+      <ul>
+        <li><span>CONFITERÍA EJEMPLO<small>Todas las sucursales</small></span><span class="tag bad">Rezagada · 10 días</span></li>
+        <li><span>GOMITAS EJEMPLO<small>Zona Morelia</small></span><span class="tag bad">Rezagada · 2 días</span></li>
+        <li><span>BOTANAS EJEMPLO<small>Yurécuaro</small></span><span class="tag warn">Toca hoy</span></li>
+        <li><span>CHOCOLATES EJEMPLO<small>Canindo</small></span><span class="tag ok">Al día</span></li>
+      </ul>
+      <p class="hc-foot">El color siempre va con su palabra: nadie tiene que adivinar qué significa.</p>
+    </div>
+  </div>
+</header>
+
+<!-- ═════════════════ RUTAS ═════════════════ -->
+<section class="routes" aria-labelledby="rutas-t">
+  <div class="wrap">
+    <h2 id="rutas-t">Elige tu ruta</h2>
+    <p class="sub">No todos hacen lo mismo en el calendario. Aprende sólo lo que vas a usar.</p>
+    <div class="route-grid">
+      <article class="route main">
+        <span class="time">≈ 45 MIN</span>
+        <h3>Reviso proveedores</h3>
+        <p class="who-list">Compras, compras operaciones, auxiliar de compras, encargado de tienda, almacenista.</p>
+        <ol>
+          <li><a href="#l0">Para qué sirve</a> · <a href="#l1">Las palabras</a></li>
+          <li><a href="#l2">La pantalla</a> · <a href="#l3">Cómo cambia el estado</a></li>
+          <li><a href="#l4">Tu rutina diaria</a> · <a href="#l5">Marcar</a></li>
+          <li><a href="#l6">El detalle</a> · <a href="#l7">Semana y Mes</a></li>
+          <li><a href="#practica">Práctica</a> y <a href="#examen">autoevaluación</a></li>
+        </ol>
+      </article>
+      <article class="route">
+        <span class="time">≈ 1 H 45 MIN · EN DOS SESIONES</span>
+        <h3>Defino las reglas</h3>
+        <p class="who-list">Gerencia de compras.</p>
+        <ol>
+          <li>Parte 1: toda la ruta «Reviso proveedores»</li>
+          <li><a href="#g1">Lo que ves de más</a> · <a href="#g2">el embudo</a></li>
+          <li><a href="#g3">Qué regla va</a> · <a href="#g4">definir paso a paso</a></li>
+          <li><a href="#g5">Varias reglas</a> · <a href="#g6">corregir</a> · <a href="#g7">pausar o dar de baja</a></li>
+          <li><a href="#g8">Tu revisión semanal</a> · <a href="#gcasos">casos</a> · <a href="#gexamen">autoevaluación</a></li>
+        </ol>
+        <a class="go" href="#gerencia">Ir a la Parte 2 ›</a>
+      </article>
+      <article class="route">
+        <span class="time">≈ 20 MIN</span>
+        <h3>Sólo consulto</h3>
+        <p class="who-list">Dirección.</p>
+        <ol>
+          <li><a href="#l0">Para qué sirve</a></li>
+          <li><a href="#l1">Las palabras</a></li>
+          <li><a href="#l2">La pantalla</a></li>
+          <li><a href="#l3">Cómo cambia el estado</a></li>
+        </ol>
+      </article>
+    </div>
+    <p id="avance" aria-live="polite"></p>
+  </div>
+</section>
+
+<nav class="toc" aria-label="Lecciones">
+  <div class="wrap toc-row">
+    <a href="#l0" data-toc="l0">0 · Para qué</a>
+    <a href="#l1" data-toc="l1">1 · Palabras</a>
+    <a href="#l2" data-toc="l2">2 · Pantalla</a>
+    <a href="#l3" data-toc="l3">3 · Estados</a>
+    <a href="#l4" data-toc="l4">4 · Rutina</a>
+    <a href="#l5" data-toc="l5">5 · Marcar</a>
+    <a href="#l6" data-toc="l6">6 · Detalle</a>
+    <a href="#l7" data-toc="l7">7 · Semana y Mes</a>
+    <a href="#errores">Errores comunes</a>
+    <a href="#practica">Práctica</a>
+    <a href="#examen">Autoevaluación</a>
+    <a href="#tarjeta">Tarjeta</a>
+    <a href="#gerencia" class="part">Parte 2 · Gerencia</a>
+    <a href="#g1" data-toc="g1">G1 · Lo que ves</a>
+    <a href="#g2" data-toc="g2">G2 · Embudo</a>
+    <a href="#g3" data-toc="g3">G3 · Qué regla</a>
+    <a href="#g4" data-toc="g4">G4 · Definir</a>
+    <a href="#g5" data-toc="g5">G5 · Varias reglas</a>
+    <a href="#g6" data-toc="g6">G6 · Corregir</a>
+    <a href="#g7" data-toc="g7">G7 · Pausar o baja</a>
+    <a href="#g8" data-toc="g8">G8 · Revisión semanal</a>
+    <a href="#gcasos">Casos G</a>
+    <a href="#gexamen">Autoevaluación G</a>
+    <a href="#guia">Guía para capacitar</a>
+  </div>
+</nav>
+
+<main>
+<!-- ═════════════════ L0 ═════════════════ -->
+<section class="lesson" id="l0">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección 0</span> · ≈ 5 min <span class="for">Todos</span></p>
+      <h2>Para qué sirve</h2>
+      <p class="why">Que ningún proveedor se quede sin revisar. Hace lo mismo que la hoja «2026» del Drive, pero el estado de cada revisión ya no se pinta a mano: sale de Kepler.</p>
+    </div>
+
+    <div class="block">
+      <div class="vs">
+        <div class="vs-card old">
+          <h4>Antes · la hoja «2026»</h4>
+          <ul>
+            <li>Un bloque por día con los proveedores que tocan.</li>
+            <li>Al pedir, escribes al proveedor en su siguiente fecha.</li>
+            <li>El color (se pasó, no se pasó, requisición, traspaso) se pinta a mano.</li>
+            <li>Si nadie pinta, nadie sabe si se revisó.</li>
+          </ul>
+          <div class="sheet" aria-hidden="true">
+            <div class="h">lun 23</div><div class="h">Suc. 1</div><div class="h">Suc. 2</div><div class="h">Suc. 3</div><div class="h">Suc. 4</div>
+            <div>Proveedor A</div><div class="c1">se pasó</div><div class="c2">no</div><div class="c0"></div><div class="c3">req.</div>
+            <div>Proveedor B</div><div class="c0"></div><div class="c1">se pasó</div><div class="c0"></div><div class="c0"></div>
+          </div>
+        </div>
+        <div class="vs-mid" aria-hidden="true">→</div>
+        <div class="vs-card">
+          <h4>Ahora · el calendario de la Suite</h4>
+          <ul>
+            <li>Cada proveedor tiene una <b>regla</b>: dónde se revisa y cada cuándo.</li>
+            <li>La siguiente fecha la calcula la Suite.</li>
+            <li>La orden de compra o la entrada en Kepler <b>lo marcan solo</b>.</li>
+            <li>Lo que nadie atiende aparece como <span class="tag bad">Rezagada · 3 días</span>, con los días de atraso.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="tip" style="margin-top:16px"><span class="ti">Lo que no cambia</span><span>Tú sigues decidiendo qué y cuánto pedir. El calendario no pide por ti: te recuerda a quién le toca.</span></div>
+    </div>
+
+    <div class="block">
+      <h3>Dónde está</h3>
+      <div class="pinned" style="gap:18px;flex-wrap:wrap">
+        <figure class="shot" style="width:min(100%,300px)">
+          <div class="shot-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><b>Menú de Compras</b></div>
+          <div class="app" style="padding:12px 14px;display:grid;gap:4px;font-size:13.5px">
+            <span class="sub" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:10.5px">Compra</span>
+            <span style="padding:7px 9px;color:var(--ink-2)">Existencia</span>
+            <span style="padding:7px 9px;color:var(--ink-2)">Temporadas</span>
+            <span class="pinned" style="padding:7px 9px;border-radius:7px;background:var(--action-soft);font-weight:700;align-items:center"><span class="pin">1</span>Calendario de compras</span>
+            <span style="padding:7px 9px;color:var(--ink-2)">Pedido</span>
+            <span style="padding:7px 9px;color:var(--ink-3)">…</span>
+          </div>
+        </figure>
+        <div class="prose" style="flex:1 1 300px">
+          <p><b>Compras › grupo «Compra» › Calendario de compras</b>, justo antes de Pedido. La dirección de la página termina en <span class="mono">/compras/calendario</span>.</p>
+          <p>Va antes de Pedido a propósito: primero ves a quién le toca y desde ahí abres su pedido.</p>
+          <p>¿No lo ves en el menú? Sal de la Suite y vuelve a entrar: los permisos llegan al iniciar sesión. Si sigue sin aparecer, pide el permiso a tu gerencia.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Quién ve qué</h3>
+      <div class="scroll">
+        <table class="grid-t">
+          <thead><tr><th>Puesto</th><th>Qué reglas ve</th><th>Ve</th><th>Marca</th><th>Define reglas</th></tr></thead>
+          <tbody>
+            <tr><td>Gerencia de compras</td><td>Todas</td><td class="c yes">Sí</td><td class="c yes">Sí</td><td class="c yes">Sí</td></tr>
+            <tr><td>Compras · Compras operaciones · Auxiliar de compras</td><td>Las de las sucursales que tiene asignadas</td><td class="c yes">Sí</td><td class="c yes">Sí</td><td class="c no">—</td></tr>
+            <tr><td>Encargado de tienda · Almacenista</td><td>Sólo las de su sucursal</td><td class="c yes">Sí</td><td class="c yes">Sí</td><td class="c no">—</td></tr>
+            <tr><td>Gerencia de zona</td><td>Las de su zona y las de cada sucursal de su zona</td><td class="c yes">Sí</td><td class="c yes">Sí</td><td class="c no">—</td></tr>
+            <tr><td>Dirección</td><td>Todas</td><td class="c yes">Sí</td><td class="c no">—</td><td class="c no">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note-s">Una sucursal no ve la regla de su zona ni la de todas las sucursales: esas las revisan otros. Cuando tu lista está recortada, la pantalla lo dice en una línea gris debajo de la frase de arriba, por ejemplo: <i>«Ves sólo las reglas de Yurécuaro: las de todas las sucursales las revisa la gerencia de compras.»</i></p>
+      <div class="tip" style="margin-top:12px"><span class="ti">Si dice esto</span><span><i>«Tu ficha no tiene sucursal…»</i> No es que no haya reglas: a tu usuario le falta la sucursal. Pide que te la asignen.</span></div>
+    </div>
+
+    <label class="done-box"><input type="checkbox" data-leccion="l0"> Ya lo entendí</label>
+  </div>
+</section>
+
+<!-- ═════════════════ L1 ═════════════════ -->
+<section class="lesson" id="l1">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección 1</span> · ≈ 5 min <span class="for">Todos</span></p>
+      <h2>Las palabras del calendario</h2>
+      <p class="why">Antes de ver la pantalla, las palabras que usa. Con estas ocho la entiendes completa.</p>
+    </div>
+
+    <div class="block words">
+      <article class="word">
+        <h4>Regla</h4>
+        <p>Dice <b>a qué proveedor</b> se le revisa, <b>dónde</b> y <b>cada cuándo</b>. La define la gerencia de compras.</p>
+        <div class="rule-eq"><span>BOTANAS EJEMPLO</span><i>+</i><span>Yurécuaro</span><i>+</i><span>cada lunes</span></div>
+        <p class="eg">Un proveedor puede tener varias reglas: una para todas las sucursales y otra, con su propio día, en una sucursal.</p>
+      </article>
+      <article class="word">
+        <h4>Dónde (el alcance)</h4>
+        <p><b>Todas las sucursales</b> → revisa la gerencia de compras.<br><b>Una zona</b> → revisa la gerencia de zona.<br><b>Una sucursal</b> → revisa el encargado de esa sucursal.</p>
+        <p class="eg">En la lista sale como «Dónde» y debajo «Revisa: …».</p>
+      </article>
+      <article class="word">
+        <h4>Cada cuándo (el patrón)</h4>
+        <p><b>Días de la semana</b>: cada lunes.<br><b>Días del mes</b>: el 15 y el último.<br><b>Cada N días</b>: cada 10 días, contando desde la última orden o entrada en Kepler.</p>
+      </article>
+      <article class="word">
+        <h4>Revisión</h4>
+        <p>El día que toca: se ve al proveedor (o se le llama) y se decide si se le pide y qué.</p>
+      </article>
+      <article class="word">
+        <h4>Atendida</h4>
+        <p>La revisión ya tiene respuesta: hubo <b>orden de compra o entrada en Kepler</b> de ese proveedor en una sucursal de la regla, o alguien la <b>marcó</b>.</p>
+      </article>
+      <article class="word">
+        <h4>Marca</h4>
+        <p>Lo que tú dices cuando Kepler no lo dice: <b>«Se pidió fuera de Kepler»</b> o <b>«Hoy no se pide»</b> (con su motivo).</p>
+      </article>
+      <article class="word">
+        <h4>Fuera de ciclo</h4>
+        <p>La gerencia saca a un proveedor del calendario hasta una fecha, con motivo. Ejemplo: uno de temporada. No cuenta como rezagado y regresa solo.</p>
+      </article>
+      <article class="word">
+        <h4>Kepler propone</h4>
+        <p>El ritmo que sugiere Kepler con las órdenes del último año. Es una <b>propuesta</b>: la gerencia la confirma o la cambia. Sólo la ve la gerencia.</p>
+      </article>
+    </div>
+
+    <div class="block">
+      <h3>Los cinco estados</h3>
+      <div class="states">
+        <div class="state"><span><span class="tag bad">Rezagada · 3 días</span></span><p><b>Se debe de días anteriores.</b> Tocaba y nadie la atendió. El número son los días de atraso. Debajo dice desde cuándo se debe.</p></div>
+        <div class="state"><span><span class="tag warn">Toca hoy</span></span><p><b>Hoy es el día</b> y todavía no hay orden, entrada ni marca.</p></div>
+        <div class="state"><span><span class="tag ok">Al día</span></span><p><b>Nada pendiente.</b> Debajo dice la siguiente fecha.</p></div>
+        <div class="state"><span><span class="tag mute">Fuera de ciclo</span></span><p><b>Sacada del calendario</b> hasta una fecha, con su motivo. No se cuenta como rezagada.</p></div>
+        <div class="state"><span><span class="tag mute">Sin fecha base</span></span><p><b>No hay de dónde contar.</b> Es una regla «cada N días» y el proveedor no tiene orden ni entrada en Kepler en el último año. Se resuelve marcando la primera revisión.</p></div>
+      </div>
+    </div>
+
+    <details class="check">
+      <summary>Compruébalo: un renglón dice «Toca hoy». ¿Qué significa?</summary>
+      <div class="ans"><p>Que hoy le toca la revisión y todavía no hay orden de compra, entrada en Kepler ni marca. Si nadie la atiende, mañana amanece <b>«Rezagada · 1 día»</b>.</p></div>
+    </details>
+    <label class="done-box"><input type="checkbox" data-leccion="l1"> Ya lo entendí</label>
+  </div>
+</section>
+
+<!-- ═════════════════ L2 ═════════════════ -->
+<section class="lesson" id="l2">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección 2</span> · ≈ 5 min <span class="for">Todos</span></p>
+      <h2>La pantalla, pieza por pieza</h2>
+      <p class="why">Se lee de arriba abajo: primero la frase, luego las cifras y luego la lista. Los números naranjas de la imagen corresponden a la lista de abajo.</p>
+    </div>
+
+    <div class="block">
+      <figure class="shot">
+        <div class="shot-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Compras / <b>Calendario de compras</b></div>
+        <div class="app">
+          <div class="app-head">
+            <div class="pinned"><span class="pin">1</span><div><h4 class="app-h1">Calendario de compras</h4><p class="app-sub">A qué proveedor le toca la revisión y dónde, con lo que dice Kepler.</p></div></div>
+            <span class="fresh">○ cargado ahora</span>
+          </div>
+          <div class="pinned answer"><span class="pin">2</span><p>Se deben 3 revisiones: 2 rezagadas (la más atrasada, CONFITERÍA EJEMPLO en Todas las sucursales, desde el vie 13 nov) y 1 toca hoy. 1 sin fecha base para contar los días.</p></div>
+          <div class="pinned" style="margin-top:6px"><span class="pin">3</span>
+            <div class="kpis" style="margin-top:0">
+              <span class="k"><b class="bad">2</b><em>Rezagadas</em><small>se deben de días anteriores</small></span>
+              <span class="k"><b class="warn">1</b><em>Tocan hoy</em><small>sin orden, entrada ni marca</small></span>
+              <span class="k"><b>1</b><em>Sin fecha base</em><small>cada N días, sin compra para contar</small></span>
+              <span class="k"><b>12</b><em>Al día</em><small>de 17 reglas</small></span>
+              <span class="k"><b>1</b><em>Fuera de ciclo</em><small>con fecha de regreso</small></span>
+            </div>
+          </div>
+          <div class="toolbar">
+            <span class="pin">4</span>
+            <span class="seg" aria-hidden="true"><span class="on">Por revisar</span><span>Semana</span><span>Mes</span><span>Reglas</span></span>
+            <span class="pin">5</span>
+            <span class="search">Proveedor, clave o sucursal</span>
+          </div>
+          <table class="t">
+            <thead><tr><th>Proveedor</th><th>Dónde</th><th>Cuándo toca</th><th>Estado</th><th>Última atención</th><th><span style="position:absolute;left:-9999px">Acciones</span></th></tr></thead>
+            <tbody>
+              <tr>
+                <td data-label="Proveedor"><div class="c"><span class="pinned"><span class="pin">6</span><span class="lnk">CONFITERÍA EJEMPLO</span></span><span class="sub">clave CE001</span></div></td>
+                <td data-label="Dónde"><div class="c"><span class="pri">Todas las sucursales</span><span class="sub">Revisa: Gerencia de compras</span></div></td>
+                <td data-label="Cuándo toca"><div class="c"><span>El 15 y el último de cada mes</span><span class="sub">Si cae en fin de semana, se adelanta al viernes</span></div></td>
+                <td data-label="Estado"><div class="c"><span class="pinned"><span class="pin">7</span><span class="tag bad">Rezagada · 10 días</span></span><span class="sub">Se debe desde el vie 13 nov</span></div></td>
+                <td data-label="Última atención"><div class="c"><span>Orden de compra</span><span class="sub">vie 30 oct</span></div></td>
+                <td data-label="Acciones"><div class="acc"><span class="pin">8</span><span class="btn">Marcar</span><span class="btn text">Detalle</span></div></td>
+              </tr>
+              <tr>
+                <td data-label="Proveedor"><div class="c"><span class="lnk">GOMITAS EJEMPLO</span><span class="sub">clave GE220</span></div></td>
+                <td data-label="Dónde"><div class="c"><span class="pri">Zona Morelia</span><span class="sub">Revisa: Gerencia de zona</span></div></td>
+                <td data-label="Cuándo toca"><div class="c"><span>Cada 10 días</span></div></td>
+                <td data-label="Estado"><div class="c"><span><span class="tag bad">Rezagada · 2 días</span></span><span class="sub">Se debe desde el sáb 21 nov</span></div></td>
+                <td data-label="Última atención"><div class="c"><span>Orden de compra</span><span class="sub">mié 11 nov</span></div></td>
+                <td data-label="Acciones"><div class="acc"><span class="btn">Marcar</span><span class="btn text">Detalle</span></div></td>
+              </tr>
+              <tr>
+                <td data-label="Proveedor"><div class="c"><span class="lnk">BOTANAS EJEMPLO</span><span class="sub">clave BE014</span></div></td>
+                <td data-label="Dónde"><div class="c"><span class="pri">Yurécuaro</span><span class="sub">Revisa: Encargado de Yurécuaro</span></div></td>
+                <td data-label="Cuándo toca"><div class="c"><span>Cada lunes</span></div></td>
+                <td data-label="Estado"><div class="c"><span><span class="tag warn">Toca hoy</span></span><span class="sub">Después, lun 30 nov</span></div></td>
+                <td data-label="Última atención"><div class="c"><span>Entrada aplicada</span><span class="sub">lun 16 nov</span></div></td>
+                <td data-label="Acciones"><div class="acc"><span class="btn">Marcar</span><span class="btn text">Detalle</span></div></td>
+              </tr>
+              <tr>
+                <td data-label="Proveedor"><div class="c"><span class="lnk">VELAS EJEMPLO</span><span class="sub">clave VE031</span></div></td>
+                <td data-label="Dónde"><div class="c"><span class="pri">Todas las sucursales</span><span class="sub">Revisa: Gerencia de compras</span></div></td>
+                <td data-label="Cuándo toca"><div class="c"><span>Cada 30 días</span></div></td>
+                <td data-label="Estado"><div class="c"><span><span class="tag mute">Sin fecha base</span></span><span class="sub">Sin OC ni entrada en Kepler para contar los días: marca la primera revisión o define otro patrón</span></div></td>
+                <td data-label="Última atención"><div class="c"><span style="color:var(--ink-3)">Sin OC ni entrada en el último año</span></div></td>
+                <td data-label="Acciones"><div class="acc"><span class="btn">Marcar</span><span class="btn text">Detalle</span></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </figure>
+      <p class="caption">Así se ve la vista «Por revisar» en la computadora. En el celular cada renglón se vuelve una tarjeta con las mismas piezas, una debajo de otra.</p>
+
+      <ol class="legend">
+        <li><span class="pin">1</span><span><b>Título y «cargado ahora».</b> Dice cuándo se leyó lo que ves. Si dejaste la página abierta mucho rato, recárgala.</span></li>
+        <li><span class="pin">2</span><span><b>La frase.</b> Lo que se debe hoy, en palabras. Léela primero: si dice «Hoy no se debe ninguna revisión», ya terminaste.</span></li>
+        <li><span class="pin">3</span><span><b>Las cifras.</b> Cuántas revisiones hay en cada estado. Un clic en una cifra te lleva a su lista.</span></li>
+        <li><span class="pin">4</span><span><b>Las vistas.</b> «Por revisar» (lo que se debe), «Semana» y «Mes» (lo que viene), «Reglas» (todas). La gerencia ve además «Sin regla».</span></li>
+        <li><span class="pin">5</span><span><b>El buscador.</b> Por nombre del proveedor, su clave de Kepler o la sucursal.</span></li>
+        <li><span class="pin">6</span><span><b>El proveedor.</b> Su nombre abre el detalle. Debajo, su clave de Kepler.</span></li>
+        <li><span class="pin">7</span><span><b>El estado.</b> Con palabra y color. Debajo, desde cuándo se debe o cuál es la siguiente fecha.</span></li>
+        <li><span class="pin">8</span><span><b>Los botones.</b> «Marcar» para decir qué pasó; «Detalle» para ver la regla y abrir el pedido.</span></li>
+      </ol>
+    </div>
+
+    <div class="block">
+      <h3>«Última atención»: de dónde sale</h3>
+      <p class="prose" style="margin-bottom:12px">Es lo último que pasó con ese proveedor en las sucursales de la regla. Puede ser:</p>
+      <div class="motivos">
+        <div class="motivo"><b>Orden de compra</b>Una OC en Kepler.</div>
+        <div class="motivo"><b>Orden de compra cancelada</b>También cuenta: sí hubo revisión.</div>
+        <div class="motivo"><b>Entrada aplicada</b>Llegó mercancía y se aplicó en Kepler.</div>
+        <div class="motivo"><b>Se pidió fuera de Kepler</b>Una marca de alguien del equipo.</div>
+        <div class="motivo"><b>No se pidió (motivo)</b>Una marca «Hoy no se pide».</div>
+      </div>
+    </div>
+
+    <details class="check">
+      <summary>Compruébalo: ¿qué lees primero al entrar?</summary>
+      <div class="ans"><p>La frase de arriba (pieza 2). Te dice cuántas revisiones se deben y cuál es la más atrasada. Las cifras y la lista son el desglose de esa frase.</p></div>
+    </details>
+    <label class="done-box"><input type="checkbox" data-leccion="l2"> Ya lo entendí</label>
+  </div>
+</section>
+
+<!-- ═════════════════ L3 ═════════════════ -->
+<section class="lesson" id="l3">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección 3</span> · ≈ 5 min <span class="for">Todos</span></p>
+      <h2>Cómo cambia el estado</h2>
+      <p class="why">Nadie cambia los colores a mano. El estado cambia solo con lo que pasa en Kepler y con las marcas del equipo.</p>
+    </div>
+
+    <div class="block life">
+      <div class="lane">
+        <h4>Un día normal</h4>
+        <div class="chain">
+          <div class="node"><span class="tag ok">Al día</span><small>La siguiente, lun 30 nov</small></div>
+          <div class="arrow"><b>→</b>llega el día</div>
+          <div class="node"><span class="tag warn">Toca hoy</span><small>sin orden, entrada ni marca</small></div>
+          <div class="arrow"><b>→</b>OC o entrada en Kepler, o tu marca</div>
+          <div class="node"><span class="tag ok">Al día</span><small>La siguiente, lun 7 dic</small></div>
+        </div>
+      </div>
+      <div class="lane">
+        <h4>Cuando nadie la atiende</h4>
+        <div class="chain">
+          <div class="node"><span class="tag warn">Toca hoy</span><small>lun 30 nov</small></div>
+          <div class="arrow"><b>→</b>pasa el día sin nada</div>
+          <div class="node"><span class="tag bad">Rezagada · 1 día</span><small>Se debe desde el lun 30 nov</small></div>
+          <div class="arrow"><b>→</b>cada día suma uno</div>
+          <div class="node"><span class="tag bad">Rezagada · 5 días</span><small>sigue arriba en «Por revisar»</small></div>
+          <div class="arrow"><b>→</b>OC o entrada, o una marca de esa fecha</div>
+          <div class="node"><span class="tag ok">Al día</span><small>vuelve a su ritmo</small></div>
+        </div>
+      </div>
+      <div class="side-states">
+        <div class="lane">
+          <h4>Fuera de ciclo (lo hace la gerencia)</h4>
+          <div class="chain">
+            <div class="node"><span class="tag mute">Fuera de ciclo</span><small>Hasta el vie 15 ene · de temporada</small></div>
+            <div class="arrow"><b>→</b>al día siguiente de su fecha</div>
+            <div class="node"><b>Regresa al calendario</b><small>solo, con su siguiente fecha</small></div>
+          </div>
+        </div>
+        <div class="lane">
+          <h4>Sin fecha base</h4>
+          <div class="chain">
+            <div class="node"><span class="tag mute">Sin fecha base</span><small>«cada N días» sin compra en el año</small></div>
+            <div class="arrow"><b>→</b>marca la primera revisión</div>
+            <div class="node"><span class="tag ok">Al día</span><small>ya tiene de dónde contar</small></div>
+          </div>
+        </div>
+      </div>
+      <p class="golden">La regla de oro: lo que nadie atiende amanece rezagado.</p>
+    </div>
+
+    <div class="block">
+      <h3>Qué cuenta como «atendida»</h3>
+      <div class="prose">
+        <p>Una <b>orden de compra</b> o una <b>entrada</b> de ese proveedor en Kepler, en una sucursal que cubre la regla. Para una regla de Yurécuaro cuenta lo de Yurécuaro; para una de todas las sucursales, cuenta lo de cualquiera.</p>
+        <p>Si no hubo documento en Kepler, cuenta tu <b>marca</b>. Eso es la lección 5.</p>
+      </div>
+    </div>
+
+    <details class="check">
+      <summary>Compruébalo: hiciste la OC en Kepler. ¿Tienes que cambiar algo en el calendario?</summary>
+      <div class="ans"><p><b>No.</b> La orden de compra la toma solo y la revisión pasa a «Al día». Si sigue en «Toca hoy», recarga la página.</p></div>
+    </details>
+    <label class="done-box"><input type="checkbox" data-leccion="l3"> Ya lo entendí</label>
+  </div>
+</section>
+
+<!-- ═════════════════ L4 ═════════════════ -->
+<section class="lesson" id="l4">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección 4</span> · ≈ 3 min <span class="for">Reviso</span><span class="for">Defino</span></p>
+      <h2>Tu rutina diaria, en cuatro pasos</h2>
+      <p class="why">Lo mismo cada mañana. Cuando la frase de arriba dice «Hoy no se debe ninguna revisión», terminaste.</p>
+    </div>
+    <div class="block steps4">
+      <div class="st"><span class="big">1</span><h4>Lee la frase</h4><p>Abre Compras › Calendario de compras. Arriba dice cuánto se debe y cuál es la más atrasada.</p></div>
+      <div class="st"><span class="big">2</span><h4>Ve a «Por revisar»</h4><p>Arriba sale lo que se debe: primero las rezagadas, después las de hoy.</p></div>
+      <div class="st"><span class="big">3</span><h4>Atiende cada renglón</h4><p>Pide en Kepler (desde «Detalle › Abrir en Pedido»), o márcalo si no hubo OC. Lección 5.</p></div>
+      <div class="st"><span class="big">4</span><h4>Mira «Semana»</h4><p>Antes de irte, revisa lo que viene en los próximos 7 días.</p></div>
+    </div>
+    <label class="done-box"><input type="checkbox" data-leccion="l4"> Ya lo entendí</label>
+  </div>
+</section>
+
+<!-- ═════════════════ L5 ═════════════════ -->
+<section class="lesson" id="l5">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección 5</span> · ≈ 7 min <span class="for">Reviso</span><span class="for">Defino</span></p>
+      <h2>Marcar una revisión</h2>
+      <p class="why">Marcas sólo cuando Kepler no lo puede saber: pediste por otro medio o hoy no se pide. Si hubo OC o entrada en Kepler, no hagas nada.</p>
+    </div>
+
+    <div class="block">
+      <h3>¿Marco o no marco?</h3>
+      <div class="decide" role="group" aria-label="Cómo decidir si marcar">
+        <div class="q-row">
+          <div class="q">¿Hubo orden de compra o entrada en Kepler de ese proveedor?</div>
+          <div class="yes-arrow"><b>→</b>Sí</div>
+          <div class="r good"><b>No marques nada.</b>El calendario la toma solo.</div>
+        </div>
+        <div class="no-arrow">↓ No</div>
+        <div class="q-row">
+          <div class="q">¿Le pediste por otro medio (teléfono, WhatsApp, en persona) sin OC en Kepler?</div>
+          <div class="yes-arrow"><b>→</b>Sí</div>
+          <div class="r act"><b>Marcar › «Se pidió fuera de Kepler»</b>No lleva motivo.</div>
+        </div>
+        <div class="no-arrow">↓ No</div>
+        <div class="q-row">
+          <div class="q">Entonces hoy no se le pidió.</div>
+          <div class="yes-arrow"><b>→</b></div>
+          <div class="r act"><b>Marcar › «Hoy no se pide»</b>Elige el motivo y, si ya sabes cuándo, la nueva fecha.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>El cuadro de «Marcar»</h3>
+      <div class="dlg-stage">
+        <div class="dlg" role="img" aria-label="Cuadro para marcar la revisión de BOTANAS EJEMPLO">
+          <div class="dlg-h"><span>Marcar la revisión de BOTANAS EJEMPLO</span><span class="x" aria-hidden="true">×</span></div>
+          <div class="dlg-b">
+            <p class="sub">Yurécuaro · Cada lunes. Si hubo orden de compra o entrada en Kepler no hace falta marcar: el calendario la toma solo.</p>
+            <span class="lbl pinned"><span class="pin">1</span>Fecha de la revisión</span>
+            <span class="field"><span>23/11/26</span><span class="sub">▦</span></span>
+            <span class="lbl pinned"><span class="pin">2</span>¿Qué pasó?</span>
+            <span class="seg"><span>Se pidió fuera de Kepler</span><span class="on">Hoy no se pide</span></span>
+            <span class="lbl pinned"><span class="pin">3</span>¿Por qué no se pide?</span>
+            <span class="field"><span>No hace falta</span><span class="sub">▾</span></span>
+            <span class="lbl pinned"><span class="pin">4</span>Nueva fecha (opcional)</span>
+            <span class="field"><span>25/11/26</span><span class="sub">▦</span></span>
+            <p class="sub">Con nueva fecha, ese día también toca. Sin ella, la siguiente es la de la regla.</p>
+            <span class="lbl pinned"><span class="pin">5</span>Nota (opcional)</span>
+            <span class="field"><span>El ejecutivo viene el miércoles</span></span>
+            <div class="acc" style="margin-top:6px"><span class="pin">6</span><span class="btn primary">Guardar la marca</span><span class="btn text">Cancelar</span></div>
+          </div>
+        </div>
+      </div>
+      <ol class="legend">
+        <li><span class="pin">1</span><span><b>La fecha.</b> Viene con la de hoy (o la del día que elegiste en «Semana» o «Mes»). Puedes elegir un día que ya pasó (si se te olvidó marcar) o hasta 14 días adelante.</span></li>
+        <li><span class="pin">2</span><span><b>¿Qué pasó?</b> Una de dos: «Se pidió fuera de Kepler» o «Hoy no se pide».</span></li>
+        <li><span class="pin">3</span><span><b>El motivo.</b> Sólo con «Hoy no se pide». Es obligatorio.</span></li>
+        <li><span class="pin">4</span><span><b>Nueva fecha.</b> Si el proveedor queda de venir otro día, ponla: ese día también aparecerá.</span></li>
+        <li><span class="pin">5</span><span><b>La nota.</b> Opcional, salvo con el motivo «Otro»: ahí es obligatoria.</span></li>
+        <li><span class="pin">6</span><span><b>Guardar.</b> Arriba de la pantalla sale la confirmación con lo que quedó.</span></li>
+      </ol>
+      <p class="toast">Marcado: BOTANAS EJEMPLO en Yurécuaro, el lun 23 nov: hoy no se pide (no hace falta).</p>
+      <p class="caption">La confirmación que ves al guardar. Si marcas otra vez la misma fecha, dice «Marca corregida»: no se duplica.</p>
+    </div>
+
+    <div class="block">
+      <h3>Los motivos de «Hoy no se pide»</h3>
+      <div class="motivos">
+        <div class="motivo"><b>Ya hay pedido</b>Hay una orden en camino que todavía no llega.</div>
+        <div class="motivo"><b>En cotización</b>Se está cotizando antes de pedir.</div>
+        <div class="motivo"><b>Bloqueado</b>Por ahora no se le puede pedir a ese proveedor.</div>
+        <div class="motivo"><b>No hace falta</b>Hay existencia suficiente.</div>
+        <div class="motivo"><b>Importación</b>Producto de importación, con su propio ritmo.</div>
+        <div class="motivo"><b>Otro</b>Cualquier otra causa. Escríbela en la nota (obligatorio).</div>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="tip"><span class="ti">Días festivos</span><span>La Suite todavía no conoce los días inhábiles. Si una revisión cae en festivo, márcala «Hoy no se pide», motivo <b>Otro</b> con la nota «día festivo», y pon la nueva fecha.</span></div>
+    </div>
+
+    <details class="check">
+      <summary>Compruébalo: le pediste por WhatsApp y nadie capturó la OC en Kepler. ¿Qué marcas?</summary>
+      <div class="ans"><p><b>«Se pidió fuera de Kepler».</b> Así la revisión queda atendida y no amanece rezagada.</p></div>
+    </details>
+    <label class="done-box"><input type="checkbox" data-leccion="l5"> Ya lo practiqué</label>
+  </div>
+</section>
+
+<!-- ═════════════════ L6 ═════════════════ -->
+<section class="lesson" id="l6">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección 6</span> · ≈ 4 min <span class="for">Reviso</span><span class="for">Defino</span></p>
+      <h2>El detalle y «Abrir en Pedido»</h2>
+      <p class="why">Un clic en el nombre del proveedor (o en «Detalle») abre un panel a la derecha con todo lo de esa regla, y el atajo para armar su pedido.</p>
+    </div>
+    <div class="block">
+      <figure class="shot">
+        <div class="shot-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Calendario de compras / <b>Detalle</b></div>
+        <div class="peek">
+          <div class="peek-dim" aria-hidden="true"><div class="ghost" style="width:70%"></div><div class="ghost" style="width:90%"></div><div class="ghost" style="width:60%"></div><div class="ghost" style="width:85%"></div><div class="ghost" style="width:50%"></div></div>
+          <div class="peek-panel">
+            <div><div class="peek-title">BOTANAS EJEMPLO</div><div class="sub">Yurécuaro · clave BE014</div></div>
+            <section class="pinned"><span class="pin">1</span><div><h5>Hoy</h5><span class="tag warn">Toca hoy</span><div class="sub" style="margin-top:4px">Después, lun 30 nov</div></div></section>
+            <section class="pinned"><span class="pin">2</span><div><h5>Cuándo toca</h5><div class="pri">Cada lunes</div><div class="sub">Las siguientes: lun 30 nov · lun 7 dic · lun 14 dic · lun 21 dic</div><div class="sub">Revisa: Encargado de Yurécuaro</div></div></section>
+            <section class="pinned"><span class="pin">3</span><div><h5>Última atención</h5><div>Entrada aplicada, lun 16 nov</div></div></section>
+            <section class="pinned"><span class="pin">4</span><div><h5>La regla</h5><div class="sub">Definida por la gerencia de compras el vie 20 nov.</div></div></section>
+            <div class="acc pinned"><span class="pin">5</span><span class="btn primary">Marcar la revisión</span><span class="btn">Abrir en Pedido</span></div>
+          </div>
+        </div>
+      </figure>
+      <ol class="legend">
+        <li><span class="pin">1</span><span><b>Hoy.</b> El estado de la regla.</span></li>
+        <li><span class="pin">2</span><span><b>Cuándo toca.</b> El patrón, las cuatro siguientes fechas y quién revisa.</span></li>
+        <li><span class="pin">3</span><span><b>Última atención.</b> Y, si la hay, la última marca: quién la puso, el motivo y la nota.</span></li>
+        <li><span class="pin">4</span><span><b>La regla.</b> Quién la definió y cuándo.</span></li>
+        <li><span class="pin">5</span><span><b>Abrir en Pedido</b> te lleva al Pedido con ese proveedor y sus sucursales ya elegidos. Ahí armas el pedido como siempre.</span></li>
+      </ol>
+      <div class="tip" style="margin-top:16px"><span class="ti">Si dice esto</span><span><i>«Esta clave de Kepler no tiene productos en Pedido…»</i> El proveedor puede tener otra ficha en la Suite: búscalo en Pedido por nombre.</span></div>
+    </div>
+    <label class="done-box"><input type="checkbox" data-leccion="l6"> Ya lo practiqué</label>
+  </div>
+</section>
+
+<!-- ═════════════════ L7 ═════════════════ -->
+<section class="lesson" id="l7">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección 7</span> · ≈ 3 min <span class="for">Reviso</span><span class="for">Defino</span></p>
+      <h2>Semana y Mes: lo que viene</h2>
+      <p class="why">«Semana» son los próximos 7 días y «Mes» los próximos 31, ordenados por fecha. Sirven para organizarte, no para pendientes: lo que ya se debe está en «Por revisar».</p>
+    </div>
+    <div class="block">
+      <figure class="shot">
+        <div class="shot-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Calendario de compras / <b>Semana</b></div>
+        <div class="app">
+          <div class="toolbar" style="margin-top:0"><span class="seg" aria-hidden="true"><span>Por revisar</span><span class="on">Semana</span><span>Mes</span><span>Reglas</span></span></div>
+          <p class="sub" style="margin-top:12px;font-size:12.5px">Los próximos 7 días, desde hoy lun 23 nov. Lo que ya se debe está en «Por revisar»; una regla fuera de ciclo vuelve a salir al día siguiente de su fecha.</p>
+          <table class="t">
+            <thead><tr><th>Fecha</th><th>Proveedor</th><th>Dónde</th><th>Cuándo toca</th><th>Hoy</th><th><span style="position:absolute;left:-9999px">Acciones</span></th></tr></thead>
+            <tbody>
+              <tr>
+                <td data-label="Fecha"><div class="c"><span class="pri">lun 23 nov</span><span class="sub">hoy</span></div></td>
+                <td data-label="Proveedor"><div class="c"><span class="lnk">BOTANAS EJEMPLO</span><span class="sub">clave BE014</span></div></td>
+                <td data-label="Dónde"><div class="c">Yurécuaro</div></td>
+                <td data-label="Cuándo toca"><div class="c">Cada lunes</div></td>
+                <td data-label="Hoy"><div class="c"><span><span class="tag warn">Toca hoy</span></span></div></td>
+                <td data-label="Acciones"><div class="acc"><span class="btn text">Marcar</span></div></td>
+              </tr>
+              <tr class="day-break">
+                <td data-label="Fecha"><div class="c"><span class="pri">mié 25 nov</span><span class="sub">en 2 días</span></div></td>
+                <td data-label="Proveedor"><div class="c"><span class="lnk">DULCES TÍPICOS EJEMPLO</span><span class="sub">clave DT077</span></div></td>
+                <td data-label="Dónde"><div class="c">Canindo</div></td>
+                <td data-label="Cuándo toca"><div class="c">Cada miércoles</div></td>
+                <td data-label="Hoy"><div class="c"><span><span class="tag ok">Al día</span></span></div></td>
+                <td data-label="Acciones"><div class="acc"><span class="btn text">Marcar</span></div></td>
+              </tr>
+              <tr class="day-break">
+                <td data-label="Fecha"><div class="c"><span class="pri pinned"><span class="pin">1</span>vie 27 nov</span><span class="sub">en 4 días · era el sáb 28 nov</span></div></td>
+                <td data-label="Proveedor"><div class="c"><span class="lnk">CHOCOLATES EJEMPLO</span><span class="sub">clave CH102</span></div></td>
+                <td data-label="Dónde"><div class="c">Todas las sucursales</div></td>
+                <td data-label="Cuándo toca"><div class="c">El 28 de cada mes</div></td>
+                <td data-label="Hoy"><div class="c"><span><span class="tag ok">Al día</span></span></div></td>
+                <td data-label="Acciones"><div class="acc"><span class="btn text">Marcar</span></div></td>
+              </tr>
+              <tr>
+                <td data-label="Fecha"><div class="c"><span class="pri pinned"><span class="pin">2</span>vie 27 nov</span><span class="sub">en 4 días · nueva fecha de una «hoy no se pide»</span></div></td>
+                <td data-label="Proveedor"><div class="c"><span class="lnk">PALETAS EJEMPLO</span><span class="sub">clave PA045</span></div></td>
+                <td data-label="Dónde"><div class="c">Zona Morelia</div></td>
+                <td data-label="Cuándo toca"><div class="c">Cada 14 días</div></td>
+                <td data-label="Hoy"><div class="c"><span><span class="tag ok">Al día</span></span></div></td>
+                <td data-label="Acciones"><div class="acc"><span class="btn text">Marcar</span></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </figure>
+      <ol class="legend">
+        <li><span class="pin">1</span><span><b>«era el sáb 28 nov».</b> La fecha caía en fin de semana y la regla la adelantó al viernes.</span></li>
+        <li><span class="pin">2</span><span><b>«nueva fecha de una «hoy no se pide»».</b> Alguien marcó que no se pedía y puso esta fecha.</span></li>
+      </ol>
+      <div class="tip" style="margin-top:16px"><span class="ti">Vacaciones</span><span>Desde «Semana» o «Mes» puedes marcar fechas hasta 14 días adelante. Si vas a faltar, deja marcadas las que ya sabes o avisa a quien te cubre.</span></div>
+    </div>
+    <label class="done-box"><input type="checkbox" data-leccion="l7"> Ya lo entendí</label>
+  </div>
+</section>
+
+<!-- ═════════════════ ERRORES ═════════════════ -->
+<section class="lesson" id="errores">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Repaso</span> · ≈ 4 min <span class="for">Todos</span></p>
+      <h2>Errores comunes</h2>
+      <p class="why">Los que más se cometen al empezar, y lo que se hace en su lugar.</p>
+    </div>
+    <div class="block dd">
+      <div class="dd-row"><div class="dd-c n"><span>Así no</span><p>Marcar «Se pidió fuera de Kepler» cuando la OC sí se hizo en Kepler.</p></div><div class="dd-c y"><span>Así sí</span><p>Si hubo OC o entrada en Kepler, no marques: se toma sola.</p></div></div>
+      <div class="dd-row"><div class="dd-c n"><span>Así no</span><p>Dejar sin marcar una revisión en la que no se pidió.</p></div><div class="dd-c y"><span>Así sí</span><p>Márcala «Hoy no se pide» con su motivo. Si no, mañana amanece rezagada.</p></div></div>
+      <div class="dd-row"><div class="dd-c n"><span>Así no</span><p>Anotar al proveedor en su siguiente fecha, como en la hoja.</p></div><div class="dd-c y"><span>Así sí</span><p>La siguiente fecha la calcula la Suite con la regla.</p></div></div>
+      <div class="dd-row"><div class="dd-c n"><span>Así no</span><p>Leer «no veo reglas» como «no hay reglas».</p></div><div class="dd-c y"><span>Así sí</span><p>Lee la línea gris de alcance. Si dice «Tu ficha no tiene sucursal», pide que te la asignen.</p></div></div>
+      <div class="dd-row"><div class="dd-c n"><span>Así no</span><p>Elegir el motivo «Otro» sin explicar.</p></div><div class="dd-c y"><span>Así sí</span><p>Con «Otro», escribe la causa en la nota. La Suite no deja guardar sin ella.</p></div></div>
+      <div class="dd-row"><div class="dd-c n"><span>Así no</span><p>Dejar que un festivo vuelva rezagada la revisión.</p></div><div class="dd-c y"><span>Así sí</span><p>Márcala «Hoy no se pide» (Otro: «día festivo») con la nueva fecha.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════ PRÁCTICA ═════════════════ -->
+<section class="lesson" id="practica">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Práctica</span> · ≈ 10 min <span class="for">Todos</span></p>
+      <h2>Casos para practicar</h2>
+      <p class="why">Piensa tu respuesta antes de abrir cada caso. Hoy es lunes 23 de noviembre.</p>
+    </div>
+    <div class="block cases">
+      <details class="case"><summary><span><span class="case-tag">Caso 1</span>BOTANAS EJEMPLO en Yurécuaro dice «Toca hoy». A las 10:00 hiciste la OC en Kepler. ¿Qué haces en el calendario?</span></summary>
+        <div class="ans"><p><b>Nada.</b> La OC la toma solo y pasa a «Al día». Si al rato sigue en «Toca hoy», recarga la página.</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso 2</span>El ejecutivo de BOTANAS no vino y hay existencia suficiente. Quedó de venir el miércoles.</span></summary>
+        <div class="ans"><p><b>Marcar › Hoy no se pide › «No hace falta» › Nueva fecha: mié 25 nov.</b> El miércoles aparecerá otra vez.</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso 3</span>Le pediste por WhatsApp a un proveedor. La OC la captura otra persona mañana.</span></summary>
+        <div class="ans"><p><b>Marcar › «Se pidió fuera de Kepler»</b> con la fecha de hoy. Así no amanece rezagada mientras se captura la OC.</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso 4</span>CONFITERÍA EJEMPLO dice «Rezagada · 10 días · Se debe desde el vie 13 nov». Ese día sí se revisó, pero nadie lo marcó: no se pidió porque había un pedido en camino.</span></summary>
+        <div class="ans"><p><b>Marcar › Fecha: vie 13 nov › Hoy no se pide › «Ya hay pedido».</b> La fecha puede ser un día que ya pasó.</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso 5</span>El jueves es día festivo y le toca a GOMITAS EJEMPLO.</span></summary>
+        <div class="ans"><p>En <b>Semana</b>, «Marcar» en esa fecha › <b>Hoy no se pide › «Otro»</b>, nota «día festivo» › nueva fecha. Se puede marcar hasta 14 días adelante.</p></div></details>
+      </div>
+    <div class="block">
+      <div class="tip"><span class="ti">Después</span><span><b>Haz lo mismo con tus proveedores reales:</b> abre tu calendario, encuentra una revisión de hoy y atiéndela de verdad.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════ AUTOEVALUACIÓN ═════════════════ -->
+<section class="lesson" id="examen">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Autoevaluación</span> · ≈ 5 min <span class="for">Todos</span></p>
+      <h2>¿Todo listo para operar?</h2>
+      <p class="why">Ocho preguntas. Al contestar ves si acertaste y por qué. Con 7 de 8 ya puedes operar.</p>
+    </div>
+    <div class="block">
+      <div class="quiz" data-quiz="general"></div>
+      <div class="score" style="margin-top:16px"><span data-score="general" aria-live="polite">Contesta las 8 preguntas.</span><button type="button" class="reset" data-reset="general">Volver a empezar</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════ TARJETA ═════════════════ -->
+<section class="lesson" id="tarjeta">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Tarjeta de bolsillo</span> <span class="for">Todos</span></p>
+      <h2>Todo en una tarjeta</h2>
+      <p class="why">Tómale captura y tenla a la mano en el celular, o pégala junto a la computadora.</p>
+    </div>
+    <div class="block">
+      <div class="pocket">
+        <div class="ph"><b>Calendario de compras</b><span>Tu rutina diaria</span></div>
+        <ol>
+          <li><span>Abre <b>Compras › Calendario de compras</b> y lee la frase de arriba.</span></li>
+          <li><span>Ve a <b>«Por revisar»</b>: arriba sale lo que se debe.</span></li>
+          <li><span>Atiende cada proveedor:</span></li>
+        </ol>
+        <div class="mini">
+          <span>OC o entrada en Kepler → <b>no marques nada</b>.</span>
+          <span>Pediste por otro medio → <b>Marcar › Se pidió fuera de Kepler</b>.</span>
+          <span>No se pidió → <b>Marcar › Hoy no se pide</b> + motivo (+ nueva fecha).</span>
+        </div>
+        <ol start="4" style="counter-reset:p 3">
+          <li><span>Antes de irte, mira <b>«Semana»</b>.</span></li>
+        </ol>
+        <div class="legend-s">
+          <span class="tag bad">Rezagada</span><span>se debe de días anteriores</span>
+          <span class="tag warn">Toca hoy</span><span>hoy, sin orden, entrada ni marca</span>
+          <span class="tag ok">Al día</span><span>nada pendiente</span>
+          <span class="tag mute">Fuera de ciclo</span><span>pausada hasta una fecha</span>
+          <span class="tag mute">Sin fecha base</span><span>marca la primera revisión</span>
+        </div>
+        <p class="gold">Lo que nadie atiende amanece rezagado.</p>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- ═════════════════ PARTE 2 · GERENCIA ═════════════════ -->
+<section class="part-band" id="gerencia">
+  <div class="wrap">
+    <p class="kicker">Parte 2 · Gerencia de compras</p>
+    <h2>Definir y mantener las reglas</h2>
+    <p class="why">Sólo la gerencia de compras define las reglas, también las de cada sucursal. Aquí está todo lo que puede hacer, en el orden en que se usa. Antes, toma la Parte 1: la gerencia también revisa y marca.</p>
+    <h3 class="fmap-t">Tus funciones de un vistazo</h3>
+    <div class="fmap">
+      <a class="fn" href="#g2"><span class="fn-n">G2</span><b>Ver cuánto falta</b><small>«Sin regla» › el embudo</small></a>
+      <a class="fn" href="#g3"><span class="fn-n">G3</span><b>Decidir qué regla va</b><small>dónde y cada cuándo</small></a>
+      <a class="fn" href="#g4"><span class="fn-n">G4</span><b>Definir una regla</b><small>«Sin regla» › Definir regla</small></a>
+      <a class="fn" href="#g4"><span class="fn-n">G4</span><b>Usar el día fijo de Kepler</b><small>«Sin regla» › la liga naranja</small></a>
+      <a class="fn" href="#g5"><span class="fn-n">G5</span><b>Otra regla, mismo proveedor</b><small>Detalle › Otra regla…</small></a>
+      <a class="fn" href="#g6"><span class="fn-n">G6</span><b>Corregir una regla</b><small>Detalle › Corregir la regla</small></a>
+      <a class="fn" href="#g7"><span class="fn-n">G7</span><b>Sacar del ciclo o dar de baja</b><small>Detalle</small></a>
+      <a class="fn" href="#g8"><span class="fn-n">G8</span><b>Revisar cómo va el equipo</b><small>«Por revisar» y «Reglas»</small></a>
+    </div>
+  </div>
+</section>
+
+<!-- G1 -->
+<section class="lesson" id="g1">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección G1</span> · ≈ 4 min <span class="for">Gerencia</span></p>
+      <h2>Lo que la gerencia ve de más</h2>
+      <p class="why">La misma pantalla, con cuatro diferencias: una frase más arriba, la cifra y la vista «Sin regla», y los botones para cambiar reglas en el detalle.</p>
+    </div>
+    <div class="block">
+      <figure class="shot">
+        <div class="shot-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Compras / <b>Calendario de compras</b> · vista de la gerencia</div>
+        <div class="app">
+          <div class="pinned answer" style="margin-top:0"><span class="pin">1</span><p>Se deben 3 revisiones: 2 rezagadas (la más atrasada, CONFITERÍA EJEMPLO en Todas las sucursales, desde el vie 13 nov) y 1 toca hoy. 1 sin fecha base para contar los días. <mark class="hl">315 proveedores con compra en Kepler no tienen regla.</mark></p></div>
+          <div class="kpis">
+            <span class="k"><b class="bad">2</b><em>Rezagadas</em></span>
+            <span class="k"><b class="warn">1</b><em>Tocan hoy</em></span>
+            <span class="k"><b>1</b><em>Sin fecha base</em></span>
+            <span class="k"><b>26</b><em>Al día</em><small>de 31 reglas</small></span>
+            <span class="k"><b>1</b><em>Fuera de ciclo</em></span>
+            <span class="k pinned"><span class="pin">2</span><b>315</b><em>Sin regla</em><small>proveedores con compra en Kepler</small></span>
+          </div>
+          <div class="toolbar"><span class="pin">3</span><span class="seg" aria-hidden="true"><span class="on">Por revisar</span><span>Semana</span><span>Mes</span><span>Reglas</span><span class="hl-seg">Sin regla</span></span></div>
+          <div class="acc" style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--line-2)"><span class="pin">4</span><span class="sub" style="margin-right:4px">En el detalle:</span><span class="btn text">Corregir la regla</span><span class="btn text">Otra regla para este proveedor</span><span class="btn text">Sacar del ciclo</span><span class="btn bad">Dar de baja la regla</span></div>
+        </div>
+      </figure>
+      <ol class="legend">
+        <li><span class="pin">1</span><span><b>La frase</b> termina diciendo cuántos proveedores con compra todavía no tienen regla.</span></li>
+        <li><span class="pin">2</span><span><b>La cifra «Sin regla».</b> Un clic te lleva a esa lista.</span></li>
+        <li><span class="pin">3</span><span><b>La vista «Sin regla».</b> Es donde se llenan las reglas. Nadie más la ve.</span></li>
+        <li><span class="pin">4</span><span><b>Los botones del detalle</b> para cambiar una regla que ya existe (lecciones G5 a G7).</span></li>
+      </ol>
+      <div class="tip" style="margin-top:16px"><span class="ti">El primer día</span><span>Mientras no haya ninguna regla, la pantalla abre directo en «Sin regla» con este aviso: <i>«Empieza en «Sin regla»: Kepler propone el ciclo de cada proveedor y tú lo confirmas.»</i> Los demás ven <i>«Las define la gerencia de compras; cuando haya, aquí sale a quién le toca la revisión.»</i></span></div>
+    </div>
+    <label class="done-box"><input type="checkbox" data-leccion="g1"> Ya lo entendí</label>
+  </div>
+</section>
+
+<!-- G2 -->
+<section class="lesson" id="g2">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección G2</span> · ≈ 6 min <span class="for">Gerencia</span></p>
+      <h2>Llenar el calendario por el embudo</h2>
+      <p class="why">«Sin regla» lista a los proveedores con compra en los últimos 12 meses que no tienen regla. Van primero los que más pesan, para que el calendario cubra lo importante cuanto antes.</p>
+    </div>
+
+    <div class="block">
+      <figure class="shot">
+        <div class="shot-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>Calendario de compras / <b>Sin regla</b></div>
+        <div class="app">
+          <div class="toolbar" style="margin-top:0"><span class="seg" aria-hidden="true"><span>Por revisar</span><span>Semana</span><span>Mes</span><span>Reglas</span><span class="on">Sin regla</span></span></div>
+          <div class="funnel">
+            <p class="funnel-total pinned"><span class="pin">1</span>Con regla: 25 de 340 proveedores · 61.4&nbsp;% de la compra · 40.2&nbsp;% de las OC</p>
+            <div class="step-row"><span class="pinned"><span class="pin">2</span><span><span class="step-name">Escalón 1 · el 80&nbsp;% de la compra o el 50&nbsp;% de las OC</span><br><span class="step-sub">20 de 62 proveedores · 58&nbsp;% de 82.8&nbsp;% de la compra</span></span></span><span class="bar" aria-hidden="true"><s style="width:82.8%"></s><i style="width:58%"></i></span></div>
+            <div class="step-row"><span style="padding-left:30px"><span class="step-name">Escalón 2 · el resto con compra recurrente</span><br><span class="step-sub">5 de 184 proveedores · 3.4&nbsp;% de 15.4&nbsp;% de la compra</span></span><span class="bar" aria-hidden="true"><s style="width:15.4%"></s><i style="width:3.4%"></i></span></div>
+            <div class="step-row"><span style="padding-left:30px"><span class="step-name">Escalón 3 · ocasionales</span><br><span class="step-sub">0 de 94 proveedores · 0&nbsp;% de 1.8&nbsp;% de la compra</span></span><span class="bar" aria-hidden="true"><s style="width:1.8%"></s><i style="width:0"></i></span></div>
+          </div>
+          <table class="t">
+            <thead><tr><th>Proveedor</th><th>Peso en la compra</th><th>Kepler propone</th><th>Última orden</th><th>Sucursales</th><th><span style="position:absolute;left:-9999px">Acciones</span></th></tr></thead>
+            <tbody>
+              <tr>
+                <td data-label="Proveedor"><div class="c"><span class="pri">DULCERA EJEMPLO</span><span class="sub">clave DE009</span></div></td>
+                <td data-label="Peso en la compra"><div class="c"><span class="pri pinned"><span class="pin">3</span>6.2&nbsp;% de la compra</span><span class="sub">48 OC · 22 rondas en 12 meses · escalón 1</span></div></td>
+                <td data-label="Kepler propone"><div class="c"><span class="pinned"><span class="pin">4</span>Cada 14 días</span></div></td>
+                <td data-label="Última orden"><div class="c"><span>mar 17 nov</span><span class="sub">hace 6 días</span></div></td>
+                <td data-label="Sucursales"><div class="c">CEDIS, Canindo, Zamora Centro</div></td>
+                <td data-label="Acciones"><div class="acc"><span class="pin">6</span><span class="btn">Definir regla</span></div></td>
+              </tr>
+              <tr>
+                <td data-label="Proveedor"><div class="c"><span class="pri">BOTANAS EJEMPLO</span><span class="sub">clave BE014</span></div></td>
+                <td data-label="Peso en la compra"><div class="c"><span class="pri">2.1&nbsp;% de la compra</span><span class="sub">31 OC · 18 rondas en 12 meses · escalón 1</span></div></td>
+                <td data-label="Kepler propone"><div class="c"><span>Cada 7 días</span><span class="pinned" style="margin-top:6px"><span class="pin">5</span><span><span class="lnk act">Yurécuaro: cada lunes</span><br><span class="sub">12 de 13 lunes en las últimas 13 semanas</span></span></span></div></td>
+                <td data-label="Última orden"><div class="c"><span>lun 16 nov</span><span class="sub">hace 7 días</span></div></td>
+                <td data-label="Sucursales"><div class="c">Yurécuaro, La Piedad Abastos</div></td>
+                <td data-label="Acciones"><div class="acc"><span class="btn">Definir regla</span></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </figure>
+      <p class="caption">Cifras de ejemplo. Los 340 proveedores y el tamaño de cada escalón son los medidos en noviembre de 2026; cuántos tienen regla cambia cada día.</p>
+      <ol class="legend">
+        <li><span class="pin">1</span><span><b>El avance total.</b> Cuántos proveedores ya tienen regla y cuánto de la compra y de las órdenes cubren.</span></li>
+        <li><span class="pin">2</span><span><b>Los escalones.</b> Un clic filtra la lista a ese escalón; otro clic en el mismo regresa a todos. La barra muestra lo cubierto dentro de lo que pesa el escalón.</span></li>
+        <li><span class="pin">3</span><span><b>Peso en la compra.</b> Su parte de lo comprado en 12 meses. Debajo, sus órdenes, rondas y escalón.</span></li>
+        <li><span class="pin">4</span><span><b>Kepler propone.</b> El ritmo entre sus rondas de órdenes. «Pocas rondas: define el ciclo a mano» o «Una sola compra en el año» quieren decir que Kepler no alcanza a proponer.</span></li>
+        <li><span class="pin">5</span><span><b>Día fijo.</b> El proveedor pasa siempre el mismo día a esa sucursal. Un clic abre el formulario ya lleno (lección G4).</span></li>
+        <li><span class="pin">6</span><span><b>Definir regla.</b> Abre el formulario; si Kepler propone un ciclo, ya viene puesto.</span></li>
+      </ol>
+    </div>
+
+    <div class="block">
+      <h3>Plan de llenado sugerido</h3>
+      <div class="waves">
+        <div class="wave"><span class="wn">Primero · escalón 1</span><h4>62 proveedores, 82.8&nbsp;% de la compra</h4><p>Empieza por las reglas que ya están en la hoja y por los días fijos que propone Kepler: son las más seguras. Con este escalón completo, el calendario ya cuida casi todo el dinero.</p></div>
+        <div class="wave"><span class="wn">Después · escalón 2</span><h4>El resto con compra recurrente</h4><p>Muchos traen «Kepler propone: cada N días». Confírmalo o ajústalo en el formulario.</p></div>
+        <div class="wave"><span class="wn">Al final · escalón 3</span><h4>Los ocasionales</h4><p>Una o pocas compras al año. Viene un botón para sacarlos del ciclo en bloque; mientras llega, no hace falta definirlos uno por uno.</p></div>
+      </div>
+      <p class="note-s">Medido en noviembre de 2026. Cada regla que guardas mueve el avance al momento: si das de baja una, el avance baja.</p>
+    </div>
+    <label class="done-box"><input type="checkbox" data-leccion="g2"> Ya lo entendí</label>
+  </div>
+</section>
+
+<!-- G3 -->
+<section class="lesson" id="g3">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección G3</span> · ≈ 5 min <span class="for">Gerencia</span></p>
+      <h2>¿Qué regla le pongo?</h2>
+      <p class="why">Dos preguntas, en este orden: quién atiende a ese proveedor (eso decide el lugar) y cómo se comporta (eso decide el patrón).</p>
+    </div>
+    <div class="block">
+      <h3>1 · ¿Dónde se revisa?</h3>
+      <div class="scroll">
+        <table class="grid-t">
+          <thead><tr><th>Si…</th><th>Elige</th><th>Revisa</th></tr></thead>
+          <tbody>
+            <tr><td>Al proveedor se le pide desde Compras para toda la red</td><td><b>Todas las sucursales</b></td><td>Gerencia de compras</td></tr>
+            <tr><td>Lo atiende la gerencia de una zona para sus sucursales</td><td><b>Una zona</b></td><td>Gerencia de zona (y el nombre de la zona)</td></tr>
+            <tr><td>Pasa a una sucursal y ahí se le pide (compra local)</td><td><b>Una sucursal</b></td><td>Encargado de esa sucursal</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note-s">Quién revisa lo pone el puesto del lugar. Todavía no se elige a una persona por nombre.</p>
+    </div>
+    <div class="block">
+      <h3>2 · ¿Cada cuándo?</h3>
+      <div class="scroll">
+        <table class="grid-t">
+          <thead><tr><th>Si el proveedor…</th><th>Elige</th><th>Ejemplo</th></tr></thead>
+          <tbody>
+            <tr><td>Pasa siempre el mismo día de la semana</td><td><b>Días de la semana</b></td><td>Cada lunes · De lunes a viernes</td></tr>
+            <tr><td>Se revisa en fechas del mes (quincena, cierre)</td><td><b>Días del mes</b></td><td>El 15 y el último de cada mes</td></tr>
+            <tr><td>Tiene un ritmo de compra, sin día fijo</td><td><b>Cada N días</b></td><td>Cada 10 días, contando desde la última orden o entrada</td></tr>
+            <tr><td>Sólo pasa un lunes sí y otro no</td><td><b>Cada N días: 14</b> (es lo que arma el día fijo de Kepler)</td><td>Cuenta desde su última orden o entrada en esa sucursal</td></tr>
+            <tr><td>Compra una o pocas veces al año</td><td><b>Espera el botón en bloque</b></td><td>Escalón 3</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="block">
+      <div class="tip"><span class="ti">«Kepler propone»</span><span>Es la mediana entre sus rondas de órdenes del último año: un buen punto de partida, no una orden. Si sabes que el proveedor pasa un día fijo, ese conocimiento manda.</span></div>
+    </div>
+    <label class="done-box"><input type="checkbox" data-leccion="g3"> Ya lo entendí</label>
+  </div>
+</section>
+
+<!-- G4 -->
+<section class="lesson" id="g4">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección G4</span> · ≈ 12 min <span class="for">Gerencia</span></p>
+      <h2>Definir una regla, paso a paso</h2>
+      <p class="why">Desde «Sin regla», botón «Definir regla». El formulario hace tres preguntas y, antes de guardar, enseña las siguientes cuatro fechas para que confirmes que son las que esperas.</p>
+    </div>
+
+    <div class="block">
+      <div class="dlg-stage">
+        <div class="dlg" role="img" aria-label="Formulario para definir la regla de BOTANAS EJEMPLO">
+          <div class="dlg-h"><span>Definir la regla de revisión</span><span class="x" aria-hidden="true">×</span></div>
+          <div class="dlg-b">
+            <p class="pri">BOTANAS EJEMPLO <span class="sub">clave BE014</span></p>
+            <p class="sub">Kepler: en Yurécuaro, 40 de los 44 días con orden o entrada de los últimos 12 meses cayeron en lunes; 12 de 13 lunes en las últimas 13 semanas.</p>
+            <span class="lbl pinned"><span class="pin">1</span>¿Dónde se revisa?</span>
+            <span class="seg"><span>Todas las sucursales</span><span>Una zona</span><span class="on">Una sucursal</span></span>
+            <span class="lbl">Sucursal</span>
+            <span class="field"><span>Yurécuaro</span><span class="sub">▾</span></span>
+            <p class="sub pinned"><span class="pin">2</span>Revisa: Encargado de Yurécuaro</p>
+            <span class="lbl pinned"><span class="pin">3</span>¿Cuándo toca?</span>
+            <span class="seg"><span class="on">Días de la semana</span><span>Días del mes</span><span>Cada N días</span></span>
+            <div class="days"><span class="on">Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
+            <span class="lbl pinned"><span class="pin">4</span>Nota (opcional)</span>
+            <span class="field empty"><span>Ejemplo: el ejecutivo pasa en la mañana</span></span>
+            <p class="preview pinned"><span class="pin">5</span><span>Las siguientes: lun 30 nov · lun 7 dic · lun 14 dic · lun 21 dic</span></p>
+            <div class="acc" style="margin-top:4px"><span class="pin">6</span><span class="btn primary">Guardar la regla</span><span class="btn text">Cancelar</span></div>
+          </div>
+        </div>
+      </div>
+      <ol class="legend">
+        <li><span class="pin">1</span><span><b>Dónde.</b> Empieza en «Todas las sucursales». Con «Una zona» o «Una sucursal» aparece la lista para elegirla.</span></li>
+        <li><span class="pin">2</span><span><b>Quién revisa.</b> Sale solo según el lugar.</span></li>
+        <li><span class="pin">3</span><span><b>Cuándo.</b> Cada opción enseña sus propios campos (abajo, las tres).</span></li>
+        <li><span class="pin">4</span><span><b>Nota.</b> Lo que ayude a quien revisa: la hora a la que pasa el ejecutivo, con quién se habla.</span></li>
+        <li><span class="pin">5</span><span><b>Las siguientes.</b> Las próximas cuatro fechas, calculadas igual que en el calendario. Si no son las que esperas, ajusta antes de guardar.</span></li>
+        <li><span class="pin">6</span><span><b>Guardar.</b> Arriba sale «Regla creada: BOTANAS EJEMPLO en Yurécuaro, cada lunes.» y el proveedor sale de «Sin regla».</span></li>
+      </ol>
+    </div>
+
+    <div class="block">
+      <h3>Las tres formas de «¿Cuándo toca?»</h3>
+      <div class="panels">
+        <div class="panel">
+          <span class="seg"><span class="on">Días de la semana</span></span>
+          <div class="days"><span class="on">Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
+          <p class="sub">Toca uno o varios días. Con lunes a viernes dice «De lunes a viernes»; con los siete, «Todos los días».</p>
+          <p class="preview">Las siguientes: lun 30 nov · lun 7 dic · lun 14 dic · lun 21 dic</p>
+        </div>
+        <div class="panel">
+          <span class="seg"><span class="on">Días del mes</span></span>
+          <div class="mgrid" aria-label="Días del mes: 15 y el último elegidos">
+            <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span class="on">15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span><span>29</span><span>30</span><span>31</span><span class="on wide">El último</span>
+          </div>
+          <span class="lbl">Si cae en sábado o domingo</span>
+          <span class="seg"><span class="on">Se adelanta al viernes</span><span>Pasa al lunes</span></span>
+          <p class="preview">Las siguientes: lun 30 nov · mar 15 dic · jue 31 dic · vie 15 ene</p>
+          <p class="sub">«El último» es el último día de cada mes, tenga 28, 30 o 31. Sólo este patrón se mueve en fin de semana; en la vista previa, la fecha movida dice «(era el dom 31 ene)».</p>
+        </div>
+        <div class="panel">
+          <span class="seg"><span class="on">Cada N días</span></span>
+          <span class="lbl">Cada cuántos días</span>
+          <span class="field" style="max-width:160px"><span>10 días</span></span>
+          <p class="sub">Cuenta desde la última orden o entrada de Kepler (la última, mié 18 nov).</p>
+          <p class="preview">Las siguientes: sáb 28 nov · mar 8 dic · vie 18 dic · lun 28 dic</p>
+          <p class="sub">Cada orden o entrada nueva reinicia la cuenta. Puede caer en sábado o domingo. Sin ninguna compra en el año dice: «Sin compras para contar los días: la primera fecha sale con la siguiente orden o entrada.»</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Si elige «Una zona»</h3>
+      <div class="panels" style="grid-template-columns:minmax(0,420px)">
+        <div class="panel">
+          <span class="seg"><span>Todas las sucursales</span><span class="on">Una zona</span><span>Una sucursal</span></span>
+          <span class="lbl">Zona</span>
+          <span class="field"><span>Morelia</span><span class="sub">▾</span></span>
+          <p class="sub">Revisa: Gerencia de zona (Morelia)</p>
+        </div>
+      </div>
+      <p class="note-s">Cuenta lo que pasa en cualquier sucursal de la zona. En la lista sale como «Zona Morelia».</p>
+    </div>
+
+    <div class="block">
+      <h3>Cuando el botón no se deja</h3>
+      <p class="prose" style="margin-bottom:12px">«Guardar la regla» queda apagado y, arriba del botón, dice qué falta:</p>
+      <div class="motivos">
+        <div class="motivo"><b>«Elige una sucursal.»</b>Pusiste «Una sucursal» y no elegiste cuál.</div>
+        <div class="motivo"><b>«Elige una zona de compra.»</b>Lo mismo con «Una zona».</div>
+        <div class="motivo"><b>«Elige al menos un día de la semana.»</b>Ningún día está encendido.</div>
+        <div class="motivo"><b>«Elige al menos un día del mes o «el último».»</b>Ningún día del mes está encendido.</div>
+        <div class="motivo"><b>«Cada N días» va de 1 a 365.</b>Falta el número o se pasa.</div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>El atajo del día fijo</h3>
+      <div class="flowh">
+        <div class="node"><span class="lnk act">Yurécuaro: cada lunes</span><small>12 de 13 lunes en las últimas 13 semanas</small></div>
+        <div class="arrow"><b>→</b>un clic</div>
+        <div class="node"><b>El formulario ya lleno</b><small>Una sucursal: Yurécuaro · Días de la semana: lunes · con la evidencia de Kepler arriba</small></div>
+        <div class="arrow"><b>→</b>revisa «Las siguientes»</div>
+        <div class="node"><b>Guardar la regla</b><small>listo</small></div>
+      </div>
+      <div class="tip" style="margin-top:14px"><span class="ti">Un sí y otro no</span><span>Si la liga dice «un viernes sí y otro no» o «cada 3 semanas, en lunes», la regla se guarda como <b>«cada 14 días»</b> (o 21) contando desde la última orden o entrada <b>de esa sucursal</b>. Si un día se pide fuera de ese viernes, la cuenta se mueve. Elegir «cada 2 semanas en viernes» fijo todavía no está en la Suite.</span></div>
+      <p class="note-s">El CEDIS no recibe propuesta de día fijo: ahí el día fijo es el de recepción, no el de revisión.</p>
+    </div>
+
+    <div class="block">
+      <h3>Tres casos resueltos</h3>
+      <div class="examples">
+        <article class="ex">
+          <h4>A · Dos veces al mes</h4>
+          <p class="said">«A este proveedor grande de confitería lo revisamos el 15 y el último de cada mes, para todas las sucursales.»</p>
+          <dl><dt>Dónde</dt><dd>Todas las sucursales</dd><dt>Cuándo</dt><dd>Días del mes: 15 y «El último»</dd><dt>Fin de semana</dt><dd>Se adelanta al viernes</dd></dl>
+          <span class="mcal-title">Enero 2027</span>
+          <div class="mcal" aria-label="Calendario de enero 2027: toca el viernes 15 y el viernes 29, porque el 31 cae en domingo">
+            <span class="h">L</span><span class="h">M</span><span class="h">M</span><span class="h">J</span><span class="h">V</span><span class="h">S</span><span class="h">D</span>
+            <span></span><span></span><span></span><span></span><span>1</span><span class="we">2</span><span class="we">3</span>
+            <span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span class="we">9</span><span class="we">10</span>
+            <span>11</span><span>12</span><span>13</span><span>14</span><span class="hit">15</span><span class="we">16</span><span class="we">17</span>
+            <span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span class="we">23</span><span class="we">24</span>
+            <span>25</span><span>26</span><span>27</span><span>28</span><span class="hit">29</span><span class="we">30</span><span class="off">31</span>
+          </div>
+          <p class="sub">El 31 cae en domingo: la revisión se adelanta al viernes 29. Si lo prefieres, elige «Pasa al lunes».</p>
+        </article>
+        <article class="ex">
+          <h4>B · Pasa cada lunes a una sucursal</h4>
+          <p class="said">«El de botanas pasa cada lunes a Yurécuaro y ahí se le pide.»</p>
+          <dl><dt>Dónde</dt><dd>Una sucursal: Yurécuaro</dd><dt>Cuándo</dt><dd>Días de la semana: lunes</dd><dt>Revisa</dt><dd>Encargado de Yurécuaro</dd></dl>
+          <span class="mcal-title">Diciembre 2026</span>
+          <div class="mcal" aria-label="Calendario de diciembre 2026: toca cada lunes, 7, 14, 21 y 28">
+            <span class="h">L</span><span class="h">M</span><span class="h">M</span><span class="h">J</span><span class="h">V</span><span class="h">S</span><span class="h">D</span>
+            <span></span><span>1</span><span>2</span><span>3</span><span>4</span><span class="we">5</span><span class="we">6</span>
+            <span class="hit">7</span><span>8</span><span>9</span><span>10</span><span>11</span><span class="we">12</span><span class="we">13</span>
+            <span class="hit">14</span><span>15</span><span>16</span><span>17</span><span>18</span><span class="we">19</span><span class="we">20</span>
+            <span class="hit">21</span><span>22</span><span>23</span><span>24</span><span>25</span><span class="we">26</span><span class="we">27</span>
+            <span class="hit">28</span><span>29</span><span>30</span><span>31</span><span></span><span></span><span></span>
+          </div>
+          <p class="sub">Si también pasa los martes a Canindo, eso es <b>otra regla</b> (lección G5).</p>
+        </article>
+        <article class="ex">
+          <h4>C · Cada N días, lo que propone Kepler</h4>
+          <p class="said">«Kepler propone cada 10 días y nos parece bien.»</p>
+          <dl><dt>Dónde</dt><dd>Todas las sucursales</dd><dt>Cuándo</dt><dd>Cada N días: 10</dd><dt>Cuenta desde</dt><dd>La última orden o entrada</dd></dl>
+          <div class="tl" aria-label="Línea de tiempo: última orden el 11 de noviembre, toca el 21; si hay orden el 18, la siguiente pasa al 28">
+            <div class="a"><b>mié 11 nov</b><small>última OC</small></div>
+            <div class="hit">sáb 21 nov<small>toca (+10)</small></div>
+            <div class="a"><b>mié 18 nov</b><small>si hay OC antes…</small></div>
+            <div class="hit">sáb 28 nov<small>…se cuenta desde ahí</small></div>
+          </div>
+          <p class="sub">Si caer en sábado o domingo no sirve, usa días de la semana.</p>
+        </article>
+      </div>
+    </div>
+
+    <details class="check">
+      <summary>Compruébalo: ¿cómo defines «el 15 y el último, todas las sucursales, nunca en fin de semana»?</summary>
+      <div class="ans"><p><b>Todas las sucursales › Días del mes › 15 y «El último» › Si cae en sábado o domingo: «Se adelanta al viernes».</b> Revisa «Las siguientes» y guarda.</p></div>
+    </details>
+    <label class="done-box"><input type="checkbox" data-leccion="g4"> Ya lo practiqué</label>
+  </div>
+</section>
+
+<!-- G5 -->
+<section class="lesson" id="g5">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección G5</span> · ≈ 5 min <span class="for">Gerencia</span></p>
+      <h2>Varias reglas para un mismo proveedor</h2>
+      <p class="why">Un proveedor puede revisarse desde Compras para toda la red y, además, pasar a ciertas sucursales en su propio día. Cada lugar lleva su regla.</p>
+    </div>
+    <div class="block">
+      <div class="multi">
+        <div class="multi-h"><b>BOTANAS EJEMPLO</b><span class="sub">clave BE014 · tres reglas</span></div>
+        <div class="multi-r"><span class="pri">Todas las sucursales</span><span>Cada 14 días</span><span class="sub">Revisa: Gerencia de compras</span></div>
+        <div class="multi-r"><span class="pri">Yurécuaro</span><span>Cada lunes</span><span class="sub">Revisa: Encargado de Yurécuaro</span></div>
+        <div class="multi-r"><span class="pri">Canindo</span><span>Cada martes</span><span class="sub">Revisa: Encargado de Canindo</span></div>
+      </div>
+      <div class="prose" style="margin-top:16px">
+        <p><b>Las reglas no se suman:</b> cada una se revisa por separado y cada sucursal ve sólo la suya.</p>
+        <p><b>Una orden en Yurécuaro atiende la regla de Yurécuaro y también la de «Todas las sucursales»</b>, porque esa cubre a todas. La de Canindo sólo se atiende con algo de Canindo.</p>
+      </div>
+    </div>
+    <div class="block">
+      <h3>Cómo se agrega</h3>
+      <div class="steps4">
+        <div class="st"><span class="big">1</span><h4>Abre el detalle</h4><p>De cualquier regla del proveedor, en «Reglas» o «Por revisar».</p></div>
+        <div class="st"><span class="big">2</span><h4>«Otra regla para este proveedor»</h4><p>Abre el formulario con «Una sucursal» ya elegido.</p></div>
+        <div class="st"><span class="big">3</span><h4>Elige el lugar y el día</h4><p>Otra sucursal o zona, con su propio patrón.</p></div>
+        <div class="st"><span class="big">4</span><h4>Guardar la regla</h4><p>Si en ese lugar ya había regla, el formulario te lo avisa antes.</p></div>
+      </div>
+      <div class="warnbox" style="margin-top:16px;max-width:760px">Si ese proveedor ya tiene regla en el mismo lugar: <i>«Ya hay una regla de este proveedor para Yurécuaro (Cada lunes): guardar la reemplaza y conserva sus marcas.»</i></div>
+    </div>
+    <div class="block">
+      <div class="tip"><span class="ti">En «Sin regla»</span><span>Un proveedor que ya tiene la regla de todas las sucursales puede seguir en la lista con la línea <i>«ya tiene 1 regla; falta la de su sucursal con día fijo»</i>. Es este caso: Kepler ve que pasa un día fijo a una sucursal y esa sucursal todavía no tiene su regla. No cuenta en la cifra «Sin regla».</span></div>
+    </div>
+    <label class="done-box"><input type="checkbox" data-leccion="g5"> Ya lo entendí</label>
+  </div>
+</section>
+
+<!-- G6 -->
+<section class="lesson" id="g6">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección G6</span> · ≈ 4 min <span class="for">Gerencia</span></p>
+      <h2>Corregir una regla</h2>
+      <p class="why">Cuando el proveedor cambia de día o de ritmo. Detalle › «Corregir la regla» abre el mismo formulario con todo lo que la regla ya tenía.</p>
+    </div>
+    <div class="block">
+      <div class="dlg-stage">
+        <div class="dlg" role="img" aria-label="Formulario para corregir la regla de BOTANAS EJEMPLO">
+          <div class="dlg-h"><span>Corregir la regla</span><span class="x" aria-hidden="true">×</span></div>
+          <div class="dlg-b">
+            <p class="pri">BOTANAS EJEMPLO <span class="sub">clave BE014</span></p>
+            <span class="lbl">¿Dónde se revisa?</span>
+            <span class="seg"><span>Todas las sucursales</span><span>Una zona</span><span class="on">Una sucursal</span></span>
+            <span class="field"><span>Yurécuaro</span><span class="sub">▾</span></span>
+            <span class="lbl pinned"><span class="pin">1</span>¿Cuándo toca?</span>
+            <span class="seg"><span class="on">Días de la semana</span><span>Días del mes</span><span>Cada N días</span></span>
+            <div class="days"><span>Lun</span><span class="on">Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
+            <p class="preview pinned"><span class="pin">2</span><span>Las siguientes: mar 24 nov · mar 1 dic · mar 8 dic · mar 15 dic</span></p>
+            <div class="acc" style="margin-top:4px"><span class="btn primary">Guardar la regla</span><span class="btn text">Cancelar</span></div>
+          </div>
+        </div>
+      </div>
+      <ol class="legend">
+        <li><span class="pin">1</span><span><b>Cambia sólo lo que cambió.</b> En el ejemplo, el proveedor pasó del lunes al martes.</span></li>
+        <li><span class="pin">2</span><span><b>Confirma las fechas</b> y guarda. Arriba sale «Regla actualizada: BOTANAS EJEMPLO en Yurécuaro, cada martes.» Las marcas anteriores se conservan.</span></li>
+      </ol>
+      <div class="warnbox" style="margin-top:16px;max-width:760px"><b>Si cambias el lugar</b> (por ejemplo, de Yurécuaro a Canindo), el formulario avisa: <i>«Cambiaste el lugar: se crea una regla NUEVA y la de Yurécuaro sigue igual. Si ya no va, dala de baja.»</i> Corregir nunca mueve una regla de lugar: crea otra.</div>
+    </div>
+    <label class="done-box"><input type="checkbox" data-leccion="g6"> Ya lo practiqué</label>
+  </div>
+</section>
+
+<!-- G7 -->
+<section class="lesson" id="g7">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección G7</span> · ≈ 6 min <span class="for">Gerencia</span></p>
+      <h2>Pausar o dar de baja</h2>
+      <p class="why">Tres herramientas parecidas que no son lo mismo. Elegir bien evita rezagos falsos y reglas muertas.</p>
+    </div>
+    <div class="block">
+      <div class="scroll">
+        <table class="grid-t">
+          <thead><tr><th>Situación</th><th>Usa</th><th>Quién</th><th>Qué pasa</th></tr></thead>
+          <tbody>
+            <tr><td>Esta vez no se le pide</td><td><b>Marcar › Hoy no se pide</b></td><td>Quien revisa</td><td>Esa fecha queda atendida; la regla sigue igual.</td></tr>
+            <tr><td>Pausa con fecha de regreso: de temporada, sin surtir, en negociación</td><td><b>Sacar del ciclo</b></td><td>Gerencia</td><td>No cuenta como rezagada hasta su fecha y regresa sola al día siguiente.</td></tr>
+            <tr><td>Ya no se le compra, o la regla estaba en el lugar equivocado</td><td><b>Dar de baja la regla</b></td><td>Gerencia</td><td>Deja de revisarse. Si no tiene otra regla, vuelve a «Sin regla».</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Sacar del ciclo</h3>
+      <div class="two-dlg">
+        <div class="dlg-stage">
+          <div class="dlg" role="img" aria-label="Cuadro para sacar del ciclo a CHOCOLATES EJEMPLO">
+            <div class="dlg-h"><span>Sacar del ciclo a CHOCOLATES EJEMPLO</span><span class="x" aria-hidden="true">×</span></div>
+            <div class="dlg-b">
+              <p class="sub">Mientras esté fuera de ciclo no se cuenta como rezagada. Ejemplo: un proveedor de temporada o que dejó de surtir.</p>
+              <span class="lbl pinned"><span class="pin">1</span>Fuera de ciclo hasta</span>
+              <span class="field"><span>15/01/27</span><span class="sub">▦</span></span>
+              <span class="lbl pinned"><span class="pin">2</span>¿Por qué? (obligatorio)</span>
+              <span class="field"><span>De temporada, vuelve en enero</span></span>
+              <div class="acc" style="margin-top:4px"><span class="btn primary">Guardar</span><span class="btn text">Cancelar</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="dlg-stage">
+          <div class="dlg" role="img" aria-label="Cuadro de una regla que ya está fuera de ciclo">
+            <div class="dlg-h"><span>Fuera de ciclo: CHOCOLATES EJEMPLO</span><span class="x" aria-hidden="true">×</span></div>
+            <div class="dlg-b">
+              <p>Está fuera de ciclo hasta el vie 15 ene: De temporada, vuelve en enero.</p>
+              <p class="sub">Puedes regresarla hoy o cambiar la fecha.</p>
+              <span class="lbl">Fuera de ciclo hasta</span>
+              <span class="field"><span>15/01/27</span><span class="sub">▦</span></span>
+              <span class="lbl">¿Por qué? (obligatorio)</span>
+              <span class="field"><span>De temporada, vuelve en enero</span></span>
+              <div class="acc pinned" style="margin-top:4px"><span class="pin">3</span><span class="btn primary">Guardar</span><span class="btn">Regresar al ciclo hoy</span><span class="btn text">Cancelar</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ol class="legend">
+        <li><span class="pin">1</span><span><b>Hasta cuándo.</b> Desde hoy en adelante. Al día siguiente de esa fecha, la regla regresa sola.</span></li>
+        <li><span class="pin">2</span><span><b>Por qué.</b> Obligatorio: lo ve quien abra el detalle y queda junto al estado.</span></li>
+        <li><span class="pin">3</span><span><b>Ya fuera de ciclo,</b> el mismo botón dice «Regresar al ciclo». Ahí puedes cambiar la fecha o traerla de vuelta hoy.</span></li>
+      </ol>
+      <p class="toast">CHOCOLATES EJEMPLO en Todas las sucursales queda fuera de ciclo hasta el vie 15 ene.</p>
+    </div>
+
+    <div class="block">
+      <h3>Dar de baja la regla</h3>
+      <div class="dlg-stage">
+        <div class="dlg" role="img" aria-label="Cuadro para dar de baja la regla de PALETAS EJEMPLO" style="max-width:460px">
+          <div class="dlg-h"><span>Dar de baja la regla</span><span class="x" aria-hidden="true">×</span></div>
+          <div class="dlg-b">
+            <p>PALETAS EJEMPLO en Zona Morelia (Cada 14 días) deja de revisarse.</p>
+            <p class="sub">La regla queda en la bitácora con tu nombre y la fecha. Si el proveedor no tiene otra regla, vuelve a «Sin regla».</p>
+            <div class="acc" style="margin-top:4px"><span class="btn danger-solid">Dar de baja</span><span class="btn text">Cancelar</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="toast">Regla dada de baja: PALETAS EJEMPLO en Zona Morelia.</p>
+      <p class="caption">El botón de baja va en rojo y separado de los demás, para que no se toque por error.</p>
+    </div>
+    <label class="done-box"><input type="checkbox" data-leccion="g7"> Ya lo practiqué</label>
+  </div>
+</section>
+
+<!-- G8 -->
+<section class="lesson" id="g8">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Lección G8</span> · ≈ 5 min <span class="for">Gerencia</span></p>
+      <h2>Tu revisión de cada semana</h2>
+      <p class="why">La gerencia no sólo define: también mira si las reglas se están atendiendo y las ajusta. Una propuesta de rutina para los lunes:</p>
+    </div>
+    <div class="block steps4">
+      <div class="st"><span class="big">1</span><h4>El avance</h4><p>En «Sin regla», cuánto subió el embudo. Define los siguientes del escalón que vas llenando.</p></div>
+      <div class="st"><span class="big">2</span><h4>Las rezagadas</h4><p>En «Por revisar», busca por sucursal. Si una acumula rezagadas, habla con su encargado.</p></div>
+      <div class="st"><span class="big">3</span><h4>Los que regresan</h4><p>En «Reglas», busca las «Fuera de ciclo» con fecha próxima. ¿Siguen en pausa? Cambia la fecha o déjalas regresar.</p></div>
+      <div class="st"><span class="big">4</span><h4>Los cambios</h4><p>Lo que reportaron las sucursales (cambió de día, ya no pasa): corrige, agrega otra regla o da de baja.</p></div>
+    </div>
+    <div class="block">
+      <h3>Cuando un comprador no avanzó</h3>
+      <div class="prose">
+        <p><b>Si pospone:</b> marca la fecha como «Hoy no se pide» con la nueva fecha. Ese día vuelve a aparecer.</p>
+        <p><b>Si revisa fuera de su día:</b> cuenta igual. Una orden o entrada en Kepler, o una marca con la fecha de ese día, atiende la revisión que se debía.</p>
+        <p><b>Si el proveedor ya no viene ese día en su sucursal:</b> la gerencia corrige la regla de esa sucursal (lección G6).</p>
+      </div>
+    </div>
+    <div class="block">
+      <div class="tip"><span class="ti">Quién la definió</span><span>El detalle de cada regla dice «Definida por … el …». Las marcas dicen quién las puso. Ver también quién cambió una regla y de qué a qué todavía no está en la Suite.</span></div>
+    </div>
+    <label class="done-box"><input type="checkbox" data-leccion="g8"> Ya lo entendí</label>
+  </div>
+</section>
+
+<!-- Casos de gerencia -->
+<section class="lesson" id="gcasos">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Práctica de la gerencia</span> · ≈ 10 min <span class="for">Gerencia</span></p>
+      <h2>Casos de la gerencia</h2>
+      <p class="why">Piensa la respuesta antes de abrir cada caso. Hoy es lunes 23 de noviembre.</p>
+    </div>
+    <div class="block cases">
+      <details class="case"><summary><span><span class="case-tag">Caso G1</span>En «Sin regla» aparece «Yurécuaro: cada lunes · 12 de 13 lunes en las últimas 13 semanas».</span></summary>
+        <div class="ans"><p><b>Clic en esa liga.</b> El formulario abre con Una sucursal: Yurécuaro y Días de la semana: lunes. Revisa «Las siguientes» y guarda.</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso G2</span>El proveedor de botanas cambió su visita a Yurécuaro del lunes al martes.</span></summary>
+        <div class="ans"><p><b>Detalle › Corregir la regla › apaga «Lun» y enciende «Mar» › revisa «Las siguientes» › Guardar la regla.</b> Las marcas anteriores se conservan.</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso G3</span>Ese mismo proveedor empezó a pasar también a Canindo los jueves.</span></summary>
+        <div class="ans"><p><b>Detalle › Otra regla para este proveedor › Una sucursal: Canindo › Días de la semana: jueves › Guardar.</b> La de Yurécuaro sigue igual.</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso G4</span>Una regla quedó en «Todas las sucursales», pero en realidad sólo se le pide en Zamora Centro.</span></summary>
+        <div class="ans"><p>Crea la de Zamora Centro (<b>Otra regla para este proveedor</b>) y luego <b>Dar de baja</b> la de todas las sucursales. Si sólo corriges el lugar, se crea una regla nueva y la vieja sigue viva.</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso G5</span>Un proveedor de temporada navideña no se revisará hasta septiembre.</span></summary>
+        <div class="ans"><p><b>Detalle › Sacar del ciclo › Hasta: la fecha de septiembre › Motivo: «de temporada, vuelve en septiembre».</b> No contará como rezagado y regresará solo.</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso G6</span>Se dejó de comprarle a un proveedor y no se le va a volver a pedir.</span></summary>
+        <div class="ans"><p><b>Detalle › Dar de baja la regla.</b> Si después vuelve a tener órdenes en Kepler, aparecerá otra vez en «Sin regla».</p></div></details>
+      <details class="case"><summary><span><span class="case-tag">Caso G7</span>Kepler propone «Cada 9 días», pero sabes que el ejecutivo viene cada miércoles.</span></summary>
+        <div class="ans"><p>Manda lo que sabes: <b>Días de la semana: miércoles</b>. «Kepler propone» es una mediana, no una orden.</p></div></details>
+    </div>
+  </div>
+</section>
+
+<!-- Autoevaluación de gerencia -->
+<section class="lesson" id="gexamen">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Autoevaluación de la gerencia</span> · ≈ 4 min <span class="for">Gerencia</span></p>
+      <h2>¿Todo listo para definir?</h2>
+      <p class="why">Seis preguntas sobre la Parte 2. Con 5 de 6 ya puedes definir reglas.</p>
+    </div>
+    <div class="block">
+      <div class="quiz" data-quiz="gerencia"></div>
+      <div class="score" style="margin-top:16px"><span data-score="gerencia" aria-live="polite">Contesta las 6 preguntas.</span><button type="button" class="reset" data-reset="gerencia">Volver a empezar</button></div>
+    </div>
+    <div class="block">
+      <h3>Lo que viene para la gerencia</h3>
+      <p class="prose" style="margin-bottom:10px">Todavía no está en la Suite:</p>
+      <ul class="checklist">
+        <li>Sacar del ciclo en bloque a los ocasionales del escalón 3.</li>
+        <li>«Cada 2 o 3 semanas en un día fijo» que no se mueva con las órdenes.</li>
+        <li>Que «cada N días» no caiga en domingo.</li>
+        <li>Ver quién cambió cada regla y de qué a qué.</li>
+        <li>Que el comprador ajuste la regla de su sucursal o zona.</li>
+        <li>Elegir por nombre a la persona que revisa.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ═════════════════ GUÍA DE QUIEN CAPACITA ═════════════════ -->
+<section class="lesson guide" id="guia">
+  <div class="wrap">
+    <div class="l-head">
+      <p class="eyebrow"><span class="n">Guía para quien capacita</span></p>
+      <h2>Cómo usar este manual para capacitar</h2>
+      <p class="why">La propuesta: aprender por puesto, con el trabajo de cada quien y midiendo en la Suite, no en una encuesta.</p>
+    </div>
+
+    <div class="block">
+      <h3>Los principios del diseño</h3>
+      <div class="princ">
+        <div class="pr"><h4>Por puesto, no por pantalla</h4><p>Tres rutas: quien revisa, quien define y quien consulta. Nadie aprende botones que no va a usar.</p><span class="src">Aprendizaje de adultos (Knowles): se aprende lo que se necesita para el trabajo.</span></div>
+        <div class="pr"><h4>Desde lo que ya conocen</h4><p>Cada idea se ancla en la hoja «2026»: qué se hacía ahí y qué hace ahora la Suite.</p><span class="src">Andamiaje sobre la experiencia previa.</span></div>
+        <div class="pr"><h4>Primero las palabras</h4><p>Ocho términos y cinco estados antes de la pantalla. Así la pantalla no satura.</p><span class="src">Pre-entrenamiento (Mayer).</span></div>
+        <div class="pr"><h4>Imagen y explicación juntas</h4><p>Cada pieza de la pantalla lleva un número y su explicación al lado. Un paso por imagen.</p><span class="src">Señalización, contigüidad y segmentación (Mayer).</span></div>
+        <div class="pr"><h4>Una tarea por lección</h4><p>Lecciones de 3 a 10 minutos, cada una con su «compruébalo». Se pueden repasar en el celular.</p><span class="src">Microaprendizaje.</span></div>
+        <div class="pr"><h4>Ver, hacer juntos, hacer solo</h4><p>Demostración en la pantalla real, práctica guiada, y luego casos y proveedores reales.</p><span class="src">Modelo «yo hago, hacemos, haces».</span></div>
+        <div class="pr"><h4>Practicar recordando</h4><p>Casos y autoevaluación con retroalimentación inmediata; repaso corto a la semana.</p><span class="src">Práctica de recuperación y repaso espaciado.</span></div>
+        <div class="pr"><h4>Medir en el sistema</h4><p>Lo que importa no es la calificación: es que bajen las rezagadas y suba el embudo.</p><span class="src">Evaluación en cuatro niveles (Kirkpatrick).</span></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>La sesión de 60 minutos (ruta «Reviso proveedores»)</h3>
+      <div class="bar60" aria-hidden="true">
+        <i style="flex:5;background:var(--ink-3)"></i><i style="flex:5;background:var(--line-2)"></i><i style="flex:10;background:var(--action-line)"></i><i style="flex:15;background:var(--action)"></i><i style="flex:10;background:var(--warn-num)"></i><i style="flex:10;background:var(--ok)"></i><i style="flex:5;background:var(--ink-3)"></i>
+      </div>
+      <div class="agenda">
+        <div class="ag"><span class="tm">0–5</span><div><b>Para qué sirve <span class="mode">Plática</span></b><p>Lección 0. Pregunta de arranque: «¿qué pasa hoy cuando a alguien se le olvida pintar la hoja?».</p></div></div>
+        <div class="ag"><span class="tm">5–10</span><div><b>Las palabras <span class="mode">Plática</span></b><p>Lección 1, con los cinco estados en pantalla.</p></div></div>
+        <div class="ag"><span class="tm">10–20</span><div><b>Demostración en vivo <span class="mode">Yo hago</span></b><p>Quien capacita comparte la pantalla real y recorre las lecciones 2 a 4: frase, cifras, «Por revisar», detalle.</p></div></div>
+        <div class="ag"><span class="tm">20–35</span><div><b>Práctica guiada <span class="mode">Hacemos</span></b><p>Cada quien abre su calendario. Juntos atienden una revisión real: una con OC en Kepler y una marcada (lección 5).</p></div></div>
+        <div class="ag"><span class="tm">35–45</span><div><b>Casos en parejas <span class="mode">Haces</span></b><p>Los siete casos de práctica. Cada pareja explica uno al grupo.</p></div></div>
+        <div class="ag"><span class="tm">45–55</span><div><b>Autoevaluación <span class="mode">Haces</span></b><p>Las ocho preguntas en su celular. Quien saque menos de 7 repasa la lección que indica la respuesta.</p></div></div>
+        <div class="ag"><span class="tm">55–60</span><div><b>Cierre</b><p>Tarjeta de bolsillo por WhatsApp. Dos preguntas: «¿te sirvió?» y «¿qué no quedó claro?».</p></div></div>
+      </div>
+      <p class="note-s">Gerencia de compras: además, una segunda sesión de 60 minutos con la Parte 2. Demostración de G1 a G4 y, en pantalla, definir juntos las primeras reglas del escalón 1; después G5 a G8, sus casos y su autoevaluación.</p>
+    </div>
+
+    <div class="block">
+      <h3>Antes de la sesión</h3>
+      <ul class="checklist">
+        <li>Cada participante entra a la Suite y ve «Calendario de compras» en el menú. Si no lo ve: salir y volver a entrar; si sigue, falta el permiso.</li>
+        <li>Encargados y almacenistas tienen sucursal en su ficha. Sin ella, su calendario sale vacío.</li>
+        <li>Ya hay reglas de las sucursales que van a la sesión. Un calendario vacío enseña que «no sirve».</li>
+        <li>Cada quien trae su celular con la sesión de la Suite abierta.</li>
+        <li>A la mano, la hoja «2026» de la semana, para comparar en la lección 0.</li>
+      </ul>
+    </div>
+
+    <div class="block">
+      <h3>Propuesta de despliegue en tres olas</h3>
+      <div class="waves">
+        <div class="wave"><span class="wn">Ola 1 · Gerencia</span><h4>Definir lo que más pesa</h4><p>La gerencia de compras toma la ruta «Defino» y llena el escalón 1, empezando por las reglas semanales que ya están en la hoja.</p></div>
+        <div class="wave"><span class="wn">Ola 2 · Compras</span><h4>Revisar a diario</h4><p>Compras, compras operaciones y auxiliares, en cuanto haya reglas del escalón 1. Ruta «Reviso».</p></div>
+        <div class="wave"><span class="wn">Ola 3 · Sucursales</span><h4>Las reglas de cada sucursal</h4><p>Encargados de tienda y almacenistas, cuando su sucursal tenga reglas de día fijo. Ruta «Reviso», con sus proveedores.</p></div>
+      </div>
+      <p class="note-s">Por qué en este orden: cada ola llega cuando ya hay algo que revisar. Capacitar a alguien frente a un calendario vacío es la forma más rápida de que lo abandone.</p>
+    </div>
+
+    <div class="block">
+      <h3>Cómo saber si funcionó</h3>
+      <div class="scroll">
+        <table class="grid-t">
+          <thead><tr><th>Nivel</th><th>Pregunta</th><th>Cómo se mide</th><th>Cuándo</th></tr></thead>
+          <tbody>
+            <tr><td>1 · Reacción</td><td>¿Les sirvió?</td><td>Las dos preguntas del cierre</td><td>Al terminar</td></tr>
+            <tr><td>2 · Aprendizaje</td><td>¿Lo entendieron?</td><td>Autoevaluación: 7 de 8 o más</td><td>Al terminar</td></tr>
+            <tr><td>3 · Comportamiento</td><td>¿Lo usan?</td><td>En el calendario: rezagadas por sucursal bajando semana a semana y marcas registradas; para la gerencia, el avance del embudo</td><td>Semanas 1 a 4</td></tr>
+            <tr><td>4 · Resultado</td><td>¿Cambió algo?</td><td>Ningún proveedor del escalón 1 rezagado más de lo acordado, y la hoja «2026» deja de llenarse</td><td>Al mes</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note-s">El número de días de atraso aceptable y la fecha para dejar la hoja los decide la gerencia de compras.</p>
+    </div>
+
+    <div class="block">
+      <h3>Refuerzo después de la sesión</h3>
+      <div class="prose">
+        <p><b>Día 7:</b> un repaso de 5 minutos con las preguntas que más se fallaron.</p>
+        <p><b>Semana 2:</b> quien capacita revisa con cada sucursal su «Por revisar» y resuelve dudas sobre sus proveedores reales.</p>
+        <p><b>Siempre:</b> este manual queda en línea, y la tarjeta de bolsillo en el WhatsApp del equipo.</p>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Lo que todavía no está en la Suite</h3>
+      <p class="prose" style="margin-bottom:10px">No lo enseñes como si ya estuviera:</p>
+      <ul class="checklist">
+        <li>Sacar del ciclo en bloque a los ocasionales del escalón 3.</li>
+        <li>Que un encargado ajuste una regla sólo para su sucursal o zona.</li>
+        <li>Agendar visitas del proveedor por WhatsApp desde el calendario.</li>
+        <li>Un calendario de días festivos.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap">Manual del Calendario de compras · describe la Suite al lunes 23 de noviembre de 2026. Los textos de las imágenes son los de la pantalla; los proveedores y claves de los ejemplos son inventados.</div>
+</footer>
+
+<script>
+(function(){
+  var KEY = 'manual-cc-progreso';
+  var done = {};
+  try { done = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { done = {}; }
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('input[data-leccion]'));
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(done)); } catch (e) {} }
+  function paint(){
+    var n = 0;
+    boxes.forEach(function(b){ b.checked = !!done[b.dataset.leccion]; if (b.checked) n++; });
+    document.querySelectorAll('[data-toc]').forEach(function(a){ a.classList.toggle('is-done', !!done[a.dataset.toc]); });
+    var el = document.getElementById('avance');
+    if (el) el.textContent = n ? ('Llevas ' + n + ' de ' + boxes.length + ' lecciones marcadas en este equipo.') : 'Al final de cada lección hay una casilla para marcar tu avance.';
+  }
+  boxes.forEach(function(b){ b.addEventListener('change', function(){ done[b.dataset.leccion] = b.checked; save(); paint(); }); });
+  paint();
+
+  var QUIZ = {
+    general: { pase: 7, bien: ' · Ya puedes operar.', items: [
+      { q: '¿De dónde sale el estado de cada revisión?', o: ['Lo pinta el comprador al terminar el día', 'De Kepler (órdenes y entradas) y de las marcas del equipo', 'De la hoja «2026» del Drive'], a: 1, e: 'El estado sale de Kepler y de las marcas. Nadie lo pinta a mano.', l: 'l3' },
+      { q: 'Hiciste la OC en Kepler. ¿Qué haces en el calendario?', o: ['Marcar «Se pidió fuera de Kepler»', 'Nada: el calendario la toma solo', 'Dar de baja la regla'], a: 1, e: 'Una OC o una entrada en Kepler atienden la revisión sin que hagas nada.', l: 'l5' },
+      { q: 'Una revisión de hoy no se atiende ni se marca. ¿Qué pasa mañana?', o: ['Nada, se borra sola', 'Amanece «Rezagada · 1 día»', 'Pasa a «Fuera de ciclo»'], a: 1, e: 'Lo que nadie atiende amanece rezagado, y cada día suma uno.', l: 'l3' },
+      { q: 'Marcas «Hoy no se pide» con el motivo «Otro». ¿Qué es obligatorio?', o: ['La nueva fecha', 'La nota con la causa', 'Nada más'], a: 1, e: 'Con «Otro», la nota es obligatoria. La nueva fecha siempre es opcional.', l: 'l5' },
+      { q: 'Un encargado de tienda ve las reglas de…', o: ['Todas las sucursales', 'Sólo su sucursal', 'Su zona y las de todas las sucursales'], a: 1, e: 'La sucursal ve sólo las suyas; las de zona y las de todas las sucursales las revisan otros.', l: 'l0' },
+      { q: '¿Quién define las reglas?', o: ['Cada comprador para sus proveedores', 'La gerencia de compras', 'Kepler, automáticamente'], a: 1, e: 'Las define la gerencia de compras, también las de sucursal. Kepler sólo propone.', l: 'gerencia' },
+      { q: '«Kepler propone: Cada 12 días» quiere decir que…', o: ['El ciclo ya quedó confirmado', 'Es una propuesta con las órdenes del último año; la gerencia la confirma o la cambia', 'Hay que pedir cada 12 días sin excepción'], a: 1, e: 'Es una propuesta. La regla existe hasta que la gerencia la guarda.', l: 'g3' },
+      { q: '¿Hasta cuántos días adelante se puede marcar una revisión?', o: ['Ninguno, sólo hoy', '14 días', '60 días'], a: 1, e: 'Se puede marcar un día que ya pasó o hasta 14 días adelante.', l: 'l5' }
+    ] },
+    gerencia: { pase: 5, bien: ' · Ya puedes definir reglas.', items: [
+      { q: 'Una orden de compra en Yurécuaro, ¿atiende la regla de «Todas las sucursales» del mismo proveedor?', o: ['Sí, porque esa regla cubre a todas las sucursales', 'No, sólo la de Yurécuaro', 'Sólo si la marca la gerencia'], a: 0, e: 'La regla de todas las sucursales se atiende con lo que pase en cualquiera de ellas.', l: 'g5' },
+      { q: 'Corriges una regla de Yurécuaro y cambias el lugar a Canindo. ¿Qué pasa?', o: ['La regla se mueve a Canindo', 'Se crea una regla nueva en Canindo y la de Yurécuaro sigue igual', 'No deja guardar'], a: 1, e: 'Corregir nunca mueve una regla de lugar: crea otra. Si la vieja ya no va, dala de baja.', l: 'g6' },
+      { q: 'Un proveedor de temporada vuelve en septiembre. ¿Qué usas?', o: ['Dar de baja la regla', 'Sacar del ciclo, con fecha y motivo', 'Que marquen «Hoy no se pide» cada vez'], a: 1, e: 'Sacar del ciclo lo pausa sin rezagos, y regresa solo al día siguiente de la fecha.', l: 'g7' },
+      { q: 'Regla «el 15 y el último» con «Se adelanta al viernes». El 31 de enero de 2027 es domingo. ¿Cuándo toca?', o: ['El domingo 31', 'El viernes 29', 'El lunes 1 de febrero'], a: 1, e: 'La fecha que cae en fin de semana pasa al viernes anterior.', l: 'g4' },
+      { q: '¿Por dónde conviene empezar a llenar el calendario?', o: ['Por orden alfabético', 'Por el escalón 1: los que más pesan en la compra', 'Por los ocasionales'], a: 1, e: 'El escalón 1 son 62 proveedores con el 82.8 % de la compra (medido en nov 2026).', l: 'g2' },
+      { q: 'Guardas una regla en un lugar donde el proveedor ya tenía otra. ¿Qué pasa?', o: ['Quedan dos reglas en el mismo lugar', 'La nueva reemplaza a la anterior y conserva sus marcas', 'Se borran sus marcas'], a: 1, e: 'El formulario te avisa antes de guardar: la reemplaza y conserva sus marcas.', l: 'g5' }
+    ] }
+  };
+  var NOMBRE = { l0: 'la lección 0', l3: 'la lección 3', l5: 'la lección 5', gerencia: 'la Parte 2', g2: 'la lección G2', g3: 'la lección G3', g4: 'la lección G4', g5: 'la lección G5', g6: 'la lección G6', g7: 'la lección G7' };
+
+  function setup(box){
+    var key = box.dataset.quiz, cfg = QUIZ[key];
+    if (!cfg) return;
+    var scoreEl = document.querySelector('[data-score="' + key + '"]');
+    var resetBtn = document.querySelector('[data-reset="' + key + '"]');
+    var resp = {};
+    function mark(i, fs){
+      var item = cfg.items[i], j = resp[i];
+      fs.querySelectorAll('.opt').forEach(function(l, k){ l.classList.remove('right', 'wrong'); if (k === item.a) l.classList.add('right'); else if (k === j) l.classList.add('wrong'); });
+      var fb = fs.querySelector('.fb');
+      fb.textContent = '';
+      var strong = document.createElement('b'); strong.textContent = j === item.a ? 'Correcto. ' : 'No. ';
+      fb.appendChild(strong);
+      fb.appendChild(document.createTextNode(item.e + ' '));
+      if (j !== item.a) { var a = document.createElement('a'); a.href = '#' + item.l; a.textContent = 'Repasa ' + NOMBRE[item.l] + '.'; fb.appendChild(a); }
+    }
+    function total(){
+      var hechas = Object.keys(resp).length, bien = 0, n = cfg.items.length;
+      Object.keys(resp).forEach(function(k){ if (resp[k] === cfg.items[k].a) bien++; });
+      scoreEl.textContent = '';
+      var b = document.createElement('b'); b.textContent = bien + ' de ' + (hechas < n ? hechas : n); scoreEl.appendChild(b);
+      if (hechas < n) { scoreEl.appendChild(document.createTextNode(' correctas · faltan ' + (n - hechas))); return; }
+      scoreEl.appendChild(document.createTextNode(bien >= cfg.pase ? cfg.bien : ' · Repasa las lecciones que marcan tus respuestas y vuelve a intentarlo.'));
+    }
+    function render(){
+      box.innerHTML = '';
+      cfg.items.forEach(function(item, i){
+        var fs = document.createElement('fieldset'); fs.className = 'qz';
+        var lg = document.createElement('legend');
+        var num = document.createElement('span'); num.textContent = (i + 1) + '.';
+        var tx = document.createElement('b'); tx.textContent = item.q;
+        lg.appendChild(num); lg.appendChild(tx); fs.appendChild(lg);
+        var opts = document.createElement('div'); opts.className = 'opts';
+        item.o.forEach(function(txt, j){
+          var lab = document.createElement('label'); lab.className = 'opt';
+          var inp = document.createElement('input'); inp.type = 'radio'; inp.name = key + '-q' + i; inp.id = key + '-q' + i + '-' + j; inp.value = String(j);
+          lab.setAttribute('for', inp.id);
+          var sp = document.createElement('span'); sp.textContent = txt;
+          lab.appendChild(inp); lab.appendChild(sp); opts.appendChild(lab);
+          inp.addEventListener('change', function(){ resp[i] = j; mark(i, fs); total(); });
+        });
+        fs.appendChild(opts);
+        var fb = document.createElement('p'); fb.className = 'fb'; fb.setAttribute('aria-live', 'polite'); fs.appendChild(fb);
+        box.appendChild(fs);
+      });
+    }
+    if (resetBtn) resetBtn.addEventListener('click', function(){ resp = {}; render(); scoreEl.textContent = 'Contesta las ' + cfg.items.length + ' preguntas.'; });
+    render();
+  }
+  document.querySelectorAll('[data-quiz]').forEach(setup);
+})();
+</script>
+</body>
+</html>

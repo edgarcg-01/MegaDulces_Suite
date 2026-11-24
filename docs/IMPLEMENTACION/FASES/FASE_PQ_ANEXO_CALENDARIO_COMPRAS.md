@@ -205,6 +205,7 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | PQ.3.17 | **Quién definió y quién cambió cada regla** (DC25): la regla dice quién la creó y quién la cambió por última vez; el historial de cambios (de qué a qué) se decide en C0 sin inventar una tabla de historial propia (ADR-056) | C0→C3 |
 | PQ.3.18 | **El embudo de llenado en «Sin regla»** (§10.10): la lista por escalón (dinero y operaciones), el medidor de adopción en % de la compra y de las OC, y la decisión en bloque para los ocasionales | C2→C3 |
 | PQ.3.19 | **El comprador ajusta la regla de su sucursal o zona** (DC26): clave nueva, sólo dentro de su alcance de escritura, nunca la corporativa; con rastro (PQ.3.17) | C1→C3 |
+| PQ.3.20 | **El manual de capacitación, dentro de la Suite** (§10.11): botón «Manual» en el encabezado del calendario que abre `assets/manuales/calendario-compras.html` en otra pestaña; primitivo `app-manual-link`; un candado compara los rótulos de la pantalla con los del manual | C3 |
 
 ## 7. Definición de Terminado
 
@@ -234,6 +235,7 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | 2026-11-22 | **DC26 ✅** y **PQ.3.19**: el patrón lo decide la jefa de compras; el comprador pospone, revisa fuera de fecha (ya existen) o ajusta la regla sólo para su sucursal o zona (nuevo) | Francisco + sesión Claude |
 | 2026-11-22 | **El embudo de llenado** (§10.10): 340 proveedores, 0 reglas; dinero y operaciones no ordenan igual (50 % de la compra = 10 proveedores, 50 % de las OC = 22); escalón 1 = 62 proveedores, 82.8 % de la compra y 65.8 % de las OC. Se abre **PQ.3.18**. PQ.3.14 ✅ (en prod con #591) | Francisco + sesión Claude |
 | 2026-11-22 | **PQ.3.18 🧪**: el orden y el medidor del embudo en «Sin regla», sin migración. Control en prod con el repo real = medición independiente (0 escalones distintos); dominio 36 ✔ (5 mutantes), vista 26 ✔, componente 14 ✔ (3 mutantes), Postgres real 45 ✓. Falta la decisión en bloque de los ocasionales, la prueba visual y el PR | sesión Claude |
+| 2026-11-23 | **PQ.3.20 🧪** (§10.11): el manual de capacitación vive en la pantalla (botón «Manual», otra pestaña) como archivo del repo; `app-manual-link` compartido; el candado de rótulos (65 en `origin/main`, todos en el manual; mutante en rojo), la prueba visual del manual en 3 perfiles + oscuro (0 fallas tras subir a 44 px los objetivos táctiles) y la del botón en la pantalla viva por puesto (0 fallas). Falta el PR (con `main` en rojo por `a9a843a95`) | Francisco (pidió el manual y dónde vive) + sesión Claude |
 
 ---
 
@@ -986,3 +988,66 @@ Mientras tanto, la medición se repite a pedido con el script de la sesión, sin
 - **Falta:**
   - (c) la decisión en bloque para los ocasionales, que espera la decisión de qué regla llevan;
   - el PR.
+
+### 10.11 El manual de capacitación (PQ.3.20, 2026-11-23)
+
+Francisco pidió un manual «muy gráfico para capacitar desde 0 al personal» y, ya hecho, *«¿en qué parte de la Suite va a
+vivir el manual?»*.
+
+- **Qué es.** Un HTML en `apps/view/src/assets/manuales/calendario-compras.html`, en dos partes:
+  - la **Parte 1**, para todos: palabras, pantalla, estados, rutina, marcar, detalle, «Semana» y «Mes»;
+  - la **Parte 2**, para la gerencia: el embudo, qué regla va, definir con los tres patrones, varias reglas, corregir,
+    pausar o dar de baja y su revisión semanal.
+  - Lleva maquetas con los rótulos exactos de la pantalla, casos, dos autoevaluaciones y la guía para quien capacita.
+  - Los proveedores de los ejemplos son inventados. Las cifras son conteos y porcentajes, como en este anexo, sin
+    montos ni nombres de personas.
+- **Dónde vive** (decisión de diseño, sesión Claude): en la propia pantalla, con el botón «Manual» del encabezado, que lo
+  abre en otra pestaña para que la pantalla de trabajo se quede donde estaba. Descartado:
+  - **un marco dentro de la Suite:** `nginx.conf` no deja enmarcar la app ni a sí misma (`X-Frame-Options: DENY` y
+    `frame-ancestors 'none'`; aflojarlo es la decisión abierta `[AU.33]`, de una persona);
+  - **Tareas › «Manual por puesto»:** son las normas de operación de cada puesto, no el uso de una pantalla;
+  - **sólo fuera de la Suite:** el personal de compras y de las sucursales no tiene cuenta en la herramienta donde se
+    redactó.
+- **Cómo se sirve.** nginx lo da por `location /` con `no-cache` (el regex de assets de larga caché no incluye
+  `.html`). La CSP ya admite su script en línea y sus fuentes. El service worker lo guarda en el grupo «assets» y lo
+  renueva con cada despliegue. Sigue el tema que la persona eligió en la Suite (mismas claves que `ThemeService`).
+- **El primitivo (ADR-056).** `app-manual-link`, en `shared/components/manual-link/`: la siguiente pantalla con manual
+  pone su HTML en `assets/manuales/` y una línea en su encabezado. Mide 44 px con el dedo, y su nombre accesible dice
+  qué manual es y que se abre aparte.
+- **Las cinco preguntas** (skill `diseno` §0b):
+  1. *Qué ve y en qué orden:* la pantalla no cambia. «Manual» es terciario, junto a «cargado ahora», y no compite con la
+     respuesta ni con «Marcar».
+  2. *Qué no ve:* ni un recorrido guiado ni un aviso fijo de «¿eres nuevo?» que estorbe a quien ya la usa.
+  3. *Accesibilidad:* a un clic, desde la pantalla de la que habla; con teclado (es un enlace); nombre accesible completo.
+  4. *Ligas:* con la capacitación (la guía para quien capacita va dentro del manual).
+  5. *¿Le toca?:* sí. El manual es de esta pantalla y lo ve quien ve el calendario, con el mismo permiso; no pide clave
+     nueva.
+- **El candado** (`calendario-compras-manual.spec.ts`). Saca de la pantalla sus rótulos y exige que cada uno esté en el
+  manual. Lee de su código las opciones, las cifras, los botones, los rótulos de los formularios, las columnas, los
+  títulos de los diálogos, los estados, los motivos y los escalones. En `origin/main` son 65, y todos están.
+  - Control: un rótulo inventado no está en el manual.
+  - Mutante: un manual sin «Pasa al lunes» y «Fuera de ciclo hasta» da rojo y los nombra.
+  - La negativa real la dio el árbol local: el diálogo de PQ.3.18 (c), «Sacar del ciclo a los ocasionales», lo puso en
+    rojo solo. **Cuando (c) se envíe, su PR tiene que enseñar ese botón en el manual.**
+- **Pruebas.**
+  - El botón, 3 ✔. El componente del calendario, 18 ✔. El candado, verde contra `origin/main`.
+  - `check:pantalla` cumple las 10 reglas. «Sin emojis», plantillas, estilos y tokens, en verde.
+  - El «✓» del manual cae en el rango de la compuerta «sin emojis»; se cambió por «Sí» y una palomita de CSS.
+  - Prueba visual del manual como archivo, sin servidores: tres perfiles, oscuro y el tema elegido en la Suite mandando
+    sobre el del sistema. Las autoevaluaciones aprueban con 8 de 8 y 5 de 6; una respuesta mal manda a su lección; el
+    avance sobrevive a recargar.
+  - Encontró los objetivos táctiles del índice en 34 px y la liga de regreso en 18; ahora miden 44. Después, 0 fallas.
+- **Prueba del botón en la pantalla viva** (2026-11-23; Francisco: «si levanta»; Docker local, API y vista locales):
+  **0 fallas**, sin errores de consola.
+  - En escritorio, Fold 7 abierto, celular y escritorio en oscuro, el botón va junto a «cargado ahora». Mide 44 px con
+    el dedo y 28 con mouse, no empuja nada fuera del ancho y recibe el foco del teclado.
+  - Abre el manual en **otra pestaña** y la pantalla de trabajo se queda donde estaba. El manual sale en el tema de la
+    Suite, también con el sistema en claro y la Suite en oscuro, y su liga de regreso lleva al calendario.
+  - Lo ven también el encargado de tienda, el almacenista sin sucursal y Dirección.
+  - Para que la vista compile con `main` en rojo, durante la prueba hubo un archivo vacío **temporal** en lugar de
+    `./http/autoabasto-ordenes`. Se borró al terminar, y la base local quedó como estaba.
+- **No medido.** `nx build view`: `main` está en rojo desde `a9a843a95`, porque el índice de contratos exporta
+  `./http/autoabasto-ordenes`, un archivo que no está en el repo. Las pruebas unitarias corrieron con ese import
+  reemplazado por un módulo vacío, fuera del árbol.
+- **Mantenimiento.** El archivo del repo es la fuente. Si un PR cambia un rótulo de la pantalla, el candado pide
+  cambiarlo en el manual en el mismo PR.
