@@ -95,10 +95,13 @@ const { classify } = require('../../libs/platform-core/src/lib/provenance/target
           [u.tenant_id, st.id, cta.id, dias, entra, sale, `zz-bfu4510-${n}`]);
         for (const [i, [tipo, quien, importe]] of docs.entries()) {
           const folio = `ZZ${n}-${i}`;
-          await c.query(`INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c67) VALUES ('ZZ', 'ZZ', 'ZZ', 'ZZ', 'ZZ', 'ZZ', $1, $2)`, [folio, quien]);
+          // c4 y c5 de kdm1 (y src_c4/src_c5 de las piernas) son NUMERIC: un 'ZZ' ahí tumbó la primera corrida del CI
+          // (22P02 «invalid input syntax for type numeric», 2026-11-24). c2 = 'ZZ' deja fuera a los triggers de kdm1, que
+          // sólo miran documentos U-D, U-A y X-A; la pierna se escribe a mano.
+          await c.query(`INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c67) VALUES ('ZZ', 'ZZ', 'ZZ', 'ZZ', 0, 0, $1, $2)`, [folio, quien]);
           await c.query(`INSERT INTO analytics.bank_movement_legs (tenant_id, src_sucursal, src_c1, src_c2, src_c3, src_c4, src_c5, src_c6,
                            sucursal, doc_tipo, folio, clave_banco, flujo, importe, es_traspaso, pierna, fecha_captura)
-                         VALUES ($1, 'ZZ', 'ZZ', 'ZZ', 'ZZ', 'ZZ', 'ZZ', $2, 'ZZ', $3, $2, 'ZZ', 'entrada', $4, false, 'mov', current_date - $5::int)`,
+                         VALUES ($1, 'ZZ', 'ZZ', 'ZZ', 'ZZ', 0, 0, $2, 'ZZ', $3, $2, 'ZZ', 'entrada', $4, false, 'mov', current_date - $5::int)`,
             [u.tenant_id, folio, tipo, importe, dias]);
           await c.query(`INSERT INTO finance.bank_recon_matches (tenant_id, bank_movement_id, kepler_sucursal, kepler_doc_tipo, kepler_doc_folio, kepler_amount, match_type)
                          VALUES ($1, $2, 'ZZ', $3, $4, $5, 'exact')`, [u.tenant_id, m.id, tipo, folio, importe]);
