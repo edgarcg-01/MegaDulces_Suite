@@ -15,7 +15,7 @@ MÉTRICA:  solicitudes de presupuesto con dictamen registrado en la Suite —
 CAPA TOPE: C3
 ÁREA:      Finanzas (Presupuestos y Compras Corporativas) + Plataforma (Mesa de Servicio)
 DUEÑO:     Sistemas (construcción) · Ernesto Zárate (coordinación del área)
-ESTADO:    🔨  (C0–C3 ✅ en prod desde el 2026-11-19 con la cola APAGADA · evidencia de punta a punta y validación visual NO MEDIDAS · falta encender, MSP.4.2–4.3)
+ESTADO:    🔨  (C0–C3 ✅ en prod desde el 2026-11-19 · cola ENCENDIDA el 2026-11-24 · alta con evidencia medida en prod; su copia en la orden y la validación visual NO MEDIDAS · falta la orden de prueba de MSP.4.3 · §9: reposición desde TI y Mantenimiento, falta `[MSP.5.0]` para el piloto)
 ```
 
 ⚠️ **Cupo:** MS está ⏸️ en el roadmap y la campaña de aterrizaje sigue (Fase 0). Este frente lo pidió el usuario el
@@ -100,7 +100,7 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 |---|---|---|
 | MSP.4.1 | Aplicar las 2 migraciones en prod **una por una**, después del merge y antes de soltar (el envoltorio sólo aplica archivos que ya están en `origin/main`; este plan decía «antes del merge» y estaba mal). Sólo agregan columnas con default y filas; la cola queda apagada | ✅ 2026-11-19 19:35 UTC (batch 1213 y 1214) |
 | MSP.4.2 | Desplegar; `ernesto_zarate` cierra sesión y vuelve a entrar (los permisos viajan en el token) | 🔨 desplegado (prod sirve `f43a7340e`, que contiene el squash `3e3bf4caf`; medido el 2026-11-21); el re-login de Ernesto no se puede verificar desde la base |
-| MSP.4.3 | Encender la cola desde Configuración y levantar una solicitud de prueba (marcarla «de prueba») con un encargado, **con evidencia adjunta** y una orden de servicio a Mantenimiento: es la primera vez que la evidencia corre de punta a punta (el bucket no existe en local) | ⬜ |
+| MSP.4.3 | Encender la cola desde Configuración y levantar una solicitud de prueba (marcarla «de prueba») con un encargado, **con evidencia adjunta** y una orden de servicio a Mantenimiento: es la primera vez que la evidencia corre de punta a punta (el bucket no existe en local) | 🔨 medido en prod el 2026-11-24 (sólo lectura): cola **encendida** a las 17:21:54 UTC por `felipe_galvan`; 2 solicitudes con su adjunto (1 real, asignada y sin dictamen; 1 marcada de prueba, «no autorizada») → **el alta con evidencia funciona en prod**. Falta: una orden de servicio (0 hasta hoy), que es la que mide la copia de la evidencia |
 
 ## 4. Decisiones (→ ADR-124)
 
@@ -120,7 +120,7 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 | Bloqueo | Dueño | Causa | Qué lo destraba |
 |---|---|---|---|
 | Validación visual (MSP.3.x) | Usuario | El frontend no lo levanta Claude (regla 3) | Levantar `view` y revisar con Ernesto |
-| Evidencia de punta a punta (alta con adjunto y su copia en la orden) | Usuario / PM | El bucket no está configurado en local (`S3_*`) | La solicitud de prueba de `[MSP.4.3]` en prod |
+| Evidencia de punta a punta: la copia en la orden (el alta con adjunto ya se midió en prod el 2026-11-24) | Usuario / PM | El bucket no está configurado en local (`S3_*`) | La primera orden de servicio de `[MSP.4.3]` en prod |
 | Cupo de fases | PM (Edgar) | Fase 0 en curso, MS ⏸️ | Ratificar el frente |
 | Tiempo de respuesta de Presupuestos | Ernesto / Edgar | No está definido | Fijarlo y encender el SLA de la cola |
 
@@ -176,7 +176,117 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 5. **¿Este proceso la debe ver?** El solicitante ve dictamen y órdenes (es su solicitud). Mantenimiento/TI ven sólo la
    referencia al padre: no son miembros de Presupuestos y la API les devuelve 404 si la abren.
 
-## 9. Bitácora
+## 9. Reposición de equipo desde TI y Mantenimiento (`[MSP.5]`, pedido del 2026-11-24)
+
+**Lo que se pidió (cita):** «vincular las órdenes de servicio que impliquen revisión de mantenimiento y sistemas con el
+módulo de presupuestos para que al registrar por ejemplo que la impresora ya no funcione pase esa orden como solicitud de
+compra para el área de presupuestos». Y después: «aplica lo que sea más simple de implementar con opción a mejorar o
+implementar el nuevo flujo».
+
+**Cómo cambió:** el flujo cabe en dos acciones que están en prod (**Trasladar**, `[MS.7.11]`, y **Orden de
+servicio**, `[MSP.2.4]`), **salvo una pieza**: hoy Presupuestos **no aparece** en «Transferir a otra área» para la
+coordinación de TI ni la de Mantenimiento (§9.3). Lo más simple es ese cambio mínimo (`[MSP.5.0]`) y probar con casos
+reales. El atajo «Requiere compra» queda escrito abajo y en espera (`[MSP.5.2]`): se construye si el piloto lo pide.
+
+### 9.1 Medido en prod (sólo lectura, `system_identifier` 7688376744939610156, 2026-11-24)
+
+| Hecho | Valor |
+|---|---|
+| Solicitudes reales de TI | **126** desde el 2026-10-03 (30 sin sucursal) |
+| Solicitudes reales de Mantenimiento | **5** desde el 2026-11-14 |
+| De TI, las que mencionan comprar o reemplazar (expresión regular sobre título, descripción, resolución e hilo) | **11**; leídas a mano, **2** son de equipo dañado y **ninguna** termina en una compra. Mantenimiento: 0 |
+| Solicitudes ligadas entre áreas (`parent_request_id`) | **0** |
+| Traslados entre áreas, en toda la historia de la Mesa (mensajes `kind = 'transfer'`) | **0**: el piloto es la primera vez |
+| Quién puede trasladar | la coordinación de la cola: TI **14** coordinadores, Mantenimiento **2** (todos sus miembros activos lo son) |
+| La categoría de impresoras de TI exige sucursal | sí (`Equipo de cómputo e impresoras`, `requires_branch`), así que la orden de instalación la hereda |
+
+**El universo no es el trabajo.** El universo son las 131 solicitudes de TI y Mantenimiento; el trabajo son las que
+terminan en «no tiene reparación». Hoy **no se pueden contar** porque no hay dónde registrarlo: contarlas es lo primero
+que da el piloto.
+
+### 9.2 Decisiones (usuario, 2026-11-24)
+
+| # | Decisión | Quién |
+|---|---|---|
+| D9 | Quien decide que el equipo ya no tiene reparación, y lo manda a Presupuestos, es la **coordinación** de Mantenimiento y de Sistemas (TI). Nunca es automático al levantar el reporte: la mayoría se reparan. | Usuario |
+| D10 | Presupuestos manda la orden de instalación **cuando el equipo ya llegó**, no al autorizar, para que la bandeja de TI y de Mantenimiento sólo tenga trabajo que se puede hacer. Mientras llega, la solicitud queda en espera con el motivo «proveedor», que ya existe. | Usuario (regla) · Sistemas (el motivo) |
+| D11 | La cotización es **opcional** y va como adjunto. No hay campo de monto (respeta D4). | Usuario |
+| D12 | Primero lo más simple: Trasladar + Orden de servicio, con el único cambio que hace falta para que Presupuestos aparezca al trasladar (`[MSP.5.0]`). El atajo `[MSP.5.2]` queda escrito para cuando el piloto lo pida. | Usuario («aplica lo que sea más simple de implementar») · Sistemas (que hace falta `[MSP.5.0]`, §9.3) |
+
+### 9.3 La pieza que falta (`[MSP.5.0]`) y el flujo del piloto (`[MSP.5.1]`)
+
+⛔ **Hallado al revisar la pantalla (2026-11-24):** el diálogo «Transferir a otra área»
+(`sd-request-detail.component.ts`, `areasDestino`) arma su lista con el **catálogo de «Nueva solicitud»**
+(`GET /service-desk/catalog`). Desde `[MSP.2.1]`, ese catálogo esconde un área con lista de puestos a quien no está en
+ella ni es miembro. La coordinación de TI y la de Mantenimiento no cumplen ninguna de las dos, así que **Presupuestos no
+les aparece** para trasladar. El servidor sí lo aceptaría (D8: trasladar no exige el puesto), pero no hay botón que lo
+pida. Es la «puerta pintada» al revés: un camino que existe y la pantalla no muestra.
+
+**`[MSP.5.0]` el cambio mínimo** (C2 + C3, sin migración):
+- `GET /service-desk/transfer-targets`, con `SERVICIO_COORDINAR` (el mismo permiso que trasladar): todas las áreas
+  encendidas que tienen categorías, con sus categorías, **sin** el filtro de puestos. No devuelve la lista de puestos.
+- El diálogo de traslado usa esa lista. «Nueva solicitud» **no cambia**: a quien no está en los 3 puestos, Presupuestos
+  le sigue sin aparecer para levantar.
+- Pruebas: la del servicio y la de la pantalla, cada una con su negativa (el catálogo le sigue escondiendo Presupuestos a
+  una cajera; la lista de traslado se la muestra a la coordinación de TI); y el traslado de TI a Presupuestos ejercido
+  contra una base real (regla 13): el camino D8 nunca se probó por HTTP (`http-service-desk-presupuestos-test.js` no
+  tiene ningún traslado).
+- Alternativa descartada: hacer a las 16 personas de la coordinación de TI y Mantenimiento miembros de Presupuestos.
+  No necesita código, pero les abriría la bandeja de Presupuestos con todas las solicitudes de todas las sucursales.
+
+**El flujo del piloto, ya con `[MSP.5.0]`:**
+
+1. La sucursal reporta en TI o en Mantenimiento, como siempre.
+2. Si se repara, se resuelve como siempre.
+3. Si **no tiene reparación**, la coordinación deja en el hilo el diagnóstico (qué equipo, por qué no se repara y la
+   foto). Si tiene cotización, la adjunta como **nota interna**: la ve Presupuestos, no la sucursal, y no viaja a la
+   orden de instalación, porque la orden sólo hereda la evidencia pública. Luego **traslada** la solicitud a
+   «Presupuestos y Requerimientos», categoría «Compra de activos», con un motivo que la sucursal entienda (el motivo del
+   traslado es público).
+4. Presupuestos la toma y da el dictamen.
+5. **Autorizado:** mientras llega el equipo, la pone en espera con el motivo «proveedor». Cuando llega, «Generar orden de
+   servicio» al área de origen («instalar …»). La orden hereda la sucursal, a quien reportó y la evidencia pública.
+6. El área instala y resuelve su orden, y **la solicitud original se resuelve sola** (`[MSP.1.6]`); la sucursal recibe
+   el aviso. Sigue un solo folio de principio a fin.
+7. **No autorizado:** Presupuestos la resuelve con su motivo, que la sucursal lee. Si hay otra salida (reparar, prestar
+   un equipo), la traslada de regreso al área de origen.
+
+**Verificado leyendo el código de `main` (no ejercido):** en el servidor, el traslado lo puede hacer la coordinación
+de la cola de origen y no pide el puesto de quien reportó (D8); Presupuestos no mide SLA, así que el traslado no exige política; la
+orden exige el dictamen autorizado y la solicitud tomada, y acepta una solicitud en espera («proveedor») sin reanudarla,
+porque cambia el motivo a `orden_servicio`; resolver la última orden resuelve al padre cuando su cola exige dictamen y
+está autorizado. ⚠️ **NO MEDIDO:** esa cadena completa nunca corrió sobre una base real. Cada pieza tiene su prueba
+(`[MS.7.11]`; `http-service-desk-presupuestos-test.js` 62/62), pero no juntas. **El primer caso real es la prueba.**
+
+### 9.4 Lo que el piloto no resuelve (→ `[MSP.5.2]`)
+
+- Mientras Presupuestos decide, la solicitud sale de la bandeja de TI o de Mantenimiento, y la instalación le regresa con
+  otro folio. El reporte del área deja de contarla.
+- Si no se autoriza, el área de origen no se entera, salvo que Presupuestos se la regrese.
+- Al trasladar, nada obliga a poner el diagnóstico ni la foto: el traslado sólo pide un motivo.
+
+### 9.5 `[MSP.5.2]` El atajo «Requiere compra», escrito para después
+
+- Un botón en TI y Mantenimiento, sólo para su coordinación (D9), que crea una solicitud **hija** en Presupuestos con
+  el diagnóstico y la foto obligatorios y la cotización opcional (D11).
+- La solicitud de origen queda **en espera** con el motivo `aprobacion` (ya existe en el CHECK), con su reloj pausado.
+- Cuando Presupuestos resuelve la hija, la de origen **se reanuda** (no se resuelve) y lleva el dictamen. Es la regla de
+  `[MSP.1.6]` al revés: hace falta una regla nueva en el dominio puro, que distinga «la hija resuelve al padre» de «la
+  hija le devuelve el control».
+- La hija no es un alta: no se le aplica la lista de puestos de D1 (como D8).
+- Un solo nivel: si la solicitud de origen ya es una orden de Presupuestos, no genera otra compra.
+- Capas: C1 (dominio), C2 (endpoint), C3 (botón y estado en la ficha). Si C0 necesita migración: NO MEDIDO hasta
+  diseñarlo (en principio reusa `parent_request_id` y `aprobacion`). Necesita cupo: hoy hay 8 fases 🔨 contra 4, y lo
+  ratifica el PM.
+
+### 9.6 Métrica del frente
+
+**Reposiciones que llegan a Presupuestos desde TI o Mantenimiento con su folio original.** HOY: **0** (no hay traslados
+ni ligas; medido el 2026-11-24). Desde que `[MSP.5.0]` llegue a prod, se cuenta con los mensajes `kind = 'transfer'` cuyo `meta.to_queue_id` es
+Presupuestos, y se miden dos tiempos: del traslado al dictamen, y del dictamen a la orden resuelta. Con eso se decide si
+`[MSP.5.2]` vale el cupo.
+
+## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
@@ -185,3 +295,4 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 | 2026-11-19 | Con Postgres local y la API levantada desde la copia: C0 47/47 (4 mutantes en rojo), C2 62/62 (3 rondas de mutantes en rojo). La matriz encontró el 403 que llegaba después del bucket; arreglado. Evidencia de punta a punta NO MEDIDA (sin bucket local) → `[MSP.4.3]`. | Usuario + Claude |
 | 2026-11-19 | **PR #567** abierto. CI obligatorio en verde; `Lint & test` rojo ajeno (`primeng` 24 > 21 ya en la base). `main` tomó ADR-122 (`[VER]`): la decisión de esta fase pasa a **ADR-124** en una fusión. Las observaciones del ciclo, al protocolo previo al PR (`ONBOARDING.md` §8.0b, puntos 114–119; 109–113 son de #569). | Claude |
 | 2026-11-21 | **En prod, con la cola apagada** (re-medido, sólo lectura): #567 fusionado el 2026-11-19 (squash `3e3bf4caf`, 18:28 UTC); las 2 migraciones aplicadas a las 19:35 UTC (batch 1213 y 1214), después del merge; prod sirve `f43a7340e`, que contiene el squash; cola `presupuestos` apagada, 3 categorías, 0 solicitudes; Ernesto coordinador con sus 2 permisos. C0–C3 y MSP.4.1 a ✅. Falta MSP.4.2 (re-login) y MSP.4.3 (encender + prueba con evidencia), con el cupo ratificado por el PM. | Claude |
+| 2026-11-24 | Re-medido en prod (sólo lectura): la cola se **encendió** a las 17:21:54 UTC (`felipe_galvan`); 2 solicitudes con su adjunto (1 real, 1 de prueba «no autorizada»), 0 órdenes. **Pedido nuevo del usuario:** que la reposición de equipo de TI y Mantenimiento llegue a Presupuestos como solicitud de compra. D9–D12 contestadas por el usuario: lo más simple con Trasladar + Orden de servicio (§9), y el atajo `[MSP.5.2]` escrito y en espera. Al revisar la pantalla: Presupuestos no aparece en «Transferir a otra área» para TI ni Mantenimiento (la lista sale del catálogo de «Nueva solicitud»), así que el piloto necesita el cambio mínimo `[MSP.5.0]`. | Usuario + Claude |
