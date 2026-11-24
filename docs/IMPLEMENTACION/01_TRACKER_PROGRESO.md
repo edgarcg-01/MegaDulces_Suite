@@ -1991,14 +1991,14 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       «con fecha posterior al corte») y uno de la 00 con una factura de $0 y $17,100 aplicados («Diferencia sin
       explicar», impresa). (3) «Próximo vencimiento: fecha · monto» en la tarjeta «Por vencer». Pruebas 24/24; dos mutantes
       (orden ascendente; no restar los abonos previos) en rojo. Sin validación visual del PDF.
-- [ ] **[CXC.51]** 🧪 (en código, sin soltar) **Lo mismo en la ficha de Cartera que ve Crédito y Cobranza** (Edgar,
+- [x] **[CXC.51]** ✅ (en prod el 2026-11-24, `96c07e4ee`; /api/health lo sirve) **Lo mismo en la ficha de Cartera que ve Crédito y Cobranza** (Edgar,
       2026-11-23: «hagamos lo mismo con lo que ve crédito y cobranza»). Facturas de la más NUEVA a la más vieja, línea
       «Resumen del periodo» (mismo periodo que el PDF) y «próx. vence fecha · monto» junto al saldo. ⭐ El resumen, el
       orden y el próximo vencimiento pasan a `@megadulces/contracts` (`resumenPeriodo`, `masNuevaPrimero`,
       `proximoVencimiento`) y el PDF los importa de ahí: UNA función, lo que Crédito ve es lo que el cliente recibe
       (ADR-056). Pruebas: PDF 24/24, contrato 3/3, ficha 40/40; mutante (sin el orden en la ficha) en rojo; `ngc` 0
       errores; `check:pantalla` 0 fallas nuevas. Sin validación visual.
-- [ ] **[CXC.52]** 🧪 (en código, sin soltar) **Cartera › Resumen: la venta de cada vendedor, con su total** (Edgar,
+- [x] **[CXC.52]** ✅ (en prod el 2026-11-24, `96c07e4ee`; el endpoint `venta-vendedor` aún sin uso real medido en `ui_usage`) **Cartera › Resumen: la venta de cada vendedor, con su total** (Edgar,
       2026-11-23: «agreguemos aquí el total de venta de cada vendedor»). Columna «Venta» en «Cartera por vendedor»: lo
       FACTURADO en Kepler con esa clave (contado + crédito, `kdm1.c16`, U-D 8/10/12 no canceladas, con el cutover de cada
       sucursal) por (sucursal, clave) — la clave sola nombra a otra persona según la plaza. Endpoint propio
@@ -2016,7 +2016,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       CONCURRENTLY` sobre `kdm1` (810 MB, el carril la reescribe cada 2 s) no va en horario. Vuelve en la noche, se aplica
       con la receta de `entrega` §5 y se mide 3 meses / un año antes y después. Sin garantía: sólo el 56 % de `kdm1` está
       «todo visible»; si un año no baja de 500 ms, lo siguiente es un agregado diario por vendedor.
-- [ ] **[CXC.53]** 🧪 (en código, sin soltar) **Todo el Resumen de Cartera sigue UN periodo** (Edgar, 2026-11-23: «que
+- [x] **[CXC.53]** ✅ (en prod el 2026-11-24, `96c07e4ee`; lo soltó la sesión df con sus 5 cambios) **Todo el Resumen de Cartera sigue UN periodo** (Edgar, 2026-11-23: «que
       todo el resumen se haga dinámico»). Selector en el encabezado: 30 días, 90 (default: la base de siempre del DSO), este
       mes, mes anterior o rango. Siguen al periodo la venta a crédito y el DSO (con los días del periodo), la mediana y los
       pagos a más de 30 días (de lo que se terminó de pagar en el periodo), la venta por vendedor y la tendencia (recortada;
