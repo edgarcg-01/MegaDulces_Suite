@@ -54,8 +54,15 @@ const TECHO_MS = 350;
  * animan width/height/padding/flex/max-width, o usan `all`, que arrastra layout sin que
  * nadie lo haya elegido). Es la lección de `check-keyboard-nav`, que encendió marcando
  * 7 falsos de 8 y por un rato enseñó a ignorarla.
+ *
+ * 2026-11-24: 48 -> 49, DECLARADA (no convertida). `[MT.5]` (2f289572f) anima el `width` del
+ * panel lateral (`apps/view/src/app/core/panel/panel-lateral.component.css`) al abrir y cerrar.
+ * Es el caso que el mensaje de abajo reconoce: el panel y el contenido son hermanos de un flex,
+ * y el contenido TIENE que reacomodarse mientras el panel crece; un `transform: scaleX()`
+ * encimaría el panel sobre la tabla en vez de empujarla. Ya respeta `prefers-reduced-motion`,
+ * dura 180 ms y se apaga mientras se arrastra el divisor. Medido: sin esa línea la compuerta da 48.
  */
-const DEUDA_LAYOUT_BASE = 48;
+const DEUDA_LAYOUT_BASE = 49;
 
 /** Raíces que viven bajo el techo de Operations. `apps/portal` queda fuera a propósito (ver cabecera). */
 const AMBITO = ['apps/view', 'apps/vendor', 'libs'];
