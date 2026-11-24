@@ -4,6 +4,7 @@
 > **Índice navegable** — 3199 KB, 15538 líneas, 78 secciones.
 > **Índice navegable** — 3236 KB, 15584 líneas, 78 secciones.
 > **Índice navegable** — 3240 KB, 15764 líneas, 78 secciones.
+> **Índice navegable** — 3242 KB, 15765 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -313,6 +314,81 @@
 | 15697 | 15730 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
 | 15731 | 15779 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 | 15780 | 15854 | 51 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 227 | 4640 | 852 | 🎯 EN PROGRESO |
+| 4657 | 4694 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 4695 | 4728 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 4729 | 4813 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 4814 | 4917 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 4918 | 4984 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 4985 | 5088 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 5089 | 5172 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 5173 | 5342 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 5343 | 5405 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 5406 | 5478 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 5479 | 5530 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 5531 | 6481 | 217 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 6482 | 6495 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 6496 | 6520 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 6521 | 6543 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 6544 | 6582 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 6583 | 7384 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 7385 | 7569 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 7570 | 7612 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 7613 | 7690 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 7691 | 7784 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 7785 | 7920 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 7921 | 7937 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 7938 | 7991 | 97 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 7992 | 8059 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 8060 | 8312 | 20 | Fase CH — Checadores / Control de asistencia |
+| 8313 | 8378 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 8379 | 8406 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 8407 | 8573 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 8574 | 8602 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
+| 8603 | 9010 | 198 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 9011 | 9073 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 9074 | 9203 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 9204 | 9266 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 9267 | 9427 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 9428 | 9498 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 9499 | 9547 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 9548 | 9580 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 9581 | 10137 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 10138 | 10269 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 10270 | 10323 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 10324 | 10363 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 10364 | 10416 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 10417 | 10483 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 10484 | 10646 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 10647 | 10930 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 10931 | 11098 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 11099 | 13529 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 13530 | 13538 | 1 | Fase RR — Ventas por ruta |
+| 13539 | 13858 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 13859 | 13869 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 13870 | 13890 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 13891 | 13901 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 13902 | 13913 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 13914 | 13973 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 13974 | 14401 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 14402 | 14416 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 14417 | 14458 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 14459 | 14625 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14626 | 14657 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14658 | 14957 | 74 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14958 | 15027 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 15028 | 15050 | 7 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 15051 | 15111 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 15118 | 15127 | 1 | 📝 Convenciones |
+| 15128 | 15165 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 15166 | 15184 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 15185 | 15237 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 15238 | 15644 | 110 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15645 | 15675 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15676 | 15697 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15698 | 15731 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15732 | 15780 | 53 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15781 | 15855 | 51 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -1423,6 +1499,7 @@ Pedido de Edgar (2026-11-17): *«hagamos que nada se capture a mano»*. Firmó D
 - [ ] **[RH.18.13]** 🧪 2026-11-24 **Sin «Capturar incidencia» en la cabecera: se captura en la celda.** Sin «Capturar incidencia» en la cabecera de Asistencia (David, 2026-11-24: «si ya capturas desde la tabla, ¿no está de más?»). Se captura en la celda del día de la tabla (persona y día puestos, con «Hasta» para varios días); lo que la tabla no alcanza —un día de otra semana, el celular (la tabla muestra sólo totales), quien no ve Asistencia— sigue en el panel de Incidencias, que trae su propio botón. El botón naranja sólo aparece cuando hay un paso que dar: «Cerrar semana». «Incidencias» se queda: es la bandeja (calificar, ver, cerrar). Probado: páginas RH 120/120 (semana en curso: ni Capturar ni Cerrar, y la celda sí ofrece capturar; semana pasada con permiso de cierre: «Cerrar semana»); mutante en rojo (el botón de vuelta: 2 pruebas fallan); `ngc` 0. **Falta:** confirmar con RH por dónde registrarían vacaciones de la semana que viene (el panel de Incidencias), validación visual, commit, PR.
 - [ ] **[RH.18.14]** 🧪 2026-11-24 **Sin la franja de relojes en Asistencia.** Sin la franja de relojes en Asistencia (David, 2026-11-24: «quita esto»). El chip «Sin señal» lo dice y abre Relojes, donde está el detalle de cada equipo; el componente de la franja sigue vivo dentro del panel de Relojes. Se fue también la entrada `franja` del marco (8 páginas dejaban de pasarla). ⚠️ Lo que se pierde: a quien administra relojes, la franja le avisaba de un reloj con la hora corrida aunque estuviera al día; el chip sólo mide la señal, así que eso ahora se ve abriendo Relojes. Probado: vista RH 326/326 (ni con un reloj sin señal ni con la hora corrida sale la franja; el chip sí, como botón a Relojes); `tsc` y `ngc` 0. **Falta:** validación visual, PR.
 - [ ] **[RH.19.1]** 🧪 2026-11-24 **Horas extra de quien trabaja corrido, con justificante.** Horas extra de quien trabaja corrido (RH, 2026-11-24, por día, opción b). La hora extra empieza al cumplir su jornada: quien no sale a comer la cumple antes, pero SÓLO cuenta cuando RH lo confirma con «Comida distinta» de 0 min (motivo = justificante, quién lo autorizó, y calificada por otra persona). Calificada, la comida que no tomó cuenta como trabajo: horario 08:00–18:00 con 60 min de comida, checó 08:00 y 18:00 → salida esperada 17:00 → 1 h extra (sin confirmar: 0, como antes). Una comida autorizada más corta acredita la diferencia (30 en vez de 60 → 30 min antes); una más larga sigue igual. Sólo con horario asignado y no con «Horario distinto» completo. En la tabla, un día con sólo entrada y salida ofrece primero «Trabajó corrido» (0 min puestos, motivo vacío). Sin migración ni cambio de API: es «Comida distinta» de siempre. Medido en prod (sólo lectura, 27-oct a 23-nov, indicio): 203 días corridos de 55 personas con horario asignado; con la regla nueva y TODOS confirmados, 79 días con extra en vez de 39 (+83.5 h en 4 semanas). Ojo: 874 de 4,234 días de lunes a viernes tienen sólo 2 checadas; por eso no cuenta sin confirmación. Probado: lógica RH 210/210 (6 casos nuevos: corrido confirmado 1 h, sin confirmar 0, comida de 30, autorizó 0 pero sí comió, salió a las 17:00 sin «salida antes», sin horario asignado no acredita); vista RH 330/330 (botón «Trabajó corrido», 0 min, motivo vacío; negativas); mutante en rojo (sin el crédito fallan 2); `tsc` view 0, `tsc` libs/hr 0 propios, `ngc` 0. **NO MEDIDO:** el número exacto con el cálculo de la Suite (el +83.5 h es indicio con TODOS confirmados); paridad con Mega Talento (diverge a propósito en días corridos confirmados). **Falta:** que Edgar lo sepa (sube la nómina), PR después de #610, validación visual.
+- [ ] **[RH.19.2]** 🧪 2026-11-24 **Horas extra: «Ganadas (aprox.)» editable con justificación.** Las horas extra GANADAS son un aproximado que RH corrige con justificación (David, 2026-11-24: «un aprox que pueda ser editable pero con justificación»). En Asistencia › Horas extra la columna dice «Ganadas (aprox.)» y quien gestiona la asistencia (`HR_ATTENDANCE_GESTIONAR`) tiene «Editar»: escribe las horas correctas («2:30», «0») y la justificación (mínimo 5 letras); sin ella, con la misma cifra o con algo que no es hora, no se guarda. Se guarda como un ajuste del banco por la diferencia (`hr.overtime_adjustments`, la de [RH.1.10]: sin migración ni cambio de API) con el motivo «Ganadas corregidas de 1h 30m a 0h 30m: <justificación>», y se quita como cualquier ajuste, con motivo. La celda muestra «1h 30m → 0h 30m»; «Ajustes» ya no repite esa corrección (sólo saldo inicial y otros) y el saldo sigue siendo el del servidor. ⚠️ Las ganadas son el ACUMULADO desde que arrancó el banco (24-sep), no la semana. ⚠️ Medido en prod el 24-nov: `hr.overtime_adjustments` tiene 0 filas; la prueba contra base real del guardado (`horas-extra-banco.db.spec.ts`) sólo corre con `HR_DB_TEST_URL`, que no está ni en el CI ni local: NO MEDIDO hoy. Probado: vista RH 333/333 (3 casos nuevos: la corrección sale como ajuste por la diferencia con su motivo; negativas sin justificación / misma cifra / no es hora, y quien sólo ve no edita; la corrección se ve en Ganadas y no en Ajustes); mutantes en rojo (Ajustes que repite la corrección; Guardar sin justificación); `tsc` y `ngc` 0; `check:pantalla -- rh-horas-extra` 0 nuevas. **Falta:** validación visual, PR después de #610.
 
 ### Fase VEC — Flujo del vendedor vecinal: pedido → aviso a la sucursal → pedido global · 2026-10-06
 
