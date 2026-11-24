@@ -667,7 +667,7 @@ de E4.
 | 4 | **Permiso en Kepler (GP.A.0d)** | ✅ **aplicado el 2026-11-24 en 8 de 9** (Edgar autorizó; corrido desde `md` con `KSU=sa`). Verificado con el testigo independiente —`kepler_push` preguntándose a sí mismo— y no con la comprobación del propio script: `has_column_privilege(… 'c11','UPDATE')` da `true` en 01, 02, 03, 04, 05, 06, 07 y 08. ⚠️ **CEDIS (00) quedó fuera**: su `pg_hba` no tiene línea para `sa` desde `md` («sin cifrado»). **No bloquea nada**: CEDIS tiene **0 pedidos por autorizar y 2 TELEMARK en 90 días** (medido el 2026-11-24) | — (CEDIS: higiene, cuando haya ventana con quien administra Kepler) |
 | 5 | Ensayo con ROLLBACK en el Kepler vivo | ✅ **corrido el 2026-11-24** sobre Morelia Abastos, pedido `08-1-0001473`: `permiso_c11 = true`, el `UPDATE` tocó **1 fila**, `CREADO → AUTORIZADO`, `deshecho: true`, y el control cerró con **estatus antes = después = CREADO**. El carril de escritura funciona de punta a punta sin haber escrito nada | — |
 | 6 | `KEPLER_AUTORIZACION_PEDIDOS=encendida` | ✅ **encendida el 2026-11-24** en el secreto `prod/kepler-push` con `kubectl patch --type=merge` (54 → 55 llaves, ninguna perdida) y `rollout restart deploy/api`: 2 réplicas con `maxUnavailable: 0`, **sin corte de servicio**. Verificado dentro del pod (`printenv`) y con `/api/health` | — |
-| 7 | Interruptor por sucursal (`kepler_push_switch`, tipo `autorizacion`) | ✅ **Morelia Abastos encendida el 2026-11-24**, y sólo ella (la transacción revierte si no queda exactamente una). `tope_dia` queda NULL a propósito: habilita autorizar **a mano**, no el automático | — (las demás, cuando el piloto rinda) |
+| 7 | Interruptor por sucursal (`kepler_push_switch`, tipo `autorizacion`) | ✅ **las 8 sucursales con permiso, encendidas el 2026-11-24 a las 11:30** (Edgar: *«activémoslo en todas las sucursales»*, por encima del piloto de GP.A.8). ⚠️ **CEDIS (00) queda apagada** porque le falta el candado 4: sin el `GRANT` la escritura fallaría y la persona vería un **error** en vez del aviso «hazlo en Kepler». La transacción revierte si no quedan exactamente 8 encendidas, si CEDIS queda encendida, o si alguna trae `tope_dia`. `tope_dia` sigue NULL en las nueve: habilita autorizar **a mano**, no el automático | — |
 
 ### 5c. ⭐⭐ La primera autorización real desde la Suite — 2026-11-24, 10:11 (Morelia Abastos)
 
@@ -693,14 +693,63 @@ de «nadie lo usa» — y de hecho **nadie había abierto la pantalla nunca** (t
 ⛔ **Los nombres de los clientes NO se escriben aquí**: el repo es público. Para identificar un caso va el folio
 (`08-1-0001642`); el nombre vive en la bitácora de prod, que es donde tiene que estar.
 
-**Qué sigue**: dos semanas de piloto en Morelia Abastos (GP.A.8) antes de encender otra sucursal. El automático
-es aparte: pide un **tope del día** (D-A14) y GP.A.3, el disparo por evento, que **no está construido**.
+⭐ **La segunda llegó sola, 46 minutos después**: `08-1-0001644` ($14,338.18) a las 10:57, también `escrito` /
+`escrito`. Nadie la pidió como prueba — es la pantalla usándose. La bitácora pasó de 0 filas (desde que existe
+la tabla) a 2 en una mañana.
 
-⭐ **Dónde conviene el piloto** (pedidos TELEMARK, medido el 2026-11-24): las que de verdad operan este canal son
-**Padre Hidalgo** (1,566 en 90 días, 4 esperando), **Canindo** (1,360, 14) y **Morelia Abastos** (856, 9).
-⚠️ **Zamora Centro no es candidata**: tiene **782 pedidos esperando contra 276 en 90 días** — una cola de pedidos
-viejos (la «limpieza de la 05», D-A4) que al encender el interruptor aparecerían todos juntos.
-Yurécuaro y Morelia Madero no tienen ni un pedido TELEMARK.
+**Qué sigue**: el automático es aparte: pide un **tope del día** (D-A14) y GP.A.3, el disparo por evento, que
+**no está construido**. (El piloto de dos semanas en una sola sucursal que proponía este renglón lo levantó
+Edgar el mismo día: ver §5d.)
+
+⭐ **Quién opera de verdad este canal** (pedidos TELEMARK, medido el 2026-11-24): **Padre Hidalgo** (1,571 en
+90 días), **Canindo** (1,362) y **Morelia Abastos** (859). Yurécuaro, Morelia Madero y CEDIS no tienen trabajo
+vivo en este canal.
+
+### 5d. ⭐⭐ Encendido en las ocho sucursales con permiso — 2026-11-24, 11:30
+
+Edgar lo pidió el mismo día de la primera autorización (*«activémoslo en todas las sucursales»*), por encima del
+piloto de dos semanas que proponía §5c. Antes de tocar el interruptor se midieron los tres candados **por
+sucursal**, porque encender donde falta uno no deja un aviso: deja un **error** delante de la persona.
+
+| Sucursal | Permiso en Kepler | Interruptor | Bandeja del día | Viejos, aparte |
+|---|---|---|---:|---:|
+| 00 CEDIS | ❌ **falta el `GRANT`** | ⛔ **queda apagada** | 0 | 0 |
+| 01 Padre Hidalgo | ✅ | ✅ encendida | **5** ($110,161.85) | 4 |
+| 02 La Piedad Abastos | ✅ | ✅ encendida | 0 | 2 |
+| 03 8 Esquinas | ✅ | ✅ encendida | 0 | 1 |
+| 04 Yurécuaro | ✅ | ✅ encendida | 0 | 0 |
+| 05 Zamora Centro | ✅ | ✅ encendida | 0 | **782** |
+| 06 Canindo | ✅ | ✅ encendida | **9** ($228,488.50) | 7 |
+| 07 Morelia Madero | ✅ | ✅ encendida | 0 | 0 |
+| 08 Morelia Abastos | ✅ | ✅ (desde las 10:08) | **3** ($33,493.71) | 6 |
+
+**Lo que esto destrabó hoy:** 17 pedidos esperando decisión en tres sucursales, de los cuales 15 necesitan
+autorización (2 son de contado) — **$372,144.06**. Dos tercios estaban en Canindo y Padre Hidalgo, donde hasta
+esta mañana la pantalla sólo ofrecía Rechazar.
+
+⛔⛔ **Corrección a §5c, por medición:** ahí escribí que los 782 pedidos viejos de Zamora *«al encender el
+interruptor aparecerían todos juntos»*. **Es falso, y vale decir por qué.** El interruptor sólo gobierna la
+**escritura**; la lista ya se veía. Y la regla clasifica como `aparte` todo pedido con más de
+`pedidoViejoDias = 2` días sin movimiento, así que los 782 caen en **«Viejos, aparte»**, no en la bandeja del
+día. Medido en la pantalla viva: **«Esperan tu decisión: 15» contra «Viejos, aparte: 802»** — y 802 es
+exactamente 4+2+1+782+7+6, la suma de la columna de esta tabla. El `pedidoViejoDias = 2` no es una suposición:
+sale de contar que de 1,387 pedidos de 31–60 días sólo 18 seguían vivos. **El diseño ya protegía lo que yo
+declaré como riesgo.**
+
+**Verificado con testigos independientes**, no con la salida del `UPDATE`:
+
+| Qué | Testigo | Resultado |
+|---|---|---|
+| El permiso existe donde se encendió | `kepler_push` preguntándose `has_column_privilege(…'c11','UPDATE')` en los 9 Kepler, desde `md` | `true` en 8; `false` en CEDIS |
+| Se escribió en el clúster correcto | `pg_control_system()` | `system_identifier = 7688376744939610156` (`pg-prod`) |
+| Quedó exactamente lo pedido | la transacción revierte si no hay 8 encendidas, si CEDIS queda encendida o si aparece un `tope_dia` | 7 filas actualizadas, la verificación pasó |
+| **La API corriendo lo ve** | la pantalla de prod, en una sucursal que antes decía «apagado» | **Autorizar habilitado en Canindo**, sin el aviso de apagado. El interruptor se lee en cada consulta (no hay caché) |
+| La bandeja no miente al contar | mi SQL contra la pantalla, por separado | 15 y 802 en los dos instrumentos |
+
+⚠️ **Lo que NO se midió:** que una persona de Crédito y cobranza complete una decisión en una sucursal distinta
+de Morelia Abastos. El carril quedó abierto y probado; **ejercido, sólo en 08** (dos autorizaciones reales, las
+de las 10:11 y las 10:57). Hasta que eso pase, de las otras siete sucursales se puede decir que están
+**encendidas**, no que estén **probadas**.
 
 **Fuera de este anexo:** cancelar pedidos en Kepler desde la Suite, escribir el límite en Kepler (ALC D1-b),
 y limpiar la 05 (D-A4).
