@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 437 KB, 6501 líneas, 44 secciones.
+> **Índice navegable** — 439 KB, 6549 líneas, 44 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -50,7 +50,7 @@
 | 5894 | 5998 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
 | 5999 | 6070 | 5 | 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026- |
 | 6071 | 6266 | 11 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
-| 6267 | 6557 | 17 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
+| 6267 | 6605 | 20 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -6554,3 +6554,51 @@ dato no está. *Si derivar es imposible, se cambia el proceso.*
 |---|---|---|
 | **D-F7** | ⭐⭐ ¿Se contrata referencia bancaria / CLABE por cliente? Es la única vía al 100 %. Tamaño de lo que hoy depende de un texto tecleado: **1,264 depósitos, $21.7M en 180 días** | **Dirección + banco** |
 | **D-F8** | ¿Se le envía a los 1,187 clientes con saldo su enlace de ficha? Hoy lo usaron 2 | Crédito y cobranza |
+
+### 41.11 La regla F5 apuntada a NUESTROS CFDI emitidos: 521 en 2026, y bajando fuerte (D-F6, 2026-11-24)
+
+Se aplicó sobre `fiscal.cfdis` (`rol='emitidas'`, tipo `I`) la regla que el repo ya tiene escrita y
+**bloqueante** para las facturas que RECIBIMOS (`expediente-verdict.ts`, control `F5_metodo_forma`):
+`pueMal = PUE && forma='99'` · `ppdMal = PPD && forma<>'99'`. Sólo lectura.
+
+| Año | CFDI de ingreso emitidos | **PUE con forma 99** | PPD sin forma 99 |
+|---|---:|---:|---:|
+| 2026 | 35,716 | **521** | 0 |
+| 2025 | 32,733 | 4,196 | 0 |
+| 2024 | 30,759 | 6,020 | 0 |
+| 2023 | 29,864 | 4,388 | 1 |
+| 2022 | 29,151 | 2,483 | 388 |
+| 2021 | 14,573 | 2,236 | 845 |
+
+⭐ **Lo primero que hay que decir es lo bueno: la tendencia baja fuerte** — de 6,020 (2024) a 4,196
+(2025) a **521** (2026), y el lado `PPD` está **limpio desde 2023**. Alguien ya corrigió la mayor
+parte; esto es deuda histórica que se está cerrando sola, no una falla que crezca.
+
+**Dónde se concentra lo de 2026** (series `A`, `B`, `BT`, `H`, `J` son del mismo emisor pero **fuera
+del patrón de Kepler** `<suc>UD<tipo><serie>`: vienen de otro sistema de facturación):
+
+| Serie | PUE con 99 | Peso dentro de su propia serie | Monto de las fallidas |
+|---|---:|---|---:|
+| `H` | 187 | 16 % de sus PUE | $12.7M |
+| `02UD0501` | 102 | — | $62.8k |
+| `B` | 94 | 3.6 % de sus PUE | $32.8M |
+| `06UD0801` | 38 | la del §41.8 | $413k |
+| `BT` | 38 | — | $179.8k |
+
+⭐⭐ **La pista que vale:** las fallidas de la serie `B` promedian **~$349k** contra **~$31k** de la
+serie entera — **once veces más grandes**. Eso apunta a una hipótesis concreta y comprobable: *son
+ventas grandes que al facturarse todavía no tenían forma de pago definida («99», que es correcto para
+PPD) y se timbraron **PUE por error**.* Si es así, **son PPD disfrazadas y a cada una le falta su
+complemento** — el mismo mecanismo del §41.8, pero en la serie donde está el dinero.
+
+⚠️ **NO MEDIDO, y hace falta antes de actuar:**
+- Si esas 521 se cobraron después en parcialidades (lo que confirmaría que eran PPD). Las series
+  `A/B/BT/H/J` **no están en la cartera de Kepler**, así que no se pueden cruzar por ahí.
+- Que el SAT rechace `PUE + 99` en todos los casos: aquí se aplicó **la regla del repo**, que lo
+  afirma (*«el SAT no lo permite»*) y lo marca bloqueante. Es el estándar propio, no un dictamen
+  fiscal.
+
+| | Pregunta | De quién |
+|---|---|---|
+| **D-F6** | Correr `F5_metodo_forma` sobre lo EMITIDO, no sólo sobre lo recibido. El control ya está escrito: es apuntarlo | Desarrollo |
+| **D-F9** | Las 521 de 2026, empezando por las 94 de la serie `B` ($32.8M, once veces más grandes que su promedio): ¿eran PPD mal timbradas? Si sí, les falta complemento | Contabilidad |
