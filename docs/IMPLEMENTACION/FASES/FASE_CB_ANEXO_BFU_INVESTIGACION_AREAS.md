@@ -115,6 +115,11 @@ El usuario que capturó (`kdm1.c67`) los `U-A-5` y `U-A-7` con captura en noviem
 | `U-A-5` venta de sucursal | 5 principales (+5 con pocos) | Uno lleva CEDIS, Padre Hidalgo, La Piedad Abastos y 8 Esquinas; otro CEDIS, Morelia Madero y Morelia Abastos; otro Canindo; dos Zamora Centro; otro CEDIS y Yurécuaro |
 | `U-A-7` cobro a cliente | 1 (en dos cuentas) | Padre Hidalgo, Canindo y Morelia Abastos; por su nombre, Crédito y Cobranza (a confirmar) |
 
+Cada sucursal tiene un capturista dominante (79–100 % de sus documentos en 30 días), pero el que más capturó no siempre
+es el de hoy: en Zamora Centro el primero dejó de capturar el 13-nov y el segundo siguió. Y `kdm1.c11` de estos
+documentos no es un estado: es texto libre que dice qué se depositó («TARJETA», «EFECTIVO», «TRANSFERENCIA», «RD
+CANINDO», «RV MORELIA»…): **la venta de la sucursal incluye la de las rutas** (directas y vecinales).
+
 De esos 10 usuarios de Kepler, **sólo 1 tiene un usuario con el mismo nombre en la Suite**. **Consecuencia:** el
 responsable de los depósitos de cada sucursal **se deriva** del ODS (quien capturó sus `U-A-5` en los últimos 30 días),
 sin configurarlo a mano; lo único que falta es el par «usuario de Kepler → usuario de la Suite», que se pregunta una vez,
