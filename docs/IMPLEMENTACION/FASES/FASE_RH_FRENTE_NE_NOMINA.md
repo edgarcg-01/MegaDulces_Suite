@@ -964,3 +964,84 @@ contesta en ese puerto, el que contesta es de otro.**
 El techo de 59.8 % **no se mueve con esta migración**: el puente sigue siendo por nombre, porque no
 hay llave dura que comprar. Lo que cambia es que ese empate **se va a poder registrar y auditar** en
 vez de vivir en un script de una sesión — que era el punto entero de `[NE.0.4]`.
+
+---
+
+### 11.15 `[NE.0.16]` Llenar la tabla de alias: por qué no se pudo desde acá, y la fuente que sí sirve
+
+Autorizado por Edgar el 2026-11-24. **No se escribió nada en producción**, y el motivo no es un
+permiso que falte: es que el camino estaba mal planteado.
+
+#### El puente medido de nuevo, y una corrección de instrumento
+
+Volvió a medirse el empate entre el padrón de nómina del `.mdb` y `identity.users`, con control
+negativo. ⛔ **La primera corrida dio 39 %** porque filtró el padrón de la Suite por `activo = true`.
+Eso está mal: de los 1,246 usuarios internos, **263 están `active`, 435 están `invited`** —cargados
+por `[RH.1.4]`, nunca entraron al sistema, y cobran igual— y 548 son bajas. **«Activo» dejaba fuera a
+dos tercios de la gente viva.** Con la población correcta:
+
+| nivel | criterio | de 259 que cobran |
+|---|---|---:|
+| 1 | nombre exacto, un solo vigente | 126 · 48.6 % |
+| 2 | mismos nombres en otro orden | 75 · 29.0 % |
+| **ligables** | **los dos son el MISMO nombre** | **201 · 77.6 %** |
+| 3 | apellidos + primer nombre | 2 — ⛔ **no se inserta: es un juicio, va a la cola humana** |
+| — | ambiguos (1:N no es empate) | 1 |
+| — | sin ningún candidato | 55 |
+
+Controles: la suma cierra el universo (259 ✔) y **60 nombres deformados a propósito empatan 0 veces**.
+
+⭐ **Y un candado encontró un defecto del padrón de nómina:** dos códigos distintos caen en la misma
+persona de la Suite. No es un error del empate — **el `.mdb` tiene a esa persona dada de alta dos
+veces**, con la misma CURP, el mismo RFC y el mismo número de seguro social (una de las dos filas
+trae además la CURP partida por un salto de línea). Dos códigos para una persona **sí** es lo que una
+tabla de alias debe registrar; lo que no puede pasar es unir a **dos personas distintas** bajo un
+usuario, y de eso hay **cero**. ⚠️ Si la nómina paga los dos códigos, es pregunta de dinero para RH.
+
+#### ⛔ Por qué no se escribió
+
+1. **El rol con el que se lee producción no puede escribir esa tabla** —y está bien que no pueda—:
+   `hr.person_aliases` concede `INSERT` sólo a `app_runtime` (medido con `has_table_privilege`).
+2. ⛔⛔ **El padrón de nómina vive en un archivo fuera de la base.** Meterlo a una migración sacaría
+   los nombres de ~259 personas reales a un **repositorio público**, y cargarlo por script sería un
+   importer (regla 1). **No hay forma correcta de llenar la tabla desde una laptop.**
+3. ⭐ Y la consecuencia de fondo: `hr.person_aliases` **sigue sin tener quién la escriba**. Arreglar
+   su FK (`[NE.0.13]`) la volvió *llenable*; no le dio un *llenador*. Ningún `.ts` de `libs/` ni de
+   `apps/` la toca todavía.
+
+#### ⭐ La fuente que sí sirve: ya está DENTRO de la base
+
+`contpaqi_ods.v_nomina_empleado` (1,736 empleados: `employee_code`, `full_name`, `status`,
+`hired_at`, `terminated_at`, `payment_form`, `rfc_hash`) y `contpaqi_ods.v_nomina_pago_periodo`
+(287,994 pagos) **las lee `app_runtime`**. Entonces el puente lo puede calcular **el servidor**, sin
+archivo, sin importer y sin sacar un solo nombre al repo.
+
+Medido hoy, con el universo tomado **de quién cobró** —no del campo `status`, que de 248 personas
+pagadas marca 32 como baja y 34 como «R» (`[NE.0.10]`: «activo» en un padrón no significa nada)—:
+
+| | |
+|---|---:|
+| universo: cobró en los últimos 90 días (último pago, 2026-11-20) | **248** |
+| nombre exacto | 83 · 33.5 % |
+| mismos nombres, otro orden | 117 · 47.2 % |
+| **ligables** | **200 · 80.6 %** |
+| ambiguos | 2 |
+| sólo coincide con una baja de la Suite | 10 |
+| sin candidato | 36 |
+
+Controles: la suma cierra (248 ✔), **cero** usuarios con más de un código, y **80 nombres deformados
+empatan 0 veces**.
+
+⭐ **Cubre mejor que el archivo (80.6 % contra 77.6 %), está fresca —el último pago es de hace cuatro
+días— y es la única de las dos que se puede construir bien.**
+
+#### Lo que hace falta decidir antes de construirlo
+
+| | decisión | de quién |
+|---|---|---|
+| **D6** | ¿El alias se registra contra **ContPAQi** (`system='contpaqi'`, lo único construible hoy) o contra el padrón del `.mdb` (`system='nomina'`, que es el que trae el **efectivo** y el sobre)? No son el mismo sistema, y el frente NE necesita el segundo para el billete | Edgar |
+| **D7** | Si hace falta el del `.mdb`: el archivo tiene que **entrar a la base** por una vía que no sea un importer ni el repo público. Es la misma pregunta que `[NE.0.7]` para la serie histórica | Edgar |
+
+⚠️ **NO MEDIDO:** cuántas de las 200 personas ligables por ContPAQi son las mismas 201 del `.mdb`
+(se puede cruzar, no se hizo); si los 36 sin candidato son gente que la Suite no tiene o nombres
+escritos distinto.
