@@ -242,8 +242,12 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             }
 
             <!-- [RH.7.1] Su ficha en esta plaza: lo que agrupa el reporte y lo que exige el cierre semanal. -->
-            @if (p.registrado) {
-              <div class="ra-tira">
+            <!-- [RH.20.1] (David, 24-nov: «a todos se les pueda modificar aunque no estén en la Suite») La ficha se edita
+                 también sin ligar: al guardar, el servidor la da de alta sin acceso. La baja sigue pidiendo persona. -->
+            @if (!p.registrado && puedeEditarFicha()) {
+              <p class="ra-form-nota" role="note">Todavía no está en la Suite: al guardar su ficha se da de alta, sin acceso.</p>
+            }
+            <div class="ra-tira">
                 <p>Sección <b [class.ra-falta]="depto(p) === sinDepartamento">{{ depto(p) === sinDepartamento ? 'sin sección' : depto(p) }}</b>
                   · {{ est.soloPromotoras() ? 'promotora' : 'planta' }}
                   @if (fichaDet(); as fd) {
@@ -254,7 +258,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
                 @if (puedeEditarFicha()) { <p-button label="Editar" severity="secondary" [outlined]="true" size="small" (onClick)="abrirFicha(p)" /> }
               </div>
               <!-- [RH.7.2] Baja en ESTA plaza, separada de lo diario y con motivo (Von Restorff): se deshace en Bajas. -->
-              @if (puedeEditarFicha()) {
+              @if (puedeEditarFicha() && p.registrado) {
                 @if (bajaDe() === p.codigo) {
                   <form class="ra-form ra-baja" (ngSubmit)="darDeBaja(p)" aria-label="Dar de baja en esta plaza">
                     <label class="ra-ancho">Motivo
@@ -316,7 +320,6 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
                   </form>
                 }
               }
-            }
             @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
 
             <!-- [RH.18.10] (David, 23-nov) La ficha ya no repite la semana día por día: eso se ve (y se captura) en la tabla de
@@ -882,7 +885,8 @@ export class RhAsistenciaComponent {
     const fd = this.fichaDet();
     this.fichaForm.set({
       // `[RH.14.4]` Si su nombre es el apodo del reloj, el campo arranca vacío: copiar el apodo invita a guardarlo igual.
-      codigo: p.codigo, nombre: fd?.nombre_por_confirmar === 'apodo_del_reloj' ? '' : (p.nombreCompleto || p.nombre), seccion: d === SIN_DEPARTAMENTO ? '' : d,
+      // `[RH.20.1]` Sin ligar, lo que se ve es el apodo del reloj: también arranca vacío.
+      codigo: p.codigo, nombre: fd?.nombre_por_confirmar === 'apodo_del_reloj' || !p.registrado ? '' : (p.nombreCompleto || p.nombre), seccion: d === SIN_DEPARTAMENTO ? '' : d,
       promotora: this.est.soloPromotoras(),
       departamento: fd?.departamento_code ?? null, puesto: fd?.puesto_code ?? null, sucursal: fd?.sucursal_code ?? null,
     });
@@ -902,6 +906,11 @@ export class RhAsistenciaComponent {
     if (f.nombre.trim() && f.nombre.trim() !== (p.nombreCompleto || p.nombre)) cambios.nombre = f.nombre;
     if (f.seccion.trim().toUpperCase() !== (antes === SIN_DEPARTAMENTO ? '' : antes)) cambios.seccion = f.seccion;
     if (f.promotora !== this.est.soloPromotoras()) cambios.promotora = f.promotora;
+    // `[RH.20.1]` Sin ligar, guardar es darla de alta: el servidor necesita el nombre completo y la sección aunque no cambien.
+    if (!p.registrado) {
+      cambios.nombre = f.nombre;
+      cambios.seccion = f.seccion;
+    }
     if (sinAcceso && fd) {
       if ((f.departamento ?? null) !== fd.departamento_code) cambios.departamento_code = f.departamento ?? null;
       if ((f.puesto ?? null) !== fd.puesto_code) cambios.puesto_code = f.puesto ?? null;
@@ -914,9 +923,9 @@ export class RhAsistenciaComponent {
         this.guardando.set(false);
         this.fichaForm.set(null);
         this.aviso.set({
-          texto: cambios.promotora !== undefined
+          texto: (!p.registrado ? 'Dada de alta en la Suite, sin acceso · ' : '') + (cambios.promotora !== undefined
             ? `Guardado · ahora en ${cambios.promotora ? 'Promotoras' : 'Planta'}`
-            : 'Guardado',
+            : 'Guardado'),
           mal: false,
         });
         this.est.asegurar(true);

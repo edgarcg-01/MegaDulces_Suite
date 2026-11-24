@@ -660,11 +660,22 @@ export class HrAttendanceEnrollmentsService {
     const v = validarFicha(b ?? {});
     if ('error' in v) throw new BadRequestException(v.error);
     return this.run(async (trx, tenant) => {
-      const dueno = await this.duenoDe(trx, tenant, site, codigo);
+      let dueno = await this.duenoDe(trx, tenant, site, codigo);
       const antes = await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo })
         .forUpdate().first('report_section', 'is_promoter', 'is_active');
-      if (!antes && !dueno) throw new NotFoundException('Ese código no tiene ficha ni persona en esta plaza.');
       const dePersona = v.departamento_code !== undefined || v.puesto_code !== undefined || v.sucursal_code !== undefined;
+      // `[RH.20.1]` (David, 2026-11-24: «quiero que a todos se les pueda modificar aunque no estén en la Suite») Un código
+      // del reloj que no es de nadie ya no frena la ficha: lo de la persona (nombre, departamento, puesto, sucursal) se
+      // guarda DANDO DE ALTA a la persona sin acceso, el mismo alta de Relojes, y luego se aplica lo demás. Sin nombre
+      // completo y sección no hay alta (las mismas reglas que en Relojes).
+      if (!dueno && (v.nombre !== undefined || dePersona)) {
+        dueno = await this.altaPorCodigo(trx, tenant, site, codigo, {
+          nombre: v.nombre, seccion: v.seccion ?? antes?.report_section ?? undefined, promotora: v.promotora ?? antes?.is_promoter === true,
+        });
+      }
+      if (!antes && !dueno && !(await this.hayReloj(trx, tenant, site, codigo))) {
+        throw new NotFoundException('Ese código no tiene ficha ni reloj en esta plaza.');
+      }
       if (v.nombre !== undefined || dePersona) {
         if (!dueno) throw new ConflictException('Ese código no está ligado a nadie: ligalo o dalo de alta en Relojes, y ahí va su nombre.');
         // `[RH.14.4]` El NOMBRE lo corrige RH a cualquiera (Edgar, 18-nov: «algunos me dejan cambiar su nombre y otros no»):
@@ -740,32 +751,67 @@ export class HrAttendanceEnrollmentsService {
     return this.run(async (trx, tenant) => {
       const e = await this.tomar(trx, tenant, id);
       if (e.user_id) throw new ConflictException('Ese código ya está ligado a una persona.');
-      const otros = await this.otrosDuenos(trx, tenant, e, '00000000-0000-0000-0000-000000000000');
-      if (otros.length) {
-        throw new ConflictException(`El código ${e.codigo} de esta plaza ya es de ${otros.map((o) => o.nombre ?? 'otra persona').join(', ')}: ligalo a esa persona en vez de dar de alta a otra.`);
-      }
-      const rol = await trx('identity.role_permissions').where({ tenant_id: tenant, role_name: ROL_SIN_ACCESO }).whereNull('deleted_at').first('role_name');
-      if (!rol) throw new ConflictException(`Falta el rol ${ROL_SIN_ACCESO} (migración 20261012094356): no se puede dar de alta todavía.`);
-      const username = usernameAlta(e.site_code, e.codigo);
-      if (await trx('identity.users').where({ tenant_id: tenant, username }).first('id')) {
-        throw new ConflictException(`Ya existe una persona dada de alta para este código (${username}): búscala y ligala.`);
-      }
-      const q = this.quien();
-      const [u] = await trx('identity.users').insert({
-        tenant_id: tenant, username, password_hash: null, nombre: v.nombre, role_name: ROL_SIN_ACCESO, kind: 'interno',
-        // `activo` lo deriva el trigger de `status` (`[ID.8]`): `invited` queda sin acceso y sin contraseña.
-        status: 'invited', department_code: null, position_code: null, warehouse_code: e.warehouse_code,
-      }).returning('id');
-      const userId = String(u.id ?? u);
-      await trx('hr.person_site_profiles').insert({
-        tenant_id: tenant, site_code: e.site_code, person_code: e.codigo, report_section: v.seccion,
-        // `source` 'suite': sin él la columna toma su valor por omisión, 'mega_talento', y una ficha hecha aquí diría que
-        // vino de la carga (`[RH.7.1]`). En el choque no se toca: la de la carga sigue diciendo de dónde vino.
-        is_promoter: b.promotora === true, is_active: true, source: 'suite', updated_by: q.id,
-      }).onConflict(['tenant_id', 'site_code', 'person_code']).merge(['report_section', 'is_promoter', 'is_active', 'updated_by', 'updated_at']);
-      const n = await this.aplicarLiga(trx, tenant, e, userId, [], 'dado de alta por RH desde el reloj');
-      await this.asentar(trx, tenant, userId, 'alta_desde_reloj', { site_code: e.site_code, codigo: e.codigo, seccion: v.seccion, promotora: b.promotora === true, enrolamientos: n });
+      const { userId, n } = await this.crearYLigar(trx, tenant, e, v, b.promotora === true);
       return { user_id: userId, nombre: v.nombre, enrolamientos: n };
     });
+  }
+
+  /** ¿El código checa en algún reloj activo de la plaza? */
+  private async hayReloj(trx: Knex.Transaction, tenant: string, site: string, codigo: string): Promise<boolean> {
+    return (await trx.raw(`
+      SELECT 1 FROM hr.device_enrollments x
+        JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
+       WHERE x.tenant_id = ? AND d.site_code = ? AND COALESCE(x.person_code, x.device_user_id) = ? LIMIT 1`,
+    [tenant, site, codigo])).rows.length > 0;
+  }
+
+  /**
+   * `[RH.20.1]` El alta desde la FICHA de Asistencia (por plaza y código, no por enrolamiento): toma un enrolamiento sin
+   * dueño de ese código en la plaza y da de alta a la persona sin acceso, igual que «Dar de alta» en Relojes.
+   */
+  private async altaPorCodigo(trx: Knex.Transaction, tenant: string, site: string, codigo: string,
+    b: { nombre?: string; seccion?: string; promotora: boolean }): Promise<{ id: string; nombre: string | null; role_name: string; status: string | null }> {
+    if (b.nombre === undefined) throw new BadRequestException('No está en la Suite: escribe su nombre completo para darla de alta.');
+    const v = validarAlta({ nombre: b.nombre, seccion: b.seccion });
+    if ('error' in v) throw new BadRequestException(`No está en la Suite y se da de alta al guardar. ${v.error}`);
+    const fila = (await trx.raw(`
+      SELECT x.id FROM hr.device_enrollments x
+        JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
+       WHERE x.tenant_id = ? AND d.site_code = ? AND COALESCE(x.person_code, x.device_user_id) = ? AND x.user_id IS NULL
+       ORDER BY d.is_active DESC, x.last_seen_at DESC NULLS LAST LIMIT 1`, [tenant, site, codigo])).rows[0] as { id: string } | undefined;
+    if (!fila) throw new ConflictException('Ese código no está en ningún reloj de esta plaza: no hay a quién dar de alta.');
+    const e = await this.tomar(trx, tenant, String(fila.id));
+    const { userId } = await this.crearYLigar(trx, tenant, e, v, b.promotora);
+    return { id: userId, nombre: v.nombre, role_name: ROL_SIN_ACCESO, status: 'invited' };
+  }
+
+  /** Crea a la persona sin acceso, le hace su ficha en la plaza y le liga el código en los relojes de la plaza. */
+  private async crearYLigar(trx: Knex.Transaction, tenant: string, e: Enrolamiento, v: { nombre: string; seccion: string }, promotora: boolean): Promise<{ userId: string; n: number }> {
+    const otros = await this.otrosDuenos(trx, tenant, e, '00000000-0000-0000-0000-000000000000');
+    if (otros.length) {
+      throw new ConflictException(`El código ${e.codigo} de esta plaza ya es de ${otros.map((o) => o.nombre ?? 'otra persona').join(', ')}: ligalo a esa persona en vez de dar de alta a otra.`);
+    }
+    const rol = await trx('identity.role_permissions').where({ tenant_id: tenant, role_name: ROL_SIN_ACCESO }).whereNull('deleted_at').first('role_name');
+    if (!rol) throw new ConflictException(`Falta el rol ${ROL_SIN_ACCESO} (migración 20261012094356): no se puede dar de alta todavía.`);
+    const username = usernameAlta(e.site_code, e.codigo);
+    if (await trx('identity.users').where({ tenant_id: tenant, username }).first('id')) {
+      throw new ConflictException(`Ya existe una persona dada de alta para este código (${username}): búscala y ligala.`);
+    }
+    const q = this.quien();
+    const [u] = await trx('identity.users').insert({
+      tenant_id: tenant, username, password_hash: null, nombre: v.nombre, role_name: ROL_SIN_ACCESO, kind: 'interno',
+      // `activo` lo deriva el trigger de `status` (`[ID.8]`): `invited` queda sin acceso y sin contraseña.
+      status: 'invited', department_code: null, position_code: null, warehouse_code: e.warehouse_code,
+    }).returning('id');
+    const userId = String(u.id ?? u);
+    await trx('hr.person_site_profiles').insert({
+      tenant_id: tenant, site_code: e.site_code, person_code: e.codigo, report_section: v.seccion,
+      // `source` 'suite': sin él la columna toma su valor por omisión, 'mega_talento', y una ficha hecha aquí diría que
+      // vino de la carga (`[RH.7.1]`). En el choque no se toca: la de la carga sigue diciendo de dónde vino.
+      is_promoter: promotora, is_active: true, source: 'suite', updated_by: q.id,
+    }).onConflict(['tenant_id', 'site_code', 'person_code']).merge(['report_section', 'is_promoter', 'is_active', 'updated_by', 'updated_at']);
+    const n = await this.aplicarLiga(trx, tenant, e, userId, [], 'dado de alta por RH desde el reloj');
+    await this.asentar(trx, tenant, userId, 'alta_desde_reloj', { site_code: e.site_code, codigo: e.codigo, seccion: v.seccion, promotora, enrolamientos: n });
+    return { userId, n };
   }
 }
