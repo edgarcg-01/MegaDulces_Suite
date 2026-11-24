@@ -498,3 +498,179 @@ que no tenerlo: el que lo lea va a creerle.
 → **Qué destraba:** `[NE.0.3]` (de dónde sale el importe que se dispersa por banco) se puede medir
 **y además llevar a producto**, porque la vista la lee la propia API. Lo que sigue necesitando
 autorización es cualquier columna **fuera** de esas dos vistas.
+
+---
+
+## 11. `[NE.0.12]` El cálculo en sombra — y por qué la tesis del frente cambió
+
+> Medido el **2026-11-24**: 8 semanas de nómina (25-sep a 13-nov), el Access vivo en sólo lectura y
+> `pg-prod` en sólo lectura (`system_identifier` verificado). 2,222 recibos de 9 semanas, 38,527
+> checadas de 353 personas, y la lógica de producción corrida tal cual sobre esos datos.
+> ⛔ **Las cifras de dinero de esta sección viven en el anexo privado.** Acá van coberturas,
+> porcentajes y separaciones, que es lo que hace auditable el avance.
+
+### 11.0 ⭐⭐ La tesis que traía este frente era equivocada
+
+Veníamos de «la Suite tendrá que calcular la nómina contra `/rh/asistencia`, y para eso hay que
+cargar los horarios de toda la gente». **Las dos mitades resultaron falsas:**
+
+1. **La Suite ya calcula.** `libs/hr/src/lib/attendance/logic/horario-deducido.ts` es lógica pura y
+   completa: deduce el horario de cada quien desde sus propias checadas, distingue fijo de
+   rotativo, resuelve el día de descanso, y mide el retardo con una bolsa semanal de tolerancia.
+2. **No hay que cargar horarios.** La deducción los saca sola, y **mejor que a mano**.
+
+Lo que falta no es dato, ni cálculo, ni pantalla: es **el acto de cerrar la semana** (§11.6).
+
+### 11.1 El control que decidió todo: la deducción contra los horarios que RH sí cargó
+
+`hr.person_schedules` tiene horario cargado a mano para **33** de las personas con checadas. Correr
+`deducirHorario()` sobre esas mismas 33, a ciegas:
+
+| | |
+|---|---:|
+| horarios reproducidos **exactos** (error 0 min) | **33 / 33** |
+| mediana del error · peor error · sesgo | **0 · 0 · 0 min** |
+| tipo que deduce | 31 fijo · 2 rotativo |
+| personas con horario deducible, en total | **270 de 353** |
+
+⭐ Un estimador propio, escrito antes de encontrar el módulo, llegaba a 27/33 exactos y 33/33 dentro
+de 15 min. **El de producción gana.** Queda retirado: era un primitivo inventado (ADR-056).
+
+### 11.2 La estructura del recibo, cerrada
+
+La identidad cuadra en **los 2,222 recibos, peor diferencia 0.00**:
+
+```
+    PagoBanco + EfectivoAPagar  =  SueldoARecibir + TotalExtras
+```
+
+- `Despensa`, `Puntualidad`, `Asistencia` son **booleanos**; el monto vive en `…Total`. Contar la
+  bandera da «todos cobran todo» y es falso de origen.
+- Puntualidad y asistencia valen **exactamente 10 % del sueldo del propio recibo**, en los 2,020
+  recibos con sueldo. **El 20 % del sueldo está condicionado en el papel.**
+- La semana del recibo del viernes F es **sáb(F−6) … vie(F)**, probado contra el reloj sobre las 23
+  personas con recibos parciales: **97.3 %** de acierto, contra 85.7 % de «pago vencido».
+- Columnas muertas, para no confundirse: `HorasTrabajadas` = 0 en los 2,222 · `DiasATrabajar` sólo
+  en 7.8 % · `SueldoBonus`, `Pagare`, `Alimentacion`, `Hospedaje`, `DescontarTotal` = 0 en todos.
+
+### 11.3 La puntualidad SÍ se castiga; la asistencia NUNCA
+
+El bono no se quita bajando el 10 %: se quita con un `CantidadDeMenos` cuyo **motivo está escrito a
+mano**, y dice `PUNTUALIDAD`. **52 veces en 9 semanas, 26 personas.**
+
+⛔ **Ningún motivo de descuento menciona una falta** — ni «falta», ni «inasistencia», ni «ausencia»
+— en los 2,222 recibos. El bono de asistencia se paga íntegro siempre. **Es sueldo con otro
+nombre, y condicionarlo es decisión de Dirección, no una mejora técnica.**
+
+### 11.4 ⛔⛔ El primer resultado era falso y lo tumbó su control negativo
+
+Un primer cálculo propio dio un número grande de «bono en riesgo». El control negativo lo mató:
+
+| el reloj ve falta o retardo en… | |
+|---|---:|
+| las persona-semana que RH **castigó** | 60.6 % |
+| las que RH **no** castigó | 62.1 % |
+| **separación** | **−1.5 pp** |
+
+Cero poder discriminante: ese instrumento no separaba a nadie. **El número se retiró.** Ver
+`feedback_amount_match_needs_placebo_control` — un cruce sin su placebo no significa nada.
+
+Dos defectos propios aparecieron al auditarlo, y los dos valen como trampa documentada:
+
+- ⛔ **`hr.attendance_days` está granulada por dispositivo, no por persona.** La misma gente checa
+  en varios relojes: 1,203 de 10,199 pares (persona, fecha) venían duplicados, y `first_punch_at`
+  de una fila cualquiera es la entrada *en ese reloj*. Con el duplicado, el 100 % de los días salía
+  «tarde» con mediana +159 min; agregando por persona, la mediana cae a **0 min**.
+- ⛔ **`check_ins`/`check_outs` valen 0 en el 100 % de las filas** porque `attendance_logs.punch_type`
+  viene NULL en las 38,527 checadas: el reloj no marca entrada vs salida. Un filtro sobre esas
+  columnas devuelve **cero siempre** — parece un hecho y es un defecto de columna.
+
+### 11.5 ⭐⭐ La lógica de producción SÍ reproduce el juicio de RH
+
+Mismo cruce, con `analizarPersona()` de producción, sobre 1,066 persona-semana comparables:
+
+| señal del sistema | castigados por RH | no castigados | separación |
+|---|---:|---:|---:|
+| ≥ 1 retardo | **100.0 %** | 40.9 % | **+59.1 pp** |
+| ≥ 2 retardos | 90.9 % | 23.0 % | **+67.9 pp** |
+| ≥ 3 retardos | 69.7 % | 15.1 % | +54.6 pp |
+| ≥ 1 falta | 0 % | 0 % | 0 pp |
+
+⭐ **Los 33 castigos caen dentro, sin una sola excepción**: el sistema nunca ve limpio a alguien a
+quien RH castigó. Y las faltas dan cero en los dos lados — el día de descanso está bien resuelto.
+
+⚠️ **La regla se aplica 1 de cada 8 veces.** Las persona-semana que cumplen «≥2 retardos» son 268;
+RH castigó 33. Eso es un problema de **equidad**, no de dinero.
+
+⚠️ Alinear la bolsa semanal a la semana de pago (sábado) da **peor** (90.9 % contra 100 %): la
+convención interna de **jueves→miércoles** se queda hasta que alguien decida lo contrario.
+
+### 11.6 ⛔⛔ El cuello: `hr.attendance_closures` tiene CERO filas, desde siempre
+
+`attendance_rules.config.soloDiasCerrados` está en `true`: **sin cierre, ninguna regla dispara**. Y
+nadie ha cerrado una sola semana desde que existe la tabla.
+
+**Nada se lo impide** — se revisaron las tres condiciones del endpoint, una por una:
+
+| condición que bloquea el cierre | estado medido |
+|---|---|
+| incidencias en `capturada` sin calificar (no se puede saltar) | **0** — las 305 están calificadas |
+| gente sin identificar que checó esa semana (409, forzable con motivo) | 22 códigos en 56 días = **0.8 %** de las checadas |
+| la semana debe haber terminado | se cumple |
+
+La pantalla **sí se usa**: 15 personas distintas en 60 días, entre ellas RH, Contabilidad y
+Dirección; `closures` se consultó decenas de veces en la última semana. Entran, califican
+incidencias con disciplina, y no dan el último paso.
+
+⚠️ **Dos cosas sí están mal y son baratas de arreglar:**
+
+- `HR_PERIOD_CLOSE` lo tienen **2 personas activas** para 9 sucursales. El rol
+  `reclutamiento_asistencia` tiene el permiso y **cero** usuarios. → **regla 20**.
+- El cierre corre **jueves→miércoles** y el recibo paga **sáb→vie**: no son la misma semana. Para
+  que la prenómina alimente al recibo tienen que serlo, o hay que declarar el desfase.
+
+### 11.7 El puente prenómina → recibo
+
+La foto del cierre ya trae lo que el recibo captura a mano: `horasTrabajadas`, `faltas`,
+`faltasJustificadas`, `retardoRealMin`, `horasExtraGanadasMin`, y —cumpliendo ADR-056— `usable`,
+`bloqueadoPor` y `diasNoMedibles`.
+
+| campo del recibo | hoy | cobertura del reloj |
+|---|---|---:|
+| `HorasTrabajadas` | **0 en los 2,222** | 52 % |
+| `DiasATrabajar` | vacío en 92 % | 52 % |
+| `HorasExtras` | a mano | 79 % |
+| `CantidadDeMenos` motivo `PUNTUALIDAD` | a mano | 66 % |
+
+⭐ **Control exacto de la unidad**: algunos recibos escriben el número de horas en el motivo
+(«26 HORAS», «25 HRS»). Contra el reloj: **3 de 3 dentro de 10 %, 2 de 3 dentro de 5 %** — pero
+**sólo si las horas se cuentan BRUTAS**, de la primera a la última marca, sin descontar comida.
+Descontarla daba 5 h de menos por semana. ⚠️ **Muestra de 3**: alcanza para fijar la unidad, no
+para dar el puente por probado.
+
+### 11.8 Lo que NO se pudo medir — se declara, no se rellena
+
+- **49 de 259** personas de la nómina no ligan con ningún usuario de la Suite (el puente sigue
+  siendo el nombre escrito; ver §8). La gente **por horas** es justo la que menos liga.
+- **83 de 353** personas no tienen horario deducible (checan una sola vez al día, o muy poco).
+- **Vacaciones, incapacidad y permiso no se registran en ningún lado**: hoy una ausencia justificada
+  se ve idéntica a una falta. Es el supuesto más frágil de todo el frente.
+- El puente de horas está medido sobre **3 casos**.
+
+### 11.9 Lo que falta decidir
+
+| | decisión | de quién |
+|---|---|---|
+| **D1** | ¿La puntualidad se vuelve condicional **pareja**? Hoy la regla se aplica 1 de cada 8 veces | Dirección |
+| **D2** | ¿La asistencia sigue siendo incondicional? (nunca se ha descontado) | Dirección |
+| **D3** | **¿Por qué no se cierra la semana?** No hay obstáculo técnico: es una conversación con las 2 personas que pueden hacerlo | RH |
+| **D4** | ¿El cierre se alinea a la semana de pago (sáb→vie) o el recibo al cierre (jue→mié)? | RH + Contabilidad |
+| **D5** | ¿Se reparte `HR_PERIOD_CLOSE` a más gente, o se cierra centralizado? | RH |
+
+### 11.10 Lo que sigue, en orden
+
+1. **D3 antes que nada**: sin cierre, nada de lo demás cuenta. Es una pregunta, no código.
+2. Repartir el permiso (D5) — **regla 20**.
+3. Resolver el desfase de semana (D4) y recién entonces escribir el puente prenómina → recibo.
+4. Registrar vacaciones / incapacidad / permiso: sin eso, toda ausencia justificada es una falta.
+5. ⛔ **No** construir cálculo nuevo ni cargar horarios a mano.
