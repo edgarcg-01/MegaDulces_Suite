@@ -257,7 +257,11 @@ const TECHO = {
   //    O sea que documentar el defecto lo volvia a contar y tapaba su propia correccion.
   //    Misma familia que el acento grave dentro de un comentario de plantilla: en este repo,
   //    lo que se escribe en un comentario lo leen las compuertas igual que al codigo.
-  'pButton con label': 21,
+  // 2026-11-24: 25 -> 19. [PGP.191-194] (f5cf83019) y el «Otra transferencia» de [PGP] (96238d93a)
+  //    entraron con 6 botones de directiva con label: el aviso al proveedor (WhatsApp, Correo,
+  //    Copiar liga, Ver PDF, Reintentar) se pintaba con las 5 pildoras VACIAS en prod desde el
+  //    2026-11-22. Pasados a <p-button>. Bajo el techo para que la 20a no entre.
+  'pButton con label': 19,
   // ⚠️ 2026-10-03: eran 289 y 263, y el techo estaba RANCIO — no lo subio un push nuevo.
   //    Medido antes de tocarlo: de los 9 archivos que el gate marca, solo 3 los toca la rama
   //    `integra/resto-2026-10-02`, y en esos 3 el conteo de `styleClass` es IDENTICO entre

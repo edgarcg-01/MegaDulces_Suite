@@ -28,9 +28,16 @@ function sinComentarios(s: string): string {
 const CODIGO = sinComentarios(SVC);
 const MIG_SQL = sinComentarios(MIG);
 
+/**
+ * El cuerpo de la DECLARACIÓN del método (a 2 espacios, con sus modificadores), no de su primera
+ * aparición. `[PQ.138]` (8d8e99537) metió una LLAMADA a `this.setEstado(` mil líneas antes de su
+ * declaración, y el arnés leía el código de quien llama: la aserción de `oc_capturada_por` se puso
+ * roja sin que el método cambiara.
+ */
 function cuerpo(nombre: string): string {
-  const i = CODIGO.indexOf(`${nombre}(`);
-  if (i < 0) throw new Error(`No existe ${nombre}()`);
+  const m = new RegExp(`\\n {2}(?:(?:public|private|protected|static|async) )*${nombre}\\(`).exec(CODIGO);
+  if (!m) throw new Error(`No existe ${nombre}()`);
+  const i = m.index + m[0].length - nombre.length - 1;
   const resto = CODIGO.slice(i + nombre.length);
   const fin = resto.search(/\n {2}(?:async |private |\/\*\* |[a-zA-Z]+\()/);
   return fin < 0 ? CODIGO.slice(i) : CODIGO.slice(i, i + nombre.length + fin);
@@ -44,6 +51,10 @@ describe('[RQ.15] el arnés', () => {
 
   it('y falla fuerte si el método se renombra', () => {
     expect(() => cuerpo('noExisteEsto')).toThrow(/No existe/);
+  });
+
+  it('⛔ lee la DECLARACIÓN, no la primera llamada (hay `this.setEstado(` antes del método)', () => {
+    expect(cuerpo('setEstado')).toMatch(/^setEstado\(id: string/);
   });
 });
 

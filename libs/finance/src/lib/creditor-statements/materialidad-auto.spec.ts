@@ -171,7 +171,9 @@ describe('[MAT.5] la pantalla ve lo que el lote escribió', () => {
   it('⛔ `reconcile` mira TAMBIÉN las propuestas, no sólo lo confirmado', () => {
     // Si siguiera mirando sólo `confirmed`, la pantalla volvería a sugerir lo que ya está
     // propuesto y el trabajo del lote sería invisible.
-    expect(cuerpo('reconcile')).toMatch(/a\.status IN \('confirmed', 'auto'\)/);
+    // `[RE.86]` (917722f1e) movió la liga a un LEFT JOIN LATERAL con alias `a0` (una fila por CFDI,
+    // la liga sin motivo primero): el filtro por los dos estados sigue, sólo cambió el alias.
+    expect(cuerpo('reconcile')).toMatch(/\ba0?\.status IN \('confirmed', 'auto'\)/);
   });
 
   it('⭐ y el estado VIAJA al front, para que no los pinte igual', () => {

@@ -34,6 +34,7 @@ function montar(permisos: Permission[], admin = false) {
       provideRouter([
         { path: 'finanzas/cartera', component: Vacio },
         { path: 'finanzas/cartera/dia', component: Vacio },
+        { path: 'finanzas/cartera/por-autorizar', component: Vacio },
         { path: 'finanzas/cobranza', component: Vacio },
         { path: 'finanzas/carteras', component: Vacio },
       ]),
@@ -50,11 +51,19 @@ const TODO = [Permission.FINANCE_RECEIVABLES_VER, Permission.FINANCE_COLLECTIONS
 describe('[CXC.26] CarteraSegmentsComponent', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('ofrece las tres vistas cuando la persona tiene los dos permisos', () => {
+  // `[GP.A.4]` (093d0de6d) agregó «Por autorizar» (pedidos de telemarketing que esperan a Crédito) con el
+  // MISMO permiso que «Por cliente», a propósito (ver el comentario del componente): son cuatro vistas.
+  it('ofrece las cuatro vistas cuando la persona tiene los dos permisos', () => {
     const { cmp } = montar(TODO);
     expect(cmp.opciones().map((o) => o.value)).toEqual([
-      '/finanzas/cartera', '/finanzas/cartera/dia', '/finanzas/cobranza',
+      '/finanzas/cartera', '/finanzas/cartera/dia', '/finanzas/cartera/por-autorizar', '/finanzas/cobranza',
     ]);
+  });
+
+  it('⛔ en /finanzas/cartera/por-autorizar marca «Por autorizar», NO «Por cliente»', async () => {
+    const { cmp, router } = montar(TODO);
+    await router.navigateByUrl('/finanzas/cartera/por-autorizar');
+    expect(cmp.actual()).toBe('/finanzas/cartera/por-autorizar');
   });
 
   it('⛔ en /finanzas/cartera/dia marca «Por día», NO «Por cliente»', async () => {
@@ -88,14 +97,14 @@ describe('[CXC.26] CarteraSegmentsComponent', () => {
     expect(cmp.opciones().map((o) => o.value)).toEqual(['/finanzas/cobranza']);
   });
 
-  it('«Por día» viaja con «Por cliente»: mismo permiso, mismo dato', () => {
+  it('«Por día» y «Por autorizar» viajan con «Por cliente»: mismo permiso', () => {
     const { cmp } = montar([Permission.FINANCE_RECEIVABLES_VER]);
-    expect(cmp.opciones().map((o) => o.value)).toEqual(['/finanzas/cartera', '/finanzas/cartera/dia']);
+    expect(cmp.opciones().map((o) => o.value)).toEqual(['/finanzas/cartera', '/finanzas/cartera/dia', '/finanzas/cartera/por-autorizar']);
   });
 
-  it('el admin ve las tres aunque su mapa de permisos esté vacío', () => {
+  it('el admin ve las cuatro aunque su mapa de permisos esté vacío', () => {
     const { cmp } = montar([], true);
-    expect(cmp.opciones()).toHaveLength(3);
+    expect(cmp.opciones()).toHaveLength(4);
   });
 
   it('navegar al segmento ya activo no dispara una navegación', async () => {

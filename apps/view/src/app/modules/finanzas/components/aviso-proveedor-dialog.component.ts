@@ -39,7 +39,7 @@ const NOMBRE_CANAL: Record<CanalAviso, string> = { whatsapp: 'WhatsApp', correo:
         <p class="av-d" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Armando el aviso…</p>
       } @else if (error(); as e) {
         <p class="av-err" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}
-          <button pButton type="button" class="p-button-text p-button-sm" label="Reintentar" (click)="cargar()"></button></p>
+          <p-button label="Reintentar" size="small" [text]="true" (onClick)="cargar()" /></p>
       } @else if (aviso(); as a) {
         <p class="av-res">
           <b>{{ a.proveedor.nombre }}</b>@if (a.proveedor.rfc) { <span class="av-d"> · RFC {{ a.proveedor.rfc }}</span> }<br />
@@ -80,10 +80,10 @@ const NOMBRE_CANAL: Record<CanalAviso, string> = { whatsapp: 'WhatsApp', correo:
           @if (mensaje(); as m) { <p [class.av-err]="m.mal" [class.av-ok]="!m.mal" [attr.role]="m.mal ? 'alert' : 'status'">{{ m.texto }}</p> }
           @if (respaldo(); as r) { <p class="av-d">Si no se abrió solo: <a [href]="r.href" target="_blank" rel="noopener">{{ r.texto }}</a></p> }
           <div class="av-acc">
-            <button pButton type="button" icon="pi pi-whatsapp" label="WhatsApp" [loading]="enviando() === 'whatsapp'" [disabled]="!!enviando()" (click)="enviar('whatsapp')"></button>
-            <button pButton type="button" class="p-button-outlined" icon="pi pi-envelope" label="Correo" [loading]="enviando() === 'correo'" [disabled]="!!enviando()" (click)="enviar('correo')"></button>
-            <button pButton type="button" class="p-button-text" icon="pi pi-link" label="Copiar liga" [loading]="enviando() === 'liga'" [disabled]="!!enviando()" (click)="enviar('liga')"></button>
-            <button pButton type="button" class="p-button-text" icon="pi pi-file-pdf" label="Ver PDF" [loading]="viendo()" (click)="verPdf()"></button>
+            <p-button icon="pi pi-whatsapp" label="WhatsApp" [loading]="enviando() === 'whatsapp'" [disabled]="!!enviando()" (onClick)="enviar('whatsapp')" />
+            <p-button icon="pi pi-envelope" label="Correo" [outlined]="true" [loading]="enviando() === 'correo'" [disabled]="!!enviando()" (onClick)="enviar('correo')" />
+            <p-button icon="pi pi-link" label="Copiar liga" [text]="true" [loading]="enviando() === 'liga'" [disabled]="!!enviando()" (onClick)="enviar('liga')" />
+            <p-button icon="pi pi-file-pdf" label="Ver PDF" [text]="true" [loading]="viendo()" (onClick)="verPdf()" />
           </div>
         }
         @if (a.avisos.length) {
@@ -115,7 +115,7 @@ const NOMBRE_CANAL: Record<CanalAviso, string> = { whatsapp: 'WhatsApp', correo:
     .av-hist { margin-top:var(--sp-3); border-top:1px solid var(--border-color); padding-top:var(--sp-2); }
     .av-hist p { margin:0 0 var(--sp-1); }
     @media (max-width: 40rem) { .av-campos { grid-template-columns:1fr; } }
-    @media (pointer: coarse) { .av-acc button { min-height:44px; } }
+    @media (pointer: coarse) { .av-acc ::ng-deep .p-button { min-height:44px; } }
   `],
 })
 export class AvisoProveedorDialogComponent {

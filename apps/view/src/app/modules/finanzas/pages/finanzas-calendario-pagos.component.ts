@@ -1489,7 +1489,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             }
           </div>
           @if (prepPartes.length < 10) {
-            <button pButton type="button" class="p-button-text p-button-sm" icon="pi pi-plus" label="Otra transferencia" (click)="agregarTransferencia()"></button>
+            <p-button icon="pi pi-plus" label="Otra transferencia" size="small" [text]="true" (onClick)="agregarTransferencia()" />
           }
           @if (prepAllocation; as a) {
             <p class="cal-dlg-hint">Al guardar, el pago de <b class="comm-num">{{ money(a.amount_assigned) }}</b> se parte en <b>{{ prepPartes.length }} pagos de este mismo día</b>, uno por transferencia y ya preparados: cada uno se casa con su salida del banco y lleva su propio X-D-26 en Kepler. Las facturas se reparten en el orden del pago; la que cruza de una transferencia a otra se abona en dos.</p>
