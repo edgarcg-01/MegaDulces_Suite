@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 432 KB, 6433 líneas, 44 secciones.
+> **Índice navegable** — 437 KB, 6501 líneas, 44 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -50,7 +50,7 @@
 | 5894 | 5998 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
 | 5999 | 6070 | 5 | 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026- |
 | 6071 | 6266 | 11 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
-| 6267 | 6489 | 13 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
+| 6267 | 6557 | 17 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -6486,3 +6486,71 @@ pedido todavía.
 > devuelve prueba —foto, monto, fecha y referencia— en vez de probabilidad. El canal está construido
 > y desplegado; lo que falta es **usarlo**. Y ahora hay con qué justificar la llamada: cada ficha que
 > entra convierte un abono anónimo en una obligación fiscal con dueño y con fecha (§41.3).
+
+### 41.10 ⛔⛔ La atribución NO se puede inferir: medido dos veces, la segunda contra verdad conocida (2026-11-24)
+
+> **El pedido, literal.** Edgar, después de que esta sesión presentara un techo del 2 % como si fuera
+> el techo del problema: *«necesitamos un 100 %, una verdad absoluta»*. **Tiene razón, y el 2 % estaba
+> mal planteado**: era el techo de UN instrumento, no del problema. Pero medir los otros instrumentos
+> no acercó el 100 % — lo alejó, y con evidencia.
+
+#### El hallazgo intermedio que parecía la solución (y no lo era)
+
+El concepto del depósito **sí trae nombres**: `VENTA TLMK CANINDO <NOMBRE>`, `VTA.TLMKT MORELIA
+<NOMBRE>`. Medido sobre los 3,386 abonos sin conciliar de 180 días: **1,264 mencionan TLMK/TELEMARK**
+($21.7M), y de ellos **1,120 traen un token de 6+ letras que existe en el padrón, contra 2 del
+placebo** (el mismo token escrito al revés). Señal fortísima.
+
+⚠️ **Pero «el nombre está» no es «sabemos quién es».** Exigiendo que **todos** los tokens de 5+ letras
+estén en el nombre del cliente, 748 de 1,044 resolvían a un solo código. ⛔ **Y el control por
+sucursal dio IDÉNTICO al real (748 contra 747)**: el padrón `kdud` se repite en las nueve ramas, así
+que «otra sucursal» no es un lugar donde el cliente no esté. *Ese control no medía nada y no se usó.*
+
+#### ⛔ La prueba con VERDAD CONOCIDA, que es la que decide
+
+Se corrió la misma regla sobre los depósitos **ya conciliados** con TLMK en el concepto, donde el
+cliente verdadero se conoce por su cobro (`finance.bank_recon_matches` → `analytics.erp_collections`).
+Universo: **7,989** abonos.
+
+| | |
+|---|---:|
+| Evaluables (su concepto da ≥2 tokens de 5+ letras) | 5,710 |
+| La regla propone algún cliente | 4,064 |
+| Propone **UNO solo** (máxima confianza) | 3,181 |
+| **Y acierta** | **1,021 — el 32.1 %** |
+| El cliente real está en cualquier parte de la propuesta | 1,199 de 4,064 (29.5 %) |
+
+> ⭐⭐ **Cuando la regla está más segura, se equivoca dos de cada tres veces.** Y el cliente verdadero
+> **ni siquiera aparece** entre las propuestas en el 70 % de los casos.
+
+**Por qué el placebo no lo vio venir:** el placebo probaba que el texto **contiene nombres reales**
+—y los contiene—, no que sean **el nombre de quien pagó**. Puede ser el vendedor, quien fue a la
+ventanilla, o el nombre comercial de un tercero. Sobre un padrón de miles, un fragmento siempre
+encuentra a alguien; encontrarlo **con seguridad** no es encontrarlo **bien**.
+*Es el caso canónico de [`feedback_amount_match_needs_placebo_control`]: un cruce puede tener un
+placebo limpio y aun así medir otra cosa.*
+
+#### ⭐⭐ Por qué el 100 % es el requisito CORRECTO, no una exigencia exagerada
+
+El producto de esta atribución **no es un reporte: es un CFDI que nombra a un contribuyente real**
+(§41.3). Un 32 % de acierto no es «avance parcial»: atribuir mal **no deja un hueco, deja un
+complemento de pago a nombre de quien no pagó**. ⛔ **En este proceso, equivocarse es peor que no
+saber**, y por eso cualquier automatismo por inferencia queda descartado aquí — no por prudencia,
+por aritmética.
+
+#### Las dos únicas vías que dan certeza
+
+| | Vía | Qué resuelve | Estado |
+|---|---|---|---|
+| **1** | ⭐⭐ **Que el identificador llegue ESTRUCTURADO** — referencia bancaria o CLABE por cliente: cada uno deposita a la suya y el dinero **llega ya atribuido**, sin texto ni criterio humano. Deja de ser inferencia y se vuelve una llave | **El 100 %, de aquí en adelante** | ⬜ **Decisión de Dirección y del banco, no de software** |
+| **2** | **Preguntarle al cliente** — la ficha devuelve prueba (foto, monto, fecha y referencia del banco), no probabilidad | Lo que **ya llegó** | ✅ Construido y en prod desde el 2026-11-18 (`[CC.20]`) · ⛔ **2 fichas de 1,187 clientes** |
+
+⛔ **Lo que NO se va a lograr:** cerrar esto midiendo mejor. Dos instrumentos independientes lo dicen
+—por importe, techo del 2 % (§41.9); por nombre, **32 % de acierto cuando está segura**—, y los dos
+fallan por la misma causa: **el identificador no viaja con el dinero.** No es falta de ingenio: el
+dato no está. *Si derivar es imposible, se cambia el proceso.*
+
+| | Pregunta | De quién |
+|---|---|---|
+| **D-F7** | ⭐⭐ ¿Se contrata referencia bancaria / CLABE por cliente? Es la única vía al 100 %. Tamaño de lo que hoy depende de un texto tecleado: **1,264 depósitos, $21.7M en 180 días** | **Dirección + banco** |
+| **D-F8** | ¿Se le envía a los 1,187 clientes con saldo su enlace de ficha? Hoy lo usaron 2 | Crédito y cobranza |
