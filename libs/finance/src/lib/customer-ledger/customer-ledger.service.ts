@@ -9,17 +9,17 @@ import {
   skusDeCodigoDeBarras,
 } from '@megadulces/platform-core';
 import type { Freshness, VentaVendedorResp } from '@megadulces/contracts';
-import { RESTO_TOLERADO, SALDO_CERO } from '@megadulces/contracts';
+import { RESTO_TOLERADO_CLIENTE, SALDO_CERO } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 
 /**
- * `[GP.R.1]` La partida viva SÓLO por un resto de centavos: debe hasta `RESTO_TOLERADO` y ya recibió algo
+ * `[GP.R.1]` La partida viva SÓLO por un resto de centavos: debe hasta `RESTO_TOLERADO_CLIENTE` y ya recibió algo
  * (`res < importe`). Es `esRestoDeFactura` de `@megadulces/contracts` escrita en SQL; las constantes salen de
  * ahí para que el umbral viva en un solo lugar. Los campos que la usan son ADITIVOS: no cambian `saldo` ni
  * `vencido` (el dinero se sigue debiendo en Kepler), sólo dicen cuánto de eso es redondeo.
  */
 export const PARTIDA_RESTO_SQL =
-  `d.res > ${SALDO_CERO} AND d.res <= ${RESTO_TOLERADO} AND d.res < d.importe - ${SALDO_CERO}`;
+  `d.res > ${SALDO_CERO} AND d.res <= ${RESTO_TOLERADO_CLIENTE} AND d.res < d.importe - ${SALDO_CERO}`;
 
 /**
  * `[CXC.SKU.1]` Lo que la búsqueda por producto NO cubre, dicho en la respuesta.

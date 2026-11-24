@@ -17,7 +17,7 @@
  * desconocidos mandan el pedido a la bandeja con «no pude verificar…», nunca lo autorizan.
  */
 
-import { SALDO_CERO, esRestoDeFactura } from './resto-tolerado.contract';
+import { RESTO_TOLERADO_CLIENTE, SALDO_CERO, esRestoDeFactura } from './resto-tolerado.contract';
 import { diasEntre } from './pago-vencido.contract';
 import type { Freshness } from '../http/provenance.contract';
 
@@ -238,7 +238,7 @@ export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutoriz
     let sinFecha = false;
     for (const f of e.facturas) {
       if (!(f.saldo > SALDO_CERO)) continue;
-      if (esRestoDeFactura(f.saldo, f.importe)) { resto += f.saldo; continue; }
+      if (esRestoDeFactura(f.saldo, f.importe, RESTO_TOLERADO_CLIENTE)) { resto += f.saldo; continue; }
       const atraso = f.vencimiento ? dias(f.vencimiento, e.hoy) : null;
       if (atraso == null) { sinFecha = true; continue; }
       if (atraso > p.graciaDias) {

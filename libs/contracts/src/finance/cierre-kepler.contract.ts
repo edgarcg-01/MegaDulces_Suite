@@ -1,4 +1,4 @@
-import { SALDO_CERO, esRestoTolerado } from './resto-tolerado.contract';
+import { RESTO_TOLERADO_PROVEEDOR, SALDO_CERO, esRestoTolerado } from './resto-tolerado.contract';
 
 /**
  * `[PGP.94]` **El cierre de un pago del Calendario contra lo que Kepler hizo de verdad.**
@@ -158,7 +158,14 @@ export interface CierreKeplerPago {
  * El umbral y la regla viven en `resto-tolerado.contract.ts` (`[GP.R.1]`: un solo primitivo para
  * proveedores y clientes); aquí se re-exportan para no mover a sus consumidores.
  */
-export { SALDO_CERO, RESTO_TOLERADO, esRestoTolerado, esRestoDeFactura } from './resto-tolerado.contract';
+export {
+  SALDO_CERO,
+  RESTO_TOLERADO,
+  RESTO_TOLERADO_PROVEEDOR,
+  RESTO_TOLERADO_CLIENTE,
+  esRestoTolerado,
+  esRestoDeFactura,
+} from './resto-tolerado.contract';
 /**
  * Un abono a una factura que sigue viva cuenta como «en parte» sólo si es de cuando ya estaba
  * programada (o hasta 3 días antes: Kepler se captura después de que sale el dinero, la misma
@@ -179,7 +186,7 @@ export function estadoFacturaCierre(f: FacturaParaCierre, programadaDesde: strin
   if (f.pendiente === null || !Number.isFinite(f.pendiente)) return 'sin_medir';
   const recientes = aplicacionesDelPago(f.aplicaciones, programadaDesde);
   // `[PGP.157]` Un resto de centavos de una factura que ya se pagó cuenta como saldada (sin aplicaciones, no).
-  const resto = esRestoTolerado(f.pendiente) && f.aplicaciones.length > 0;
+  const resto = esRestoTolerado(f.pendiente, RESTO_TOLERADO_PROVEEDOR) && f.aplicaciones.length > 0;
   if (f.pendiente <= SALDO_CERO || resto) {
     // Saldada. Si se pagó antes de programarla, el documento que la cerró es igual la explicación.
     const explican = f.aplicaciones;
@@ -200,7 +207,7 @@ export function cierreDelPago(input: { lotDate: string; programadoDesde: string;
   for (const f of input.facturas) {
     const est = estadoFacturaCierre(f, input.programadoDesde);
     facturas[est]++;
-    if ((est === 'pagada' || est === 'saldada_sin_dinero') && esRestoTolerado(f.pendiente)) resto += f.pendiente ?? 0;
+    if ((est === 'pagada' || est === 'saldada_sin_dinero') && esRestoTolerado(f.pendiente, RESTO_TOLERADO_PROVEEDOR)) resto += f.pendiente ?? 0;
     if (est === 'sin_medir' || est === 'sin_pagar') continue;
     // Una saldada se explica con lo que la cerró; si nada es de este periodo, con su último documento.
     let explican = aplicacionesDelPago(f.aplicaciones, input.programadoDesde);

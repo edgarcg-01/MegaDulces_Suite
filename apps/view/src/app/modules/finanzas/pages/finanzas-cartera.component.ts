@@ -14,7 +14,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { esRestoDeFactura } from '@megadulces/contracts';
+import { RESTO_TOLERADO_CLIENTE, esRestoDeFactura } from '@megadulces/contracts';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 
@@ -1234,10 +1234,10 @@ export class FinanzasCarteraComponent implements OnInit {
 
   /** `[GP.R.1]` La misma regla del servidor (`esRestoDeFactura`), sobre la partida del detalle. */
   esResto(p: Partida): boolean {
-    return !p.saldada && esRestoDeFactura(Number(p.saldo_documento), Number(p.importe));
+    return !p.saldada && esRestoDeFactura(Number(p.saldo_documento), Number(p.importe), RESTO_TOLERADO_CLIENTE);
   }
   readonly tituloRedondeo =
-    'Centavos que quedaron de una factura ya cobrada (hasta $1). Siguen en Kepler; se cierran con un Ajuste Abono, no con otro cobro.';
+    `Centavos que quedaron de una factura ya cobrada (hasta $${RESTO_TOLERADO_CLIENTE}). Siguen en Kepler; se cierran con un Ajuste Abono, no con otro cobro.`;
   readonly visibles = computed(() => this.filtradas().slice(0, FinanzasCarteraComponent.FILAS_VISIBLES));
 
   // ── `[CXC.42]` Recorrer la lista desde la ficha ─────────────────────────────────
