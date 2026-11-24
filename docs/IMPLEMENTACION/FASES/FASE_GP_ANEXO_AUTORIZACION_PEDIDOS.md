@@ -654,7 +654,7 @@ de E4.
 | **GP.A.7** | El seguimiento de la cotización dice «Autorizado solo», «Esperando a Crédito y cobranza desde las 12:31» o «Rechazado: motivo» | C3 | GP.A.2 | — |
 | **GP.A.8** | Dos semanas de piloto: % automático, motivos de los excedidos, sugerencias aceptadas, y cuántos autorizados solos terminaron con vencido de más de 45 días (control de la regla) | C0 | GP.A.3 en prod | no |
 
-### 5b. Encender el Paso 1 — los candados, en orden (medido el 2026-11-23)
+### 5b. Encender el Paso 1 — los candados, en orden (medido el 2026-11-23, actualizado el 2026-11-24)
 
 > ⛔ **«Construido» y «encendido» no son lo mismo**, y aquí hay seis candados distintos. Esta tabla es el estado
 > real, medido en prod en sólo lectura. Cada renglón dice **quién lo abre**.
@@ -664,15 +664,22 @@ de E4.
 | 1 | El código, en prod | ✅ desplegado en `e80e10be4` (regla, bitácora, `POST`, bandeja, pantalla) | — |
 | 2 | Migración `20261120145451` | ✅ aplicada el 2026-11-20 19:44; `finance.order_authorizations` existe, **0 filas** | — |
 | 3 | Llave `FINANCE_PEDIDOS_AUTORIZAR` | ✅ repartida: `credito_cobranza` + `superadmin` (regla 20) | — |
-| 4 | **Permiso en Kepler (GP.A.0d)** | ⬜ **no corrido**, ni GP.A.0d ni GP.12.0e | ⭐ **el PM**: `node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/gpa0d_kdm1_update_c11.sql --aplicar` (pide la contraseña de superusuario) |
-| 5 | Ensayo con ROLLBACK en el Kepler vivo | ⬜ sin correr (depende del 4) | Claude, apenas exista el 4 (`ops/prod/ensayo-autorizacion-kepler`) |
+| 4 | **Permiso en Kepler (GP.A.0d)** | ✅ **aplicado el 2026-11-24 en 8 de 9** (Edgar autorizó; corrido desde `md` con `KSU=sa`). Verificado con el testigo independiente —`kepler_push` preguntándose a sí mismo— y no con la comprobación del propio script: `has_column_privilege(… 'c11','UPDATE')` da `true` en 01, 02, 03, 04, 05, 06, 07 y 08. ⚠️ **CEDIS (00) quedó fuera**: su `pg_hba` no tiene línea para `sa` desde `md` («sin cifrado»). **No bloquea nada**: CEDIS tiene **0 pedidos por autorizar y 2 TELEMARK en 90 días** (medido el 2026-11-24) | — (CEDIS: higiene, cuando haya ventana con quien administra Kepler) |
+| 5 | Ensayo con ROLLBACK en el Kepler vivo | ✅ **corrido el 2026-11-24** sobre Morelia Abastos, pedido `08-1-0001473`: `permiso_c11 = true`, el `UPDATE` tocó **1 fila**, `CREADO → AUTORIZADO`, `deshecho: true`, y el control cerró con **estatus antes = después = CREADO**. El carril de escritura funciona de punta a punta sin haber escrito nada | — |
 | 6 | `KEPLER_AUTORIZACION_PEDIDOS=encendida` | ⬜ **la bandera no existe** en los secretos de k3s (`prod-env`/`kepler-push`) | el PM, igual que `KEPLER_GASTO_AUTORIZACION` en PGP.79: va en el secreto `prod/kepler-push` (ningún manifiesto lo define, así sobrevive a `aplicar-k3s-prod.sh`) y después `rollout restart deploy/api`. ⛔ Nunca `--from-env-file`: ese secreto tiene llaves que su maestro no |
 | 7 | Interruptor por sucursal (`kepler_push_switch`, tipo `autorizacion`) | ⬜ **9 de 9 apagados, sin tope** | el PM decide la sucursal piloto; encender = se puede **a mano**. El automático pide además un **tope del día** (D-A14) |
 
-**Qué pasa hoy, con 4–7 cerrados:** Crédito y cobranza ya puede **rechazar** con motivo (no toca Kepler) y lo
-rechazado sale de su lista (GP.A.4b); **Autorizar** está apagado y la pantalla dice en qué sucursal y dónde se
-hace mientras tanto. Al abrir 4–7 en una sucursal, autorizar a mano empieza a escribir `kdm1.c11`. El automático
-es lo último, y pide GP.A.3 (el disparo por evento), que **no está construido**.
+**Qué pasa hoy, con 6 y 7 cerrados** (4 y 5 se abrieron el 2026-11-24): Crédito y cobranza ya puede **rechazar**
+con motivo (no toca Kepler) y lo rechazado sale de su lista (GP.A.4b); **Autorizar** sigue apagado, y el servidor
+corta en el candado 7 —antes de insertar nada— con «Autorizar desde la Suite está apagado en esta sucursal».
+Al abrir 6 y 7 en una sucursal, autorizar a mano empieza a escribir `kdm1.c11`. El automático es lo último, y
+pide GP.A.3 (el disparo por evento), que **no está construido**.
+
+⭐ **Dónde conviene el piloto** (pedidos TELEMARK, medido el 2026-11-24): las que de verdad operan este canal son
+**Padre Hidalgo** (1,566 en 90 días, 4 esperando), **Canindo** (1,360, 14) y **Morelia Abastos** (856, 9).
+⚠️ **Zamora Centro no es candidata**: tiene **782 pedidos esperando contra 276 en 90 días** — una cola de pedidos
+viejos (la «limpieza de la 05», D-A4) que al encender el interruptor aparecerían todos juntos.
+Yurécuaro y Morelia Madero no tienen ni un pedido TELEMARK.
 
 **Fuera de este anexo:** cancelar pedidos en Kepler desde la Suite, escribir el límite en Kepler (ALC D1-b),
 y limpiar la 05 (D-A4).
