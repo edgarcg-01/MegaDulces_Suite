@@ -825,7 +825,23 @@ O se capturan con otra fecha, o son de gente que no usa reloj. Hay que entenderl
 Al cerrar `[NE.0.12c]` quedaron dos cosas dichas como **NO MEDIDO**. Las dos se contestaron, y una
 de ellas destapó un defecto de este mismo frente.
 
-#### A. Qué son esas `horas_extra` sin checada — **contestado**
+#### A. Qué son esas `horas_extra` sin checada — **contestado, y la primera respuesta era equivocada**
+
+> ⛔⛔ **Corrección del 2026-11-24 (`[NE.0.14]`), el mismo día.** Este apartado afirmaba que
+> `horas_extra` «carga dos cosas» y que las de ocho horas eran **un día trabajado mal etiquetado**.
+> **Es falso.** `horas_extra` no significa «ganó horas extra»: es **«Uso de horas extra»** (código
+> `HE`) — la persona **gasta** horas que tenía a favor en su banco
+> ([`incidencias.ts`](../../../libs/hr/src/lib/attendance/logic/incidencias.ts)). Lo que se **gana**
+> no sale de esta casilla: se **deduce del reloj**, quedándose después de la hora de salida, en
+> bloques de 30 min ([`banco-horas-extra.ts`](../../../libs/hr/src/lib/attendance/logic/banco-horas-extra.ts)).
+> Por eso `horasExtraGanadasMin` **nunca se alimentó de acá**, y la consecuencia que se escribió
+> —«no puede alimentar el recibo»— se cae junto con su premisa.
+>
+> ⭐ El código ya lo decía, y no se leyó: *«El uso sale de las incidencias, no de los días armados:
+> quien usó horas un día que no checó también las gastó.»*
+>
+> **Los hechos medidos no cambian; cambia lo que significan — y confirman el diseño en vez de
+> contradecirlo.** Las dos tablas de abajo quedan como se midieron.
 
 La pregunta era: `horas_extra` tenía 19 de 24 incidencias en días sin checada. Tres hipótesis se
 podían separar con datos, y se separaron (los 25 días del rango, con control negativo sobre **todos**
@@ -846,20 +862,35 @@ Nadie de estos 25 días es de alguien que no checa: **los 25 tienen checadas en 
 | minutos de la incidencia | días | checó ese día |
 |---|---:|---:|
 | **≥ 300 min** (5 h o más: una **jornada**) | 12 | **0 — ninguno** |
-| ≤ 180 min (horas extra de verdad) | 13 | 5 |
+| ≤ 180 min | 13 | 5 |
 
-Los valores que existen son 30 · 120 · 180 · 300 · 330 · 480 · 510. ⛔ **480 y 510 minutos no son
-horas extra: son un día completo de trabajo.** La captura llega 4 o 5 días después, ya con la
-nómina en curso.
+Los valores que existen son 30 · 120 · 180 · 300 · 330 · 480 · 510, todos múltiplos del bloque de
+30 min con que se acredita el banco.
 
-⛔ **Entonces `horas_extra` carga dos cosas distintas**, y la grande es la que no se llama como es:
-es **el día que se trabajó y el reloj no registró** —otra sede, un descanso trabajado, una checada
-que no entró— anotado como «horas extra» porque es la única casilla que termina en dinero.
+⭐ **Leído con la regla de dominio en la mano, el corte se explica solo y es el esperado: quien
+gasta una jornada entera de su saldo se toma el día —y por eso no checa—; quien gasta un rato llega
+tarde o se va temprano —y por eso sí checa—.** El corte en 300 minutos no es un defecto de captura:
+es la diferencia entre tomarse el día y tomarse un rato.
 
-⛔ **Consecuencia directa para el frente: `horasExtraGanadasMin` NO puede alimentar el recibo tal
-como está.** Sumado a las horas del reloj, 12 de 25 casos pagarían una jornada completa **como si
-fuera tiempo extra**. Antes de usarlo hay que partir el tipo en dos: *tiempo extra* y *día sin
-checada*, que no es lo mismo ni cuesta lo mismo.
+**Lo que sí quedó en pie, y es real** (medido en prod, sólo lectura, 2026-11-24):
+
+| hallazgo | medido |
+|---|---|
+| el universo | 25 usos de 12 personas, del 24-sep —el día en que arranca el banco— al 2-nov |
+| ⛔ **ninguno lleva motivo ni quién autorizó** | **0 de 25**. El formulario no los pide para este tipo, mientras que `horario_distinto` y `visita_fuera` **sí exigen los dos**. Un movimiento que baja un saldo se captura sin decir por qué ni con permiso de quién |
+| ⛔ **el pago de horas extra nunca se usó** | **0 registros** desde que existe el tipo (`[RH.6.7]`, 6-nov) |
+
+⚠️ **NO MEDIDO, y es la única pregunta que queda viva:** si alguien **gastó más de lo que tenía**.
+Es lo único que distingue un uso legítimo de usar la casilla para tapar un día. No hace falta
+arqueología: el banco ya se muestra por persona con su saldo en `/rh/asistencia` — **si alguno de
+esos 12 aparece en negativo, hay que mirarlo**. Es una pregunta para RH con instrumento, no un
+hallazgo.
+
+⭐⭐ **La lección vale más que el hallazgo: el nombre de una columna no es su significado.** La
+medición estaba bien —25 filas, con control negativo sobre todos los demás tipos—; lo que estaba mal
+fue **interpretarla antes de leer la regla de dominio**, que vivía a dos archivos de distancia. Una
+casilla con valores de dos órdenes de magnitud *puede* estar cargando dos conceptos, o puede ser
+exactamente lo que dice su etiqueta.
 
 #### B. Por qué el puente es un empate por nombre — **contestado, y es un defecto nuestro**
 
