@@ -9919,7 +9919,7 @@ más) — PR aparte para no volver ilegible el diff.
     apuntarlo también a `platform_test` con `dev_sistemas` (no bypasea RLS de verdad, pero
     destraba local). Sigue pendiente que Edgar confirme con su propia cuenta y sucursal real.
 
-- [ ] **[CV.29]** ⬜ **La tienda de marca se refresca a mano y publica agotado lo que sí hay**
+- [x] **[CV.29]** ✅ **La tienda de marca se refresca a mano y publica agotado lo que sí hay — corregida en vivo el 2026-11-25**
   (medido 2026-11-25) — la llave de API de la tienda resultó tener **escritura completa**, no sólo
   lectura: productos, inventario, alta, borrado y los dos endpoints de lote. Eso invalida la
   conclusión de `[CV.16]` (*"no expone una API de importación masiva accesible para esto"*), que se
@@ -9952,9 +9952,48 @@ más) — PR aparte para no volver ilegible el diff.
     público); **75 % de los pedidos históricos nunca se pagaron** (`NOT_PAID` + cancelado).
   - **Qué NO incluye:** reconstruir `GET /api/kp/productos` (no se portó a `apps/api`; la deuda
     está declarada en `catalogo-interno.module.ts`), ni la pantalla de MKT, ni tocar precios.
-  - **Bloqueado por decisión de Edgar:** cambiar **D28 (c)** de `FASE_NP7_ANEXO_FICHA_COMO_CODIGO`
-    (*"alimentar la tienda Wix: ahora no"*), y fijar qué existencia se publica — la tienda **no está
-    atada a una sucursal** (una sola ubicación genérica, envíos a Michoacán, Coahuila y Jalisco).
+  - **Decidido por Edgar el 2026-11-25:** se cambia **D28 (c)** de `FASE_NP7_ANEXO_FICHA_COMO_CODIGO`
+    (*"alimentar la tienda Wix: ahora no"*) → sí. Existencia: **consolidado de las 8 sucursales con
+    tope de 50 por presentación** — la tienda **no está atada a una sucursal** (una sola ubicación
+    genérica, envíos a Michoacán, Coahuila y Jalisco), y el CEDIS solo tiene 56 de sus SKU con
+    existencia, así que publicar sólo `00` habría dejado el anaquel agotado igual. Precio: se
+    sincroniza. "Pieza" sin `PZA` en Kepler: se retira (se **oculta**, `visible:false` — reversible,
+    no se borra nada).
+
+  **Resultado, aplicado y verificado contra la tienda viva el 2026-11-25:**
+
+  | | Antes | Después |
+  |---|---:|---:|
+  | Variantes agotadas | 503 | **351** |
+  | Productos con TODO el anaquel agotado | 178 | **137** |
+  | Variantes con precio igual a Kepler (de 1,158) | 457 | **1,158** |
+  | "Pieza" de precio inventado, visibles | 337 | **0** |
+
+  - **Método:** canario reversible antes de cada lote (patrón `[CV.9]`), foto previa de los 637
+    productos a archivo, verificación releyendo la tienda —no el acuse de la escritura— y
+    restauración automática al primer desvío de estructura. Inventario: 152 variantes en un lote de
+    `bulk/inventory-items/update`, 0 fallidas. Precio y ocultamiento: 473 productos, uno por uno.
+  - ⛔⛔ **El canario de precio DESTRUYÓ un producto y por eso existe el canario.** Un `PATCH` con
+    `variantsInfo` parcial **no actualiza: reemplaza** — colapsó `BOLSA PLANA GREEN PACK` de 3
+    variantes a 1, le borró el SKU y le vació las opciones. Restaurar exige mandar **`options` +
+    la lista COMPLETA de variantes**; sin `options` contesta `428 MISSING_OPTIONS_ON_UPDATE_VARIANTS`.
+    Daño colateral encontrado después: se llevó 2 de sus 3 items de inventario, recreados con sus
+    cantidades originales (706 / 20 / 7120) y verificados por dos vías.
+  - ⛔ **`inventory-items/search` tarda en indexar:** justo después de crear un item, la búsqueda
+    todavía devuelve el estado viejo. Leer dos veces antes de declarar que algo no se escribió.
+  - ⚠️ **Una verificación de estructura no verifica el cambio.** La primera corrida dio "5 de 5
+    verificados" comparando sólo la huella de variantes; el precio podría no haber entrado y no me
+    habría enterado. La verificación buena es la global: volver a cruzar contra Kepler.
+  - ⚠️ **El precio es un blanco móvil:** entre la primera lectura (14:57) y la verificación (16:12)
+    Kepler movió un SKU (`97021`, paquete 75.06 → 20.62). Se cerró con el feed fresco, pero **esto
+    vuelve a desfasarse solo**: la corrección de hoy es un parche, no el mecanismo.
+  - **Lo que sigue (no hecho):** automatizar la sincronización por evento. Hoy la tienda se escribe
+    a mano, de golpe, y queda congelada. Requiere la llave nueva (ver abajo) y reconstruir el
+    productor del dato: `GET /api/kp/productos` no se portó a `apps/api` (deuda declarada en
+    `catalogo-interno.module.ts`).
+  - ⛔⛔ **Seguridad pendiente, es de Edgar:** la llave usada es **de cuenta**, escribe y **borra** el
+    catálogo de la tienda viva, y lee facturación y padrón de clientes de los dos sitios. Hay que
+    **rotarla** y emitir una **de sitio** con permiso sólo de Catálogo e Inventario.
 
 - [x] **[TDA.7]** 🧪 **El mayoreo sigue al código leído, y su base estaba equivocada** (2026-09-10)
   — 0Sistemas: *"se critico con tu trabajo"*, sobre TDA.5/TDA.6 (mayoreo en pantalla, centrado,
