@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 3380 KB, 15953 líneas, 78 secciones.
+> **Índice navegable** — 3383 KB, 15983 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -49,42 +49,42 @@
 | 9323 | 9393 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
 | 9394 | 9442 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
 | 9443 | 9475 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 9476 | 10271 | 88 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 10272 | 10403 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 10404 | 10457 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 10458 | 10497 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 10498 | 10550 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 10551 | 10617 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 10618 | 10780 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 10781 | 11064 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 11065 | 11232 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 11233 | 13663 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 13664 | 13672 | 1 | Fase RR — Ventas por ruta |
-| 13673 | 13992 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 13993 | 14003 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 14004 | 14024 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 14025 | 14035 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 14036 | 14047 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 14048 | 14107 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 14108 | 14535 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 14536 | 14550 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 14551 | 14592 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14593 | 14760 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14761 | 14792 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14793 | 15095 | 83 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 15096 | 15170 | 105 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 15171 | 15179 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 15180 | 15243 | 25 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 15250 | 15259 | 1 | 📝 Convenciones |
-| 15260 | 15297 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 15298 | 15316 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 15317 | 15369 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 15370 | 15785 | 127 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15786 | 15816 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15817 | 15838 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15839 | 15872 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15873 | 15924 | 58 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15925 | 16043 | 115 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 9476 | 10301 | 90 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 10302 | 10433 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 10434 | 10487 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 10488 | 10527 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 10528 | 10580 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 10581 | 10647 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 10648 | 10810 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 10811 | 11094 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 11095 | 11262 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 11263 | 13693 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 13694 | 13702 | 1 | Fase RR — Ventas por ruta |
+| 13703 | 14022 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 14023 | 14033 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 14034 | 14054 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 14055 | 14065 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 14066 | 14077 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 14078 | 14137 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 14138 | 14565 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 14566 | 14580 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 14581 | 14622 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 14623 | 14790 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14791 | 14822 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14823 | 15125 | 83 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 15126 | 15200 | 105 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 15201 | 15209 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 15210 | 15273 | 25 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 15280 | 15289 | 1 | 📝 Convenciones |
+| 15290 | 15327 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 15328 | 15346 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 15347 | 15399 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 15400 | 15815 | 127 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15816 | 15846 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15847 | 15868 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15869 | 15902 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15903 | 15954 | 58 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15955 | 16073 | 115 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -10187,8 +10187,28 @@ más) — PR aparte para no volver ilegible el diff.
       pruebas correctas; al restaurar, verde. `nx test commercial`: **3,375 pasan**, +20 exactas.
     - ⚠️ `abandono.spec.ts` sale roja y es **ajena**: archivo **sin versionar** de otra sesión que
       importa de `vitest` teniendo `globals: true`, con lo que ni carga. No llega al CI.
-  - **Falta:** C2, el disparo — el webhook de Wix (firmado) y el servicio que crea la cotización y
-    la acepta; y C3, ver el folio y ver el que no pudo armarse, con su porqué.
+  - 🔨 **C2, mitad servidor, construido el 2026-11-25** — `tienda-pedido.service.ts`, 10 pruebas.
+    - ⛔⛔ **Idempotente**, que es lo que de verdad importa de un webhook: un reintento del mismo
+      aviso **no puede volverse dos pedidos en el ERP**. Antes de crear nada busca el número.
+      ⚠️ **Deuda con nombre:** la marca vive en `order_notes` porque `commercial.quotes` no tiene
+      columna de referencia externa; lo correcto es `external_ref` con único por tenant.
+    - **El peldaño no se decide acá:** lo resuelve `rungDeRotulo` contra la escalera del SKU, que
+      ya contempla `BTO`/`CUB` como base y nunca adivina un intermedio. **Una sola definición de
+      unidad** en el proyecto, la del motor de precios — no una tabla paralela.
+    - **Si Kepler falla, la cotización QUEDA** (es el testigo de que el pedido llegó) y el motivo
+      se declara en vez de perderse.
+    - **Prueba negativa:** al ignorar que el pedido ya había entrado cae exactamente la prueba de
+      idempotencia; al restaurar, verde. `nx test commercial`: **3,385 pasan** (+30 en el día).
+  - ⚠️ **NO MEDIDO, y es la regla 13:** que el INSERT real entre. Un endpoint que escribe no está
+    probado hasta que una prueba lo ejerció **contra base real con el payload de la pantalla**.
+    Lo de hoy prueba la decisión, no la escritura.
+  - ⚠️ **El servicio NO está dado de alta en su módulo de Nest, a propósito.** Tocar proveedores
+    o firmas inyectadas obliga a probar `design:paramtypes` o a declarar «arranque no verificado»
+    (*#414 tiró la API en prod con el CI en verde*). Se da de alta junto con el controlador, en
+    una sola pasada que sí se pueda probar.
+  - **Falta:** el webhook HTTP de Wix (firmado y verificado) + dar de alta servicio y controlador
+    en el módulo · **registrar el webhook en Wix, que necesita la llave rotada** · y C3, ver el
+    folio y ver el pedido que no pudo armarse con su porqué.
   - ⚠️ **Contra el cupo:** 10 fases 🔨 contra un tope de 4. Por eso esto entra como **item de COT.7**,
     no como fase nueva.
 
