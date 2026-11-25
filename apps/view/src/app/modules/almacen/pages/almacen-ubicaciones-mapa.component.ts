@@ -181,7 +181,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
           }
 
           @if (enCaptura()) {
-            <app-ubicaciones-captura [warehouse]="d.warehouse" [ubicaciones]="d.ubicaciones" (cambio)="reload()" />
+            <app-ubicaciones-captura [warehouse]="d.warehouse" (cambio)="reload()" />
           } @else if (enCarretas()) {
             <app-ubicaciones-carretas [warehouse]="d.warehouse" [puedeGestionar]="puedeGestionar()" [puedeCoordinar]="puedeCoordinar()" />
           } @else {

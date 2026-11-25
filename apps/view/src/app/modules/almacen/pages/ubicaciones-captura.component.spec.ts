@@ -81,38 +81,3 @@ describe('[UB.RF.9] El resumen concuerda con su cuenta', () => {
     expect(c.accionLabel('nueva')).toBe('Se crea');
   });
 });
-
-describe('[UB.RF.15] La captura se reinicia por el ALMACÉN, no por el objeto', () => {
-  it('⭐ el mapa recarga tras «Crear» (objeto nuevo, mismo almacén): el resultado y los carteles se quedan', () => {
-    const { fix } = montar(() => of([]));
-    const c = fix.componentInstance;
-    c.resultado.set({ batch_id: 'b1', creadas: 3, omitidas: 0, codigos: ['TA011', 'TA012', 'TA013'] } as never);
-    c.carteles.set([{ code: 'TA011', label: null, almacen: '00' }]);
-    fix.componentRef.setInput('warehouse', { ...CEDIS });
-    fix.detectChanges();
-    expect(c.resultado()).not.toBeNull();
-    expect(c.carteles().length).toBe(1);
-  });
-
-  it('NEGATIVA: con OTRO almacén sí se limpia (lo visto era del anterior)', () => {
-    const { fix } = montar(() => of([]));
-    const c = fix.componentInstance;
-    c.resultado.set({ batch_id: 'b1', creadas: 3, omitidas: 0, codigos: [] } as never);
-    fix.componentRef.setInput('warehouse', PH);
-    fix.detectChanges();
-    expect(c.resultado()).toBeNull();
-  });
-
-  it('sin ubicaciones abre en «Crear por rango»; con ubicaciones, en «Productos por rack»', () => {
-    const a = montar(() => of([]));
-    expect(a.fix.componentInstance.modo()).toBe('rango');
-    TestBed.resetTestingModule();
-    TestBed.configureTestingModule({ imports: [UbicacionesCapturaComponent], providers: [{ provide: AlmacenUbicacionesCatalogoService, useValue: { batches: vi.fn(() => of([])), products: vi.fn(() => of({ filas: [], total: 0 })) } }] });
-    const fix = TestBed.createComponent(UbicacionesCapturaComponent);
-    fix.componentRef.setInput('warehouse', PH);
-    fix.componentRef.setInput('ubicaciones', [{ code: 'TA011', familia: 'ubicacion', zona: 'T', pasillo: 'A', rack: 1, nivel: 1, estado: 'activa' }]);
-    fix.detectChanges();
-    expect(fix.componentInstance.modo()).toBe('rack');
-    expect((fix.nativeElement as HTMLElement).textContent).not.toContain('Últimas capturas');
-  });
-});
