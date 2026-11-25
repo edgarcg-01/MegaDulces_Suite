@@ -396,6 +396,16 @@ Eso es exactamente **D-EX8**, y por eso el módulo no debe encenderse antes.
 >
 > ⚠️ **Alcance: sólo funcionalidad.** Lo de diseño, accesibilidad y carga visual queda fuera de esta
 > sección por decisión de Edgar; vive en §9b.
+>
+> ⛔⛔ **CON QUÉ USUARIO — leer antes de citar cualquier cosa de acá.** Todo se ejerció con
+> **`superoot`, rol `superadmin`, 239 permisos y las 7 llaves de inventario**. O sea: **ninguna de
+> las seis personas del plan de pruebas se probó en vivo.**
+>
+> - **No lo invalida**, porque no dependen del permiso: F1, F2, F3, F5, F6, F7, F8, F9, F10, F13,
+>   F14, y el conteo ciego —que medido así vale **más**: ni al superadmin le mandaron el teórico—.
+> - **Sí queda sin medir**: que el botón esté *visible* en F4 y F11 puede ser efecto de esta cuenta.
+>   Lo que gobierna el acceso se midió aparte, contra prod (las cifras de F4), pero **nadie ejerció
+>   un 403 real**. Hasta que alguien lo haga, la capa de permisos de este módulo es **NO MEDIDA**.
 
 ### ⭐⭐ El hallazgo que explica todo lo demás
 
@@ -419,7 +429,7 @@ que contar no avanza el folio.**
 | **F1** | 🔴 | **Un conteo registrado NO se escribe en el artículo del folio.** El contador ve «1er conteo» y la sesión registra el escaneo, pero el artículo sigue en `count_1: null, status: pending`. Al reconciliar no tiene valor final, así que **el conteo se pierde**. | Se contó el SKU `00203` con 3 unidades. Verificado **tres veces**: al registrar, a los 8 s, y tras cerrar la pasada con «Terminar» (sesión `finished`, `items_counted: 1`, `units_counted: 3`). El artículo nunca cambió. |
 | **F2** | 🔴 | **El progreso suma dos libros, así que el total crece con cada conteo.** `count-progress` devuelve `total = pendientes + escaneos`. **El 100 % es inalcanzable**: contando los 3,363 el total terminaría en 6,726, y la barra se aleja a cada paso. | Antes de contar: `total: 3363`. Después de **un** conteo: `total: 3364, counted: 1, remaining: 3363`. |
 | **F3** | 🔴 | **«Resolver item» fija la cantidad final sin que exista ningún conteo, y no suma a la cobertura.** Tras resolver un artículo, la pantalla siguió diciendo «0 contados · 0.0 % · 0 discrepancias»; sólo bajó el renglón «sin valor final» (3363 → 3362). Quedan **dos verdades paralelas** sobre el mismo folio. | Se resolvió el SKU `00135` con cantidad 4 contra un teórico de 5. |
-| **F4** | 🔴 | **«Resolver item» está disponible desde el minuto cero y muestra el teórico.** En un folio con **doble conteo ciego activado**, el diálogo imprime `Teórico: 5.000` justo encima del campo de captura. El control que define al módulo tiene al lado una puerta que lo anula, y encima le sopla la respuesta a quien la usa. Debería aparecer sólo para artículos en discrepancia, después de C1 y C2. | Visible en el diálogo con 0 conteos registrados en el folio. |
+| **F4** | 🔴 | **«Resolver item» está disponible desde el minuto cero y muestra el teórico.** En un folio con **doble conteo ciego activado**, el diálogo imprime `Teórico: 5.000` justo encima del campo de captura. El control que define al módulo tiene al lado una puerta que lo anula, y encima le sopla la respuesta a quien la usa. Debería aparecer sólo para artículos en discrepancia, después de C1 y C2. ⛔ **No es teórico: la puerta la tienen 21 personas y sólo 17 pueden cerrar el inventario** — hay más gente capaz de anular el control que de terminar el proceso. | Visible en el diálogo con 0 conteos registrados. `POST :id/items/:itemId/resolve` exige `COMMERCIAL_INVENTORY_SUPERVISAR`; medido en prod el 2026-11-25: SUPERVISAR 21 personas, RECONCILIAR 17. |
 | **F5** | 🟠 | **`GET /counts/:id/items` se topa en 2,000 y no lo declara.** Devuelve un **array pelado**, sin `total` ni `has_more`: el front no podría avisar del tope ni queriendo. Con 3,363 artículos, **el supervisor no puede ver ni resolver 1,363**. Como la lista va ordenada por nombre, el corte cae en la letra **O**. | Medido sobre la respuesta real: 2,000 elementos exactos; iniciales presentes `$ * 1 2 3 4 5 6 7 A B C D E F G H I J K L M N O`; primero `$330 NESTLE…`, último `OBLEA FIGURA TIRA…`. |
 | **F6** | 🟠 | **El artículo resuelto desaparece de la lista del supervisor.** La consulta trae los primeros 2,000 **pendientes**, así que al resolver uno sale del universo y entra otro por el final. **No hay forma de revisar ni corregir lo ya resuelto.** | Control: el SKU `00135` estaba en la respuesta anterior (era el primero, `final: null`); tras resolverlo **ya no aparece**, y el último pasó de `OBLEA ECONOMICA…` a `OBLEA FIGURA TIRA…`. |
 | **F7** | 🟠 | **Tras un código no reconocido, el foco salta a «Cantidad física».** Con un escáner de pistola —que manda Enter solo— el siguiente disparo entra **como cantidad**, y el operario mira la tarima, no la pantalla. | Se escaneó `NOEXISTE12345` (rechazo correcto) y el código siguiente `00203` cayó en Cantidad quedando **`203`**. El campo de código seguía con el código inválido. |
