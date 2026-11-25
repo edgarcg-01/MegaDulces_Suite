@@ -426,12 +426,23 @@ Eso es exactamente **D-EX8**, y por eso el módulo no debe encenderse antes.
 | `GET /catalog` · `/count-progress` (del contador) | **403** | ✅ |
 | `GET /kepler-export` · `/interruptions` · `/sessions` | **403** | ✅ |
 
-> ⭐ **La API acierta en los dos perfiles medidos.** Lo que falla es la **interfaz**, que muestra
-> botones que el servidor rechaza (**F11**) y pinta el 403 como lista vacía (**F17**).
+**Y `prevencion_auxiliar`** (`camila_verdines`, **un solo rol**, única llave `VER`): **403 en TODO
+menos la lista de folios** — avance, items, catálogo, asignaciones, asignables, export,
+interrupciones y sesiones. La API es impecable.
+
+> ⛔ **Pero eso deja un hueco de negocio**: el área cuyo oficio ES el descuadre **no puede ver ni un
+> dato del conteo** —ni avance, ni artículos, ni discrepancias, ni quién contó—. Sólo que el folio
+> existe. Es coherente con §6, y ahora está medido en vivo.
 >
-> **Sigue sin medirse en vivo**: `prevencion` (sólo `VER`), `supervisor` y `marketing`. Y F4 —si
-> «Resolver item» aparece a quien no tiene `SUPERVISAR`— no se pudo comprobar con el encargado
-> porque su tabla de artículos llega vacía por el 403.
+> ⭐⭐ **LA API ACIERTA EN LOS TRES PERFILES MEDIDOS. LO QUE FALLA ES LA INTERFAZ.** El servidor
+> protege bien el módulo —el teórico da 403 a almacenista, encargado y prevención—, pero la
+> pantalla **no condiciona NI UN botón al permiso** (**F11**: hasta quien sólo mira ve «Reconciliar»
+> verde y «Cancelar folio»), pinta el 403 como lista vacía (**F17**) y, lo peor, **lo convierte en
+> ceros que se leen como un inventario cuadrado** (**F18**).
+>
+> **Sigue sin medirse en vivo**: `supervisor` y `marketing`. Y **F4** —si «Resolver item» le aparece
+> a quien no tiene `SUPERVISAR`— **no se pudo comprobar en ninguno de los dos perfiles sin esa
+> llave**, porque a ambos la tabla de artículos les llega vacía por el 403. Queda abierto.
 >
 > ⛔⛔ **HALLAZGO DE SEGURIDAD DE PLATAFORMA, NO DEL MÓDULO — a Dirección, no a este doc.** Al probar
 > permisos se confirmó que al menos una cuenta sin estrenar entra con una contraseña por defecto
@@ -476,6 +487,7 @@ que contar no avanza el folio.**
 | **F9** | 🟠 | **Las flechas del teclado cambian la cantidad.** Quien se mueva por la lista con el teclado modifica el conteo en vez de bajar de fila, en silencio. | `5` + `ArrowDown` → `4`. |
 | **F10** | 🟡 | **Tope mudo de 6 dígitos en la cantidad.** El campo es `type=text` con `min=0` y **`max` vacío**; a partir de `999,999` deja de aceptar teclas **sin decir nada**. | Se teclearon nueve dígitos (`999999999`) y quedó `999,999`. |
 | **F11** | 🔴 | **La interfaz NO refleja los permisos: muestra a todos los botones de todos.** Un `encargado_tienda` (sólo `VER` + `AJUSTAR` + `ASIGNAR`) ve **«Reconciliar»** en verde y habilitado y **«Cancelar folio»**, sin tener `RECONCILIAR` ni `CANCELAR_CONTEO`. El servidor sí los rechaza (defensa de fondo correcta), así que el daño no es de seguridad: es que la persona cree que puede cerrar el inventario o destrabar el almacén, aprieta, y recibe «No tienes los permisos dinámicos necesarios» —jerga que no dice qué falta ni a quién pedírselo—. Además **«Reconciliar» está habilitado con cero conteos**, lo que debería ser imposible, no advertido. | Medido en vivo el 2026-11-25 entrando como `monica_mejia` (`encargado_tienda`, suc 01). Los cuatro botones visibles; la API le devuelve 403 en `items`, `catalog`, `sessions`, `kepler-export`. |
+| **F18** | 🔴🔴 | **Un 403 se convierte en CEROS: la pantalla dibuja un inventario impecable.** A quien sólo tiene `VER`, el detalle del folio le muestra «COBERTURA **0.0 %** · CONTADOS **0/0** · SIN CONTAR **0** · DISCREPANCIAS **0** · VALOR EN RIESGO **$0**» — sobre un folio con **3,363 artículos sin contar**. No dice «sin permiso» ni «no disponible»: dice **cero**, que se lee como *contado y cuadrado*. El bloque «Falta para poder cerrar este folio» tampoco aparece, así que no queda ni una pista. ⛔ Y le toca justo a **prevención**, cuyo oficio ES el descuadre. Además el título pierde el folio: dice **«Folio»** a secas, porque el número venía de `progress` (403). **Viola la regla 11 del proyecto de frente** (lo no medido se declara, nunca se dibuja como cero). | Medido en vivo el 2026-11-25 con `camila_verdines` (`prevencion_auxiliar`, **un solo rol**, única llave `COMMERCIAL_INVENTORY_VER`). |
 | **F17** | 🔴 | **Un 403 de permisos se pinta como «Sin items para este filtro».** Al encargado, que recibe 403 en `GET :id/items`, la tabla de artículos le muestra el texto de lista vacía — mientras el encabezado de la MISMA pantalla le dice «SIN CONTAR 3,363». Dos afirmaciones contradictorias a la vez, y la causa real (no tiene permiso) no aparece. Quien lo vea concluye que el folio está vacío o que se perdieron los datos. Es el mismo defecto que §9b ya tenía para la lista de folios, agravado: acá es por permisos y en el detalle. ⚠️ El encabezado de la tabla además anuncia la columna **«Teórico»**, que su permiso le niega. | Captura en vivo con `monica_mejia`: `items` → 403, y la tabla pinta «Sin items para este filtro». |
 | **F12** | 🟡 | **El teórico del mismo almacén saltó de 2,094 a 3,363 artículos** entre junio y hoy (+61 %). Puede ser crecimiento real o un cambio de fuente: **no está medido**. Toca directo a **D-EX8**. | `INV-2026-00009` y `00007` (Padre Hidalgo, junio): 2,094 y 2,093. `INV-2026-00010` (Padre Hidalgo, hoy): 3,363. |
 | **F13** | 🟡 | **`GET /counts/resolve` devuelve `product_id: null` y un `brand_name` que vale `"341"`**, y la pantalla del contador pinta ese «341» junto al SKU como si fuera un dato del producto. Es el nombre de la marca en el catálogo. | Respuesta real: `{"product_id":null,"sku":"00203","barcode":"00203","brand_name":"341","location":null,…}`. |
