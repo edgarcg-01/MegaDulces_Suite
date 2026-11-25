@@ -1137,36 +1137,6 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
-  // `[GP.R.4]` La explicación vivía SÓLO en el `title` del tag «Redondeo» de la cartera: sin mouse no existía.
-  restos_cliente: {
-    title: 'Centavos sueltos de un cliente',
-    intro: 'Cuando un cliente paga su factura y quedan unos centavos, esa factura sigue abierta en Kepler aunque ya se cobró. Aquí qué son, cómo se cierran y qué no cierra el cierre.',
-    groups: [
-      {
-        heading: 'Qué es',
-        entries: [
-          { term: 'Resto de centavos', def: 'Lo que quedó debiendo una factura que YA recibió un cobro, hasta diez pesos. Una factura que nunca recibió un cobro no es un resto aunque deba ocho centavos: ésa es una factura sin pagar, y no entra aquí.' },
-          { term: 'Por qué aparece', def: 'El cliente deposita una cantidad redonda y se aplica a varias facturas; en la última queda la diferencia. No es un error de nadie.' },
-          { term: 'Hasta diez pesos', def: 'Arriba de eso ya no es redondeo, es deuda, y se cobra. El tope lo firmó Dirección y no se puede subir desde aquí.' },
-        ],
-      },
-      {
-        heading: 'Cómo se cierran',
-        entries: [
-          { term: 'Ajuste Abono', def: 'El documento que Kepler ya trae para esto. Un solo ajuste cierra de una vez todas las facturas con centavos de ese cliente, cada una por su resto exacto.' },
-          { term: 'Por qué no con un cobro', def: 'Un cobro dice que entró dinero. Si se capturan ocho centavos que nadie pagó, la caja del día y la cobranza del vendedor quedan diciendo algo que no pasó. El ajuste no afirma que entró dinero: afirma que se perdona el resto.' },
-          { term: 'Queda registrado', def: 'Quién lo cerró, por qué, sobre cuáles facturas y qué contestó Kepler. Es lo que permite explicarlo tres meses después.' },
-        ],
-      },
-      {
-        heading: 'Lo que NO cierra',
-        entries: [
-          { term: 'La factura ante el SAT', def: 'El Ajuste Abono no emite factura ni complemento de pago. La factura queda saldada en Kepler y ante el SAT sigue apareciendo con esos centavos pendientes, porque la suma de sus complementos ya no llega al total. La pantalla te lo dice cuando se puede medir.' },
-          { term: 'Por qué no se puede desde aquí', def: 'Cerrarlo ante el SAT pide una nota de crédito, y ésa la timbra Kepler, no la Suite. Está en revisión con Contabilidad.' },
-        ],
-      },
-    ],
-  },
   cfdi: {
     title: 'CFDI — ¿qué significan las claves?',
     intro: 'Comprobantes fiscales digitales (CFDI 4.0) del SAT. Aquí el significado de cada clave que ves en los filtros y la tabla.',
@@ -1690,10 +1660,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Qué cuenta como explicado',
         entries: [
           { term: 'Explicado', def: 'Tiene su documento de Kepler, su pago del Calendario, su cliente declarado o una categoría con evidencia. Un depósito que el motor llamó «cobranza» sólo por ser depósito NO está explicado.' },
-          { term: 'Falta explicar', def: 'Lo que no está explicado. Arriba se dice en pesos; en las tablas, en movimientos («Movs. por explicar»; «todos» cuando no hay ninguno explicado). Al abrirlo ves cada movimiento con su motivo.' },
+          { term: 'Falta explicar', def: 'Lo que no está explicado. Al abrirlo ves cada movimiento con su motivo.' },
           { term: 'Tarde', def: 'Lleva más de 5 días hábiles sin ligar: Kepler ya tuvo tiempo de capturarlo.' },
-          { term: 'Los colores', def: 'Verde con palomita: explicado. Ámbar: falta explicar y todavía está a tiempo. Rojo: tarde. La barra de cada tabla reparte sus movimientos (sin lo de entre tus cuentas) en esos tres estados.' },
-          { term: 'Sin clasificar', def: 'Movimientos del libro (banco y caja) que todavía no tienen categoría contable. Es otra lista: un movimiento puede estar explicado y sin categoría, o al revés.' },
         ],
       },
       {
@@ -1701,8 +1669,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         entries: [
           { term: 'Venta de tienda', def: 'El depósito casado con el cobro de un corte de caja de la sucursal. Se abre por sucursal y cada una lleva a sus cortes de caja.' },
           { term: 'Cobranza de facturas', def: 'El depósito casado con el cobro de una factura a un cliente.' },
-          { term: 'SPEI devuelto', def: 'Una transferencia que enviaste y el banco regresó. No es lo mismo que «Devolución» en Sin documento: ahí el banco sólo dice «devolución» y falta saber de qué.' },
-          { term: 'Entre tus cuentas', def: 'Dinero que pasó de una cuenta tuya a otra. No es ingreso ni egreso: va en su propio renglón, debajo del total de cada tabla, y no se suma a él.' },
+          { term: 'Traspasos entre tus cuentas', def: 'Dinero que vino de otra cuenta tuya. No es ingreso ni egreso: por eso «de fuera» y «a fuera» lo restan.' },
           { term: 'Sin documento', def: 'Depósitos que no casan con ningún documento de Kepler. El grupo es lo que escribe el banco (tarjeta, efectivo, transferencia, préstamo): una pista para ligarlo, no una explicación.' },
         ],
       },

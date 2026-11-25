@@ -465,10 +465,8 @@ export class FinanzasBancosComponent implements OnInit {
   readonly fDireccion = signal<'' | 'entra' | 'sale'>('');
   readonly fOrigen = signal('');
   readonly fSucursal = signal('');
-  /** [BFU.4.5.14] Sin lo que se movió entre tus cuentas: lo que suman «Total ingresos» y «Total egresos». */
-  readonly fDeFuera = signal(false);
   /** [BFU.4.5.12] Algún filtro que la descarga sin libro no tiene (área, dirección, origen, por ligar). */
-  readonly filtroDeGrupo = computed(() => !!(this.fArea() || this.fPorLigar() || this.fDireccion() || this.fOrigen() || this.fSucursal() || this.fDeFuera()));
+  readonly filtroDeGrupo = computed(() => !!(this.fArea() || this.fPorLigar() || this.fDireccion() || this.fOrigen() || this.fSucursal()));
   /**
    * [BFU.4.5.12] El selector de Movimientos: «Entradas» por origen (la venta de tienda, también por sucursal) y «Salidas»
    * por área, con cuántos movimientos tiene cada uno — los mismos grupos que la tabla de Cuentas. Valor: `dir|grupo|sucursal`.
@@ -478,21 +476,17 @@ export class FinanzasBancosComponent implements OnInit {
     const e = cob?.entradas, s = cob?.salidas;
     if (!e || !s) return [];
     const n = (v: number) => new Intl.NumberFormat('es-MX').format(v);
-    // [BFU.4.5.14] «Ingresos» y «Egresos» = sin lo de entre tus cuentas (el grupo `traspaso`): lo que suma el total de cada tabla.
-    const fuera = (d: { n: number; grupos: { area: string; n: number }[] }) => d.n - (d.grupos.find((g) => g.area === 'traspaso')?.n ?? 0);
     return [
       { label: 'Entradas', items: [{ label: `Todas las entradas · ${n(e.n)}`, value: 'entra||' },
-        { label: `Ingresos, sin entre tus cuentas · ${n(fuera(e))}`, value: 'entra|de_fuera|' },
         ...e.grupos.flatMap((g) => [{ label: `${g.nombre || g.area} · ${n(g.n)}`, value: `entra|${g.area}|` },
           ...(g.sucursales ?? []).map((x) => ({ label: `${g.nombre || g.area} · ${x.nombre || x.sucursal} · ${n(x.n)}`, value: `entra|${g.area}|${x.sucursal}` }))])] },
       { label: 'Salidas', items: [{ label: `Todas las salidas · ${n(s.n)}`, value: 'sale||' },
-        { label: `Egresos, sin entre tus cuentas · ${n(fuera(s))}`, value: 'sale|de_fuera|' },
         ...s.grupos.map((g) => ({ label: `${g.nombre || g.area} · ${n(g.n)}`, value: `sale|${g.area}|` }))] },
     ];
   });
   readonly fGrupo = computed(() => {
     const d = this.fDireccion();
-    return d ? `${d}|${this.fDeFuera() ? 'de_fuera' : d === 'entra' ? this.fOrigen() : this.fArea()}|${this.fSucursal()}` : '';
+    return d ? `${d}|${d === 'entra' ? this.fOrigen() : this.fArea()}|${this.fSucursal()}` : '';
   });
   readonly movDescarga = signal<DescargaEnMovimientos | null>(null);
   /** [CB.64] La ventana de Movimientos. Cerrada, no se piden movimientos (antes se cargaban con cada periodo aunque nadie los viera). */
@@ -511,8 +505,7 @@ export class FinanzasBancosComponent implements OnInit {
     const og = origenId ? cob?.entradas?.grupos.find((x) => x.area === origenId) : null;
     const origen = origenId ? (og?.nombre || origenId) : '';
     const sucursal = suc ? (og?.sucursales?.find((x) => x.sucursal === suc)?.nombre || suc) : '';
-    const direccion = this.fDeFuera() ? (dir === 'entra' ? ' · ingresos, sin entre tus cuentas' : dir === 'sale' ? ' · egresos, sin entre tus cuentas' : ' · sin entre tus cuentas')
-      : dir === 'entra' ? ' · entradas' : dir === 'sale' ? ' · salidas' : '';
+    const direccion = dir === 'entra' ? ' · entradas' : dir === 'sale' ? ' · salidas' : '';
     return `Movimientos · ${cuenta}${direccion}${origen ? ` · ${origen}` : ''}${sucursal ? ` · ${sucursal}` : ''}${area ? ` · ${area}` : ''}${porLigar ? ' · por ligar' : ''}${this.fUncat() ? ' · sin clasificar' : ''} · ${mes}`;
   });
   readonly uploading = signal(false);
@@ -943,7 +936,6 @@ export class FinanzasBancosComponent implements OnInit {
       search: this.fSearch() || undefined, limit: 500, contra_descarga: this.fDescarga() || undefined,
       area: this.fArea() || undefined, por_ligar: this.fPorLigar() || undefined,
       direccion: this.fDireccion() || undefined, origen: this.fOrigen() || undefined, sucursal_venta: this.fSucursal() || undefined,
-      de_fuera: this.fDeFuera() || undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.movements.set(r.rows); this.movTotal.set(r.total); this.movDescarga.set(r.descarga ?? null); this.movCargando.set(false); this.loading.set(false); },
       error: () => { this.movError.set('No se pudieron cargar los movimientos.'); this.movCargando.set(false); this.loading.set(false); },
@@ -1035,12 +1027,11 @@ export class FinanzasBancosComponent implements OnInit {
 
   /** [CB.64] Abre la ventana de Movimientos con estos filtros (lo que no se pasa, limpio). No cambia la vista de abajo. */
   abrirMovimientos(f: { account?: string; group?: string; uncat?: boolean; area?: string; porLigar?: boolean;
-    direccion?: '' | 'entra' | 'sale'; origen?: string; sucursal?: string; deFuera?: boolean }): void {
+    direccion?: '' | 'entra' | 'sale'; origen?: string; sucursal?: string }): void {
     this.fAccount.set(f.account || ''); this.fGroup.set(f.group || ''); this.fUncat.set(!!f.uncat);
     this.fRecon.set(''); this.fDescarga.set(''); this.fSearch.set('');
     this.fArea.set(f.area || ''); this.fPorLigar.set(!!f.porLigar); // [BFU.4.5.6]
     this.fDireccion.set(f.direccion || ''); this.fOrigen.set(f.origen || ''); this.fSucursal.set(f.sucursal || ''); // [BFU.4.5.12]
-    this.fDeFuera.set(!!f.deFuera); // [BFU.4.5.14]
     this.movements.set([]); this.movTotal.set(0); this.movDescarga.set(null);
     this.movAbierta.set(true);
     this.reloadMovements();
@@ -1050,13 +1041,10 @@ export class FinanzasBancosComponent implements OnInit {
   ponerGrupo(v: string): void {
     const [dir, grupo = '', suc = ''] = String(v || '').split('|');
     const d = dir === 'entra' || dir === 'sale' ? dir : '';
-    // [BFU.4.5.14] `de_fuera` no es un grupo: es «toda la dirección menos lo de entre tus cuentas».
-    const deFuera = !!d && grupo === 'de_fuera';
-    this.fDeFuera.set(deFuera);
     this.fDireccion.set(d);
-    this.fOrigen.set(d === 'entra' && !deFuera ? grupo : '');
-    this.fArea.set(d === 'sale' && !deFuera ? grupo : '');
-    this.fSucursal.set(d === 'entra' && !deFuera ? suc : '');
+    this.fOrigen.set(d === 'entra' ? grupo : '');
+    this.fArea.set(d === 'sale' ? grupo : '');
+    this.fSucursal.set(d === 'entra' ? suc : '');
   }
 
   cerrarMovimientos(): void { this.movAbierta.set(false); }

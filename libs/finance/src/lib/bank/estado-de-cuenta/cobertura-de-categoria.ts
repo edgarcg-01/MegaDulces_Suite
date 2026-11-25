@@ -115,8 +115,7 @@ export interface CoberturaPorArea {
 /**
  * `[BFU.4.5.12]` Lo que ENTRÓ o lo que SALIÓ del periodo, con sus grupos: las entradas por su origen (`claveDeEntrada`),
  * las salidas por el área que las explica (`leerFila`). Los grupos de una dirección suman la dirección, y las dos
- * direcciones suman el periodo. `[BFU.4.5.14]` Lo que se movió entre tus cuentas es el grupo `traspaso` en LAS DOS
- * direcciones (no es ingreso ni egreso): la pantalla lo pone fuera de los totales.
+ * direcciones suman el periodo.
  */
 export interface CoberturaPorDireccion {
   n: number;
@@ -132,16 +131,7 @@ const ATIENDE: Record<string, string | null> = { otros: 'tesoreria', por_asignar
 /** Los grupos que no son un departamento, con su nombre para la pantalla y el Excel. */
 export const NOMBRE_DE_GRUPO: Readonly<Record<string, string>> = {
   otros: 'Otros', por_asignar: 'Por asignar', quien_captura: 'Quien captura la cuenta', en_plazo: 'En plazo de captura', sin_motivo: 'Sin motivo',
-  traspaso: 'Entre tus cuentas',
 };
-
-/**
- * `[BFU.4.5.13]` Un RETIRO que fue a otra cuenta tuya: casado con un traspaso de Kepler (`N-*-26`) o con la categoría de
- * traspaso. Es el único lugar que lo decide: lo usan la cifra «entre tus cuentas», el grupo de las salidas y el filtro.
- */
-export function esTraspasoQueSale(f: Pick<FilaDeCobertura, 'origen_doc' | 'categoria'>): boolean {
-  return f.origen_doc === 'traspaso' || f.categoria === 'traspaso_entre_cuentas';
-}
 
 /** El área de un renglón SIN categoría, por su responsable (ya recalculado el plazo) y la dirección del dinero. */
 function areaDelResponsable(responsable: string, entra: boolean | null | undefined): string {
@@ -307,11 +297,9 @@ export function coberturaDeCategoria(filas: readonly FilaDeCobertura[], hoy: str
       sumarAlGrupo(e, f, l, n, monto); entradas.set(k, e);
       if (k === 'traspaso') { entre.entra.n += n; entre.entra.monto += monto; }
     } else if (f.entra === false) {
-      // [BFU.4.5.14] Lo que fue a otra cuenta tuya no es de ningún área: su propio grupo, como en las entradas.
-      const traspaso = esTraspasoQueSale(f), ks = traspaso ? 'traspaso' : l.area;
-      const s = salidas.get(ks) ?? nuevoGrupo(ks, traspaso ? null : l.area in ATIENDE ? ATIENDE[l.area] : l.area);
-      sumarAlGrupo(s, f, l, n, monto); salidas.set(ks, s);
-      if (traspaso) { entre.sale.n += n; entre.sale.monto += monto; }
+      const s = salidas.get(l.area) ?? nuevoGrupo(l.area, l.area in ATIENDE ? ATIENDE[l.area] : l.area);
+      sumarAlGrupo(s, f, l, n, monto); salidas.set(l.area, s);
+      if (f.origen_doc === 'traspaso' || f.categoria === 'traspaso_entre_cuentas') { entre.sale.n += n; entre.sale.monto += monto; }
     } else conDireccion = false;
   }
   const por_resolver = Array.from(grupos.values()).map((g) => ({ ...g, monto: r2(g.monto) }))
@@ -342,6 +330,5 @@ export function coberturaDeCategoria(filas: readonly FilaDeCobertura[], hoy: str
  */
 export function grupoDeLaFila(f: FilaDeCobertura, hoy: string): { direccion: 'entra' | 'sale' | null; grupo: string } {
   if (f.entra === true) return { direccion: 'entra', grupo: claveDeEntrada(f) };
-  if (f.entra === false && esTraspasoQueSale(f)) return { direccion: 'sale', grupo: 'traspaso' };
   return { direccion: f.entra === false ? 'sale' : null, grupo: leerFila(f, hoy).area };
 }

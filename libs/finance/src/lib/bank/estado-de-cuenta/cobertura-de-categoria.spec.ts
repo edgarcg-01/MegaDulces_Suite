@@ -227,36 +227,3 @@ describe('[BFU.4.5.13] coberturaDeCategoria — lo que se movió entre tus cuent
     expect(c.entre_cuentas).toEqual({ entra: { n: 0, monto: 0 }, sale: { n: 0, monto: 0 } });
   });
 });
-
-describe('[BFU.4.5.14] coberturaDeCategoria — lo que fue a otra cuenta tuya es su propio grupo en las salidas', () => {
-  const h = (o: Partial<FilaDeCobertura>): FilaDeCobertura => f({ con_categoria: true, area: 'tesoreria', entra: false, categoria: 'traspaso_entre_cuentas',
-    classified_by: 'documento', fuente: 'documento', documento: true, pago: false, cliente: false, ...o });
-  const filas: FilaDeCobertura[] = [
-    h({ origen_doc: 'traspaso', categoria: 'pago_credito', n: 1, monto: 300 }),     // el documento dice traspaso
-    h({ origen_doc: null, n: 3, monto: 700 }),                                       // la categoría dice traspaso
-    h({ origen_doc: 'otro_documento', categoria: 'pago_credito', n: 2, monto: 50 }), // Tesorería de verdad
-    h({ origen_doc: 'otro_documento', categoria: 'compra_mercancia', area: 'compras', n: 4, monto: 900 }),
-  ];
-  const c = coberturaDeCategoria(filas, HOY);
-  const sal = (k: string) => c.salidas!.grupos.find((g) => g.area === k);
-  it('el traspaso que sale NO se cuenta en el área que lo atiende: va a «traspaso», y suma lo mismo que entre_cuentas.sale', () => {
-    expect(sal('traspaso')).toMatchObject({ n: 4, monto: 1000, atiende: null });
-    expect(sal('tesoreria')).toMatchObject({ n: 2, monto: 50 });
-    expect({ n: sal('traspaso')!.n, monto: sal('traspaso')!.monto }).toEqual(c.entre_cuentas!.sale);
-  });
-  it('⛔ las salidas siguen sumando la dirección entera (el grupo se aparta, no se pierde)', () => {
-    expect(c.salidas!.grupos.reduce((t, g) => t + g.n, 0)).toBe(c.salidas!.n);
-    expect(c.salidas).toMatchObject({ n: 10, monto: 1950 });
-  });
-  it('grupoDeLaFila da el mismo grupo (lo usa el filtro de la lista y `de_fuera`)', () => {
-    expect(grupoDeLaFila(filas[0], HOY)).toEqual({ direccion: 'sale', grupo: 'traspaso' });
-    expect(grupoDeLaFila(filas[1], HOY)).toEqual({ direccion: 'sale', grupo: 'traspaso' });
-    expect(grupoDeLaFila(filas[2], HOY)).toEqual({ direccion: 'sale', grupo: 'tesoreria' });
-    // [negativa] una entrada de traspaso sigue siendo `traspaso` por su origen, no por esta regla de salidas.
-    expect(grupoDeLaFila(h({ entra: true, origen_doc: 'traspaso' }), HOY)).toEqual({ direccion: 'entra', grupo: 'traspaso' });
-  });
-  it('⛔ [negativa] una compra nunca cae en «traspaso»', () => {
-    expect(sal('compras')).toMatchObject({ n: 4, monto: 900 });
-    expect(grupoDeLaFila(filas[3], HOY).grupo).toBe('compras');
-  });
-});
