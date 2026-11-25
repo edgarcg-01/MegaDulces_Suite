@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Changed — Telemarketing › Cotizaciones: la pieza de los productos pieza · paquete · caja ya no se cotiza (COT.58 · 2026-11-24)
+- En los productos que se venden en pieza, paquete y caja (362, como los chocolates de 6), la pieza es para el piso de ventas: al cotizar sólo aparecen Paquete y Caja, con el paquete elegido, y una nota dice «Pieza: sólo en piso de ventas». Escanear el código de la pieza deja elegido el paquete.
+- Los productos a granel por peso (medio kilo, kilo, bulto) y los que tienen otras unidades siguen igual.
+- Las cotizaciones ya guardadas que traían pieza se conservan: se puede cambiar la cantidad y volver a cotizarlas. Lo que ya no se puede es agregar un renglón nuevo en pieza, ni cambiar uno a pieza.
+
 ### Added — Compras › Calendario de compras: las primeras mejoras de los usuarios (PQ.3.15 · PQ.3.21 · PQ.3.22 · 2026-11-24)
 - «Por zona» y «Por sucursal» (antes «Una zona», «Una sucursal»), con casillas: se marcan varias y se guarda una regla por cada lugar, todas a la vez. Cada una se atiende con lo de su lugar.
 - Bajo los días de la semana, «¿Cada cuánto?»: cada semana, cada 2, 3 o 6 semanas a partir de una fecha, o una vez al mes (el primero, segundo, tercero, cuarto o último de ese día). «Un viernes sí y otro no» ya no se mueve con las órdenes de Kepler.

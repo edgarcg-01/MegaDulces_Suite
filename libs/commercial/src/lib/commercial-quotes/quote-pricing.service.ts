@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnav
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import { AREA_COTIZACIONES } from './quote-scope';
 import type { Knex } from 'knex';
-import { totalesCotizacion } from '@megadulces/contracts';
+import { motivoPiezaSoloEnPiso, piezaSoloEnPiso, totalesCotizacion } from '@megadulces/contracts';
 import { FUENTE_PRECIOS_COTIZACION } from '../shared/catalogo-buscador';
 import { factorExactoDeFicha } from '../commercial-replenishment/ficha-kepler';
 import { disponibilidadAlCotizar } from './quote-disponibilidad';
@@ -373,6 +373,18 @@ export interface PriceLineInput {
    * (`quotes.list_price_only`); en la vista previa lo manda la pantalla.
    */
   list_price_only?: boolean;
+  /**
+   * `[COT.58]` La unidad se está ELIGIENDO (renglón nuevo o cambio de unidad): se rechaza la pieza de un
+   * pieza · paquete · caja, que se vende sólo en piso. Re-preciar un renglón ya guardado no lo pide, y
+   * así las cotizaciones que ya traían pieza siguen vivas; los pedidos (`commercial-orders`) tampoco.
+   */
+  check_sellable_unit?: boolean;
+}
+
+/** `[COT.58]` Los rótulos de las unidades que la escalera OFRECE (con precio), para `piezaSoloEnPiso`. */
+export function piezaSoloEnPisoDeEscalera(led: Pick<Ladder, 'rungs'>): boolean {
+  const ofrecida = (r: LadderRung | undefined) => (r && r.price !== null ? r.label : null);
+  return piezaSoloEnPiso(ofrecida(led.rungs.base), ofrecida(led.rungs.pack), ofrecida(led.rungs.box));
 }
 
 /**
@@ -746,6 +758,9 @@ export class QuotePricingService {
     // El peldaño del renglón guardado se resuelve acá y no antes, porque necesita la escalera de
     // ESTE sku: el rótulo solo es ambiguo (ver `rungDeRotulo`).
     const rung: Rung = input.rung ?? this.rungDeRotulo(input.rung_label ?? null, led);
+    if (input.check_sellable_unit && rung === 'base' && piezaSoloEnPisoDeEscalera(led)) {
+      throw new BadRequestException(motivoPiezaSoloEnPiso(sku, led.name, led.rungs.pack.size, led.rungs.box.size));
+    }
     const step = led.rungs[rung];
     if (!step || step.price === null) {
       return this.unpriced({
@@ -1064,6 +1079,7 @@ export class QuotePricingService {
         quantity: input.quantity,
         rung: input.rung,
         list_price_only: quote.list_price_only === true,
+        check_sellable_unit: true, // [COT.58] renglón nuevo: la unidad se está eligiendo
       });
     } else if (!input.requested_text || !input.requested_text.trim()) {
       throw new BadRequestException(
@@ -1325,6 +1341,8 @@ export class QuotePricingService {
         rung,
         rung_label: line.qty_unit,
         list_price_only: listaSola,
+        // [COT.58] Sólo cuando se pide OTRA unidad; editar la cantidad o re-cotizar conserva la que tenía.
+        check_sellable_unit: rung !== undefined,
       }, pre);
     }
 

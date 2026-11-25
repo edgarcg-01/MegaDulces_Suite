@@ -318,3 +318,5 @@ export * from './http/quote-close.contract';
 export * from './http/quote-search-event.contract';
 // `[COT.54]` Cuánto costó capturar una cotización (sólo se reporta agregado).
 export * from './http/quote-capture.contract';
+// `[COT.58]` La pieza de un pieza · paquete · caja se vende sólo en piso: en cotización, paquete o caja.
+export * from './http/quote-units.contract';
