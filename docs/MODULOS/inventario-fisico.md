@@ -261,13 +261,26 @@ CEDIS más las 9 sucursales. Las otras 18 son bodegas de camioneta, y **cinco ru
 distintos (`01-002`…`01-006` y `RUTA-22`…`RUTA-28`); además sigue vivo `MD-32`, que el propio código llama
 «un almacén borrado». Quien abre un folio elige a ciegas entre 28 renglones de los que 18 no tienen anaquel.
 
-**⛔ El guard de congelación quedó CIEGO (medido el 2026-11-25).** El *freeze integrity guard* de `reconcile()`
-—el que impide que un set absoluto borre las ventas ocurridas durante el conteo— pregunta por movimientos a
-`commercial.stock_movements`. Esa tabla tiene **102 filas en toda su historia y la última es del 2026-11-17**:
-nada la escribe. Los movimientos reales viven en el ODS (`kepler_ods.kdil`). O sea que el guard **no puede
-dispararse nunca**: pasa siempre, y pasaría también el día en que hubiera movimientos de verdad. Es una compuerta
-que mide una tabla muerta, no una intención — es peor, porque se lee como verde. Entra al alcance de **D-EX8**: si
-el teórico sale del ODS, el testigo de "se movió" también tiene que salir del ODS.
+**⛔⛔ «Congelar movimientos» congela la Suite, no el almacén (medido el 2026-11-25).** Es el defecto más caro
+del módulo, porque el código **cree lo contrario**: `reconcile()` comenta que con el freeze *«el saldo no se movió
+desde la apertura»* y por eso aplica un **set absoluto** del físico contado.
+
+Lo que el freeze bloquea de verdad son tres caminos de la Suite —apartados de pedido, recepción y movimientos de
+ubicación—, todos a través de `commercial.stock_movements`. Esa tabla tiene **102 filas en toda su historia**
+(37 auditorías de recepción, 23 de pedidos, el resto entradas; última el 2026-11-17). Lo que **no** bloquea, y es
+todo lo que mueve mercancía de verdad, es **la venta del POS y cualquier captura en Kepler**: la Suite no escribe
+en Kepler y la sucursal sigue vendiendo con el folio abierto. Esos movimientos entran por el ODS, y el ODS no se
+congela.
+
+Consecuencia directa: el *freeze integrity guard* —el que debería frenar la reconciliación si hubo movimientos—
+busca en `commercial.stock_movements`, así que **ve los apartados propios y es ciego a las ventas**. Puede
+dispararse, pero no por lo que importa. Y como el teórico es una **foto del ODS** tomada al abrir, mientras se
+cuenta la foto envejece sin que nada lo diga.
+
+⭐ Entra al alcance de **D-EX8**: si el teórico sale del ODS, el testigo de «se movió» tiene que salir del ODS
+también — comparar la existencia del ODS al abrir contra la del momento de reconciliar, por los SKUs del folio.
+Mientras eso no exista, **un conteo total con freeze no debe cerrarse con set absoluto**; el camino relativo
+contra `book_at_count` (el que ya usa el cíclico) es el único defendible.
 
 **La lista no filtra los cancelados**, así que hoy muestra seis folios muertos y nada más.
 
@@ -331,6 +344,42 @@ nuevos: son deuda que nadie pagó, y la compuerta las deja pasar por eso.
 pase) · 🔴 **Formularios** (pierde trabajo capturado) · 🟠 Alcance y comprensión · 🟡 Jerarquía y
 color. ⛔ Las tres 🔴 **bloquean** encender el módulo, y se suman a la razón de fondo de §9: el
 ajuste todavía cae en una tabla congelada.
+
+---
+
+## 9c. Modos de falla: luz, red, servidor y el mundo real (2026-11-25)
+
+Recorrido completo a pedido de Edgar. **Nivel B y C**; lo que exige ejercitar el camino contra una
+base real va marcado **NO MEDIDO** — no se da por bueno.
+
+### Lo que YA está resuelto, y bien
+
+| Falla | Qué pasa hoy |
+|---|---|
+| **Se cae la red mientras se cuenta** | La pantalla del contador es **offline-first**: el escaneo se persiste en el navegador (Dexie) **antes** de intentar la red, el catálogo del folio se cachea al iniciar la jornada para resolver códigos sin señal, y un banner dice «sin conexión» y cuántos van pendientes, con botón de reintentar |
+| **Se reenvía la cola dos veces** | Cada escaneo lleva un **UUID generado en el cliente**; el servidor guarda `inventory_count_scan_log` y un replay devuelve `duplicate: true` sin volver a aplicar. La verificación va **antes** de los guards, a propósito: un escaneo ya aplicado no se re-juzga porque el folio avanzó |
+| **Se cierra o cancela el folio con escaneos en cola** | El servidor responde 409, el cliente los marca **descartados con su motivo** (no los reintenta en vano) y la pantalla del contador los lista. Se pierde el conteo, pero **se sabe cuál y por qué** |
+| **Se va la luz del servidor a mitad de la reconciliación** | Todo el cierre corre en **una transacción**: o se aplica entero o no se aplica. El folio queda abierto y se reintenta |
+| **Dos personas cuentan el mismo SKU** | Un renglón por producto (índice único) y tres ranuras de conteo; el segundo pase es otra ranura, no un pisotón |
+| **Se cierra el navegador a media jornada** | La cola vive en el navegador, no en memoria: al volver a entrar sigue ahí |
+| **Caduca la sesión** | El token dura 12 h, más que un turno. Y aunque caduque, lo capturado está en la cola local |
+
+### Lo que NO está resuelto
+
+| # | Falla | Qué pasa hoy | Severidad |
+|---|---|---|---|
+| 1 | **La sucursal sigue vendiendo durante el conteo** | «Congelar movimientos» no frena el POS ni Kepler — ver §9. El teórico es una foto del ODS que envejece mientras se cuenta, y el guard que debería detectarlo mira la tabla equivocada | 🔴 |
+| 2 | **El teléfono se pierde, se formatea o se rompe** | La cola vive **sólo** en ese navegador. Lo contado y no subido se va con el aparato, y **el servidor nunca supo que existía**: no aparece como faltante en ningún lado. Hoy no hay forma de preguntar «¿cuántos escaneos hay sin subir, y en qué aparatos?» | 🔴 |
+| 3 | **El ODS viene atrasado al abrir el folio** | `openCount` **no consulta la frescura del ODS** (`analytics.ods_branch_checks`) ni la declara. Si la ingesta de esa sucursal viene atrasada, el folio nace con un teórico viejo y toda la varianza sale corrida, sin un solo aviso | 🔴 |
+| 4 | **La reconciliación no cabe en su tiempo** | `reconcile()` fija `statement_timeout = 60s` y recorre **renglón por renglón** (bloqueo, actualización, movimiento, estado). Un folio total de Padre Hidalgo son **4,819 SKUs** ≈ 19 mil sentencias en una sola transacción: el presupuesto queda en ~3 ms por sentencia. **NO MEDIDO** — nunca se reconcilió un folio en prod | 🔴 |
+| 5 | **El folio abandonado congela el almacén para siempre** | Sólo lo destraba una persona, cancelando o cerrando. No hay caducidad (ni la habrá: no usamos crons). La lista avisa a las 24 h y lo pone en rojo a los 7 días, pero **quien ve el aviso no siempre puede cancelar** (§9b) | 🟠 |
+| 6 | **El archivo para Kepler se genera y nadie lo captura** | `inventory_kepler_exports` está **vacía**: el lazo se cierra fuera del sistema y nada comprueba que el ajuste llegó al ERP. El mismo hueco que D-EX8 tiene que cerrar | 🟠 |
+| 7 | **Falla la reconciliación a la mitad por un saldo reservado** | Los renglones bloqueados quedan como `discrepancy` con su nota y el resto se aplica. Está bien resuelto, pero **el resumen no dice cuántos quedaron fuera** de forma que se puedan reintentar seleccionados | 🟡 |
+
+⭐ **Los tres primeros comparten causa**: el módulo trata la existencia como si fuera suya, y desde
+`[CANON.7.5]` **no lo es** — vive en el ODS. Un conteo físico contra una fuente que la Suite no
+controla necesita declarar **con qué foto se contó y de cuándo es**, y volver a mirarla al cerrar.
+Eso es exactamente **D-EX8**, y por eso el módulo no debe encenderse antes.
 
 ---
 
