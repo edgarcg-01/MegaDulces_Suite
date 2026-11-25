@@ -104,9 +104,40 @@ tiene renglones `U-A` para los subtipos **7, 21, 26, 41 y 42**, en las 9 sucursa
 crédito) y **no** aparece el que sabemos que no (`U-A-5` Cobro simple). Coincide con la otra evidencia: de los 51
 ajustes, ninguno trae folio digital ni `c62`/`c64`.
 
-**NO MEDIDO — lo que sigue necesitando el ensayo (RC.0b):**
-- Los **acumulados del cliente** en `kdud` (los «contadores» que la cartera por evento ve cambiar ~300 veces al
-  día). Es lo único que exige foto antes/después: lo resuelve el ensayo de RC.3.
+### 2.2 Los permisos, aplicados — y dos premisas de §2 que resultaron FALSAS (2026-11-24)
+
+**③ El permiso (GP.R.0c) está aplicado y verificado.** Medido primero **a nivel columna**, que es donde el
+instrumento engaña: ⚠️ `has_table_privilege(…,'UPDATE')` devuelve **false** cuando el permiso es por columna, así
+que una primera medición dijo que faltaba el contador de folios **y no faltaba** (`pgp1224` ya daba
+`UPDATE (c4)`). Con `has_column_privilege`, el estado real era: `kdm1.ins` ✅ · `kdm5.ins` ✅ ·
+`sqliov.c4upd` ✅ · `kdud.sel` ✅ · **`kdue.ins` ❌ en las 9**. O sea **un solo permiso faltaba**.
+Aplicado con `kepler-su-grants.sh` (`KSU=sa`, desde `md`) en **8 de 9** —CEDIS sigue sin línea de `pg_hba` para
+`sa`— y verificado con el **testigo independiente** (`kepler_push` preguntándose a sí mismo), no con la
+comprobación del propio script: `kdue.ins = true` en 01–08. Archivo: `ops/prod/kepler-grants/gpr0c_ajuste_abono.sql`.
+
+⛔⛔ **Lo que se creía y NO es cierto:**
+
+1. **«Los acumulados del cliente en `kdud`» — `kdud` NO es una tabla de acumulados.** Tiene **4 columnas
+   numéricas** (control: `kdxg`, el acumulador de proveedores, tiene **49**). `kdud` es el maestro del cliente
+   —nombre, límite, plazo, teléfono—, no un contador mensual. La frase de §2 apuntaba a la tabla equivocada.
+2. **`kdug` tampoco es el espejo de `kdxg`.** Tiene 49 columnas numéricas (igual que `kdxg`, por eso parecía), pero
+   su layout está **corrido** —`c1` es la moneda, `c2` la sucursal, `c3` el cliente— y sólo tiene **147 a 546 filas
+   por sucursal**, no una por cliente. **No se confirmó como el acumulador** y no se le atribuye ese papel.
+
+⭐⭐ **Y el hallazgo que cambia el plan de RC.0b: las cinco tablas tienen CERO disparadores.** Medido en el Kepler
+vivo de la 08 sobre `kdm1`, `kdm5`, `kdud`, `kdue` y `sqliov`: ningún trigger. **Todo lo hace el programa de
+Kepler, nada la base.** De ahí se sigue algo que hay que decir claro, porque separa dos preguntas que se venían
+confundiendo:
+
+> ⛔ **El ensayo con ROLLBACK prueba que NUESTRA escritura funciona; NO puede descubrir qué mueve el programa de
+> Kepler.** Si insertamos las filas nosotros, ningún acumulador se moverá — no porque el ajuste no los mueva, sino
+> porque quien los movería es la aplicación, que en el ensayo no participa.
+
+**NO MEDIDO, con su camino correcto:**
+- **Qué toca Kepler además de las tres tablas** al postear un Ajuste Abono. ⛔ **No lo resuelve el ensayo de RC.3**:
+  lo resuelve mirar un ajuste **real capturado por una persona en Kepler**, con foto antes/después por `xmin`. Son
+  ~10 minutos de alguien de Crédito y cobranza, no trabajo de ingeniería. *Y «esperar al próximo ajuste real»
+  tampoco es un plan: van 60 días con cero.* **Hay que pedirle a alguien que capture uno.**
 - Pólizas de los meses no revisados.
 
 ---
@@ -181,7 +212,7 @@ Los cobros capturados en Kepler los atrapa §3.2.
 |---|---|---|---|---|
 | **GP.R.0a** | ✅ Huella del Ajuste Abono en `kdm1`/`kdue`/`kdm5`, sin `kdm2` ni póliza, y el saldo de cartera = importe − Σ `kdm5` (§2) | C0 | — | no |
 | **GP.R.0b** | 🟡 **Lo NO MEDIDO de §2.** ✅ **2 de 3 cerradas en sólo lectura el 2026-11-24** (§2.1): el folio (`KFUA3001.<sucursal>`, 9 de 9) y el CFDI (no timbra, con control en los dos sentidos). ⬜ Falta **sólo `kdud`**, que sí exige foto antes/después. ⛔ Esperar «al próximo ajuste real» **no es un plan**: van 60 días con cero Ajustes Abono. Lo cierra el ensayo de RC.3 | C0 | — | no |
-| **GP.R.0c** | Permisos de `kepler_push` en los 9 servidores: `INSERT` en `md.kdm1`, `md.kdue` y `md.kdm5`; `UPDATE` en `md.sqliov` y lo que diga RC.0b en `kdud`, con su línea `-- verificar:`. Archivo en `ops/prod/kepler-grants/`; lo corre el PM | C0 | GP.R.0b | sí (permiso) |
+| **GP.R.0c** | ✅ **APLICADO el 2026-11-24 en 8 de 9** (`gpr0c_ajuste_abono.sql`, `KSU=sa` desde `md`; CEDIS sin `pg_hba` para `sa`), verificado con el testigo independiente. Medido a nivel COLUMNA, faltaba **un solo permiso**: `INSERT` en `md.kdue`. ~~Permisos de `kepler_push` en los 9 servidores~~: `INSERT` en `md.kdm1`, `md.kdue` y `md.kdm5`; `UPDATE` en `md.sqliov` y lo que diga RC.0b en `kdud`, con su línea `-- verificar:`. Archivo en `ops/prod/kepler-grants/`; lo corre el PM | C0 | GP.R.0b | sí (permiso) |
 | **GP.R.1** | **La regla del resto** movida a un lugar neutro de `libs/contracts`, usada por proveedores y clientes, con sus pruebas negativas. La cartera, la ficha y GP.A.1 la usan; la pantalla muestra «queda $X de redondeo» | C1 | — | — |
 | **GP.R.2** | **Armador del ajuste** en `libs/finance` (función pura): de un cliente y sus facturas con resto → los renglones de `kdm1`, `kdue` y `kdm5`. Valida que cada resto sea exacto, que la factura tenga cobro y que el total no pase el tope | C1 | GP.R.0a · D-R1 | — |
 | **GP.R.3** | **Adaptador de escritura** + **ensayo con ROLLBACK** contra el Kepler vivo (como `ops/prod/ensayo-nota-kepler/`): cada `INSERT` con su `rowCount` y un control de 0 documentos con la referencia del ensayo | C2 | GP.R.2 · GP.R.0c | ⛔ sí: sólo ensayo |
@@ -202,6 +233,8 @@ ContPAQi directo.
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-24 | ⭐⭐ **GP.R.3 — LA PRUEBA DE ESCRITURA PASÓ** (Edgar: «hagamos prueba de escritura»). `ops/prod/ensayo-ajuste-abono/` escribe un `U-A-30` de verdad en el Kepler vivo de Morelia Abastos y lo deshace: folio `0000002` del contador real `KFUA3001.08` (antes 2, máximo 1, **no atrasado**), encabezado clonado de la plantilla, renglón de `kdue` y aplicación de `kdm5` (1 fila cada uno), y **el saldo de la factura `8-1-0000470` pasó de $7.20 a $0.00** dentro de la transacción. **Control tras el ROLLBACK: 0 documentos del ensayo · contador IGUAL · saldos IGUALES.** El `ROLLBACK` es incondicional, en `finally`: no hay camino que confirme. ⭐ **Dos restricciones que sólo aparecen escribiendo, cazadas sin escribir nada:** (1) `clonarFila` **inserta y después pisa**, así que clonar directo a `md.kdm1` choca con `pk_kdm1` — hay que armar en una temporal sin llave y volcar al final, como `kepler-nota-sink`; (2) **`kdm1.c11` es `varchar(20)`**: la llave de idempotencia tiene que caber en 20 caracteres. Reusa `reservarFolioKepler` y `clonarFila`, no los reimplementa | Claude, a pedido de Edgar |
+| 2026-11-24 | ⭐ **GP.R.0c aplicado y dos premisas corregidas (§2.2).** Medido a nivel COLUMNA —`has_table_privilege` miente cuando el permiso es por columna— faltaba **un solo permiso**: `INSERT` en `md.kdue`. Aplicado en **8 de 9** (CEDIS sin `pg_hba` para `sa`) y verificado con `kepler_push` preguntándose a sí mismo. ⛔ **Falso lo de «los acumulados en `kdud`»**: `kdud` tiene 4 columnas numéricas (control: `kdxg` tiene 49), es el maestro del cliente, no un contador. `kdug` tampoco es su espejo (layout corrido, 147–546 filas por sucursal). ⭐⭐ **Y las cinco tablas tienen CERO disparadores**: todo lo hace el programa de Kepler. De ahí que **el ensayo con ROLLBACK pruebe nuestra escritura pero NO pueda descubrir qué mueve Kepler** — eso se ve mirando un ajuste real capturado por una persona, con foto antes/después. Son 10 min de Crédito y cobranza, no ingeniería | Claude, a pedido de Edgar |
 | 2026-11-24 | **D-R1 firmada ($10, automático) y dos tercios de GP.R.0b cerrados SIN escribir** (§2.1): el contador de folios es `KFUA3001.<sucursal>` con el folio siguiente en `c4`, cuadrado contra `max(folio)+1` en **9 de 9** —y con la trampa de los dos renglones por sucursal documentada—, y el Ajuste Abono **no emite CFDI** (no hay serie `U-A-30` en `kdfe33folxdoc` en ninguna sucursal, con control en los dos sentidos: `U-A-7` y `U-A-21` sí están, `U-A-5` no). Queda sólo `kdud` para el ensayo. **Corregida una premisa de §1.3**: 1 de los 51 ajustes sí trae `c11`, así que la idempotencia no puede apoyarse en «los manuales van vacíos». Re-medido hoy: **216 facturas de telemarketing con resto ≤ $10 ($165.53)**, en 01 (95), 06 (69) y 08 (52); la pila crece 50–80 al mes y en 60 días se cerraron **74 restos con un «Cobro» de centavos y cero con Ajuste Abono**. ⭐ Aclarado, porque la pregunta lo destapó: **el cobro se captura en Kepler, no en la Suite** (`/finanzas/cobranza` es evidencia read-only), así que el disparo es ver llegar el cobro por el ODS. Edgar descartó llevar la captura del cobro a la Suite dentro de este anexo | Claude, a pedido de Edgar |
 | 2026-11-24 | ⛔⛔ **El tope era UNA constante para las DOS decisiones, y partirla fue el trabajo de firmar D-R1.** `RESTO_TOLERADO = 1` decía en su propio comentario «es D-C1 (PGP) y D-R1 (GP); si cambia, cambia aquí»: subirla a $10 por la decisión de **clientes** habría movido callado el lado de **proveedores**, donde el anexo afirmaba «ninguno de $1 a $10» (19-nov) y **hoy hay 55 documentos por $193.48**. Ahora son `RESTO_TOLERADO_CLIENTE = 10` y `RESTO_TOLERADO_PROVEEDOR = 1`, y **el tope es parámetro obligatorio** de `esRestoTolerado`/`esRestoDeFactura`: el default silencioso es lo que permitió la confusión. Los 5 consumidores nombran el suyo (cliente: regla de autorizar, cartera, pantalla; proveedor: cierre de pago, nota de centavos). **Antes/después de clientes** (regla 15): 32 facturas más ($108.11) cuentan como pagadas y los «morosos sólo por resto» pasan de **16 a 19**, con el control de que los 1,471 clientes con algún vencido **no cambian**. Pruebas: 2 controles nuevos (los topes no se mueven juntos; $5 es resto de cliente y deuda de proveedor) **con su rojo verificado**, y la prueba espejo del SQL dejó de clavar el literal y ahora se arma con las constantes. `ngc --noEmit`: 0 errores. `check:pantalla` de `finanzas-cartera`: sin falla nueva. ⚠️ **NO MEDIDO**: la pantalla viva (el rótulo del redondeo ahora dice «hasta $10», no se vio en navegador) | Claude |
 | 2026-11-20 | **GP.R.1 (pantalla) 🧪.** `/finanzas/cartera`: el cliente cuyo vencido es puro redondeo dice «Redondeo» en la columna Vencido (con el monto atenuado), no pinta la fila de vencida y en «Más vencido (cobrar)» cuenta como cero; en el detalle, la partida de centavos de una factura cobrada dice «Redondeo» en vez de «Nd» (misma `esRestoDeFactura`). Sin KPI nuevo: $58 contra $64 M no decide nada arriba. Cinco preguntas por escrito en la sesión; 3 pruebas nuevas (28/28) con mutante rojo; `check:pantalla`: 0 fallas nuevas, tipa 0 errores; `check:templates` verde. **Sin validación visual** (no se levantó la app) | Claude |

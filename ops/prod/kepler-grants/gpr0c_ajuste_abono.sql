@@ -1,0 +1,34 @@
+-- [GP.R.0c] La Suite escribe en Kepler el **Ajuste Abono U-A-30**, que cierra los restos de centavos de las
+-- facturas de clientes (anexo FASE_GP_ANEXO_RESTOS_DE_COBRO.md; D-R1 firmada por Edgar el 2026-11-24 en $10).
+--
+-- Su huella está MEDIDA sobre los 51 ajustes que ya existen (anexo §2, 51 de 51):
+--   INSERT md.kdm1  — el encabezado U-A-30-01-<folio>            ← kepler_push YA lo tiene (carril del pedido/nota)
+--   INSERT md.kdm5  — una aplicación por factura                 ← kepler_push YA lo tiene
+--   INSERT md.kdue  — UN renglón del abono (c29='A', c4=30)      ← ⬅ LO ÚNICO QUE ESTE ARCHIVO AGREGA
+--   UPDATE md.sqliov (c4) — el contador KFUA3001.<sucursal>      ← ya dado por pgp1224_contador_sqliov.sql
+--   md.kdm2         — NADA (el ajuste no tiene renglones de producto): 0 filas en los 2 casos medidos
+--   la póliza       — NADA: sep-2026 tiene 0 renglones U-A-30, con control (U-A-5: 4,188 · U-A-21: 698)
+--
+-- ⭐ Por eso acá va INSERT y **no UPDATE**: el `kdue` de la FACTURA no se toca. Kepler no guarda el saldo en la
+--    cartera (`kdue.c17` = importe en 632 de 632 facturas medidas); el saldo es importe − Σ kdm5. El ajuste
+--    sólo AGREGA su propio renglón de abono.
+--
+-- Medido el 2026-11-24 en los 9 servidores, a nivel COLUMNA donde corresponde (⚠️ `has_table_privilege(...,'UPDATE')`
+-- devuelve false cuando el permiso es por columna: hay que preguntar con `has_column_privilege`):
+--   kdm1.ins=true · kdm5.ins=true · sqliov.c4upd=true · kdud.sel=true  →  **kdue.ins=false en las 9**
+--
+-- ⛔ Dar el permiso NO enciende nada. La escritura sigue apagada por partida doble:
+--    · el interruptor `commercial.kepler_push_switch` tipo `ajuste_abono`, que nace apagado por sucursal;
+--    · y la bandera de entorno del adaptador (GP.R.3), que no existe todavía.
+--    El primer uso es un ENSAYO CON ROLLBACK (GP.R.3), no una escritura real.
+--
+-- ⬜ NO MEDIDO y lo resuelve ese ensayo: si el ajuste mueve los acumulados del cliente en `md.kdud`.
+--    `kepler_push` ya tiene UPDATE sobre alguna columna de `kdud` (medido); si el ensayo muestra que hace falta
+--    otra, se pide en su propio archivo y no acá.
+--
+-- Correr con (primero revisa y no cambia nada, después aplica):
+--   node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/gpr0c_ajuste_abono.sql
+--   node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/gpr0c_ajuste_abono.sql --aplicar
+-- verificar: SELECT has_table_privilege('kepler_push', 'md.kdue', 'SELECT') AND has_table_privilege('kepler_push', 'md.kdue', 'INSERT')
+
+GRANT SELECT, INSERT ON md.kdue TO kepler_push;   -- el renglón del abono; el de la factura NO se modifica
