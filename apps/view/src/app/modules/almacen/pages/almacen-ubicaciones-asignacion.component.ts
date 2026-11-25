@@ -269,6 +269,29 @@ interface FilaPapel { papel: AssignmentRole; etiqueta: string; asignaciones: Pro
                   <!-- La respuesta primero, con rótulos que dicen lo que cuentan: tienda Y bodega (antes, «0 % ya ubicado»). -->
                   <app-metric-strip [items]="kpis()" density="compact" ariaLabel="Avance de la ubicación" />
                   <p class="ub-avance">{{ avance(l) }}</p>
+                  <!-- [UB.RF.19] Lo que se acaba de ubicar queda A LA VISTA. Al guardar, el producto sale
+                       de la lista (el filtro de entrada es «Por ubicar» y ya dejó de estarlo) y la unica
+                       senal era un aviso que se va: se leia como que no se habia guardado. -->
+                  @if (!aqui() && hechos().length) {
+                    <section class="ub-recien" aria-labelledby="ub-h-recien">
+                      <h3 id="ub-h-recien" class="ub-h3">Acabas de ubicar ({{ hechos().length }})</h3>
+                      <ul class="ub-hechos">
+                        @for (h of hechos(); track h.id) {
+                          <li>
+                            <span class="ub-hecho-nom">{{ h.nombre }} <span class="mono ub-sub">{{ h.sku }}{{ h.rotulo ? ' · ' + h.rotulo : '' }}</span></span>
+                            <b class="mono">{{ h.code }}</b>
+                            <button pButton type="button" class="p-button-sm p-button-text p-button-secondary ub-tap" [attr.aria-label]="'Quitar ' + h.nombre + ' de ' + h.code" [disabled]="ocupado()" (click)="quitarHecho(h)"><span class="p-button-label">Quitar</span></button>
+                          </li>
+                        }
+                      </ul>
+                    </section>
+                  }
+
+                  <!-- [UB.RF.17] Si se llegó desde un rack del mapa, la lista está recortada: se dice, con
+                       la salida al lado. Una lista filtrada sin avisar se lee como «no hay más». -->
+                  @if (rack(); as rk) {
+                    <div class="ub-note" role="note"><i class="pi pi-filter" aria-hidden="true"></i><span>Sólo los productos con lugar en el rack <b class="mono">{{ rk }}</b>.</span><button type="button" class="ub-link ub-tap" (click)="quitarRack()">Ver todo el almacén</button></div>
+                  }
                   <app-segmented [options]="filtros()" [value]="filtro()" (valueChange)="pickFiltro($any($event))" ariaLabel="Qué productos ver" />
                   <ul class="ub-cards">
                     @for (r of filas(); track r.product_id) {
@@ -351,6 +374,10 @@ interface FilaPapel { papel: AssignmentRole; etiqueta: string; asignaciones: Pro
     .ub-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:0 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
     .ub-note-bad { border-left:3px solid var(--bad-fg); }
     .ub-h2 { margin:0; font-size:var(--fs-h3); font-weight:700; }
+    /* [UB.RF.19] La bandeja de lo recien ubicado: se agrupa con espacio y un borde de 1px, sin caja nueva. */
+    .ub-recien { margin:.6rem 0; padding:.5rem .7rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); }
+    .ub-h3 { margin:0; font-size:var(--fs-sm); font-weight:700; }
+    .ub-recien .ub-hechos li:first-child { border-top:0; }
     .ub-avance { margin:.15rem 0 .5rem; font-size:var(--fs-sm); color:var(--text-main); }
     .ub-cards { list-style:none; margin:.6rem 0 0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); gap:.5rem; }
     .ub-card { width:100%; min-height:3.5rem; display:flex; flex-direction:column; align-items:flex-start; gap:.15rem; text-align:left; padding:.6rem .75rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font:inherit; cursor:pointer; }
@@ -401,6 +428,12 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
   readonly sinAlmacen = signal(false);
   readonly entrada = signal('');
   readonly q = signal('');
+  /**
+   * `[UB.RF.17]` `?rack=TA01` — el rack con el que llegó desde el mapa. Mientras está puesto, la lista
+   * muestra sólo lo que ya tiene un lugar vivo en ese rack (el filtro que el backend ya acepta por
+   * `[UB.RF.15]`). Es lo que hace que el número del mapa lleve a su lugar de arreglo y no sólo denuncie.
+   */
+  readonly rack = signal<string | null>(null);
   readonly filtro = signal<ProductLocationFilter>('sin_ubicacion');
   readonly lista = signal<ProductLocationsList | null>(null);
   readonly filas = signal<ProductLocationRow[]>([]);
@@ -497,6 +530,13 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
         this.productoEnHistorial = false;
         this.cerrarProducto();
       }
+      // [UB.RF.17] El rack con el que se llegó del mapa. Con rack puesto se mira lo que YA tiene lugar ahí.
+      const rack = m.get('rack');
+      if (rack !== this.rack()) {
+        this.rack.set(rack);
+        if (rack) this.filtro.set('con_ubicacion');
+        if (this.warehouseId()) this.cargarLista();
+      }
     });
     this.cargarAlmacenes();
   }
@@ -553,7 +593,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     if (!w) return;
     const folio = ++this.folioLista;
     this.err.set(null);
-    this.api.products(w, { q: this.q(), filtro: this.filtro(), orden: 'venta', limit: PAGINA, offset: 0 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.products(w, { q: this.q(), filtro: this.filtro(), orden: 'venta', limit: PAGINA, offset: 0, rack: this.rack() ?? undefined }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (l) => {
         if (folio !== this.folioLista) return;
         this.lista.set(l);
@@ -570,7 +610,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     if (!w || this.cargandoMas()) return;
     const folio = this.folioLista;
     this.cargandoMas.set(true);
-    this.api.products(w, { q: this.q(), filtro: this.filtro(), orden: 'venta', limit: PAGINA, offset: this.filas().length }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.products(w, { q: this.q(), filtro: this.filtro(), orden: 'venta', limit: PAGINA, offset: this.filas().length, rack: this.rack() ?? undefined }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (l) => {
         this.cargandoMas.set(false);
         if (folio !== this.folioLista) return;
@@ -581,8 +621,24 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     });
   }
 
+  /** `[UB.RF.17]` Quita el recorte por rack: la URL manda, así que «atrás» también lo deshace. */
+  quitarRack(): void {
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { rack: null }, queryParamsHandling: 'merge' });
+  }
+
   pickFiltro(f: ProductLocationFilter): void { this.filtro.set(f); this.cargarLista(); }
-  limpiar(): void { this.q.set(''); this.entrada.set(''); this.filtro.set('sin_ubicacion'); this.cargarLista(); }
+  /**
+   * `[UB.RF.17]` «Ver los que faltan por ubicar» también suelta el rack: con rack puesto y filtro
+   * «por ubicar» la lista sale SIEMPRE vacía (un producto sin lugar no puede tener lugar en ese rack),
+   * y se leería como «ya está todo ubicado».
+   */
+  limpiar(): void {
+    this.q.set('');
+    this.entrada.set('');
+    this.filtro.set('sin_ubicacion');
+    if (this.rack()) this.quitarRack(); // el subscribe de la URL recarga
+    else this.cargarLista();
+  }
 
   /** Las cifras de arriba: cuentan sobre el universo (lo que coincide con la búsqueda), no sobre la página. */
   readonly kpis = computed<MetricStripItem[]>(() => {
@@ -835,7 +891,12 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     try {
       const a = await firstValueFrom(this.api.createAssignment({ warehouse_id: d.warehouse.id, product_id: d.product.id, presentacion: peldano, papel, bin_code: u.code }));
       this.senalada.set(null);
-      if (this.aqui()?.code === u.code) this.hechos.update((l) => [{ id: a.id, code: u.code, sku: d.product.sku, nombre: d.product.nombre, rotulo }, ...l.filter((x) => x.id !== a.id)]);
+      // [UB.RF.19] TODO lo que se ubica entra a la bandeja, no sólo lo que se ubicó estando parado en
+      // esa ubicación. Si no, al guardar el producto desaparecía de la lista (el filtro de entrada es
+      // «Por ubicar» y ya dejó de estarlo) y la única señal era un aviso que se va: se leía como que no
+      // se había guardado. Medido el 2026-11-25: dos productos guardados a las 13:54 y 13:55, y a las
+      // 13:56 un intento de dar de alta la ubicación donde acababan de quedar.
+      this.hechos.update((l) => [{ id: a.id, code: u.code, sku: d.product.sku, nombre: d.product.nombre, rotulo }, ...l.filter((x) => x.id !== a.id)]);
       this.aviso.set({ tono: 'ok', texto: `${que} en ${papel === 'exhibicion_tienda' ? 'tienda' : papel === 'surtido_fijo' ? 'bodega' : 'reserva'} ${u.code}.`, deshacer: { tipo: 'quitar', id: a.id } });
       this.trasGuardar(d.product.id);
     } catch (e) {
@@ -848,7 +909,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     try {
       const r = await firstValueFrom(this.api.updateAssignment(a.id, { bin_code: u.code }));
       this.mover.set(null);
-      if (this.aqui()?.code === u.code) this.hechos.update((l) => [{ id: r.id, code: u.code, sku: d.product.sku, nombre: d.product.nombre, rotulo: a.presentacion_rotulo }, ...l.filter((x) => x.id !== r.id)]);
+      this.hechos.update((l) => [{ id: r.id, code: u.code, sku: d.product.sku, nombre: d.product.nombre, rotulo: a.presentacion_rotulo }, ...l.filter((x) => x.id !== r.id)]); // [UB.RF.19]
       this.aviso.set({ tono: 'ok', texto: `${d.product.nombre} se movió de ${a.code} a ${u.code}.`, deshacer: { tipo: 'volver', id: r.id, code: a.code } });
       this.trasGuardar(d.product.id);
     } catch (e) {

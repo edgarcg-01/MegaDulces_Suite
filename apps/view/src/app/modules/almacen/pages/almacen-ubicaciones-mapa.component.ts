@@ -13,8 +13,11 @@ import {
   describeLocationCode,
   LOCATION_KINDS,
   parseLocationCode,
+  rackFace,
+  rackOpuesto,
   type LocationKind,
   type LocationZone,
+  type RackFace,
   type WarehouseLocationRow,
   type WarehouseLocationsResponse,
 } from '@megadulces/contracts';
@@ -30,17 +33,39 @@ import { elegirAlmacen, guardarAlmacenPreferido } from '../shared/almacen-prefer
 import { AndenCartelComponent, type CartelUbicacion, type FormatoCartel } from '../anden/components/anden-cartel.component';
 
 /** Estado de un rack en el mapa: el más urgente de sus niveles. */
-type EstadoRack = 'bloqueada' | 'contenido' | 'activa' | 'baja' | 'vacio';
+export type EstadoRack = 'bloqueada' | 'contenido' | 'activa' | 'baja' | 'vacio';
 
-interface Celda {
+export interface Celda {
   rack: number;
   estado: EstadoRack;
   niveles: WarehouseLocationRow[];
+  /**
+   * `[UB.RF.17]` Productos con lugar asignado en el rack. Es **el número que se pinta**, porque es el
+   * único que varía: medido el 2026-11-25, los 75 racks de CEDIS tenían los mismos 5 niveles y los 39 de
+   * Padre Hidalgo los mismos 4, así que el mapa dibujaba 75 cuadros idénticos mientras 2 de esos racks ya
+   * tenían producto y se veían igual que los otros 37.
+   */
+  productos: number;
   aria: string;
 }
-interface Fila {
+/**
+ * `[UB.RF.18]` Un **frente** de un pasillo: el de los nones o el de los pares. Un pasillo es un
+ * corredor con dos frentes enfrentados (Edgar, 2026-11-25) y el mapa los dibuja como tales.
+ */
+export interface Fila {
   pasillo: string;
+  cara: RackFace;
+  /** Índice en la lista plana de frentes: es con lo que se mueven las flechas. */
+  fi: number;
   celdas: Celda[];
+}
+
+export interface PasilloMapa {
+  pasillo: string;
+  /** La columna k son los racks 2k-1 (non) y 2k (par): quedan uno enfrente del otro. */
+  columnas: number;
+  nones: Fila;
+  pares: Fila;
 }
 
 const ESTADO_LABEL: Record<EstadoRack, string> = {
@@ -70,8 +95,10 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     <div class="surf-page in">
       <header class="surf-page-head ub-head">
         <div class="ub-head-text">
-          <h1>Ubicaciones</h1>
-          @if (data()?.warehouse; as w) { <span class="ub-meta">{{ w.code }} · {{ w.name }} · bodega y tienda en el mismo almacén</span> }
+          <!-- [UB.RF.19] El almacén va EN el título, no en gris chico al lado: quien no tiene almacen en
+               su ficha abre en el primero por codigo y leia «no hay nada» sin notar de cual hablaba. -->
+          <h1>Ubicaciones @if (data()?.warehouse; as w) { <span class="ub-wh">· {{ w.name }}</span> }</h1>
+          <span class="ub-meta">bodega y tienda en el mismo almacén</span>
         </div>
         <div class="ub-actions">
           @if (almacenOpts().length > 1) {
@@ -110,6 +137,28 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
         } @else {
           <app-metric-strip [items]="kpis()" ariaLabel="Resumen de ubicaciones" />
 
+          <!-- [UB.RF.19] Si este almacen no tiene productos ubicados y otro si, se DICE con su nombre y
+               su cifra. «No hay nada» sobre el almacen equivocado se lee como «se perdio lo que guarde». -->
+          @if (otroConTrabajo(); as o) {
+            <p class="ub-note">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              <span>{{ data()?.warehouse?.name }} todavía no tiene productos ubicados. <b>{{ o.name }}</b> tiene {{ o.con_producto }}.</span>
+              <button pButton type="button" class="p-button-sm p-button-text" (click)="pickAlmacen(o.id)"><span class="p-button-label">Ver {{ o.name }}</span></button>
+            </p>
+          }
+
+          <!-- [UB.RF.17] Lo que el mapa NO recorre se declara, no se cuenta en silencio: Zamora Centro
+               publicaba «3 activas» y el mapa vacío, porque sus 3 son carretas (medido 2026-11-25). -->
+          @if (!enCaptura() && fueraDelMapa(); as f) {
+            <p class="ub-note">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              <span>{{ f.texto }}</span>
+              @if (f.carretas && !enCarretas()) {
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="verCarretas(true)"><span class="p-button-label">Ver carretas</span></button>
+              }
+            </p>
+          }
+
           @if (carteles().length) {
             <section class="ub-block ub-carteles" [attr.aria-label]="formatoCartel() === 'etiqueta' ? 'Etiquetas para imprimir' : 'Carteles para imprimir'">
               <app-anden-cartel [ubicaciones]="carteles()" [formato]="formatoCartel()" (cerrar)="cerrarImpresion()" />
@@ -132,7 +181,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
           }
 
           @if (enCaptura()) {
-            <app-ubicaciones-captura [warehouse]="d.warehouse" (cambio)="reload()" />
+            <app-ubicaciones-captura [warehouse]="d.warehouse" [ubicaciones]="d.ubicaciones" (cambio)="reload()" />
           } @else if (enCarretas()) {
             <app-ubicaciones-carretas [warehouse]="d.warehouse" [puedeGestionar]="puedeGestionar()" [puedeCoordinar]="puedeCoordinar()" />
           } @else {
@@ -141,36 +190,55 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
               <div class="ub-bh">
                 <h2 id="ub-h-mapa" class="sr-only">Mapa</h2>
                 <app-segmented [options]="zonaOpts()" [value]="zona()" (valueChange)="pickZona($any($event))" ariaLabel="Zona" />
-                <div class="ub-legend" aria-hidden="true">
-                  <span><i class="ub-sw ub-c-activa"></i>Dada de alta</span>
-                  <span><i class="ub-sw ub-c-contenido"><i class="pi pi-box"></i></i>Con mercancía</span>
-                  <span><i class="ub-sw ub-c-bloqueada"><i class="pi pi-ban"></i></i>Bloqueada</span>
-                  <span><i class="ub-sw ub-c-baja"></i>Dada de baja</span>
-                  <span><i class="ub-sw ub-c-vacio"></i>Sin dar de alta</span>
+                <!-- [UB.RF.17] Leyenda VIVA: sólo los estados que esta zona tiene. Antes listaba los cinco
+                     siempre, y dos de ellos (bloqueada, baja) no los puede producir nadie todavía. -->
+                <div class="ub-legend">
+                  @for (l of leyenda(); track l.estado) {
+                    <span><i class="ub-sw ub-c-{{ l.estado }}">@if (l.icono) { <i class="pi {{ l.icono }}" aria-hidden="true"></i> }</i>{{ l.label }}</span>
+                  }
+                  @if (conProducto()) { <span><b class="num">N</b> productos con lugar ahí</span> }
                 </div>
               </div>
 
               @if (filas().length) {
-                <div class="ub-grid-wrap">
-                  <!-- Una sola parada de tabulador para todo el mapa; las flechas mueven entre racks (D.4a). -->
-                  <div class="ub-grid" role="group" aria-label="Mapa de racks: flechas para moverse, Enter para ver el rack" [style.--ub-cols]="racks().length" (keydown)="onGridKey($event)">
-                    <span></span>
-                    @for (r of racks(); track r) { <span class="ub-rh num">{{ dos(r) }}</span> }
-                    @for (f of filas(); track f.pasillo; let fi = $index) {
-                      <span class="ub-ah">Pasillo <b class="num">{{ f.pasillo }}</b></span>
-                      @for (c of f.celdas; track c.rack; let ci = $index) {
-                        <button type="button" class="ub-cell ub-c-{{ c.estado }}" [class.sel]="selKey() === f.pasillo + c.rack"
-                          [attr.data-pos]="fi + '-' + ci" [attr.tabindex]="esFoco(fi, ci) ? 0 : -1"
-                          [attr.aria-label]="c.aria" [attr.aria-pressed]="selKey() === f.pasillo + c.rack" (click)="pickRack(f.pasillo, c, fi, ci)">
-                          @if (c.estado === 'bloqueada') { <i class="pi pi-ban" aria-hidden="true"></i> }
-                          @else if (c.estado === 'contenido') { <i class="pi pi-box" aria-hidden="true"></i> }
-                          @else if (c.estado === 'activa') { <span class="ub-cell-n num" aria-hidden="true">{{ c.niveles.length }}</span> }
-                        </button>
-                      }
-                    }
-                  </div>
+                <!-- [UB.RF.18] Un pasillo es un CORREDOR con dos frentes enfrentados: se dibujan como
+                     tales, los nones arriba y los pares abajo, con el corredor en medio. Cada frente
+                     lleva su propia regleta de numeros pegada a su fila, para que nadie tenga que
+                     deducir cual rack es cual. Una sola parada de tabulador; las flechas mueven (D.4a). -->
+                <div class="ub-grid-wrap" role="group" aria-label="Mapa de pasillos: flechas para moverse, Enter para ver el rack" (keydown)="onGridKey($event)">
+                  @for (p of pasillos(); track p.pasillo) {
+                    <section class="ub-pasillo" [attr.aria-label]="'Pasillo ' + p.pasillo">
+                      <h3 class="ub-ph">Pasillo <b class="num">{{ p.pasillo }}</b></h3>
+                      <div class="ub-corredor" [style.--ub-cols]="p.columnas">
+                        @for (f of [p.nones, p.pares]; track f.cara) {
+                          @if (f.cara === 'pares') { <div class="ub-via" aria-hidden="true"><span>corredor</span></div> }
+                          <span class="ub-cara">{{ f.cara }}</span>
+                          <div class="ub-frente">
+                            @if (f.cara === 'nones') {
+                              <div class="ub-nums">@for (c of f.celdas; track c.rack) { <span class="ub-rh num">{{ dos(c.rack) }}</span> }</div>
+                            }
+                            <div class="ub-celdas">
+                              @for (c of f.celdas; track c.rack; let ci = $index) {
+                                <button type="button" class="ub-cell ub-c-{{ c.estado }}" [class.sel]="selKey() === f.pasillo + c.rack"
+                                  [attr.data-pos]="f.fi + '-' + ci" [attr.tabindex]="esFoco(f.fi, ci) ? 0 : -1"
+                                  [attr.aria-label]="c.aria" [attr.aria-pressed]="selKey() === f.pasillo + c.rack" (click)="pickRack(f.pasillo, c, f.fi, ci)">
+                                  @if (c.estado === 'bloqueada') { <i class="pi pi-ban" aria-hidden="true"></i> }
+                                  @else if (c.estado === 'contenido') { <i class="pi pi-box" aria-hidden="true"></i> }
+                                  @else if (c.productos) { <span class="ub-cell-n num" aria-hidden="true">{{ c.productos }}</span> }
+                                  @else if (c.estado === 'baja') { <i class="pi pi-minus" aria-hidden="true"></i> }
+                                </button>
+                              }
+                            </div>
+                            @if (f.cara === 'pares') {
+                              <div class="ub-nums">@for (c of f.celdas; track c.rack) { <span class="ub-rh num">{{ dos(c.rack) }}</span> }</div>
+                            }
+                          </div>
+                        }
+                      </div>
+                    </section>
+                  }
                 </div>
-                <p class="ub-hint">Cada cuadro es un rack: el número es cuántos niveles tiene dados de alta; el ícono marca si alguno está bloqueado o tiene mercancía. Tócalo para ver sus niveles.</p>
+                <p class="ub-hint">Cada pasillo tiene dos frentes, uno a cada lado del corredor: los racks <b>nones</b> de un lado y los <b>pares</b> del otro, así que el <b class="num">{{ dos(1) }}</b> queda enfrente del <b class="num">{{ dos(2) }}</b>. El número del cuadro es cuántos productos ya tienen su lugar ahí; tócalo para ver sus niveles.</p>
               } @else {
                 <div class="ub-empty"><i class="pi pi-map" aria-hidden="true"></i><span>Todavía no hay ubicaciones de {{ zona() === 'B' ? 'bodega' : 'tienda' }} con el formato nuevo en {{ d.warehouse.code }}.</span>@if (puedeGestionar()) { <span>Da de alta la primera aquí a la derecha, o muchas a la vez con «Captura masiva» (por rango o desde Excel).</span> }</div>
               }
@@ -179,13 +247,15 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
             <aside class="ub-block ub-side" aria-label="Detalle">
               @if (sel(); as s) {
                 <div class="ub-step">
+                  <!-- [UB.RF.18] Dice de que frente es y que tiene enfrente: parado en el pasillo, eso es lo que ubica. -->
                   <h3>Rack {{ s.pasillo }}{{ dos(s.celda.rack) }} · {{ zona() === 'B' ? 'bodega' : 'tienda' }}</h3>
+                  <p class="ub-sub">Frente de {{ cara(s.celda.rack) }}, enfrente del <b class="num">{{ s.pasillo }}{{ dos(opuesto(s.celda.rack)) }}</b>.</p>
                   @if (s.celda.niveles.length) {
                     <ul class="ub-levels">
                       @for (n of s.celda.niveles; track n.id) {
                         <li class="ub-level">
                           <span class="ub-code mono">{{ n.code }}</span>
-                          <span class="ub-level-txt">Nivel {{ n.nivel }} · {{ tipoLabel(n.tipo) }}@if (n.renglones_con_cantidad) { · <b>{{ n.renglones_con_cantidad }} con mercancía</b> }</span>
+                          <span class="ub-level-txt">Nivel {{ n.nivel }} · {{ tipoLabel(n.tipo) }}@if (n.productos_asignados) { · <b>{{ n.productos_asignados }} {{ n.productos_asignados === 1 ? 'producto' : 'productos' }}</b> }@if (n.renglones_con_cantidad) { · <b>{{ n.renglones_con_cantidad }} con mercancía</b> }</span>
                           <span class="ub-chip ub-chip-{{ n.estado }}">{{ estadoTxt(n.estado) }}</span>
                           @if (n.estado !== 'baja') {
                             <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [attr.aria-label]="'Imprimir ' + (formatoCartel() === 'etiqueta' ? 'la etiqueta' : 'el cartel') + ' de ' + n.code" (click)="verCarteles({ code: n.code })"><span class="p-button-icon pi pi-print" aria-hidden="true"></span></button>
@@ -194,7 +264,11 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
                         </li>
                       }
                     </ul>
-                    <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verCarteles({ pasillo: s.pasillo, rack: s.celda.rack })"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">Imprimir {{ formatoCartel() === 'etiqueta' ? 'las etiquetas' : 'los carteles' }} de este rack</span></button>
+                    <div class="ub-acts ub-acts-start">
+                      <!-- [UB.RF.17] Q.4: el número que el mapa publica lleva a su lugar de arreglo, con el rack ya filtrado. -->
+                      <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verAsignacion(s.pasillo, s.celda.rack)"><span class="p-button-icon pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">{{ s.celda.productos ? 'Ver sus ' + s.celda.productos + ' ' + (s.celda.productos === 1 ? 'producto' : 'productos') : 'Asignar productos' }}</span></button>
+                      <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="verCarteles({ pasillo: s.pasillo, rack: s.celda.rack })"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">Imprimir {{ formatoCartel() === 'etiqueta' ? 'las etiquetas' : 'los carteles' }}</span></button>
+                    </div>
                   } @else {
                     <p class="ub-hint">Este rack no tiene niveles dados de alta.</p>
                   }
@@ -220,7 +294,10 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
               @if (legado().length) {
                 <div class="ub-step">
                   <h3>Con código libre ({{ legado().length }})</h3>
-                  <p class="ub-hint">Las dio de alta el Andén antes del formato nuevo. Siguen valiendo; se recodifican desde Mantenimiento.</p>
+                  <!-- [UB.RF.17] Antes decía «se recodifican desde Mantenimiento», y esa pantalla no existe
+                       (UB.4 no tiene código ni endpoint). Un texto que manda a un lugar inexistente es peor
+                       que no decir nada: la persona lo busca. -->
+                  <p class="ub-hint">Las dio de alta el Andén antes del formato nuevo. Siguen valiendo y se pueden usar; todavía no hay forma de recodificarlas desde la suite.</p>
                   <ul class="ub-levels">
                     @for (n of legado(); track n.id) {
                       <li class="ub-level"><span class="ub-code mono">{{ n.code }}</span><span class="ub-level-txt">{{ n.label || 'Sin nombre' }}@if (n.renglones_con_cantidad) { · <b>{{ n.renglones_con_cantidad }} con mercancía</b> }</span><span class="ub-chip ub-chip-{{ n.estado }}">{{ estadoTxt(n.estado) }}</span></li>
@@ -240,6 +317,8 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .surf-page-head { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:.5rem; }
     .ub-head-text { display:flex; flex-wrap:wrap; align-items:baseline; gap:.35rem .75rem; min-width:0; }
     .ub-head-text h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.01em; }
+    /* [UB.RF.19] El almacen, en el titulo: mismo tamano, menos peso. No es metadato. */
+    .ub-wh { font-weight:500; color:var(--text-muted); }
     .ub-meta { font-size:var(--fs-xs); color:var(--text-muted); }
     .ub-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
     /* ::ng-deep sólo para el ancho del p-select de PrimeNG (vendor). */
@@ -249,25 +328,42 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-block { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; flex:999 1 36rem; }
     .ub-side { flex:1 1 20rem; }
     .ub-bh { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem; padding:.6rem .85rem; border-bottom:1px solid var(--border-color); }
-    .ub-cell:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    /* [UB.RF.17] --focus-ring (anillo SÓLIDO), no --action-ring: ése es el halo translúcido de un
+       box-shadow y como outline daba 1.56:1 en claro y 1.07:1 sobre una celda pintada. El mapa se
+       recorre con flechas: su anillo es el único indicador de dónde está la persona. */
+    .ub-cell:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .ub-legend { display:flex; flex-wrap:wrap; gap:.4rem .9rem; font-size:var(--fs-xs); color:var(--text-muted); }
     .ub-legend span { display:inline-flex; align-items:center; gap:.35rem; }
     .ub-sw { display:inline-flex; align-items:center; justify-content:center; width:1rem; height:1rem; border-radius:3px; }
     .ub-sw .pi { font-size:var(--fs-nano); }
-    .ub-grid-wrap { overflow-x:auto; padding:.75rem .85rem .25rem; }
-    .ub-grid { display:grid; grid-template-columns:4.75rem repeat(var(--ub-cols), minmax(1.75rem, 1fr)); gap:.25rem; align-items:center; min-width:min-content; }
+    .ub-grid-wrap { overflow-x:auto; padding:.75rem .85rem .25rem; display:flex; flex-direction:column; gap:var(--sp-5); }
+    /* [UB.RF.18] Un bloque por pasillo: los dos frentes se agrupan por ESPACIO, no por una caja mas. */
+    .ub-pasillo { display:flex; flex-direction:column; gap:.3rem; min-width:min-content; }
+    .ub-ph { font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); margin:0; text-transform:uppercase; letter-spacing:.04em; }
+    .ub-ph b { color:var(--text-main); font-size:var(--fs-sm); }
+    .ub-corredor { display:grid; grid-template-columns:3.5rem 1fr; gap:.15rem .6rem; align-items:center; }
+    .ub-cara { font-size:var(--fs-micro); color:var(--text-muted); text-align:right; white-space:nowrap; }
+    .ub-frente { display:flex; flex-direction:column; gap:.15rem; }
+    .ub-nums, .ub-celdas { display:grid; grid-template-columns:repeat(var(--ub-cols), minmax(1.75rem, 1fr)); gap:.25rem; }
+    /* El corredor: la linea que separa los dos frentes es el pasillo por el que se camina. */
+    .ub-via { grid-column:1 / -1; display:flex; align-items:center; gap:.5rem; margin:.15rem 0; }
+    .ub-via::before, .ub-via::after { content:''; flex:1; border-top:1px dashed var(--border-color); }
+    .ub-via span { font-size:var(--fs-nano); color:var(--text-faint); text-transform:uppercase; letter-spacing:.08em; }
     /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ .ub-rh { text-align:center; font-size:var(--fs-micro); color:var(--text-muted); }
-    .ub-ah { font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; }
     .ub-cell { height:2.25rem; border-radius:var(--r-sm); border:1px solid transparent; cursor:pointer; padding:0; display:inline-flex; align-items:center; justify-content:center; color:var(--text-main); }
     .ub-cell .pi { font-size:var(--fs-xs); }
-    .ub-cell-n { font-size:var(--fs-nano); color:var(--card-bg); }
+    /* [GP.RF.12] 11 px es el piso de letra: el dato principal del mapa no puede ir por debajo. */
+    .ub-cell-n { font-size:var(--fs-micro); font-weight:700; color:var(--card-bg); }
     @media (pointer: coarse) { .ub-cell { height:2.75rem; } }
     .ub-cell.sel { outline:3px solid var(--action); outline-offset:2px; }
     .ub-c-activa { background:var(--text-muted); border-color:var(--text-muted); }
     .ub-c-contenido { background:var(--warn-soft-bg); border-color:var(--warn-border); color:var(--warn-soft-fg); }
     .ub-c-bloqueada { background:var(--bad-soft-bg); border:2px solid var(--bad-fg); color:var(--bad-fg); }
-    .ub-c-baja { background:var(--hover-bg); border:1px solid var(--border-color); }
-    .ub-c-vacio { background:transparent; border:1px dashed var(--border-color); }
+    /* [UB.RF.17] «Dada de baja» y «sin dar de alta» se distinguían sólo por un relleno a 1.10:1 y un
+       borde a 1.27:1 contra la tarjeta — por debajo del 3:1 que pide un objeto que porta información.
+       Ahora: baja = borde sólido + guion; vacío = borde punteado. Trazo e ícono, no sólo color. */
+    .ub-c-baja { background:var(--hover-bg); border:1px solid var(--text-muted); color:var(--text-muted); }
+    .ub-c-vacio { background:transparent; border:1px dashed var(--text-muted); }
     .ub-step { padding:.75rem .85rem; border-top:1px solid var(--border-color); display:flex; flex-direction:column; gap:.5rem; }
     .ub-side > .ub-step:first-child { border-top:0; }
     .ub-step h3 { font-size:var(--fs-sm); font-weight:700; margin:0; }
@@ -293,6 +389,11 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-carteles { padding:.75rem .85rem; }
     .ub-imprimir { border-top:1px solid var(--border-color); }
     .ub-acts { display:flex; justify-content:flex-end; gap:.5rem; }
+    .ub-acts-start { justify-content:flex-start; flex-wrap:wrap; }
+    .ub-note:not(.ub-note-bad) { align-items:center; }
+    .ub-note:not(.ub-note-bad) .pi { color:var(--text-muted); }
+    .ub-note span { flex:1; min-width:0; }
+    .ub-legend b { color:var(--text-main); font-weight:700; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
     .ub-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
@@ -383,15 +484,84 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
     { label: `T · Tienda (${this.cuentaZona('T')})`, value: 'T' },
   ]);
 
+  /**
+   * `[UB.RF.17]` Las ubicaciones que el mapa de esta zona SÍ recorre. Todo KPI se cuenta sobre esto,
+   * no sobre el resumen del almacén: el resumen suma carretas, contenedores y la otra zona, y así
+   * Zamora Centro publicaba «3 activas» con el mapa vacío (medido 2026-11-25).
+   */
+  private readonly enMapa = computed(() => this.conFormato().filter((u) => u.zona === this.zona() && u.estado !== 'baja'));
+  /** Para la leyenda: si algún CUADRO del mapa lleva número. */
+  readonly conProducto = computed(() => this.enMapa().filter((u) => u.productos_asignados > 0).length);
+  /**
+   * `[UB.RF.17]` Todo lo que esta pantalla muestra: el mapa de la zona **y** la lista de código libre.
+   * Los KPI de contenido se cuentan sobre esto. Si se contaran sólo sobre el mapa, 8 Esquinas publicaría
+   * «0 con mercancía» con su única ubicación —de código libre— diciendo «1 con mercancía» tres dedos
+   * más abajo (medido 2026-11-25).
+   */
+  private readonly recorrible = computed(() => [...this.enMapa(), ...this.legado().filter((u) => u.estado !== 'baja')]);
+
+  /**
+   * `[UB.RF.17]` Las familias que no tienen pasillo ni rack y por lo tanto no caben en el mapa. Si no se
+   * dicen, se cuelan en los KPI y la persona busca en el mapa algo que nunca va a estar ahí.
+   */
+  readonly fueraDelMapa = computed<{ texto: string; carretas: number } | null>(() => {
+    const otras = (this.data()?.ubicaciones ?? []).filter((u) => u.familia !== 'ubicacion' && u.familia !== 'legado');
+    if (!otras.length) return null;
+    const carretas = otras.filter((u) => u.familia === 'carreta').length;
+    const resto = otras.length - carretas;
+    const partes: string[] = [];
+    if (carretas) partes.push(`${carretas} ${carretas === 1 ? 'carreta' : 'carretas'}`);
+    if (resto) partes.push(`${resto} sin pasillo ni rack`);
+    return { texto: `Este almacén tiene ${partes.join(' y ')} fuera del mapa: no se dibujan porque no tienen lugar en la cuadrícula.`, carretas };
+  });
+
+  readonly leyenda = computed<Array<{ estado: EstadoRack; label: string; icono?: string }>>(() => {
+    const presentes = new Set<EstadoRack>();
+    for (const f of this.filas()) for (const c of f.celdas) presentes.add(c.estado);
+    const todas: Array<{ estado: EstadoRack; label: string; icono?: string }> = [
+      { estado: 'activa', label: 'Dada de alta' },
+      { estado: 'contenido', label: 'Con mercancía', icono: 'pi-box' },
+      { estado: 'bloqueada', label: 'Bloqueada', icono: 'pi-ban' },
+      { estado: 'baja', label: 'Dada de baja', icono: 'pi-minus' },
+      { estado: 'vacio', label: 'Sin dar de alta' },
+    ];
+    return todas.filter((l) => presentes.has(l.estado));
+  });
+
   readonly kpis = computed<MetricStripItem[]>(() => {
     const r = this.data()?.resumen;
+    const enMapa = this.enMapa();
+    const recorrible = this.recorrible();
+    const zona = this.zona() === 'B' ? 'bodega' : 'tienda';
+    const otra = this.cuentaZona(this.zona() === 'B' ? 'T' : 'B');
+    const conProducto = recorrible.filter((u) => u.productos_asignados > 0).length;
+    const bloqueadas = recorrible.filter((u) => u.estado === 'bloqueada').length;
+    const conMercancia = recorrible.filter((u) => u.renglones_con_cantidad > 0).length;
     if (!r) return [];
-    return [
-      { label: 'Ubicaciones activas', value: r.activas, sub: `de ${r.total} dadas de alta` },
-      { label: 'Bloqueadas', value: r.bloqueadas, tone: r.bloqueadas > 0 ? 'bad' : 'default', sub: 'no se sugieren' },
-      { label: 'Con mercancía', value: r.con_contenido, sub: 'acomodada con escaneo' },
-      { label: 'Código libre', value: r.legado, tone: r.legado > 0 ? 'warn' : 'default', sub: 'sin el formato BA053' },
+    const items: MetricStripItem[] = [
+      {
+        label: `Ubicaciones en ${zona}`,
+        value: enMapa.length,
+        sub: otra > 0 ? `y ${otra} en ${zona === 'bodega' ? 'tienda' : 'bodega'}` : 'las que recorre este mapa',
+      },
+      { label: 'Con producto asignado', value: conProducto, sub: conProducto ? `de ${recorrible.length} a la vista` : 'nadie tiene lugar fijo todavía' },
     ];
+    // [UB.RF.17] ADR-056: si el acomodo con escaneo nunca escribió en este almacén, el cero NO se
+    // publica como un hecho de la operación. Medido el 2026-11-25: una sola fila en todo prod.
+    items.push(
+      r.contenido_medido
+        ? { label: 'Con mercancía', value: conMercancia, sub: 'acomodada con escaneo' }
+        : {
+            label: 'Con mercancía',
+            value: 'sin medir',
+            format: 'text',
+            state: 'no_medido',
+            stateNote: 'El acomodo con escaneo todavía no registra nada en este almacén, así que no hay con qué decir cuántas tienen mercancía.',
+          },
+    );
+    if (bloqueadas > 0) items.push({ label: 'Bloqueadas', value: bloqueadas, tone: 'bad', sub: 'no se sugieren' });
+    if (r.legado > 0) items.push({ label: 'Código libre', value: r.legado, tone: 'warn', sub: 'sin el formato BA053' });
+    return items;
   });
 
   readonly codigo = signal('');
@@ -413,27 +583,28 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
     (this.data()?.alcance.almacenes ?? []).map((w) => ({ label: w.name, value: w.id })) /* [UB.RF.7] por nombre */,
   );
 
+  /**
+   * `[UB.RF.19]` El almacén del alcance que SÍ tiene productos ubicados, cuando el que se está viendo
+   * no tiene ninguno. Sale de `alcance.almacenes`, que ya trae el conteo de cada uno.
+   *
+   * Es el agujero que se midió el 2026-11-25: quien no tiene almacén en su ficha abre en el primero por
+   * código (CEDIS, 375 ubicaciones y **0 productos**), lee «no hay nada» y concluye que se perdió lo que
+   * acababa de guardar — en Padre Hidalgo. Terminó en cinco intentos de dar de alta una que ya existía.
+   */
+  readonly otroConTrabajo = computed(() => elAlmacenQueSiTieneTrabajo(this.data()?.alcance.almacenes ?? [], this.data()?.warehouse?.id ?? null));
+
   private readonly conFormato = computed(() => (this.data()?.ubicaciones ?? []).filter((u) => u.familia === 'ubicacion'));
   readonly legado = computed(() => (this.data()?.ubicaciones ?? []).filter((u) => u.familia === 'legado'));
 
   /** Columnas: del rack 1 al mayor que exista en la zona (los huecos se ven como "sin dar de alta"). */
-  readonly racks = computed(() => {
-    const max = Math.max(0, ...this.conFormato().filter((u) => u.zona === this.zona()).map((u) => u.rack ?? 0));
-    return Array.from({ length: max }, (_, i) => i + 1);
-  });
+  /**
+   * `[UB.RF.18]` Un pasillo por bloque, y **cada bloque con sus dos frentes** enfrentados. Cada pasillo
+   * usa sólo las columnas que necesita: uno de 6 racks ya no arrastra las 25 columnas del más largo.
+   */
+  readonly pasillos = computed<PasilloMapa[]>(() => armarPasillos(this.conFormato(), this.zona()));
 
-  readonly filas = computed<Fila[]>(() => {
-    const deZona = this.conFormato().filter((u) => u.zona === this.zona());
-    const pasillos = [...new Set(deZona.map((u) => u.pasillo as string))].sort((a, b) => aisleOrder(a) - aisleOrder(b));
-    return pasillos.map((pasillo) => ({
-      pasillo,
-      celdas: this.racks().map((rack) => {
-        const niveles = deZona.filter((u) => u.pasillo === pasillo && u.rack === rack).sort((a, b) => (a.nivel ?? 0) - (b.nivel ?? 0));
-        const estado = estadoDeRack(niveles);
-        return { rack, estado, niveles, aria: `Rack ${pasillo}${String(rack).padStart(2, '0')}, ${ESTADO_LABEL[estado]}` };
-      }),
-    }));
-  });
+  /** Los frentes en una sola lista, en el orden en que se recorren: es lo que mueven las flechas. */
+  readonly filas = computed<Fila[]>(() => this.pasillos().flatMap((p) => [p.nones, p.pares]));
 
   ngOnInit(): void {
     this.reload();
@@ -475,6 +646,14 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
     void this.router.navigate([], { relativeTo: this.route, queryParams: { vista: si ? 'carretas' : null }, queryParamsHandling: 'merge' });
   }
 
+  /**
+   * `[UB.RF.17]` El rack elegido, abierto en Asignación con ese filtro ya puesto (`rack=TA01`, el formato
+   * que ya acepta el backend por `[UB.RF.15]`). Sin esto, el número del mapa denuncia y no lleva a nada.
+   */
+  verAsignacion(pasillo: string, rack: number): void {
+    void this.router.navigate(['/almacen/ubicaciones/asignacion'], { queryParams: { rack: `${this.zona()}${pasillo}${this.dos(rack)}` } });
+  }
+
   verCaptura(si: boolean): void {
     void this.router.navigate([], { relativeTo: this.route, queryParams: { vista: si ? 'captura' : null }, queryParamsHandling: 'merge' });
   }
@@ -502,21 +681,30 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
     return f.fi === fi && f.ci === ci;
   }
 
-  /** Flechas mueven entre racks; Inicio/Fin al principio/fin del pasillo. Enter/Espacio los da el botón. */
+  /**
+   * Flechas: izquierda y derecha mueven por el frente; arriba y abajo **cruzan el corredor** y pasan
+   * al pasillo siguiente. Inicio/Fin, a los extremos del frente. Enter y Espacio los da el botón.
+   *
+   * `[UB.RF.18]` Cada frente tiene su propio largo (un pasillo de 6 racks y otro de 25), así que el
+   * tope de columnas se lee de la fila a la que se va, no de un máximo global: si no, la flecha dejaba
+   * el foco en una celda que no existe y no se veía dónde quedó.
+   */
   onGridKey(ev: KeyboardEvent): void {
-    const filas = this.filas().length;
-    const cols = this.racks().length;
-    if (!filas || !cols) return;
+    const filas = this.filas();
+    if (!filas.length) return;
     let { fi, ci } = this.foco();
+    const cols = (i: number) => filas[i]?.celdas.length ?? 0;
+    if (!cols(fi)) return;
     switch (ev.key) {
-      case 'ArrowRight': ci = Math.min(cols - 1, ci + 1); break;
+      case 'ArrowRight': ci = Math.min(cols(fi) - 1, ci + 1); break;
       case 'ArrowLeft': ci = Math.max(0, ci - 1); break;
-      case 'ArrowDown': fi = Math.min(filas - 1, fi + 1); break;
+      case 'ArrowDown': fi = Math.min(filas.length - 1, fi + 1); break;
       case 'ArrowUp': fi = Math.max(0, fi - 1); break;
       case 'Home': ci = 0; break;
-      case 'End': ci = cols - 1; break;
+      case 'End': ci = cols(fi) - 1; break;
       default: return;
     }
+    ci = Math.min(ci, Math.max(0, cols(fi) - 1));
     ev.preventDefault();
     this.foco.set({ fi, ci });
     this.host.nativeElement.querySelector<HTMLButtonElement>(`[data-pos="${fi}-${ci}"]`)?.focus();
@@ -573,6 +761,13 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   dos(n: number): string {
     return String(n).padStart(2, '0');
   }
+  /** `[UB.RF.18]` El frente y el rack de enfrente, los dos deducidos del número: no hay nada que capturar. */
+  cara(rack: number): RackFace {
+    return rackFace(rack);
+  }
+  opuesto(rack: number): number {
+    return rackOpuesto(rack);
+  }
   tipoLabel(t: LocationKind | null): string {
     return t ? LOCATION_KINDS.find((k) => k.key === t)?.label ?? t : 'sin tipo';
   }
@@ -614,6 +809,78 @@ export function zonaConUbicaciones(actual: LocationZone, enBodega: number, enTie
   const deActual = actual === 'B' ? enBodega : enTienda;
   const deOtra = actual === 'B' ? enTienda : enBodega;
   return deActual === 0 && deOtra > 0 ? (actual === 'B' ? 'T' : 'B') : actual;
+}
+
+/** Un almacén del alcance, con cuánto trabajo tiene. */
+type AlmacenDelAlcance = { id: string; name: string; con_producto: number };
+
+/**
+ * `[UB.RF.19]` El almacén que SÍ tiene productos ubicados, cuando el que se está viendo no tiene
+ * ninguno. `null` si el de aquí ya tiene, o si ningún otro tiene (entonces no hay nada que ofrecer).
+ *
+ * El agujero que cierra, medido el 2026-11-25: quien no tiene almacén en su ficha abre en el primero
+ * por código —CEDIS, con 375 ubicaciones y **0 productos**—, lee «no hay nada» y concluye que se perdió
+ * lo que acababa de guardar, que estaba en Padre Hidalgo. Terminó en cinco intentos de dar de alta una
+ * ubicación que ya existía.
+ */
+export function elAlmacenQueSiTieneTrabajo<T extends AlmacenDelAlcance>(todos: readonly T[], aqui: string | null): T | null {
+  const actual = todos.find((w) => w.id === aqui);
+  if (!aqui || !actual || actual.con_producto > 0) return null;
+  return [...todos].filter((w) => w.id !== aqui && w.con_producto > 0).sort((a, b) => b.con_producto - a.con_producto)[0] ?? null;
+}
+
+/**
+ * `[UB.RF.18]` Arma el mapa de una zona: **un bloque por pasillo, con sus dos frentes**.
+ *
+ * Un pasillo es un corredor y tiene racks de los dos lados (Edgar, 2026-11-25): los nones de uno y los
+ * pares del otro. La columna `k` son los racks `2k-1` y `2k`, que con los dos frentes parejos quedan
+ * uno enfrente del otro. Cada pasillo usa sólo las columnas que necesita, así que uno de 6 racks ya no
+ * arrastra las 25 columnas del más largo.
+ *
+ * `fi` es la posición del frente en la lista plana: es con lo que se mueven las flechas.
+ */
+export function armarPasillos(conFormato: WarehouseLocationRow[], zona: LocationZone): PasilloMapa[] {
+  const deZona = conFormato.filter((u) => u.zona === zona);
+  const nombres = [...new Set(deZona.map((u) => u.pasillo as string))].sort((a, b) => aisleOrder(a) - aisleOrder(b));
+  let fi = 0;
+  return nombres.map((pasillo) => {
+    const suyas = deZona.filter((u) => u.pasillo === pasillo);
+    const columnas = Math.ceil(Math.max(0, ...suyas.map((u) => u.rack ?? 0)) / 2);
+    const frente = (cara: RackFace): Fila => ({
+      pasillo,
+      cara,
+      fi: fi++,
+      celdas: Array.from({ length: columnas }, (_, k) => {
+        const rack = cara === 'nones' ? 2 * k + 1 : 2 * k + 2;
+        const niveles = suyas.filter((u) => u.rack === rack).sort((a, b) => (a.nivel ?? 0) - (b.nivel ?? 0));
+        const estado = estadoDeRack(niveles);
+        const productos = productosDeRack(niveles);
+        return { rack, estado, niveles, productos, aria: ariaDeRack(pasillo, rack, estado, niveles.length, productos) };
+      }),
+    });
+    return { pasillo, columnas, nones: frente('nones'), pares: frente('pares') };
+  });
+}
+
+/**
+ * `[UB.RF.17]` Productos con lugar asignado en el rack, sin contar los niveles dados de baja (un lugar
+ * en una ubicación retirada no es un lugar). Es lo que el mapa pinta.
+ */
+export function productosDeRack(niveles: WarehouseLocationRow[]): number {
+  return niveles.reduce((n, u) => n + (u.estado === 'baja' ? 0 : u.productos_asignados), 0);
+}
+
+/**
+ * `[UB.RF.17]` Lo que oye quien no ve el cuadro. Dice las tres cosas que el ojo saca del mapa —estado,
+ * cuántos niveles y cuántos productos— porque el color no es portador de nada por sí solo.
+ */
+export function ariaDeRack(pasillo: string, rack: number, estado: EstadoRack, niveles: number, productos: number): string {
+  // [UB.RF.18] El frente va en el aria: sin ver el dibujo, «A05» no dice de qué lado del corredor está.
+  const code = `${pasillo}${String(rack).padStart(2, '0')}, frente de ${rackFace(rack)}`;
+  if (estado === 'vacio') return `Rack ${code}, ${ESTADO_LABEL.vacio}`;
+  const cuantos = `${niveles} ${niveles === 1 ? 'nivel' : 'niveles'}`;
+  const conProducto = productos === 0 ? 'sin productos asignados' : `${productos} ${productos === 1 ? 'producto asignado' : 'productos asignados'}`;
+  return `Rack ${code}, ${ESTADO_LABEL[estado]}, ${cuantos}, ${conProducto}`;
 }
 
 export function estadoDeRack(niveles: WarehouseLocationRow[]): EstadoRack {
