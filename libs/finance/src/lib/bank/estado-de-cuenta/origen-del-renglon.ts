@@ -62,12 +62,16 @@ export function claveDeEntrada(f: Pick<FilaDeCobertura, 'origen_doc' | 'categori
   return `sin_documento:${senalDelBanco(f.concepto)}`;
 }
 
-/** El nombre de cada grupo de entradas, para la pantalla y el Excel. */
+/**
+ * El nombre de cada grupo de entradas, para la pantalla y el Excel. `[BFU.4.5.14]` Dos grupos no se llaman casi igual: el
+ * SPEI que el banco regresó (con su categoría) no es «la devolución» que el banco menciona sin documento; y el traspaso se
+ * llama como en las salidas, «Entre tus cuentas».
+ */
 export const NOMBRE_DE_ORIGEN: Readonly<Record<string, string>> = {
   venta_tienda: 'Venta de tienda',
   cobranza: 'Cobranza de facturas',
-  traspaso: 'Traspasos entre cuentas',
-  devolucion: 'Devoluciones',
+  traspaso: 'Entre tus cuentas',
+  devolucion: 'SPEI devuelto',
   otro_documento: 'Otros documentos de Kepler',
   'sin_documento:terminal': 'Venta con tarjeta',
   'sin_documento:efectivo': 'Depósito en efectivo',

@@ -306,6 +306,8 @@ export interface MovementsQuery {
   origen?: string;
   /** [BFU.4.5.12] Sólo la venta de tienda de esa sucursal. */
   sucursal_venta?: string;
+  /** [BFU.4.5.14] Sin lo que se movió entre tus cuentas (lo que suman «Total ingresos» y «Total egresos»). */
+  de_fuera?: boolean;
 }
 
 /** CB.24 — Cuadre 3 vías (Workbook ↔ Kepler 102 ↔ ContPAQi). */
@@ -611,6 +613,7 @@ export class BankService {
     if (q.direccion) p.set('direccion', q.direccion);
     if (q.origen) p.set('origen', q.origen);
     if (q.sucursal_venta) p.set('sucursal_venta', q.sucursal_venta);
+    if (q.de_fuera) p.set('de_fuera', 'true');
     return this.http.get<MovementsPage>(`${this.base}/movements?${p.toString()}`);
   }
 

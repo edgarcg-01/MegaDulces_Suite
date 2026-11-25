@@ -227,6 +227,8 @@ export interface ListMovementsQuery {
   origen?: string;
   /** `[BFU.4.5.12]` Sólo la venta de tienda de esa sucursal (código de Kepler del corte). */
   sucursal_venta?: string;
+  /** `[BFU.4.5.14]` 'true' → sin lo que se movió entre tus cuentas (el grupo `traspaso` de las dos direcciones). */
+  de_fuera?: string;
 }
 
 @Injectable()
@@ -756,15 +758,18 @@ export class FinanceBankService {
       // regla que la cifra «quién explica cada peso» — el número y la lista que abre no pueden contar distinto. Sólo hay
       // área en el universo del motor (la descarga del banco ya en el libro): lo que la descarga trae y el libro no, no entra.
       // [BFU.4.5.12] Y por dirección (entradas / salidas), por origen de la entrada y por sucursal del corte: el grupo lo
-      // decide `grupoDeLaFila`, la misma pieza que arma la cifra.
+      // decide `grupoDeLaFila`, la misma pieza que arma la cifra. [BFU.4.5.14] En las salidas el área es la del grupo
+      // (lo que fue a otra cuenta tuya es `traspaso`, no el área que lo atiende), y `de_fuera` quita ese grupo.
       let idsDelArea: string[] | null = null;
       const direccion = q.direccion === 'entra' || q.direccion === 'sale' ? q.direccion : null;
-      if (q.area || q.por_ligar === 'true' || direccion || q.origen || q.sucursal_venta) {
+      const deFuera = q.de_fuera === 'true';
+      if (q.area || q.por_ligar === 'true' || direccion || q.origen || q.sucursal_venta || deFuera) {
         if (!q.period) throw new BadRequestException('el filtro por área, dirección u origen necesita el periodo');
         const hoy = todayMx();
         idsDelArea = (await leerHechosDelPeriodo(trx, q.period)).filter((h) => {
           const l = leerFila(h, hoy), g = grupoDeLaFila(h, hoy);
-          return (!q.area || l.area === q.area) && (q.por_ligar !== 'true' || l.explicado === false)
+          return (!q.area || (direccion === 'sale' ? g.grupo : l.area) === q.area) && (q.por_ligar !== 'true' || l.explicado === false)
+            && (!deFuera || (g.direccion !== null && g.grupo !== 'traspaso'))
             && (!direccion || g.direccion === direccion)
             && (!q.origen || (g.direccion === 'entra' && g.grupo === q.origen))
             && (!q.sucursal_venta || h.sucursal_doc === q.sucursal_venta);

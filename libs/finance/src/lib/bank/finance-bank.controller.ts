@@ -206,12 +206,14 @@ export class FinanceBankController {
     @Query('direccion') direccion?: string,
     @Query('origen') origen?: string,
     @Query('sucursal_venta') sucursal_venta?: string,
+    @Query('de_fuera') de_fuera?: string,
   ) {
     const q: ListMovementsQuery = {
       period, account_id, category_id, group_key, uncategorized, recon_status, search,
       limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined, contra_descarga,
       area, por_ligar, // [BFU.4.5.6] por área y lo que falta ligar
       direccion, origen, sucursal_venta, // [BFU.4.5.12] entradas/salidas, origen de la entrada, sucursal del corte
+      de_fuera, // [BFU.4.5.14] sin lo que se movió entre tus cuentas
     };
     return this.svc.movements(q);
   }
