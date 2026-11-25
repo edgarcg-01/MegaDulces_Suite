@@ -29,9 +29,8 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { UbicacionesCapturaComponent } from './ubicaciones-captura.component';
 import { UbicacionesCarretasComponent } from './ubicaciones-carretas.component';
-import { elegirAlmacen, guardarAlmacenPreferido, recordarRollo, rolloRecordado } from '../shared/almacen-preferido';
+import { elegirAlmacen, guardarAlmacenPreferido } from '../shared/almacen-preferido';
 import { AndenCartelComponent, type CartelUbicacion, type FormatoCartel } from '../anden/components/anden-cartel.component';
-import { ROLLOS_AMARILLOS, ROLLO_POR_OMISION, type RolloAmarillo } from '../anden/etiqueta-ubicacion';
 
 /** Estado de un rack en el mapa: el más urgente de sus niveles. */
 export type EstadoRack = 'bloqueada' | 'contenido' | 'activa' | 'baja' | 'vacio';
@@ -162,15 +161,15 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
 
           @if (carteles().length) {
             <section class="ub-block ub-carteles" [attr.aria-label]="formatoCartel() === 'etiqueta' ? 'Etiquetas para imprimir' : 'Carteles para imprimir'">
-              <app-anden-cartel [ubicaciones]="carteles()" [formato]="formatoCartel()" [rollo]="rolloCartel()" (cerrar)="cerrarImpresion()" />
+              <app-anden-cartel [ubicaciones]="carteles()" [formato]="formatoCartel()" (cerrar)="cerrarImpresion()" />
             </section>
           } @else if (imprimirAbierto() && !enCaptura()) {
             <section class="ub-block ub-step ub-imprimir" aria-labelledby="ub-h-imp">
               <h3 id="ub-h-imp">Imprimir · {{ zona() === 'B' ? 'bodega' : 'tienda' }}</h3>
               @if (pasillosCartel().length) {
-                <app-segmented [options]="formatosCartel" [value]="opcionCartel()" (valueChange)="pickFormato($any($event))" ariaLabel="Tamaño del papel" />
+                <app-segmented [options]="formatosCartel" [value]="formatoCartel()" (valueChange)="formatoElegido.set($any($event))" ariaLabel="Tamaño" />
                 <app-segmented [options]="pasillosCartel()" [value]="pasilloCartel()" (valueChange)="pasilloCartel.set($any($event))" ariaLabel="Pasillo" />
-                <p class="ub-hint">{{ formatoCartel() === 'etiqueta' ? 'Etiquetas en la TSC TE200, rollo amarillo de ' + medidaRollo().cm + '.' : 'Salen dos por hoja carta; se recorta por la línea punteada.' }} Para uno solo o un rack, tócalo en el mapa.</p>
+                <p class="ub-hint">{{ formatoCartel() === 'etiqueta' ? 'Etiquetas de 5.5 × 2.5 cm en la TSC TE200, rollo amarillo.' : 'Salen dos por hoja carta; se recorta por la línea punteada.' }} Para uno solo o un rack, tócalo en el mapa.</p>
                 <div class="ub-acts">
                   <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="cerrarImpresion()"><span class="p-button-label">Cancelar</span></button>
                   <button pButton type="button" class="p-button-sm" (click)="verCarteles({ pasillo: pasilloCartel() === '*' ? null : pasilloCartel() })"><span class="p-button-label">Ver {{ cuentaCartel() }} {{ nombreCartel(cuentaCartel()) }}</span></button>
@@ -182,7 +181,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
           }
 
           @if (enCaptura()) {
-            <app-ubicaciones-captura [warehouse]="d.warehouse" (cambio)="reload()" />
+            <app-ubicaciones-captura [warehouse]="d.warehouse" [ubicaciones]="d.ubicaciones" (cambio)="reload()" />
           } @else if (enCarretas()) {
             <app-ubicaciones-carretas [warehouse]="d.warehouse" [puedeGestionar]="puedeGestionar()" [puedeCoordinar]="puedeCoordinar()" />
           } @else {
@@ -266,10 +265,8 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
                       }
                     </ul>
                     <div class="ub-acts ub-acts-start">
-                      <!-- [UB.RF.17] Q.4: el numero del mapa lleva a donde se arregla. El boton NO dice
-                           "ver sus N productos" porque Asignacion todavia no se puede filtrar por rack:
-                           [UB.RF.15] trae ese filtro y no esta en el repo. Prometerlo seria un rotulo falso. -->
-                      <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verAsignacion()"><span class="p-button-icon pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">Asignar productos</span></button>
+                      <!-- [UB.RF.17] Q.4: el número que el mapa publica lleva a su lugar de arreglo, con el rack ya filtrado. -->
+                      <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verAsignacion(s.pasillo, s.celda.rack)"><span class="p-button-icon pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">{{ s.celda.productos ? 'Ver sus ' + s.celda.productos + ' ' + (s.celda.productos === 1 ? 'producto' : 'productos') : 'Asignar productos' }}</span></button>
                       <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="verCarteles({ pasillo: s.pasillo, rack: s.celda.rack })"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">Imprimir {{ formatoCartel() === 'etiqueta' ? 'las etiquetas' : 'los carteles' }}</span></button>
                     </div>
                   } @else {
@@ -449,35 +446,10 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
    */
   readonly formatoElegido = signal<FormatoCartel | null>(null);
   readonly formatoCartel = computed<FormatoCartel>(() => this.formatoElegido() ?? formatoPorZona(this.zona()));
-  /**
-   * `[UB.RF.20]` Hay **dos rollos amarillos** y conviven: distintas sucursales tienen cargado uno u otro
-   * (Edgar, 2026-11-25), los dos medidos con regla. Las opciones dicen los **milímetros**, no «chica» y
-   * «grande»: la persona tiene el rollo en la mano y lo que puede contrastar es la medida.
-   */
   readonly formatosCartel: SegOption[] = [
-    { label: 'Etiqueta 55 × 25', value: 'etiqueta:55x25' },
-    { label: 'Etiqueta 60 × 29', value: 'etiqueta:60x29' },
+    { label: 'Etiqueta · TSC amarilla', value: 'etiqueta' },
     { label: 'Cartel · media carta', value: 'cartel' },
   ];
-
-  /**
-   * El rollo se recuerda **por máquina**, no por persona ni por sucursal: el rollo está cargado en la
-   * impresora que tiene al lado quien imprime. Quien cambia de equipo elige una vez y queda.
-   */
-  readonly medidaRollo = computed(() => ROLLOS_AMARILLOS[this.rolloCartel()]);
-  readonly rolloCartel = computed<RolloAmarillo>(() => this.rolloElegido() ?? rolloRecordado() ?? ROLLO_POR_OMISION);
-  readonly rolloElegido = signal<RolloAmarillo | null>(null);
-
-  /** El valor del control: formato y rollo en una sola opción, porque elegir «etiqueta» sin el rollo no sirve. */
-  readonly opcionCartel = computed(() => (this.formatoCartel() === 'etiqueta' ? `etiqueta:${this.rolloCartel()}` : 'cartel'));
-
-  pickFormato(v: string): void {
-    if (v === 'cartel') { this.formatoElegido.set('cartel'); return; }
-    const rollo = v.split(':')[1] as RolloAmarillo;
-    this.formatoElegido.set('etiqueta');
-    this.rolloElegido.set(rollo);
-    recordarRollo(rollo);
-  }
   nombreCartel(n: number): string {
     return this.formatoCartel() === 'etiqueta' ? (n === 1 ? 'etiqueta' : 'etiquetas') : n === 1 ? 'cartel' : 'carteles';
   }
@@ -675,15 +647,11 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   }
 
   /**
-   * `[UB.RF.17]` Abre Asignación, que es donde se le pone lugar a un producto.
-   *
-   * ⚠️ Deuda con nombre: todavía **sin el rack filtrado**. El filtro `?rack=TA01` existe en el backend
-   * sólo dentro de `[UB.RF.15]`, que vive sin commitear en el checkout compartido; mandarlo igual haría
-   * que la pantalla dijera «sólo los de este rack» mostrando los 86,619 del catálogo. Cuando `[UB.RF.15]`
-   * entre al repo, esto vuelve a llevar el rack y el botón puede decir «ver sus N productos».
+   * `[UB.RF.17]` El rack elegido, abierto en Asignación con ese filtro ya puesto (`rack=TA01`, el formato
+   * que ya acepta el backend por `[UB.RF.15]`). Sin esto, el número del mapa denuncia y no lleva a nada.
    */
-  verAsignacion(): void {
-    void this.router.navigate(['/almacen/ubicaciones/asignacion']);
+  verAsignacion(pasillo: string, rack: number): void {
+    void this.router.navigate(['/almacen/ubicaciones/asignacion'], { queryParams: { rack: `${this.zona()}${pasillo}${this.dos(rack)}` } });
   }
 
   verCaptura(si: boolean): void {

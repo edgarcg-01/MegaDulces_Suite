@@ -37,30 +37,6 @@ describe('[UB.1] ubicaciones · permisos', () => {
     expect(g).not.toContain('ALMACEN_UBICACIONES_ACOMODAR');
   });
 
-  /**
-   * `[UB.PL]` El croquis de la sucursal. **D4 del anexo:** configurarlo es el mismo acto que dar de
-   * alta ubicaciones, así que usa `GESTIONAR` y NO se inventa una clave nueva — una clave más es un
-   * permiso más que repartir en prod (regla 20) y un módulo que nace sin que nadie pueda usarlo.
-   */
-  it('⭐ [UB.PL] leer el croquis lo puede quien lee el catálogo: es la misma pantalla', () => {
-    const g = gateDe('Get', 'fixtures');
-    for (const k of ['VER', 'ACOMODAR', 'GESTIONAR']) expect(g).toContain(`Permission.ALMACEN_UBICACIONES_${k}`);
-  });
-
-  it.each([
-    ['Post', 'fixtures'],
-    ['Post', 'fixtures/derivar'],
-    ['Patch', 'fixtures/:id'],
-  ] as const)('⭐ [UB.PL] %s %s pide GESTIONAR, y sólo GESTIONAR', (m, ruta) => {
-    const g = gateDe(m, ruta);
-    expect(g).toContain('@RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)');
-    expect(g).not.toContain('RequireAnyPermission');
-  });
-
-  it('⛔ NEGATIVA [UB.PL]: configurar el croquis NO inventa una clave nueva que nadie tendría', () => {
-    expect(FUENTE).not.toMatch(/Permission\.ALMACEN_(CROQUIS|PLANOGRAMA|FIXTURES)/);
-  });
-
   it.each([
     ['Post', 'bulk/preview'],
     ['Post', 'bulk'],
