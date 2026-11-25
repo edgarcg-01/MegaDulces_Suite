@@ -73,3 +73,36 @@ export function estadoTrasTraslado(_status: SdStatus): SdStatus {
 export function terminaEspera(status: SdStatus): boolean {
   return status === 'en_espera';
 }
+
+export interface ColaParaTraslado {
+  id: string;
+  code: string;
+  name: string;
+  confidential: boolean | null;
+  /** La lista de puestos que pueden LEVANTAR en la cola (`[MSP.2.1]`). Aquí se ignora a propósito y no sale. */
+  requester_positions?: readonly string[] | null;
+}
+export interface CategoriaParaTraslado {
+  id: string;
+  queue_id: string;
+  name: string;
+}
+
+/**
+ * `[MSP.5.0]` A dónde se puede trasladar: las colas (ya filtradas a encendidas) que tienen al menos una categoría, con sus categorías.
+ *
+ * ⛔ NO aplica la lista de puestos de «Nueva solicitud»: trasladar no es levantar (D8). Medido el 2026-11-24: el diálogo de traslado
+ * leía el catálogo de «Nueva solicitud», que le esconde Presupuestos a la coordinación de TI y de Mantenimiento, así que no podían
+ * mandarle una reposición aunque el servidor la aceptaba. Las demás reglas (confidencial, alguien que la atienda, la cola actual) las
+ * decide `validarTraslado` en el servidor, con su mensaje; esta lista sólo dice qué áreas existen para trasladar.
+ * La lista de puestos es interna: no sale en la respuesta.
+ */
+export function destinosDeTraslado(
+  colas: readonly ColaParaTraslado[],
+  categorias: readonly CategoriaParaTraslado[],
+): { queues: { id: string; code: string; name: string; confidential: boolean }[]; categories: CategoriaParaTraslado[] } {
+  const conCategorias = new Set(categorias.map((c) => c.queue_id));
+  const queues = colas.filter((q) => conCategorias.has(q.id)).map((q) => ({ id: q.id, code: q.code, name: q.name, confidential: q.confidential === true }));
+  const ofrecidas = new Set(queues.map((q) => q.id));
+  return { queues, categories: categorias.filter((c) => ofrecidas.has(c.queue_id)).map((c) => ({ id: c.id, queue_id: c.queue_id, name: c.name })) };
+}

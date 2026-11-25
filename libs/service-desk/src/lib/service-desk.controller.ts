@@ -35,6 +35,7 @@ import {
   type SdMarkTestDto,
   type SdTransferDto,
   type SdTransferResult,
+  type SdTransferTargetsResponse,
   type SdTranscribeDto,
   type SdTranscribeResult,
   type SdUpsertFieldDto,
@@ -95,6 +96,13 @@ export class ServiceDeskController {
   catalog(@Req() req: AuthedRequest): Promise<SdCatalogResponse> {
     // `[MSP.2.1]` Con las colas de quien pregunta: un área que restringe quién levanta se le ofrece a sus miembros aunque su puesto no esté.
     return this.actors.resolve(req).then((ctx) => this.config.catalog(ctx.userId, ctx.colas));
+  }
+
+  @Get('transfer-targets')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: '`[MSP.5.0]` A qué áreas se puede trasladar: las encendidas con categorías, sin el filtro de puestos de «Nueva solicitud» (trasladar no es levantar). Sólo la coordinación, el mismo permiso que trasladar.' })
+  transferTargets(): Promise<SdTransferTargetsResponse> {
+    return this.config.transferTargets();
   }
 
   /**
