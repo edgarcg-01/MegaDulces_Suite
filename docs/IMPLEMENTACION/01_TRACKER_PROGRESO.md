@@ -10017,7 +10017,7 @@ más) — PR aparte para no volver ilegible el diff.
     catálogo de la tienda viva, y lee facturación y padrón de clientes de los dos sitios. Hay que
     **rotarla** y emitir una **de sitio** con permiso sólo de Catálogo e Inventario.
 
-- [ ] **[CV.30]** ⬜ **Toda la tienda contra nuestra verdad — y la frontera de qué NO es nuestro**
+- [ ] **[CV.30]** 🔨 **Toda la tienda contra nuestra verdad — y la frontera de qué NO es nuestro**
   (pedido de Edgar el 2026-11-25: *"nosotros somos la fuente de la verdad, debemos actualizar todo
   nuestro catálogo de Wix"*. Continúa `[CV.29]`, que dejó 1,158 de 1,642 renglones sincronizados.)
   - ⛔⛔ **La premisa es cierta a medias, y la mitad falsa decide el alcance.** Somos la fuente de
@@ -10055,6 +10055,34 @@ más) — PR aparte para no volver ilegible el diff.
       ¿Se mantiene el consolidado de las 8 con tope, o la tienda declara una plaza que la surte?
     - **D3** — foto y copy: ¿se quedan en Wix (hoy), o se abre el campo en nuestro catálogo para que
       la tienda deje de ser su dueño? Lo segundo es trabajo de captura, no de código.
+  - 🔨 **Construido y probado en seco el 2026-11-25** — [`ops/tienda-wix/`](../../ops/tienda-wix/):
+    `resolver.js` (la regla), `control.js` (su control negativo) y `aplicar.js` (en seco por
+    defecto, escribe sólo con `--aplicar`). Ninguno lleva credencial: la llave va por entorno.
+    - **La unidad sale de tres reglas, en orden:** el nombre conocido (`Caja`→`CJA`); el **código
+      de unidad de Kepler guardado como nombre** (`500`, `Cub` — Wix lo hizo en varios); y **SKU de
+      unidad única → esa unidad**. Lo que ninguna resuelve **se DECLARA**: quedaron **4 de 1,642**.
+    - **La cantidad se reparte en cascada**, de mayor a menor factor, descontando lo ya ofrecido.
+      **Prueba negativa hecha:** al quitar el descuento el control se pone rojo (`no excede la
+      existencia`, salida 1) y vuelve a verde al restaurarlo.
+
+    **Ensayo en seco sobre los 1,642 renglones** (mostrador 18:17Z, existencia de `pg-prod`):
+
+    | | Renglones |
+    |---|---:|
+    | Cantidad distinta a la real | **911** (bajan 497, suben 414) |
+    | ...pasan de agotado a la venta | **70** |
+    | ...pasan a agotado, ofrecían lo que no hay | **33** |
+    | Retirar (SKU muerto) | **125** |
+    | Precio distinto al mostrador | 11 |
+    | Sin resolver, se DECLARAN | **4** |
+    | Ya correctos, no se tocan | 602 |
+
+    ⭐ **Control: 0 SKU ofrecerían más de lo que hay — eran 146.**
+    Los 4 que se declaran: `83802` Caja, `17162` Paquete y `17116` Bulto (el nombre es conocido
+    pero Kepler no vende ese SKU en esa unidad) y `83145` (nombre roto con varias unidades).
+  - **El ritmo del desfase, medido:** en 2.09 h se movieron **18 precios del mostrador (de 18,536)
+    y 2 de los publicados** — ~9 por hora en total, ~1 por hora de los que la tienda muestra. Una
+    corrida a mano aguanta días, no semanas: es el argumento del mecanismo por evento.
   - ⚠️ **Bloqueado hasta que se rote la llave** (`[CV.29]`): los tres frentes son escrituras a la
     tienda viva. Sin llave nueva no arranca.
   - **Lo que este item NO es:** publicar el catálogo completo. De 9,053 activos, **5,487 tienen
