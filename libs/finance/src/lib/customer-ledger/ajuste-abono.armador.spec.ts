@@ -6,7 +6,7 @@ import { REFERENCIA_MAX, armarAjusteAbono, type FacturaConResto } from './ajuste
  * quita, una de éstas se pone roja (regla 12). El caso feliz usa el resto REAL con el que se corrió el ensayo
  * contra el Kepler vivo el 2026-11-24 (factura `8-1-0000470`, $7.20 de $1,589.12).
  */
-const base = { sucursal: '08', cliente: 'C2043', referencia: 'RC-mwvbdcvn' };
+const base = { sucursal: '08', cliente: 'C2043', referencia: 'RC-mwvbdcvn', fecha: '2026-11-25', hora: '10:30' };
 const f = (over: Partial<FacturaConResto> = {}): FacturaConResto =>
   ({ tipo: 8, serie: 1, folio: '0000470', importe: 1589.12, saldo: 7.20, ...over });
 
@@ -17,8 +17,11 @@ describe('[GP.R.2] el armador del Ajuste Abono U-A-30', () => {
     if (!r.ok) return;
     expect(r.valor.total).toBe(7.2);
     expect(r.valor.facturas).toBe(1);
-    expect(r.valor.kdm1).toEqual({ c10: 'C2043', c11: 'RC-mwvbdcvn', c16: 7.2, c42: 7.2, c67: 'SUITE' });
-    expect(r.valor.kdue).toEqual({ c2: 'C2043', c11: 7.2, c17: '7.2', c16: 'RC-mwvbdcvn' });
+    expect(r.valor.kdm1).toEqual({
+      c9: '2026-11-25', c68: '2026-11-25', c69: '10:30', c10: 'C2043', c11: 'RC-mwvbdcvn',
+      c16: 7.2, c42: 7.2, c43: 'N', c67: 'SUITE',
+    });
+    expect(r.valor.kdue).toEqual({ c2: 'C2043', c7: '2026-11-25', c11: 7.2, c16: 'RC-mwvbdcvn', c17: 7.2, c29: 'A' });
     expect(r.valor.kdm5).toEqual([{ c7: 1, c8: 'D', c9: 8, c10: 1, c11: '0000470', c12: 7.2, c13: 7.2, c14: 'RC-mwvbdcvn' }]);
   });
 
@@ -31,6 +34,23 @@ describe('[GP.R.2] el armador del Ajuste Abono U-A-30', () => {
     expect(r.valor.kdm1.c16).toBe(8.06);
   });
 
+
+  /** ⛔ Sin fecha propia el documento nace con la de la PLANTILLA: los 67 Ajustes Abono vivos son de sep/oct-2026 y
+   *  nov-2025, meses contablemente cerrados. Medido en el ODS el 2026-11-25. */
+  it('negativo: sin una fecha YYYY-MM-DD el ajuste caeria en el mes de la plantilla', () => {
+    for (const fecha of ['', '25/11/2026', '2026-11', 'hoy']) {
+      const r = armarAjusteAbono({ ...base, fecha, facturas: [f()] });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.motivo).toContain('mes de la plantilla');
+    }
+    expect(armarAjusteAbono({ ...base, fecha: '2026-11-25', facturas: [f()] }).ok).toBe(true);   // el control
+  });
+
+  it('negativo: la hora va como la guarda Kepler en kdm1.c69 (HH:MM)', () => {
+    expect(armarAjusteAbono({ ...base, hora: '', facturas: [f()] }).ok).toBe(false);
+    expect(armarAjusteAbono({ ...base, hora: '10:30:00', facturas: [f()] }).ok).toBe(false);
+    expect(armarAjusteAbono({ ...base, hora: '10:30', facturas: [f()] }).ok).toBe(true);        // el control
+  });
   it('⬜ lo que no se midió se DECLARA, no se dibuja como cero', () => {
     const r = armarAjusteAbono({ ...base, facturas: [f()] });
     if (!r.ok) throw new Error('debía armar');

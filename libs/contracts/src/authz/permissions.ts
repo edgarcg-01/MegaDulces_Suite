@@ -602,6 +602,8 @@ export enum Permission {
   FINANCE_CARTERA_TELEFONOS = 'FINANCE_CARTERA_TELEFONOS',
   /** `[GP.A.2]` Autorizar, regresar, rechazar o pasar a Dirección un pedido TELEMARK (bandeja «Por autorizar»). Autorizar y regresar escriben `kdm1.c11` en Kepler. */
   FINANCE_PEDIDOS_AUTORIZAR = 'FINANCE_PEDIDOS_AUTORIZAR',
+  /** `[GP.R.2]` Cerrar restos de centavos de clientes con el Ajuste Abono `U-A-30` de Kepler (hasta $10, D-R1), en vez del «Cobro» de centavos que dice que entró dinero y no entró. ⛔ No emite CFDI: la factura PPD queda con su insoluto ante el SAT y el registro lo declara. */
+  FINANCE_RESTOS_CERRAR = 'FINANCE_RESTOS_CERRAR',
   // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
   FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
   // MA — marca "recibe tareas de conciliación": define el pool del área de Finanzas

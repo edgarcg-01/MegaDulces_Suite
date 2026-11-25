@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 444 KB, 6632 líneas, 44 secciones.
+> **Índice navegable** — 449 KB, 6714 líneas, 44 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -50,7 +50,7 @@
 | 5894 | 5998 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
 | 5999 | 6070 | 5 | 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026- |
 | 6071 | 6349 | 16 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
-| 6350 | 6688 | 20 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
+| 6350 | 6770 | 25 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -6685,3 +6685,85 @@ complemento** — el mismo mecanismo del §41.8, pero en la serie donde está el
 |---|---|---|
 | **D-F6** | Correr `F5_metodo_forma` sobre lo EMITIDO, no sólo sobre lo recibido. El control ya está escrito: es apuntarlo | Desarrollo |
 | **D-F9** | Las 521 de 2026, empezando por las 94 de la serie `B` ($32.8M, once veces más grandes que su promedio): ¿eran PPD mal timbradas? Si sí, les falta complemento | Contabilidad |
+
+### 41.12 ⛔⛔ «Todo debe pasar como PPD»: lo que ya cuesta, medido — y por qué cerrar un resto en Kepler NO lo cierra ante el SAT (Edgar, 2026-11-25)
+
+> Edgar, el 2026-11-25: *«me comentaron que todo debe pasar como PPD»*. Esto es lo que eso significa
+> medido contra prod, y la consecuencia que obliga a decidir antes de encender el cierre de restos
+> (`[GP.R.3]`).
+
+#### Hoy NO todo pasa como PPD, y la mezcla se mide
+
+CFDI emitidos tipo `I`, por mes (prod, `system_identifier` 7688376744939610156):
+
+| Mes | PUE | PPD | Total |
+|---|---:|---:|---:|
+| 2026-08 | 2,118 | 1,123 | 3,241 |
+| 2026-09 | 2,059 | 1,260 | 3,319 |
+| 2026-10 | 2,126 | 1,380 | 3,506 |
+| 2026-11 (al 24) | 1,705 | 1,052 | 2,757 |
+
+⭐ **Y lo decide el TIPO de documento de Kepler, no una captura**: la serie del CFDI lo lleva escrito
+(`NNUD0801` → PPD · `NNUD0501` → PUE · `NNUD0601` → PUE). Confirma y refuerza §41.8: la liga entre una
+factura de Kepler y su CFDI es `serie = <sucursal><doc_code>` + el folio, y se **probó** — 400 de 400
+facturas de nov-2026 encontraron su CFDI, con el importe igual en las 376 PPD.
+
+Así que «todo PPD» no es un ajuste de captura: es **pasar a PPD lo que hoy se factura de contado**
+(`UD05`/`UD06`, ~2,000 al mes), y cada una pasaría a exigir complemento de pago.
+
+#### ⛔ Lo que PPD ya está costando: 1,782 facturas que ante el SAT siguen debiendo centavos
+
+Medido sobre los **9,889 complementos de pago de 2026**, parseando cada `DoctoRelacionado` del XML
+—el `raw` **no** trae el nodo de pagos— y quedándose con el último complemento de cada factura:
+
+| Lo que declara el último complemento | Facturas | Pesos |
+|---|---:|---:|
+| **cerrada ante el SAT** (`ImpSaldoInsoluto` = 0.00) | 9,736 | — |
+| ⛔ **resto de centavos VIVO ante el SAT** (≤ $10) | **1,782** | **$729.78** |
+| $10 a $100 | 164 | $7,505.10 |
+| saldo de verdad (> $100), en parcialidades | 1,160 | $5,563,391.38 |
+
+⭐ **Control del instrumento**: `ImpSaldoAnt − ImpPagado = ImpSaldoInsoluto` en **0 de 15,160
+renglones sin cuadrar**. Y una primera medición con `substring` —que sólo ve el primer
+`DoctoRelacionado`— **subestimaba**: 6,940 complementos relacionan una factura, pero 1,781 relacionan
+dos, 648 tres, y hay con diez o más. *Se corrigió antes de publicar.*
+
+**Esas 1,782 ya están timbradas y un complemento no se edita.** O sea: el goteo no se arregla hacia
+atrás; lo único que se decide es qué hacer de aquí en adelante.
+
+#### ⭐⭐ La consecuencia para el Ajuste Abono: cierra Kepler, no cierra el SAT
+
+De los **260 restos de centavos vivos** en la cartera (los que `[GP.R.3]` va a cerrar):
+
+| Documento | Restos | Pesos | ¿Tiene CFDI? | Qué pasa al cerrarlo |
+|---|---:|---:|---|---|
+| `UD0801` factura de telemarketing | **220** | $166.36 | **220 de 220, y los 220 PPD** | ⛔ la factura queda saldada en Kepler y **sigue debiendo sus centavos ante el SAT** |
+| `UD1301` | 37 | $8.18 | **ninguno** | no deja nada abierto |
+| `UD1201` | 3 | $12.46 | **ninguno** | no deja nada abierto |
+
+⭐ **El cero de los `UD12`/`UD13` está auditado y es real**: entre todos los CFDI emitidos sólo
+existen las series `UD05`, `UD06` y `UD08` — **no hay ni una `UD12` ni `UD13`**. Sus clientes son en
+buena parte claves internas (`10-00`, `40-00`, `RUTA 21`, `CONTADO`), lo que apunta a cargos entre
+sucursales y a rutas; ⬜ **pero no todos lo son** (hay `C1002`, `10001`), y el tipo 13 mueve **9,262
+documentos por $498.8 M en 2026**. *Eso es un hilo aparte, de Contabilidad, y queda declarado: no se
+midió qué parte de ese universo debería llevar CFDI.*
+
+Un **Ajuste Abono `U-A-30` no emite CFDI** (lo escribe la Suite directo en tres tablas de Kepler). El
+instrumento que **sí** timbra es la **nota de crédito `U-A-21`** —serie `NNUA21SS`, ~1,145 emitidas en
+2026, y **ya se usó 16 veces por importes de $10 o menos**—, pero el timbre lo pone **Kepler, no la
+Suite**: una `U-A-21` escrita por nosotros en `kdm1` sería una nota de crédito fantasma, sin CFDI.
+**Por eso `[GP.R.3]` escribe el `U-A-30` y DECLARA el insoluto que deja** (`cfdi_insoluto` en
+`finance.customer_credit_adjustments`, `NULL` = no medido, nunca cero por omisión).
+
+#### ⛔ Y once complementos ya declaran un pago de centavos
+
+Hay **11 complementos de 2026 por importes de $1 a $10** ($68.44 en total; ninguno por debajo de $1).
+Si esos centavos entraron, están bien; si salieron de un «Cobro» de redondeo como los 74 que Crédito y
+cobranza capturó en 60 días, **son CFDI que afirman un pago que no ocurrió**. ⬜ No se midió cuál de
+las dos cosas es: hay que cruzar cada uno contra su cobro en Kepler.
+
+| | Pregunta | De quién |
+|---|---|---|
+| **D-F10** | Un resto de centavos de una factura PPD, ¿se cierra con el **Ajuste Abono** (interno, sin CFDI, deja el insoluto vivo ante el SAT) o con la **nota de crédito `U-A-21`** (timbra y lo cierra, pero la emite Kepler)? Mientras no se decida, `[GP.R.3]` cierra con el ajuste **y lo declara** | Contabilidad / Fiscal |
+| **D-F11** | «Todo PPD»: ¿incluye pasar a PPD las ~2,000 facturas de contado al mes (`UD05`/`UD06`)? Eso obliga a un complemento por cada una, y el redondeo de centavos empieza a dejar insoluto también ahí | Dirección / Fiscal |
+| **D-F12** | Los 11 complementos de $1 a $10: ¿respaldan un pago real o salieron de un «Cobro» de redondeo? | Contabilidad |

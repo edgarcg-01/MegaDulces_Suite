@@ -320,3 +320,5 @@ export * from './http/quote-search-event.contract';
 export * from './http/quote-capture.contract';
 // `[COT.58]` La pieza de un pieza · paquete · caja se vende sólo en piso: en cotización, paquete o caja.
 export * from './http/quote-units.contract';
+// `[GP.R.2]` El cierre del resto de centavos de un cliente con el Ajuste Abono `U-A-30`, y el insoluto que le queda ante el SAT.
+export * from './finance/ajuste-abono.contract';

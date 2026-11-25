@@ -84,6 +84,10 @@ exports.up = async function up(knex) {
       -- Lo que Kepler contestó, TAL CUAL (incluido el folio que dio y lo que el ensayo no pudo medir).
       kepler_folio     text,
       kepler_resultado jsonb,
+      -- ⛔ Lo que las facturas del ajuste SIGUEN debiendo ante el SAT (el ImpSaldoInsoluto de su último
+      -- complemento). NULL = NO MEDIDO, que no es cero: un Ajuste Abono no emite CFDI, así que cerrar el
+      -- resto en Kepler NO lo cierra ante el SAT (220 de los 260 restos vivos son facturas PPD).
+      cfdi_insoluto    numeric(14,2) CHECK (cfdi_insoluto IS NULL OR cfdi_insoluto >= 0),
       created_by       text,
       created_at       timestamptz NOT NULL DEFAULT now(),
       updated_by       text,
@@ -133,7 +137,7 @@ exports.up = async function up(knex) {
   await knex('commercial.kepler_push_switch')
     .insert(SUCURSALES.map((s) => ({
       tenant_id: TENANT, sucursal: s, tipo: TIPO, encendida: false, tope_dia: null,
-      nota: '[GP.R.2] Cerrar restos de centavos con el Ajuste Abono U-A-30 (kdm1 + kdue + kdm5): apagado hasta el adaptador (GP.R.3). Sin tope = sólo a mano; el automático corre cuando se le pone un tope del día. Tope del resto: $10 (D-R1)',
+      nota: '[GP.R.2] Cerrar restos de centavos con el Ajuste Abono U-A-30 (kdm1 + kdue + kdm5): apagado hasta el adaptador (GP.R.3). Sin tope = sólo a mano; el automático corre cuando se le pone un tope del día. Tope del resto: $10 (D-R1). ⛔ No emite CFDI: la factura PPD queda con su insoluto ante el SAT (D-F10)',
     })))
     .onConflict(['tenant_id', 'sucursal', 'tipo']).ignore();
   const { rows: [sw] } = await knex.raw(

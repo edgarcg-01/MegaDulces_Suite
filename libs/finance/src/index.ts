@@ -102,3 +102,6 @@ export { CashbookCaosCarril } from './lib/cashbook/cashbook-caos.carril';
 export { CashbookVentanillaService } from './lib/cashbook/cashbook-ventanilla.service';
 export * from './lib/supplier-payment-accounts/finance-supplier-payment-accounts.module';
 export * from './lib/supplier-payment-accounts/supplier-payment-accounts.service';
+// `[GP.R.3]` Cerrar el resto de centavos de un cliente con el Ajuste Abono `U-A-30` (y declarar el insoluto del SAT).
+export * from './lib/customer-ledger/ajuste-abono.service';
+export * from './lib/customer-ledger/kepler-ajuste-abono-sink.adapter';
