@@ -355,6 +355,7 @@ abajo verificada.**
 |---|---|---|
 | ~~D1~~ | ~~KG, BTO y CUB: ¿una orden «otras unidades» o tres documentos?~~ → **resuelta 2026-11-24: se juntan**, con el umbral medido de 12 renglones (§4.2) | Edgar |
 | D2 | Los 21 sin unidad: ¿se pide la ficha a Compras desde aquí, o sólo se listan? | Edgar |
+| ~~D3~~ | ~~¿Quién declara la ruta de abasto: la sucursal directo, o propone y Compras confirma?~~ → **resuelta 2026-11-25: la sucursal propone, Compras confirma** (§10.8) | Edgar |
 | — | `on_hand` en `branch` (`[AB.NI.6]`) | equipo |
 | — | Los rótulos de línea llegan sucios del ERP (`CANEL?S S.A. DE C.V.`, truncados a 30 caracteres). Se muestran **tal cual**: corregirlos aquí sería inventar un catálogo | equipo |
 
@@ -552,9 +553,12 @@ funciona**, y eso sería cambiar un problema de verdad por uno de disponibilidad
 
 ### 10.8 Lo que se declara
 
-- ⚠️ **Quién declara la ruta es decisión de Edgar.** Se construye con el default *«la sucursal
-  propone, Compras confirma»*, que es lo que ya hacen a mano. Si decide que la sucursal la escriba
-  directo, se quita el paso 3 — el modelo lo soporta y cambian los criterios 5 y 6.
+- ✅ **RESUELTA — Edgar, 2026-11-25: «sí, la sucursal propone y Compras confirma».** Queda
+  ratificado el default con el que se construyó: *el acto que se automatiza es el que ya hacen*. Los
+  cuatro pasos de §10.4 y los criterios 5 y 6 quedan **firmes**. ⛔ Y es esto lo que vuelve
+  **obligatorio** que una ruta `proposed` **no sea enviable**: sin el paso de confirmación, la
+  palabra de una sola persona dispararía un `X-A-30` a un proveedor equivocado — un acto hacia
+  afuera. *Lo que se quita no es la confirmación: es la hoja de papel que hoy la transporta.*
 - ⛔⛔ **«Eliminar por completo los import» es un programa, no este item.** Medido el 2026-11-25:
   **69 scripts** en `database/importers/kepler/`, de los cuales **`run-prod-feeds.js` nombra 56**.
   Este anexo retira **uno** — el de la ruta — y lo retira *entero*, no a medias. ⛔ El de abajo es
