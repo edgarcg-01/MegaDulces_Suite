@@ -19,6 +19,8 @@ const migs = [
   '20261007100000_hr_relojes_y_checadas',
   '20261007110000_hr_horarios_y_alertas',
   '20261007304401_hr_incidencias_y_cierres',
+  // `[RH.15.1]`/`[RH.15.4]` el candado de evidencia y el desfase por checada (una sola migración).
+  '20261117103955_rh15_1_checadas_inborrables',
 ].map((n) => require(path.resolve(__dirname, '../../../../../database/migrations-newdb', `${n}.js`)));
 
 const suite = URL && !/prod|railway|\.222:5434/i.test(URL) ? describe : describe.skip;
@@ -105,6 +107,18 @@ suite('HrAttendanceIngestService contra la base', () => {
         const reg = (await svc.registry({ sucursalId: 'rh-prueba' }))[0];
         resultados['padron'] = reg && Object.keys(reg).sort();
 
+        // 10) `[RH.15.4]` El desfase del reloj queda en CADA checada del lote, y lo de más de un día en el futuro se rechaza.
+        const adelantado = new Date(Date.now() + 120_000).toISOString();
+        const r5 = await svc.ingest({ serie, infoReloj: { horaReloj: adelantado }, checadas: [
+          { codigo: '15', fechaHora: '2026-10-08T08:00:00' },
+          { codigo: '15', fechaHora: '2031-04-02T08:00:00' },
+        ] });
+        const conDesfase = await trx('hr.attendance_logs').where({ device_id: deviceId, device_user_id: '15' })
+          .whereRaw(`punched_local = '2026-10-08 08:00:00'`).first();
+        resultados['desfase'] = [r5.aceptadas, r5.futuras, Math.abs((conDesfase?.clock_drift_seconds ?? 0) - 120) <= 5];
+        resultados['desfaseViejo'] = (await trx('hr.attendance_logs').where({ device_id: deviceId, device_user_id: '15' })
+          .whereRaw(`punched_local = '2026-10-06 08:00:00'`).first())?.clock_drift_seconds ?? null;
+
         throw ROLLBACK;
       });
     } catch (e) {
@@ -124,6 +138,9 @@ suite('HrAttendanceIngestService contra la base', () => {
     expect(resultados['pausa']).toEqual(['pendiente', 0]);
     expect(resultados['latidoDesconocido']).toBe(409);
     expect(resultados['latidoError']).toBe('no contesta el reloj');
+    expect(resultados['desfase']).toEqual([1, 1, true]);
+    // Un lote sin hora del reloj no inventa un desfase: queda null.
+    expect(resultados['desfaseViejo']).toBeNull();
     expect(resultados['padron']).toEqual(['alias', 'commKey', 'ip', 'modo', 'nota', 'pendiente', 'puerto', 'serie', 'sucursalId']);
   }, 60000);
 
@@ -180,6 +197,8 @@ suite('HrAttendanceIngestService contra la base', () => {
         // El histórico no se tocó.
         r['desconocido'] = Number((await trx('hr.attendance_logs').where({ device_id: id(desc) }).count('* as n').first())?.['n']);
         // Sin reloj desconocido en el sitio (instalación nueva), todo entra.
+        // `[RH.15.1]` Borrar checadas pide motivo (las checadas son evidencia). Aquí es una prueba que se deshace.
+        await trx.raw(`SET LOCAL hr.borrado_checadas = 'prueba: instalación sin reloj desconocido'`);
         await trx('hr.attendance_logs').where({ device_id: id(desc) }).delete();
         await trx('hr.attendance_devices').where({ id: id(desc) }).delete();
         const res2 = await svc.ingest({ serie, checadas: [{ codigo: '15', fechaHora: '2026-06-01T08:00:07' }] });

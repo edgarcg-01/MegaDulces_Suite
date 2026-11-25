@@ -294,7 +294,7 @@ export function minutosTexto(min: number | null | undefined): string {
 
 export const ESTADO_DIA_LABEL: Record<HrEstadoDia, string> = {
   a_tiempo: 'A tiempo', absorbido: 'Tolerancia', retardo: 'Retardo', falta: 'Falta',
-  descanso: 'Descanso', marca_faltante: 'Una sola marca', justificado: 'Justificado',
+  descanso: 'Descanso', marca_faltante: 'Una sola marca', justificado: 'Justificado', sin_dato: 'Sin dato',
 };
 
 export const ESTADO_INCIDENCIA_LABEL: Record<HrEstadoIncidencia, string> = {

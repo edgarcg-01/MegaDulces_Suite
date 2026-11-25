@@ -15,10 +15,20 @@ import { HrAttendanceAlertsService } from './attendance/attendance-alerts.servic
 import { HrAttendanceReportService } from './attendance/attendance-report.service';
 import { HrAttendanceIncidentsService } from './attendance/attendance-incidents.service';
 import { HrAttendanceClosuresService } from './attendance/attendance-closures.service';
+import { HrAttendanceSignoffsService } from './attendance/attendance-signoffs.service';
+import { HrAttendanceSignoffsController } from './attendance/attendance-signoffs.controller';
+import { HrAttendanceRegistroService } from './attendance/attendance-registro.service';
+import { HrAttendanceRegistroController } from './attendance/attendance-registro.controller';
+import { HrAttendanceCumplimientoService } from './attendance/attendance-cumplimiento.service';
+import { HrAttendanceCumplimientoController } from './attendance/attendance-cumplimiento.controller';
+import { HrAttendanceFirmaDigitalService } from './attendance/attendance-firma-digital.service';
+import { HrAttendanceFirmaDigitalController } from './attendance/attendance-firma-digital.controller';
+import { HrAttendanceFirmaPublicaController } from './attendance/attendance-firma-publica.controller';
 import { HrAttendanceSchedulesService } from './attendance/attendance-schedules.service';
 // `[NE.2.3]` El puente entre el padrón de nómina y el de la Suite: quien escribe
 // `hr.person_aliases` es la APLICACIÓN (la única con `INSERT`), no un script.
 import { HrNominaController } from './nomina/nomina.controller';
+import { HrNominaPeriodosService } from './nomina/nomina-periodos.service';
 import { HrNominaPuenteService } from './nomina/nomina-puente.service';
 import { HrTalentController } from './talent/talent.controller';
 import { HrTalentCandidatesService } from './talent/talent-candidates.service';
@@ -58,14 +68,14 @@ import { HrDocumentRequestService } from './talent/bot/pedir-documentos.service'
       verifyOptions: jwtVerifyOptions,
     }),
   ],
-  controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceDevicesController, HrAttendanceEnrollmentsController, HrTalentController, HrTalentPublicController, HrNominaController],
+  controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceSignoffsController, HrAttendanceRegistroController, HrAttendanceCumplimientoController, HrAttendanceFirmaDigitalController, HrAttendanceFirmaPublicaController, HrAttendanceDevicesController, HrAttendanceEnrollmentsController, HrTalentController, HrTalentPublicController, HrNominaController],
   providers: [
     HrAttendanceIngestService, HrIngestGuard,
     // `[RH.1.3]` Los avisos al lector de relojes (SSE). `PgListenService` NO es global (cada módulo que escucha lo pone
     // en sus providers, como `CajaRealtimeModule`): una conexión dedicada de LISTEN por pod de API.
     PgListenService, HrRelojesAvisosService,
     HrAttendanceAgentService, HrAttendanceAlertsService, HrAttendanceReportService,
-    HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSchedulesService, HrAttendanceDevicesService, HrAttendanceEnrollmentsService,
+    HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSignoffsService, HrAttendanceRegistroService, HrAttendanceCumplimientoService, HrAttendanceFirmaDigitalService, HrAttendanceSchedulesService, HrAttendanceDevicesService, HrAttendanceEnrollmentsService,
     HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService, HrTalentLinksService, HrRecruitmentBotService, HrTalentHoyService,
     // `[RH.3.2.1]` la IA del registro por WhatsApp, sobre el cliente compartido de Anthropic (infra leaf: cada módulo
     // que lo usa lo pone en sus providers). Sin `ANTHROPIC_API_KEY` no consulta nada y el registro sigue igual.
@@ -76,8 +86,9 @@ import { HrDocumentRequestService } from './talent/bot/pedir-documentos.service'
     HrCvValidatorService,
     HrDocumentClassifierService,
     HrDocumentRequestService,
-    // `[NE.2.3]` puente de padrones de nomina.
-    HrNominaPuenteService,
+    // `[NE.2.3]` puente de padrones de nómina · `[NE.2.2]` el periodo, derivado de ContPAQi.
+    // ⚠️ Los dos van acá: `HrNominaController` inyecta AMBOS. Sin uno, Nest no arranca (#414).
+    HrNominaPuenteService, HrNominaPeriodosService,
   ],
   // `[RH.3.1]` HrRecruitmentBotService se exporta para el binding de RECRUITMENT_BOT_PORT (composition root).
   exports: [HrAttendanceIngestService, HrAttendanceReportService, HrRecruitmentBotService],

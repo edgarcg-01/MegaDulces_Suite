@@ -185,7 +185,7 @@ describe('[RH.1.7] RhIncidenciasComponent', () => {
     c.form.update((f) => (f ? { ...f, incident_type: 'horario_distinto' } : f));
     fix.detectChanges();
     await fix.whenStable();
-    expect(texto()).toContain('Salió a las (opcional)');
+    expect(texto()).toContain('Salida de ese día');
     expect(texto()).toContain('Comida ese día, en minutos (opcional)');
   });
 

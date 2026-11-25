@@ -64,23 +64,42 @@ const entero = (v: unknown): number | null =>
  * Limpia el lote: descarta lo que no se puede usar en vez de guardarlo mal. Rechaza código
  * vacío, fecha con otro formato, fechas anteriores a 2001 y repetidas dentro del mismo lote.
  */
-export function normalizePunches(list: unknown): { rows: NormalizedPunch[]; rejected: number } {
+export function normalizePunches(
+  list: unknown,
+  opts: { limiteLocal?: string | null } = {},
+): { rows: NormalizedPunch[]; rejected: number; futuras: number } {
   const items = Array.isArray(list) ? list : [];
   const seen = new Set<string>();
   const rows: NormalizedPunch[] = [];
   let rejected = 0;
+  let futuras = 0;
   for (const raw of items) {
     const p = (raw || {}) as Partial<IncomingPunch>;
     const code = String(p.codigo ?? '').trim();
     const m = RE_FECHA_HORA.exec(String(p.fechaHora ?? '').trim());
     if (!code || !m || m[1] < MIN_VALID_DATE) { rejected += 1; continue; }
     const local = `${m[1]} ${m[2]}`;
+    // `[RH.15.4]` Más de un día en el futuro es un reloj con la fecha mal puesta (como el 2000-01-01): basura. Unos
+    // minutos adelante NO se rechazan: es un reloj adelantado y la checada es real (su desfase queda guardado).
+    if (opts.limiteLocal && local > opts.limiteLocal) { rejected += 1; futuras += 1; continue; }
     const key = `${code}__${local}`;
     if (seen.has(key)) { rejected += 1; continue; }
     seen.add(key);
     rows.push({ code, local, date: m[1], punchType: entero(p.tipo), verifyMode: entero(p.verificacion) });
   }
-  return { rows, rejected };
+  return { rows, rejected, futuras };
+}
+
+/** `[RH.15.4]` Cuánto adelante del «ahora» se acepta una checada (un reloj adelantado sigue entrando). */
+export const MARGEN_FUTURO_HORAS = 24;
+
+/** `[RH.15.4]` El límite en hora de pared de la zona del reloj: ahora + `MARGEN_FUTURO_HORAS`, 'YYYY-MM-DD HH:mm:ss'. */
+export function limiteLocalFuturo(now: Date, timeZone: string): string {
+  const t = new Date(now.getTime() + MARGEN_FUTURO_HORAS * 3600_000);
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(t).map((x) => [x.type, x.value]));
+  return `${p['year']}-${p['month']}-${p['day']} ${p['hour']}:${p['minute']}:${p['second']}`;
 }
 
 /** El origen del lote; cualquier valor desconocido cuenta como el agente. */

@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import type { HrAsistenciaResponse, HrCierreDto, HrPersonaDirectorioDto, HrRelojEstadoDto, HrSiteDto } from '@megadulces/contracts';
+import type { HrAsistenciaResponse, HrCierreDto, HrIncidenciaDto, HrPersonaDirectorioDto, HrRelojEstadoDto, HrSiteDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { Permission } from '../../core/constants/permissions';
 import {
@@ -46,6 +46,8 @@ export class RhAsistenciaEstado {
   readonly relojesMedidos = signal(false);
   /** Incidencias por calificar del periodo; null = no se pudo leer (sin permiso): no se pinta un cero. */
   readonly pendientes = signal<number | null>(null);
+  /** `[RH.18.7]` Las capturadas por calificar de la semana: la tabla las pinta (punteadas) en su día. */
+  readonly pendientesLista = signal<HrIncidenciaDto[]>([]);
   /** Semanas cerradas que toca el periodo; null = no se pudo leer. */
   readonly cierres = signal<HrCierreDto[] | null>(null);
   /**
@@ -96,6 +98,30 @@ export class RhAsistenciaEstado {
   readonly nombreSitio = computed(() => this.sitios().find((s) => s.code === this.sitio())?.name ?? this.sitio() ?? '');
   readonly relojesSitio = computed(() => this.relojes().filter((r) => r.sucursalId === this.sitio()));
 
+  /**
+   * El estado de cierre de la semana en pantalla. `[RH.18.11]` Vive aquí (antes en el marco) porque lo leen dos lugares:
+   * el marco pinta el aviso que pide algo (terminó y no se cerró) o lo cerrado, y la fila de modos dice en una línea
+   * cuándo se puede cerrar la semana en curso. Sin cierres leídos (sin permiso) no se afirma nada.
+   */
+  readonly cierreSemana = computed<{ texto: string; tono: 'warn' | 'mute' | 'curso'; link: string | null; desde: string } | null>(() => {
+    if (!this.sitio() || !this.datos()) return null;
+    const jueves = this.modoHoy() ? this.juevesActual() : this.jueves();
+    if (jueves >= this.juevesActual()) {
+      return { texto: `se puede cerrar desde el ${fechaCorta(sumarDias(jueves, 7))}`, tono: 'curso', link: null, desde: jueves };
+    }
+    const c = this.cierres();
+    if (c === null) return null;
+    const vigente = c.find((x) => x.vigente && x.period_start === jueves);
+    if (vigente) {
+      return { texto: `Semana cerrada para prenómina${vigente.closed_by_name ? ' por ' + vigente.closed_by_name : ''}. Lo que pasó a prenómina es la foto de ese día; si algo cambió después, se reabre en Incidencias.`, tono: 'mute', link: null, desde: jueves };
+    }
+    const p = this.pendientes();
+    const falta = p ? ` Para cerrarla falta calificar ${p} incidencia${p === 1 ? '' : 's'}.` : '';
+    return { texto: `La semana del ${fechaCorta(jueves)} ya terminó y no está cerrada.${falta}`, tono: 'warn', link: p ? 'Calificarlas' : 'Cerrar la semana', desde: jueves };
+  });
+  /** Quien checa sin estar ligado a su persona sale con el nombre del reloj (no es un nombre real). */
+  readonly sinLigar = computed(() => (this.datos()?.personas ?? []).filter((p) => !p.registrado).length);
+
   // ── Lo que cuentan las pestañas ──
   /** En una sucursal sin hora límite no se mide tolerancia: no hay número que dar (null, no un cero). */
   readonly nRebasados = computed(() => (this.datos()?.mideRetardo === false ? null : rebasados(this.datos()).usables.length));
@@ -135,7 +161,7 @@ export class RhAsistenciaEstado {
     // `[RH.14.8]` Otra plaza, otro periodo u otro grupo: lo de antes NO se queda pintado bajo la etiqueta nueva mientras
     // llega lo nuevo (se leían los totales de la semana pasada con «Semana del …» de la actual). Recalcular lo mismo
     // (`forzar` con la misma clave, p. ej. después de guardar un horario) sí conserva la tabla.
-    if (clave !== this.clave) { this.datos.set(null); this.pendientes.set(null); this.cierres.set(null); }
+    if (clave !== this.clave) { this.datos.set(null); this.pendientes.set(null); this.pendientesLista.set([]); this.cierres.set(null); }
     this.clave = clave;
     this.cargar(site, desde, hasta);
   }
@@ -171,8 +197,8 @@ export class RhAsistenciaEstado {
     if (!this.puedeVerIncidencias()) return;
     const semana = { desde: juevesDeLaSemana(desde), hasta: sumarDias(juevesDeLaSemana(desde), 6) };
     this.api.incidencias({ site_code: site, date_from: semana.desde, date_to: semana.hasta, statuses: 'capturada' }).subscribe({
-      next: (l) => { if (mi === this.seq) this.pendientes.set(l.length); },
-      error: () => { if (mi === this.seq) this.pendientes.set(null); },
+      next: (l) => { if (mi === this.seq) { this.pendientes.set(l.length); this.pendientesLista.set(l); } },
+      error: () => { if (mi === this.seq) { this.pendientes.set(null); this.pendientesLista.set([]); } },
     });
     this.api.estadoCierre(site, semana.desde, semana.hasta).subscribe({
       next: (c) => { if (mi === this.seq) this.cierres.set(c); },

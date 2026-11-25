@@ -7,6 +7,7 @@ import { detalleDia, formatHoras, type ConfigDesayuno } from './detalle-dia';
 import { esPromotora, type ReglaConfig } from './tipos';
 import { tipoIncidencia } from './incidencias';
 import { minutosDeHHMM, rangoFechas, siguienteDia } from './fechas';
+import { semanaContraLey } from './jornada-legal';
 
 /**
  * Fase RH · `[RH.1.5]` — ASISTENCIA POR PERSONA, con las reglas del horario deducido. Lógica PURA.
@@ -169,6 +170,39 @@ export function configDesayuno(cfg: ReglaConfig): ConfigDesayuno | undefined {
     : undefined;
 }
 
+/** `[RH.15.2]` Cuántas faltas el mismo día, sin checadas de nadie, hacen falta para leerlo como «el reloj no entregó». */
+export const SIN_DATO_MIN_PERSONAS = 2;
+
+/**
+ * `[RH.15.2]` «Sin dato» en vez de «Falta»: un día laborable en que NADIE de la plaza checó y al menos
+ * `SIN_DATO_MIN_PERSONAS` personas salen con falta. Así se lee un reloj caído (o un día festivo): no se distingue de
+ * una falta, y un registro que inventa faltas pierde valor como prueba (LFT 805). Con UNA sola persona esperada, «nadie
+ * checó» es su falta y se queda como falta. No toca la regla de `horario-deducido` (paridad con Mega Talento):
+ * re-etiqueta el resultado. Por plaza y no por reloj (las filas no traen el reloj): en una plaza con dos relojes, si
+ * sólo uno se cae, sus personas siguen saliendo con falta.
+ */
+export function marcarSinDato(personas: PersonaAsistencia[], diasConDatoSitio: Set<string>): void {
+  const faltasPorFecha = new Map<string, number>();
+  for (const p of personas) {
+    for (const s of p.semanas) for (const d of s.dias) {
+      if (d.estado === 'falta' && !diasConDatoSitio.has(d.fecha)) faltasPorFecha.set(d.fecha, (faltasPorFecha.get(d.fecha) ?? 0) + 1);
+    }
+  }
+  const sinDato = new Set([...faltasPorFecha].filter(([, n]) => n >= SIN_DATO_MIN_PERSONAS).map(([f]) => f));
+  if (!sinDato.size) return;
+  for (const p of personas) {
+    let n = 0;
+    for (const s of p.semanas) {
+      s.dias = s.dias.map((d) => {
+        if (d.estado !== 'falta' || !sinDato.has(d.fecha)) return d;
+        n++;
+        return { ...d, estado: 'sin_dato', esperadoMin: null };
+      });
+    }
+    if (n) { p.faltas = Math.max(0, p.faltas - n); p.diasSinDato = (p.diasSinDato ?? 0) + n; }
+  }
+}
+
 export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
   const { siteCode, desde, hasta, soloPromotoras, cfg } = e;
   const DIAS_EX = e.diasExTrabajador ?? DIAS_EX_TRABAJADOR;
@@ -230,6 +264,8 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
 
   // Todas las fechas del rango: un día AUSENTE de las checadas es justo el que hay que evaluar.
   const fechasDelRango = rangoFechas(desde, hasta);
+  // `[RH.15.2]` Días en que ALGUIEN de la plaza checó (ver `marcarSinDato`, al final).
+  const diasConDatoSitio = new Set(e.filas.map((f) => f.fecha));
 
   // Base: TODOS los del padrón del sitio (para ver faltas de quien no checó nada) + los
   // códigos que checan sin estar en el padrón.
@@ -531,6 +567,12 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
         const incExcusa = incs.find((i) => tipoIncidencia(i.tipo)?.excusaFalta);
         const justificacion = incExcusa?.etiqueta || excusadas.get(d.fecha);
         let esperadoMin: number | null = null, salidaAntesMin: number | null = null, comidaExcesoMin: number | null = null;
+        // `[RH.19.1]` TRABAJÓ CORRIDO (RH, 2026-11-24: la hora extra empieza al cumplir su jornada). Si RH autorizó ese día
+        // una comida MÁS CORTA que la de su horario —0 min = no salió a comer— con «Comida distinta» (motivo, quién lo
+        // autorizó y calificada por otra persona), cumple su jornada antes por la comida que no tomó: su salida esperada se
+        // adelanta y desde ahí cuenta la hora extra. Sólo con horario asignado (sin él no sabemos cuánto dura su comida) y
+        // no con «Horario distinto» completo (ése ya fija la salida de ese día). Una comida autorizada más LARGA sigue igual.
+        let comidaNoTomada = 0;
         const hDia = horarioDe(d.fecha);
         if (asig && hDia && laboralesAsig) {
           const sab = hd.diaSemana(d.fecha) === 6;
@@ -539,8 +581,10 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
           const ent = hc ? hc.entrada : hd.aMinutos(sab ? asig.sabadoEntrada || hDia.entrada : hDia.entrada);
           const sal = hc ? hc.salida : hd.aMinutos(sab ? asig.sabadoSalida || hDia.salida : hDia.salida);
           const comPermitida = comPermitidaDia ?? (sab ? 0 : hDia.comidaMin);
-          esperadoMin = leToca && ent !== null && sal !== null ? Math.max(0, sal - ent - comPermitida) : 0;
-          if (leToca && sal !== null && det.salidaMin !== null && det.netasMin !== null) salidaAntesMin = Math.max(0, sal - det.salidaMin);
+          const comidaAutorizada = minutosDe(incs, 'comida_distinta');
+          if (leToca && !hc && comidaAutorizada !== null) comidaNoTomada = Math.max(0, (sab ? 0 : hDia.comidaMin) - comidaAutorizada);
+          esperadoMin = leToca && ent !== null && sal !== null ? Math.max(0, sal - ent - comPermitida - comidaNoTomada) : 0;
+          if (leToca && sal !== null && det.salidaMin !== null && det.netasMin !== null) salidaAntesMin = Math.max(0, sal - comidaNoTomada - det.salidaMin);
           if (leToca && comPermitida > 0 && det.comidaMin !== null) comidaExcesoMin = Math.max(0, det.comidaMin - comPermitida);
         }
         if (comPermitidaDia !== null) comidaExcesoMin = det.comidaMin !== null ? Math.max(0, det.comidaMin - comPermitidaDia) : null;
@@ -551,7 +595,7 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
         const refMin = hd.aMinutos(d.referencia ?? null);
         const jornadaDia = jornadaDe(d.fecha);
         if (refMin !== null && jornadaDia !== null && det.salidaMin !== null && det.netasMin !== null) {
-          const esperada = refMin + jornadaDia;
+          const esperada = refMin + jornadaDia - comidaNoTomada;
           salidaEsperada = hd.aHora(esperada);
           const debe = (d.atrasoMin || 0) + (det.desayunoExcesoMin || 0) + (comidaExcesoMin || 0);
           const bruto = det.salidaMin - esperada - debe;
@@ -685,6 +729,10 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
     });
   }
 
+  marcarSinDato(personas, diasConDatoSitio);
+  // `[RH.15.10]` Cada semana contra la ley (jornada máxima y tope de horas extra del año).
+  for (const p of personas) for (const s of p.semanas) s.legal = semanaContraLey(s.inicio, s.minutosTrabajados);
+
   // Primero lo que hay que ATENDER, no el retardo más alto (que suele ser de alguien cuyo
   // horario está sin confirmar).
   const orden = (p: PersonaAsistencia): number => (p.usable ? 2 : 0) + (p.marcas.some((m) => m.gravedad === 'media') ? 1 : 0);
@@ -722,6 +770,7 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
       absorbidoMin: personas.reduce((s, p) => s + p.absorbidoMin, 0),
       faltas: personas.reduce((s, p) => s + p.faltas, 0),
       faltasJustificadas: personas.reduce((s, p) => s + p.faltasJustificadas, 0),
+      diasSinDato: personas.reduce((s, p) => s + (p.diasSinDato ?? 0), 0),
       diasNoMedibles: personas.reduce((s, p) => s + p.diasNoMedibles, 0),
       horasTrabajadas: Math.round(personas.reduce((s, p) => s + p.horasTrabajadas, 0)),
       desayunoExcesoMin: personas.reduce((s, p) => s + p.desayunoExcesoMin, 0),

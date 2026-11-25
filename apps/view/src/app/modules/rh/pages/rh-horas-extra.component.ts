@@ -15,6 +15,23 @@ import { diaLargo, firmaHoras, horasTexto } from '../reporte-formato';
 
 /** El mínimo de letras del motivo de un ajuste o de su anulación (el servidor exige lo mismo). */
 const MOTIVO_MINIMO = 5;
+/**
+ * `[RH.19.2]` (David, 2026-11-24: «un aprox que pueda ser editable pero con justificación») Las ganadas son un APROXIMADO:
+ * RH las corrige con «Editar», escribiendo las horas correctas y por qué. Se guarda como un ajuste del banco por la
+ * diferencia (la tabla de siempre, sin migración), con este principio en el motivo; así la pantalla sabe que ese ajuste
+ * CORRIGE las ganadas y lo muestra ahí («3h 00m → 2h 00m»), no en «Ajustes». Se quita como cualquier ajuste, con motivo.
+ */
+export const CORRECCION_GANADAS = 'Ganadas corregidas de ';
+/** Los minutos de las correcciones de ganadas de una persona (ajustes vigentes con ese motivo). */
+export const correccionesMin = (p: HrPersonaHorasExtraDto): number =>
+  p.ajustes.filter((a) => a.motivo.startsWith(CORRECCION_GANADAS)).reduce((t, a) => t + a.minutos, 0);
+/** Como `horasTexto`, pero el cero se dice («0h 00m»): corregir a cero es una cifra, no un vacío. */
+export const horasOCero = (min: number): string => (min > 0 ? horasTexto(min) : '0h 00m');
+/** «2:30», «2» o «12:05» → minutos; otra cosa, null. */
+export const minutosDeTexto = (t: string): number | null => {
+  const m = /^(\d{1,3})(?::([0-5]\d))?$/.exec(t.trim());
+  return m ? Number(m[1]) * 60 + Number(m[2] ?? 0) : null;
+};
 
 /**
  * Fase RH · `[RH.1.10]` — Horas extra (`/rh/asistencia/horas-extra`). El banco de cada persona: lo que GANÓ
@@ -29,7 +46,7 @@ const MOTIVO_MINIMO = 5;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="he-page">
-      <app-rh-marco [barra]="false" [franja]="false" />
+      <app-rh-marco [barra]="false" />
       <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
       @if (!est.sinPlazas()) {
       <section class="he-bar" aria-label="Plaza">
@@ -44,7 +61,7 @@ const MOTIVO_MINIMO = 5;
       <app-load-state [loading]="loading() && !banco()" [error]="error()" (retry)="cargar()">
         <section class="he-card" aria-label="Banco de horas extra">
           <p class="he-nota">Es <b>hora extra</b> lo que se queda después de su hora de salida, en bloques completos de 30 min, y sólo después de
-            reponer lo que llegó tarde o se pasó de desayuno o de comida. Se calcula con su horario asignado o, si no tiene, con el que sale
+            reponer lo que llegó tarde o se pasó de desayuno o de comida. <b>Es un aproximado</b>: RH lo corrige con «Editar», con su justificación. Se calcula con su horario asignado o, si no tiene, con el que sale
             de sus checadas (sólo jornada completa y fija).@if (banco()?.sinHorarioFijo) { <span> {{ banco()?.sinHorarioFijo }} persona(s) de planta
             no tienen horario fijo y no se les calcula.</span> }</p>
           @if (!personas().length) {
@@ -54,7 +71,7 @@ const MOTIVO_MINIMO = 5;
               <table class="he-tabla dt-stack">
                 <thead><tr>
                   <th scope="col">Clv</th><th scope="col">Nombre</th><th scope="col">Departamento</th><th scope="col">Según</th>
-                  <th scope="col" class="num">Ganadas</th><th scope="col" class="num">Usadas</th><th scope="col" class="num">Pagadas</th><th scope="col" class="num">Ajustes</th><th scope="col" class="num">Saldo</th>
+                  <th scope="col" class="num">Ganadas (aprox.)</th><th scope="col" class="num">Usadas</th><th scope="col" class="num">Pagadas</th><th scope="col" class="num">Ajustes</th><th scope="col" class="num">Saldo</th>
                 </tr></thead>
                 <tbody>
                   @for (p of personas(); track p.codigo) {
@@ -63,13 +80,38 @@ const MOTIVO_MINIMO = 5;
                       <td class="dt-id" role="cell"><button type="button" class="he-nom" (click)="abrir(p)">{{ p.nombreCompleto }}</button></td>
                       <td role="cell" data-label="Departamento">{{ p.departamento || '—' }}</td>
                       <td role="cell" data-label="Según">{{ segun(p) }}</td>
-                      <td class="num mono dt-num" role="cell" data-label="Ganadas">{{ horas(p.ganadasMin) }}</td>
+                      <td class="num mono dt-num" role="cell" data-label="Ganadas (aprox.)">
+                        @if (correccionesMin(p)) {
+                          <s class="he-aprox" title="El aproximado">{{ horas(p.ganadasMin) }}</s> → <b>{{ horas(ganadasEfectivas(p)) }}</b>
+                        } @else { {{ horas(p.ganadasMin) }} }
+                        @if (gestiona()) {
+                          <button type="button" class="he-editar" [attr.aria-expanded]="editando() === p.codigo" (click)="editar(p)"
+                                  [attr.aria-label]="'Editar las horas extra de ' + p.nombreCompleto">Editar</button>
+                        }
+                      </td>
                       <td class="num mono dt-num" role="cell" data-label="Usadas">{{ horas(p.usadasMin) }}</td>
                       <!-- [RH.6.7] Lo que se le pagó en efectivo (descuenta del saldo). Mismo formato que Usadas. -->
                       <td class="num mono dt-num" role="cell" data-label="Pagadas">{{ p.pagadasMin === undefined ? '—' : horas(p.pagadasMin) }}</td>
-                      <td class="num mono dt-num" role="cell" data-label="Ajustes">{{ p.ajustesMin ? firma(p.ajustesMin) : '—' }}</td>
+                      <td class="num mono dt-num" role="cell" data-label="Ajustes">{{ otrosAjustes(p) ? firma(otrosAjustes(p)) : '—' }}</td>
                       <td class="num mono he-saldo dt-num" role="cell" data-label="Saldo" [class.neg]="p.saldoMin < 0">{{ firma(p.saldoMin) }}</td>
                     </tr>
+                    @if (editando() === p.codigo) {
+                      <!-- [RH.19.2] Corregir el aproximado: las horas correctas y por qué. Sin justificación no se guarda. -->
+                      <tr class="he-edit-fila"><td colspan="9">
+                        <form class="he-edit" (ngSubmit)="guardarEdicion(p)" [attr.aria-label]="'Corregir las horas extra de ' + p.nombreCompleto">
+                          <label>Horas extra correctas
+                            <input pInputText name="correctas" inputmode="numeric" placeholder="2:30" [ngModel]="horasCorrectas()" (ngModelChange)="horasCorrectas.set($event)" />
+                          </label>
+                          <label class="he-ancho">Justificación
+                            <input pInputText name="justificacion" placeholder="Ej. se quedó esperando transporte, no trabajó" [ngModel]="justificacion()" (ngModelChange)="justificacion.set($event)" />
+                          </label>
+                          <p-button type="submit" label="Guardar" size="small" [disabled]="!edicionValida()" [loading]="ocupado()" />
+                          <p-button label="Cancelar" [text]="true" size="small" (onClick)="editando.set(null)" />
+                          <p class="he-ayuda">Aproximado {{ horas(p.ganadasMin) }}@if (nuevoMin() !== null) { · queda en {{ horasOCero(nuevoMin()!) }} }. Se guarda como ajuste, con quién y por qué; se puede quitar después, con motivo.</p>
+                        </form>
+                        @if (avisoTabla(); as a) { <p class="he-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
+                      </td></tr>
+                    }
                   }
                 </tbody>
               </table>
@@ -82,9 +124,9 @@ const MOTIVO_MINIMO = 5;
       <app-side-peek [open]="!!sel()" (openChange)="cambio($event)" [width]="560" [title]="sel()?.nombreCompleto ?? ''" [subtitle]="subtitulo()">
         @if (sel(); as p) {
           <div class="he-ficha">
-            <p class="he-resumen">Ganó <b>{{ horas(p.ganadasMin) }}</b> · usó <b>{{ horas(p.usadasMin) }}</b>
+            <p class="he-resumen">Ganó <b>{{ horas(ganadasEfectivas(p)) }}</b>@if (correccionesMin(p)) { <span> (aprox. {{ horas(p.ganadasMin) }}, corregidas)</span> } · usó <b>{{ horas(p.usadasMin) }}</b>
               @if (p.pagadasMin) { · le pagaron <b>{{ horas(p.pagadasMin) }}</b> }
-              @if (p.ajustesMin) { · ajustes <b>{{ firma(p.ajustesMin) }}</b> } · saldo <b [class.neg]="p.saldoMin < 0">{{ firma(p.saldoMin) }}</b></p>
+              @if (otrosAjustes(p)) { · ajustes <b>{{ firma(otrosAjustes(p)) }}</b> } · saldo <b [class.neg]="p.saldoMin < 0">{{ firma(p.saldoMin) }}</b></p>
 
             <h3>Días con horas extra</h3>
             @if (!p.ganadas.length) { <p class="he-vacio">Ninguno.</p> } @else {
@@ -183,6 +225,14 @@ const MOTIVO_MINIMO = 5;
     .he-nom:hover { text-decoration: underline; }
     .he-nom:focus-visible { outline: 2px solid var(--focus-ring); }
     .he-saldo { font-weight: 700; }
+    .he-aprox { color: var(--text-muted); }
+    .he-editar { margin-left: var(--sp-2); border: 0; background: none; padding: 0 var(--sp-1); font: inherit; font-size: var(--fs-xs); font-weight: 600;
+      color: var(--text-main); text-decoration: underline; cursor: pointer; min-height: var(--tap-min); }
+    .he-editar:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .he-edit-fila td { background: var(--surface-2); }
+    .he-edit { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: flex-end; }
+    .he-edit label { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
+    .he-edit .he-ayuda { flex: 1 1 100%; }
     .neg { color: var(--bad-soft-fg); }
     .he-ficha { display: flex; flex-direction: column; gap: var(--sp-2); }
     .he-ficha h3 { margin: var(--sp-2) 0 0; font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
@@ -224,6 +274,17 @@ export class RhHorasExtraComponent {
   readonly anulando = signal<string | null>(null);
   readonly motivoAnular = signal('');
   readonly motivoMinimo = MOTIVO_MINIMO;
+  /** `[RH.19.2]` La persona cuya cifra se está corrigiendo, y lo que se escribió. */
+  readonly editando = signal<string | null>(null);
+  readonly horasCorrectas = signal('');
+  readonly justificacion = signal('');
+  readonly avisoTabla = signal<{ texto: string; mal: boolean } | null>(null);
+  readonly nuevoMin = computed(() => minutosDeTexto(this.horasCorrectas()));
+  readonly edicionValida = computed(() => {
+    const p = this.personas().find((x) => x.codigo === this.editando());
+    const n = this.nuevoMin();
+    return !!p && n !== null && n !== this.ganadasEfectivas(p) && this.justificacion().trim().length >= MOTIVO_MINIMO;
+  });
   private seq = 0;
 
   readonly personas = computed(() => this.banco()?.personas ?? []);
@@ -305,7 +366,39 @@ export class RhHorasExtraComponent {
     });
   }
 
+  // ── [RH.19.2] El aproximado y su corrección ──
+  correccionesMin(p: HrPersonaHorasExtraDto): number { return correccionesMin(p); }
+  ganadasEfectivas(p: HrPersonaHorasExtraDto): number { return p.ganadasMin + correccionesMin(p); }
+  /** Los ajustes que NO corrigen ganadas (saldo inicial, otros): las correcciones ya se ven en «Ganadas». */
+  otrosAjustes(p: HrPersonaHorasExtraDto): number { return p.ajustesMin - correccionesMin(p); }
+
+  editar(p: HrPersonaHorasExtraDto): void {
+    if (this.editando() === p.codigo) { this.editando.set(null); return; }
+    this.editando.set(p.codigo);
+    this.horasCorrectas.set('');
+    this.justificacion.set('');
+    this.avisoTabla.set(null);
+  }
+
+  guardarEdicion(p: HrPersonaHorasExtraDto): void {
+    const site = this.est.sitio();
+    const nuevo = this.nuevoMin();
+    if (!site || nuevo === null || !this.edicionValida()) return;
+    const actual = this.ganadasEfectivas(p);
+    this.ocupado.set(true);
+    this.avisoTabla.set(null);
+    this.api.crearAjusteHorasExtra({
+      site_code: site, person_code: p.codigo, minutes: nuevo - actual,
+      reason: `${CORRECCION_GANADAS}${horasOCero(actual)} a ${horasOCero(nuevo)}: ${this.justificacion().trim()}`,
+      effective_date: this.banco()?.hasta || undefined,
+    }).subscribe({
+      next: () => { this.ocupado.set(false); this.editando.set(null); this.cargar(); },
+      error: (e) => { this.ocupado.set(false); this.avisoTabla.set({ texto: rhError(e, 'No se pudo guardar la corrección.'), mal: true }); },
+    });
+  }
+
   horas(min: number): string { return horasTexto(min); }
+  horasOCero(min: number): string { return horasOCero(min); }
   firma(min: number): string { return firmaHoras(min); }
   corta(f: string): string { return fechaCorta(f); }
   dia(f: string): string { return diaLargo(f); }

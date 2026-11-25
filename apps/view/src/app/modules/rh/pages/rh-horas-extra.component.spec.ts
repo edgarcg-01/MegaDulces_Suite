@@ -111,6 +111,58 @@ describe('[RH.1.10] RhHorasExtraComponent', () => {
     expect(texto()).not.toContain('Quitar');
   });
 
+  // ── [RH.19.2] Las ganadas son un aproximado que RH corrige con justificación ──
+  const filaBtn = (txt: string) => Array.from((fix.nativeElement as HTMLElement).querySelectorAll('button')).find((b) => b.textContent?.trim() === txt);
+
+  it('⭐ [RH.19.2] «Ganadas (aprox.)» se edita: las horas correctas y la justificación salen como ajuste por la diferencia', async () => {
+    await render({ personas: [ana()], claves: [Permission.HR_ATTENDANCE_GESTIONAR] });
+    expect(texto()).toContain('Ganadas (aprox.)');
+    filaBtn('Editar')!.click();
+    fix.detectChanges();
+    const c = fix.componentInstance;
+    c.horasCorrectas.set('0:30');
+    c.justificacion.set('se quedó esperando transporte');
+    fix.detectChanges();
+    expect(texto()).toContain('queda en 0h 30m');
+    c.guardarEdicion(ana());
+    expect(api['crearAjusteHorasExtra']).toHaveBeenCalledWith({
+      site_code: 'PH', person_code: '15', minutes: -60, effective_date: '2026-10-07',
+      reason: 'Ganadas corregidas de 1h 30m a 0h 30m: se quedó esperando transporte',
+    });
+  });
+
+  it('⛔ NEGATIVA [RH.19.2] — sin justificación, con la misma cifra o con un valor que no es hora, no se guarda', async () => {
+    await render({ personas: [ana()], claves: [Permission.HR_ATTENDANCE_GESTIONAR] });
+    const c = fix.componentInstance;
+    c.editar(ana());
+    for (const [h, j] of [['0:30', 'no'], ['1:30', 'mismo valor de antes'], ['una hora', 'justificación larga']]) {
+      c.horasCorrectas.set(h); c.justificacion.set(j);
+      expect(c.edicionValida()).toBe(false);
+      c.guardarEdicion(ana());
+    }
+    expect(api['crearAjusteHorasExtra']).not.toHaveBeenCalled();
+    // A cero sí se puede: es una cifra.
+    c.horasCorrectas.set('0'); c.justificacion.set('no fueron horas extra');
+    expect(c.edicionValida()).toBe(true);
+  });
+
+  it('[RH.19.2] la corrección se ve en Ganadas («aprox → corregida») y no se repite en Ajustes; el saldo es el del servidor', async () => {
+    const corregida = ana({
+      ajustesMin: 270, saldoMin: 300,
+      ajustes: [
+        { id: 'c1', fecha: '2026-10-07', minutos: -60, motivo: 'Ganadas corregidas de 1h 30m a 0h 30m: esperaba transporte', creadoPor: 'rh', creadoEn: '' },
+        { id: 'a1', fecha: '2026-09-24', minutos: 330, motivo: 'saldo que traía', creadoPor: 'rh', creadoEn: '' },
+      ],
+    });
+    await render({ personas: [corregida], claves: [Permission.HR_ATTENDANCE_VER] });
+    const celda = (lbl: string) => (fix.nativeElement as HTMLElement).querySelector(`td[data-label="${lbl}"]`)?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(celda('Ganadas (aprox.)')).toBe('1h 30m → 0h 30m');
+    expect(celda('Ajustes')).toBe('+5h 30m');
+    expect(celda('Saldo')).toBe('+5h 00m');
+    // ⛔ quien sólo ve no edita
+    expect(filaBtn('Editar')).toBeUndefined();
+  });
+
   it('⛔ NEGATIVA — quitar un ajuste exige motivo', async () => {
     await render({ personas: [ana()], claves: [Permission.HR_ATTENDANCE_GESTIONAR] });
     const c = fix.componentInstance;

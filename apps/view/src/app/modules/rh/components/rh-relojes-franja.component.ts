@@ -32,14 +32,15 @@ import { desdeCuando, desfaseTexto, faltantesTexto, motivoReloj, peorSemaforo, r
         <i class="pi pi-chevron-down rf-chev" [class.abierto]="abierta()" aria-hidden="true"></i>
       </button>
 
-      @if (sitioSinSenal()) {
-        <p class="rf-alerta" role="alert">
-          El reloj de este sitio <b>no ha reportado</b>. Lo que se ve es la última asistencia que llegó, no la de hoy
-          — y un día sin dato <b>no es una falta</b>.
-        </p>
-      }
-
+      <!-- [RH.18.8] (David, 23-nov: «quítalo») Ya no es una franja roja siempre abierta: el encabezado dice «sin señal» con su
+           punto y el chip de arriba también; la explicación vive aquí, al abrir el panel. -->
       @if (abierta()) {
+        @if (sitioSinSenal()) {
+          <p class="rf-alerta">
+            El reloj de este sitio <b>no ha reportado</b>. Lo que se ve es la última asistencia que llegó, no la de hoy
+            — y un día sin dato <b>no es una falta</b>.
+          </p>
+        }
         @if (relojes().length) {
           <ul class="rf-lista">
             @for (r of relojes(); track r.serie) {
@@ -77,7 +78,7 @@ import { desdeCuando, desfaseTexto, faltantesTexto, motivoReloj, peorSemaforo, r
   styles: [`
     :host { display: block; }
     .rf { border: 1px solid var(--border-color); border-left-width: 3px; border-radius: var(--r-md); background: var(--card-bg); overflow: hidden; }
-    .rf[data-estado='mudo'] { border-left-color: var(--bad-fg); }
+    .rf[data-estado='mudo'] { border-left-color: var(--bad-border); }
     .rf[data-estado='atrasado'] { border-left-color: var(--warn-fg); }
     .rf[data-estado='pendiente'] { border-left-color: var(--text-muted); }
     .rf[data-estado='ok'] { border-left-color: var(--ok-fg); }
@@ -94,8 +95,8 @@ import { desdeCuando, desfaseTexto, faltantesTexto, motivoReloj, peorSemaforo, r
     .rf-dot[data-s='ok'] { background: var(--ok-fg); }
     .rf-dot[data-s='atrasado'] { background: var(--warn-fg); }
     .rf-dot[data-s='mudo'] { background: var(--bad-fg); }
-    .rf-alerta { margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); line-height: 1.45; color: var(--bad-soft-fg); background: var(--bad-soft-bg);
-      border-top: 1px solid var(--bad-border); }
+    .rf-alerta { margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); line-height: 1.45; color: var(--text-main); background: var(--surface-2);
+      border-top: 1px solid var(--border-color); }
     .rf-alerta b { font-weight: 700; }
     .rf-lista { list-style: none; margin: 0; padding: var(--sp-1) 0 var(--sp-2); border-top: 1px solid var(--border-color); }
     .rf-rel { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); padding: var(--sp-1) var(--sp-3); font-size: var(--fs-sm); }
@@ -103,7 +104,7 @@ import { desdeCuando, desfaseTexto, faltantesTexto, motivoReloj, peorSemaforo, r
     .rf-modo { font-style: normal; font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; color: var(--info-soft-fg); background: var(--info-soft-bg);
       border-radius: var(--r-sm); padding: 0 var(--sp-1); margin-left: var(--sp-1); }
     .rf-cuando { color: var(--text-muted); }
-    .rf-rel[data-s='mudo'] .rf-cuando { color: var(--bad-soft-fg); font-weight: 600; }
+    .rf-rel[data-s='mudo'] .rf-cuando { color: var(--bad-soft-fg); }
     .rf-chip { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); background: var(--surface-2); border-radius: var(--r-pill); padding: 1px var(--sp-2); }
     .rf-chip.warn { color: var(--warn-soft-fg); background: var(--warn-soft-bg); }
     .rf-editar { margin-left: auto; background: none; border: 0; padding: 0 var(--sp-1); font: inherit; font-size: var(--fs-xs); color: var(--text-muted);

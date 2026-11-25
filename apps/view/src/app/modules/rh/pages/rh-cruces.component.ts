@@ -43,7 +43,7 @@ const CLASES: Record<HrClaseCruce, { label: string; severity: 'danger' | 'warn' 
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="rc-page">
-      <app-rh-marco [barra]="false" [franja]="false" />
+      <app-rh-marco [barra]="false" />
       <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
       @if (!est.sinPlazas()) {
       <section class="rc-bar" aria-label="Semana">

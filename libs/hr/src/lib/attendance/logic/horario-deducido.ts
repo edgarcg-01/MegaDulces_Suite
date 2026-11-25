@@ -582,7 +582,9 @@ export function deducirHorario(dias: DiaCrudo[], opciones: OpcionesHorario = {})
  * `asistencia_revision`. Vive en el tipo para que nadie tenga que inventarse
  * un séptimo estado por su cuenta.
  */
-export type EstadoDia = 'a_tiempo' | 'absorbido' | 'retardo' | 'falta' | 'descanso' | 'marca_faltante' | 'justificado';
+// `[RH.15.2]` `sin_dato` no lo produce esta regla (que sigue en paridad con Mega Talento): lo pone `calcularAsistencia`
+// a una falta de un día en que NADIE de la plaza checó.
+export type EstadoDia = 'a_tiempo' | 'absorbido' | 'retardo' | 'falta' | 'descanso' | 'marca_faltante' | 'justificado' | 'sin_dato';
 
 export interface DiaMedido {
   fecha: string;

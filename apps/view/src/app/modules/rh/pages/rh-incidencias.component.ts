@@ -13,8 +13,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { RhMarcoComponent } from '../components/rh-marco.component';
+import { RhFirmasSemanaComponent } from '../components/rh-firmas-semana.component';
+import { RhCapturaIncidenciaComponent } from '../components/rh-captura-incidencia.component';
 import { RhAsistenciaEstado } from '../rh-asistencia.estado';
-import { firmaHoras, horasTexto } from '../reporte-formato';
+import { type FormCaptura, conAutorizacion, cuerpoCaptura, deUnDia, etiquetaNota, formNuevo, notaObligatoria } from '../incidencia-captura';
 import {
   BANDERA_LABEL, ESTADO_INCIDENCIA_LABEL, RhService, etiquetaSemana, fechaCorta, hoyEnMexico, juevesDeLaSemana, rhError,
   sinIdentificarDe, sumarDias,
@@ -42,42 +44,12 @@ const FILTROS: Array<{ value: FiltroEstado; label: string; statuses: string }> =
   { value: 'todas', label: 'Todas', statuses: 'todas' },
 ];
 
-interface FormCaptura {
-  person_code: string; incident_type: string; date_from: string; date_to: string; note: string;
-  horas: string; entrada: string; reason: string; authorized_by_name: string; deliver: boolean;
-  /** `[RH.1.10]` Desayuno o comida distintos: los minutos que RH autorizó ese día. */
-  minutos: string;
-  /** `[RH.17.2]` Horario distinto: a qué hora salió ese día y su comida en minutos (opcionales). */
-  salida?: string;
-  comidaDia?: string;
-  /** `[RH.6.6]` Visita fuera: a qué hora lo recogieron y a qué hora lo dejaron en su casa. */
-  recogida?: string;
-  entrega?: string;
-  /** `[RH.6.7]` Pago de horas extras: el total pagado, en horas (12.5 = 12 h 30). */
-  horasPagadas?: string;
-}
-
-/** `[RH.1.10]` Los tipos de UN solo día (no llevan «Hasta»), como `TIPOS_DE_AJUSTE` del servidor. */
-const DE_UN_DIA = new Set(['horario_distinto', 'desayuno_distinto', 'comida_distinta', 'cambio_descanso', 'pago_horas_extra']);
-/** Los que exigen la nota (y qué se escribe en ella). */
-const NOTA_OBLIGATORIA: Record<string, string> = {
-  otros: 'Motivo', visita_fuera: 'A dónde fue y por qué', pago_horas_extra: 'Referencia del pago (p. ej. nómina del 15)',
-};
-/** Los que piden motivo y quién lo autorizó, con la pregunta que le cabe a cada uno. */
-const CON_AUTORIZACION: Record<string, string> = {
-  horario_distinto: 'Por qué ese día fue distinto',
-  desayuno_distinto: 'Por qué ese día fue distinto',
-  comida_distinta: 'Por qué ese día fue distinto',
-  // `[NE.0.15]` El uso de horas extra BAJA un saldo, así que se captura diciendo por qué y con
-  // permiso de quién. Medido en prod el 2026-11-24: de los 25 usos que había, 0 traían motivo y
-  // 0 traían autorizante — porque el formulario no los pedía.
-  horas_extra: 'Por qué usó sus horas extra',
-};
+/** `[RH.18.1]` El formulario de captura y sus reglas por tipo viven en `incidencia-captura.ts` (los comparte la ficha). */
 
 @Component({
   selector: 'app-rh-incidencias',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, RhMarcoComponent],
+  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, RhMarcoComponent, RhFirmasSemanaComponent, RhCapturaIncidenciaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ri-page" [class.con-ficha]="!!sel()" [class.emb]="embebido()">
@@ -91,7 +63,7 @@ const CON_AUTORIZACION: Record<string, string> = {
       @if (embebido()) {
         <div class="ri-head-btns ri-emb-btns"><ng-container *ngTemplateOutlet="botonesCabecera" /></div>
       } @else {
-        <app-rh-marco [barra]="false" [franja]="false">
+        <app-rh-marco [barra]="false">
           <div acciones class="ri-head-btns"><ng-container *ngTemplateOutlet="botonesCabecera" /></div>
         </app-rh-marco>
       }
@@ -132,6 +104,11 @@ const CON_AUTORIZACION: Record<string, string> = {
         }
       </section>
 
+      <!-- [RH.15.5] Con la semana cerrada, lo que sigue: que cada departamento y su jefe firmen la hoja (LFT 132-XXXIV). -->
+      @if (cierreVigente(); as c) {
+        @if (sitio(); as s) { <app-rh-firmas-semana [site]="s" [plaza]="nombreDe(s)" [semana]="jueves()" [cierre]="c.id" [puedeRegistrar]="puede.cerrar()" /> }
+      }
+
       @if (sinId(); as lista) {
         <section class="ri-sinid" role="alert" aria-label="Gente sin identificar en la semana">
           <p><strong>{{ lista.length }} {{ lista.length === 1 ? 'persona checó' : 'personas checaron' }} esta semana sin estar identificada.</strong>
@@ -153,69 +130,7 @@ const CON_AUTORIZACION: Record<string, string> = {
 
       @if (aviso(); as a) { <p class="ri-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
 
-      @if (form(); as f) {
-        <form class="ri-form" (ngSubmit)="guardarCaptura()" aria-label="Capturar incidencia">
-          <h2>Capturar incidencia</h2>
-          <label>Número de la persona <input pInputText name="persona" [(ngModel)]="f.person_code" required /></label>
-          <label>Tipo
-            <p-select [options]="tipos()" optionLabel="etiqueta" optionValue="tipo" name="tipo" [(ngModel)]="f.incident_type" appendTo="body" placeholder="Elige el tipo" ariaLabel="Tipo de incidencia" />
-          </label>
-          <label>Desde <input pInputText type="date" name="desde" [(ngModel)]="f.date_from" required /></label>
-          @if (!deUnDia(f.incident_type)) {
-            <label>Hasta <input pInputText type="date" name="hasta" [(ngModel)]="f.date_to" [min]="f.date_from" /></label>
-          }
-          @if (f.incident_type === 'horas_extra') {
-            <label>Horas extra usadas <input pInputText type="time" name="horas" [(ngModel)]="f.horas" required /></label>
-            <div class="ri-saldo">
-              <p-button label="Ver su saldo" [text]="true" size="small" [disabled]="!f.person_code.trim()" (onClick)="verSaldo(f.person_code)" />
-              @if (saldoUso(); as s) { <span role="status">{{ s }}</span> }
-            </div>
-          }
-          @if (f.incident_type === 'horario_distinto') {
-            <label>Entró a las <input pInputText type="time" name="entrada" [(ngModel)]="f.entrada" required /></label>
-            <label>Salió a las (opcional) <input pInputText type="time" name="salida" [(ngModel)]="f.salida" /></label>
-            <label>Comida ese día, en minutos (opcional)
-              <input pInputText type="number" inputmode="numeric" name="comidaDia" min="0" max="240" [(ngModel)]="f.comidaDia" /></label>
-            <p class="ri-ancho ri-ayuda">Con la salida, ese día se mide de la entrada a la salida: retardo, salida temprana y horas extra. Sin la salida sólo cambia la entrada. Sin la comida se descuenta la de su horario. Su horario de siempre no cambia.</p>
-          }
-          @if (f.incident_type === 'desayuno_distinto' || f.incident_type === 'comida_distinta') {
-            <label>Minutos de {{ f.incident_type === 'desayuno_distinto' ? 'desayuno' : 'comida' }} autorizados
-              <input pInputText type="number" name="minutos" min="0" max="240" [(ngModel)]="f.minutos" required /></label>
-          }
-          @if (f.incident_type === 'visita_fuera') {
-            <label>Lo recogieron a las <input pInputText type="time" name="recogida" [(ngModel)]="f.recogida" required /></label>
-            <label>Lo dejaron a las <input pInputText type="time" name="entrega" [(ngModel)]="f.entrega" required /></label>
-            <label>Quién autorizó la visita <input pInputText name="autorizoVf" [(ngModel)]="f.authorized_by_name" required /></label>
-            <p class="ri-ancho ri-ayuda">Justifica el día y el tiempo de la recogida a la entrega se suma a sus horas trabajadas. No toca su saldo de horas extra; en su día de descanso no suma.</p>
-          }
-          @if (f.incident_type === 'pago_horas_extra') {
-            <label>Horas pagadas <input pInputText type="number" name="horasPagadas" min="0.5" max="100" step="0.5" [(ngModel)]="f.horasPagadas" required /></label>
-            <div class="ri-saldo">
-              <p-button label="Ver su saldo" [text]="true" size="small" [disabled]="!f.person_code.trim()" (onClick)="verSaldo(f.person_code)" />
-              @if (saldoUso(); as s) { <span role="status">{{ s }}</span> }
-            </div>
-            <p class="ri-ancho ri-ayuda">Se le pagaron en efectivo en vez de tomarlas: descuentan de su saldo de horas extra. Es el total, en un solo día, y no cambia su asistencia.</p>
-          }
-          @if (f.incident_type === 'cambio_descanso') {
-            <p class="ri-ancho ri-ayuda">El día elegido es su descanso de esa semana, y su descanso de siempre pasa a ser día de trabajo: si no viene ese día, es falta.</p>
-          }
-          @if (f.incident_type === 'descanso') {
-            <p class="ri-ancho ri-ayuda">Esos días cuentan como descanso (no como falta ni como vacaciones), y su descanso de siempre no se mueve. Sirve para quien descansa dos días esa semana, o para quitarle a unas vacaciones el día que de todos modos descansaba.</p>
-          }
-          @if (conAutorizacion(f.incident_type)) {
-            <label class="ri-ancho">{{ etiquetaMotivo(f.incident_type) }} <input pInputText name="motivo" [(ngModel)]="f.reason" required /></label>
-            <label>Quién lo autorizó <input pInputText name="autorizo" [(ngModel)]="f.authorized_by_name" required /></label>
-          }
-          <label class="ri-ancho">{{ etiquetaNota(f.incident_type) }} <input pInputText name="nota" [(ngModel)]="f.note" [required]="notaObligatoria(f.incident_type)" /></label>
-          @if (puede.calificar()) {
-            <label class="ri-check"><input type="checkbox" name="entregar" [(ngModel)]="f.deliver" /> Entregarla para que la califique otra persona</label>
-          }
-          <div class="ri-form-btns">
-            <p-button type="submit" label="Guardar" [loading]="ocupado()" />
-            <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="form.set(null)" />
-          </div>
-        </form>
-      }
+      <app-rh-captura-incidencia [(form)]="form" [site]="sitio()" [tipos]="tipos()" [puedeCalificar]="puede.calificar()" (guardada)="capturada($event)" />
 
       <app-load-state [loading]="loading() && !lista().length" [error]="error()" [isEmpty]="!loading() && !error() && !lista().length"
                       emptyIcon="pi-file-edit" emptyTitle="No hay incidencias con este filtro" emptyHint="Prueba otra semana u otro estado." (retry)="cargar()">
@@ -320,16 +235,8 @@ const CON_AUTORIZACION: Record<string, string> = {
     .ri-sinid ul { padding-left: var(--sp-4); }
     .ri-sinid-acc { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
     .ri-sinid-acc input { min-width: 22rem; flex: 1 1 22rem; }
-    .ri-saldo { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; font-size: var(--fs-sm); color: var(--text-muted); }
-    .ri-ayuda { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .ri-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .ri-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
-    .ri-form { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
-    .ri-form h2 { flex: 1 1 100%; margin: 0; font-size: var(--fs-h3); color: var(--text-main); }
-    .ri-form label { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
-    .ri-form .ri-ancho { flex: 1 1 18rem; }
-    .ri-form .ri-check { flex-direction: row; align-items: center; gap: var(--sp-2); }
-    .ri-form-btns { display: flex; gap: var(--sp-2); }
     .ri-body { display: grid; grid-template-columns: 1fr; gap: var(--sp-4); align-items: start; }
     .ri-body.has-detail { grid-template-columns: minmax(0, 1.2fr) minmax(380px, 1fr); }
     .ri-list, .ri-detail { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; }
@@ -393,6 +300,8 @@ export class RhIncidenciasComponent implements OnInit {
   readonly banderaLabel = BANDERA_LABEL;
 
   readonly sitios = signal<HrSiteDto[]>([]);
+  /** `[RH.15.11]` La plaza se NOMBRA (la hoja de QR que se imprime la lleva). Sin nombre conocido, el código tal cual. */
+  nombreDe(code: string): string { return this.sitios().find((x) => x.code === code)?.name || code; }
   readonly sitio = signal<string | null>(null);
   readonly jueves = signal(juevesDeLaSemana(hoyEnMexico()));
   readonly filtro = signal<FiltroEstado>('por_calificar');
@@ -536,84 +445,21 @@ export class RhIncidenciasComponent implements OnInit {
 
   abrirCaptura(persona = '', desde = ''): void {
     this.aviso.set(null);
-    this.saldoUso.set(null);
-    this.form.set({
-      person_code: persona, incident_type: 'vacaciones', date_from: desde || hoyEnMexico(), date_to: '',
-      note: '', horas: '', entrada: '', reason: '', authorized_by_name: '', deliver: false, minutos: '',
-    });
+    this.form.set(formNuevo(persona, desde));
   }
 
-  /** Lo que se manda al servidor; público para que la prueba verifique QUÉ se envía. */
-  cuerpoCaptura(f: FormCaptura, site: string): HrCapturaIncidenciaBody {
-    const aMin = (t: string): number | undefined => {
-      const m = /^(\d{1,2}):(\d{2})$/.exec(t || '');
-      return m ? Number(m[1]) * 60 + Number(m[2]) : undefined;
-    };
-    const t = f.incident_type;
-    const pausa = t === 'desayuno_distinto' || t === 'comida_distinta';
-    const autoriza = t in CON_AUTORIZACION;
-    const minPausa = String(f.minutos ?? '').trim() === '' ? undefined : Math.round(Number(f.minutos));
-    // `[RH.6.6]` La recogida va como horario base y el lapso hasta la entrega, como minutos (lo valida el servidor).
-    const recogida = t === 'visita_fuera' ? aMin(f.recogida ?? '') : undefined;
-    const entrega = t === 'visita_fuera' ? aMin(f.entrega ?? '') : undefined;
-    const lapsoVf = recogida !== undefined && entrega !== undefined ? entrega - recogida : undefined;
-    // `[RH.6.7]` Las horas pagadas, a minutos («1,5» también se entiende).
-    const hp = Number(String(f.horasPagadas ?? '').replace(',', '.'));
-    const minPagados = t === 'pago_horas_extra' && String(f.horasPagadas ?? '').trim() !== '' && Number.isFinite(hp) ? Math.round(hp * 60) : undefined;
-    // `[RH.17.2]` Horario distinto con el horario completo de ese día: salida y comida, si se llenaron.
-    const hdDia = t === 'horario_distinto';
-    const comidaDia = hdDia && String(f.comidaDia ?? '').trim() !== '' ? Math.round(Number(f.comidaDia)) : undefined;
-    return {
-      site_code: site, person_code: f.person_code.trim(), incident_type: t, date_from: f.date_from,
-      date_to: DE_UN_DIA.has(t) ? undefined : f.date_to || undefined, note: f.note.trim() || undefined,
-      minutes: t === 'horas_extra' ? aMin(f.horas) : t === 'horario_distinto' ? aMin(f.entrada) : pausa ? minPausa
-        : t === 'visita_fuera' ? lapsoVf : t === 'pago_horas_extra' ? minPagados : undefined,
-      reason: autoriza ? f.reason.trim() : undefined,
-      authorized_by_name: autoriza || t === 'visita_fuera' ? f.authorized_by_name.trim() : undefined,
-      base_schedule_minutes: recogida,
-      end_minutes: hdDia ? aMin(f.salida ?? '') : undefined,
-      break_minutes: comidaDia,
-      deliver: f.deliver || undefined,
-    };
-  }
+  /** Lo que se manda al servidor; público para que la prueba verifique QUÉ se envía (vive en `incidencia-captura.ts`). */
+  cuerpoCaptura(f: FormCaptura, site: string): HrCapturaIncidenciaBody { return cuerpoCaptura(f, site); }
 
-  deUnDia(tipo: string): boolean { return DE_UN_DIA.has(tipo); }
-  notaObligatoria(tipo: string): boolean { return tipo in NOTA_OBLIGATORIA; }
-  etiquetaNota(tipo: string): string { return NOTA_OBLIGATORIA[tipo] ?? 'Nota (folio, motivo)'; }
-  conAutorizacion(tipo: string): boolean { return tipo in CON_AUTORIZACION; }
-  etiquetaMotivo(tipo: string): string { return CON_AUTORIZACION[tipo] ?? 'Por qué ese día fue distinto'; }
+  deUnDia(tipo: string): boolean { return deUnDia(tipo); }
+  notaObligatoria(tipo: string): boolean { return notaObligatoria(tipo); }
+  etiquetaNota(tipo: string): string { return etiquetaNota(tipo); }
+  conAutorizacion(tipo: string): boolean { return conAutorizacion(tipo); }
 
-  /** `[RH.1.10]` El saldo de horas extra de la persona, para capturar su uso sabiendo cuánto tiene. */
-  readonly saldoUso = signal<string | null>(null);
-  verSaldo(persona: string): void {
-    const site = this.sitio();
-    const cod = persona.trim();
-    if (!site || !cod) return;
-    this.saldoUso.set('Calculando…');
-    this.api.bancoHorasExtra(site, cod).subscribe({
-      next: (b) => {
-        const p = b.personas.find((x) => x.codigo === cod);
-        this.saldoUso.set(p ? `Saldo: ${firmaHoras(p.saldoMin) || '0h 00m'} (ganó ${horasTexto(p.ganadasMin)}, usó ${horasTexto(p.usadasMin)})` : 'Sin horas extra en el banco.');
-      },
-      error: (e) => this.saldoUso.set(rhError(e, 'No se pudo leer el saldo.')),
-    });
-  }
-
-  guardarCaptura(): void {
-    const f = this.form();
-    const site = this.sitio();
-    if (!f || !site) return;
-    this.ocupado.set(true);
-    this.aviso.set(null);
-    this.api.capturar(this.cuerpoCaptura(f, site)).subscribe({
-      next: (n) => {
-        this.ocupado.set(false);
-        this.form.set(null);
-        this.aviso.set({ texto: n.status === 'calificada' ? 'Guardada y calificada: ya cuenta en la asistencia.' : 'Guardada. Cuenta cuando otra persona la califique.', mal: false });
-        this.cargar();
-      },
-      error: (e) => { this.ocupado.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo guardar la incidencia.'), mal: true }); },
-    });
+  /** `[RH.18.1]` La captura compartida guardó: se dice si ya cuenta y se vuelve a leer la lista. */
+  capturada(n: HrIncidenciaDto): void {
+    this.aviso.set({ texto: n.status === 'calificada' ? 'Guardada y calificada: ya cuenta en la asistencia.' : 'Guardada. Cuenta cuando otra persona la califique.', mal: false });
+    this.cargar();
   }
 
   cerrarSemana(): void {

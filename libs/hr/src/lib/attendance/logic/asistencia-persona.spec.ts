@@ -66,6 +66,55 @@ function escenario(over: Partial<EntradaAsistencia> = {}, ficha: Partial<FichaPa
 }
 const ana = (e: EntradaAsistencia) => calcularAsistencia(e).personas.find((p) => p.codigo === '15');
 
+describe('[RH.15.2] «Sin dato» en vez de «Falta» cuando el reloj no entregó', () => {
+  /** Dos personas con el mismo horario; el martes 14 NADIE checó (reloj caído o día festivo). */
+  const dos = (sinNadieEl: string | null, beto = true) => {
+    const e = escenario();
+    if (beto) {
+      for (const f of rangoFechas('2026-07-02', '2026-07-22')) {
+        if (new Date(`${f}T12:00:00Z`).getUTCDay() === 0 || f === sinNadieEl) continue;
+        e.filas.push({ codigo: '16', nombreReloj: 'Beto S', fecha: f, horas: ['08:00', '13:00', '14:00', '18:00'] });
+      }
+      e.padron.set('16', { ...e.padron.get('15')!, userId: 'u-16', nombre: 'Beto', nombreCompleto: 'PRUEBA DOS' });
+    }
+    return calcularAsistencia(e);
+  };
+  const dia = (r: ReturnType<typeof calcularAsistencia>, cod: string, f: string) =>
+    r.personas.find((p) => p.codigo === cod)?.semanas.flatMap((s) => s.dias).find((d) => d.fecha === f);
+
+  it('nadie de la plaza checó y DOS personas salen con falta: el día es «sin_dato» y no cuenta como falta', () => {
+    const r = dos('2026-07-14');
+    expect([dia(r, '15', '2026-07-14')?.estado, dia(r, '16', '2026-07-14')?.estado]).toEqual(['sin_dato', 'sin_dato']);
+    const ana = r.personas.find((p) => p.codigo === '15')!;
+    expect([ana.faltas, ana.diasSinDato]).toEqual([0, 1]);
+    expect([r.resumen.faltas, r.resumen.diasSinDato]).toEqual([0, 2]);
+  });
+  it('si otra persona SÍ checó ese día, la falta sigue siendo falta (el reloj sí entregó)', () => {
+    const r = dos(null);
+    expect(dia(r, '15', '2026-07-14')?.estado).toBe('falta');
+    expect(r.personas.find((p) => p.codigo === '15')?.faltas).toBe(1);
+  });
+  it('con UNA sola persona en la plaza, «nadie checó» es SU falta: no se esconde', () => {
+    const r = dos(null, false);
+    expect(dia(r, '15', '2026-07-14')?.estado).toBe('falta');
+    expect(r.personas.find((p) => p.codigo === '15')?.diasSinDato ?? 0).toBe(0);
+  });
+  it('un día justificado por RH sigue justificado aunque nadie haya checado', () => {
+    const e = escenario({ incidencias: [{ id: 'i1', personCode: '15', tipo: 'vacaciones', desde: '2026-07-14', hasta: '2026-07-14', nota: '', minutos: null }] });
+    const r = calcularAsistencia(e);
+    expect(dia(r, '15', '2026-07-14')?.estado).toBe('justificado');
+  });
+});
+
+describe('[RH.15.10] cada semana se mide contra la ley', () => {
+  it('trae la jornada máxima del año y lo que se pasó (semana del 16-jul: 5 × 540 + 500 = 3,200 min, 320 sobre 48 h)', () => {
+    const p = ana(escenario());
+    const semana = p?.semanas.find((s) => s.inicio === '2026-07-16');
+    expect(semana?.minutosTrabajados).toBe(5 * 540 + 500);
+    expect(semana?.legal).toEqual({ anio: 2026, jornadaMaxMin: 48 * 60, extraMaxMin: 9 * 60, excedenteMin: 320, triplesMin: 0 });
+  });
+});
+
 describe('asistencia por persona', () => {
   it('deduce su horario de SUS checadas y mide el martes que faltó', () => {
     const p = ana(escenario());

@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import type { HrDiaAsistencia, HrPersonaAsistencia } from '@megadulces/contracts';
 import { ESTADO_DIA_LABEL } from '../rh.service';
+import { RhRegistroLegalComponent } from './rh-registro-legal.component';
 import { type ColumnaDia, diasPorFecha, difHorario, firmaHoras, horasTexto, incidenciasEnDescanso, pausasDelDia } from '../reporte-formato';
 
 /**
@@ -23,6 +24,7 @@ interface RenglonDia {
 @Component({
   selector: 'app-rh-persona-dias',
   standalone: true,
+  imports: [RhRegistroLegalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="pd-scroll dt-scope">
@@ -32,7 +34,6 @@ interface RenglonDia {
             <th scope="col">Día</th><th scope="col">Entrada</th><th scope="col">Desayuno</th><th scope="col">Comida</th><th scope="col">Salida</th>
             <th class="num" scope="col">Horas</th><th class="num" scope="col">{{ mideRetardo() ? 'Min. retardo' : 'Retardo' }}</th>
             @if (persona().horarioAsignado) { <th class="num" scope="col">vs. horario</th> }
-            @if (capturable()) { <th scope="col"><span class="sr-only">Acción</span></th> }
           </tr>
         </thead>
         <tbody>
@@ -54,11 +55,6 @@ interface RenglonDia {
               } @else {
                 <td role="cell" data-label="Qué pasó" [attr.colspan]="persona().horarioAsignado ? 7 : 6"><span class="pill" [attr.data-t]="r.tono">{{ r.etiqueta }}</span></td>
               }
-              <!-- [RH.13.5] La incidencia se captura con ESE día ya puesto (antes: el inicio de la semana y a buscar el día). -->
-              @if (capturable()) {
-                <td class="pd-acc" role="cell"><button type="button" class="pd-inc" (click)="capturar.emit(r.col.fecha)"
-                  [attr.aria-label]="'Capturar una incidencia del ' + r.col.dow + ' ' + r.col.dia">+ Incidencia</button></td>
-              }
             </tr>
           }
         </tbody>
@@ -68,18 +64,14 @@ interface RenglonDia {
             <td class="num">{{ horas(persona().minutosTrabajados) }}</td>
             <td class="num">{{ mideRetardo() ? persona().atrasoBrutoMin : '—' }}</td>
             @if (persona().horarioAsignado) { <td class="num">{{ firma(dif()) }}</td> }
-            @if (capturable()) { <td></td> }
           </tr>
         </tfoot>
       </table>
     </div>
+    <!-- [RH.15.9] Lo que la autoridad puede pedir: sus checadas tal como las entregó el reloj, con su huella. -->
+    <app-rh-registro-legal [codigo]="persona().codigo" [hoy]="hoy()" />
   `,
   styles: [`
-    .pd-acc { text-align: right; white-space: nowrap; }
-    .pd-inc { border: 0; background: none; padding: 2px var(--sp-1); font: inherit; font-size: var(--fs-xs); color: var(--text-muted); cursor: pointer; border-radius: var(--r-sm); }
-    .pd-inc:hover { color: var(--text-main); background: var(--surface-hover-bg); }
-    .pd-inc:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-    @media (pointer: coarse) { .pd-inc { min-height: 44px; padding: 0 var(--sp-2); } }
     :host { display: block; min-width: 0;
       /* [RH.13.5] «Con cuadros» (David, 13-nov): la misma rejilla visible que la tabla de la semana. */
       --pd-linea: color-mix(in srgb, var(--text-muted) 30%, var(--card-bg));
@@ -117,9 +109,6 @@ export class RhPersonaDiasComponent {
   readonly columnas = input.required<ColumnaDia[]>();
   readonly hoy = input.required<string>();
   readonly mideRetardo = input(true);
-  /** `[RH.13.5]` Con un «+ Incidencia» por día (quien captura). */
-  readonly capturable = input(false);
-  readonly capturar = output<string>();
 
   readonly horas = horasTexto;
   readonly firma = firmaHoras;
@@ -139,6 +128,8 @@ export class RhPersonaDiasComponent {
       }
       switch (d.estado) {
         case 'falta': return { ...base, etiqueta: inc ? `Falta · ${inc}` : 'Falta', tono: 'bad' } as RenglonDia;
+        // `[RH.15.2]` Nadie de la plaza checó: no se afirma una falta que no se puede probar.
+        case 'sin_dato': return { ...base, etiqueta: inc || 'Sin dato: nadie de la plaza checó ese día (no cuenta como falta)', tono: inc ? 'info' : 'mute' } as RenglonDia;
         case 'marca_faltante': return { ...base, etiqueta: `Una sola checada (${d.hora || d.entrada || '?'}): no se sabe si fue entrada o salida`, tono: 'bad' } as RenglonDia;
         case 'descanso': {
           // `[RH.6.2]` Unas vacaciones que cruzan su descanso no lo vuelven vacaciones: se dice el descanso capturado
