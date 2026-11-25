@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 119 KB, 1765 líneas, 35 secciones.
+> **Índice navegable** — 120 KB, 1775 líneas, 35 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -33,15 +33,15 @@
 | 1315 | 1356 | 4 | 3.z.5 ⭐⭐ Qué ESCRIBE un pago a proveedor (`X-D-26` / `X-D-25`) — las 8 escrituras, deducidas (2026-11-04, `[PG |
 | 1357 | 1468 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
 | 1469 | 1499 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1500 | 1547 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1548 | 1575 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1576 | 1632 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1633 | 1683 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1684 | 1709 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1710 | 1774 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1775 | 1794 | 1 | 6. Importers / feeds relevantes |
-| 1795 | 1802 | 1 | 7. Conexiones y credenciales |
-| 1803 | 1812 | 1 | 8. Para profundizar |
+| 1500 | 1557 | 4 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1558 | 1585 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1586 | 1642 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1643 | 1693 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1694 | 1719 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1720 | 1784 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1785 | 1804 | 1 | 6. Importers / feeds relevantes |
+| 1805 | 1812 | 1 | 7. Conexiones y credenciales |
+| 1813 | 1822 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -1510,9 +1510,19 @@ contra un producto real y contra sus documentos:
 | `c4`-`c5`-`c6`-`c7` | el documento: género, naturaleza, tipo, serie (`X-A-40-1`, `U-D-10-2`…) |
 | `c8` / `c9` | folio / renglón |
 | `c10` | la fecha del movimiento |
-| `c11` / `c12` | cantidad y su unidad (la BASE que registró el renglón; puede cambiar de `PAQ` a `PZA` para el mismo SKU) |
+| `c11` / `c12` | cantidad y su unidad **tal como las trae el renglón** (`kdm2.c9` / `kdm2.c11`, 5,897 de 5,897 entradas `X-A-40`): **no convierte con `c58`** — si el renglón dice `CJA`, el kardex dice `CJA` (ver `[PQ.112.2]` abajo) |
+| `c13`=`c14` · `c21`=`c22` | importe del renglón (`kdm2.c13`) · importe a costo (`kdm2.c26`). En una salida, `c13/c11` = el costo promedio de ese momento |
+| `c15` · `c16` · `c19` · `c20` | proveedor/cliente (`kdm1.c10`) · concepto (`kdm1.c12`) · referencia del renglón (`kdm2.c28`) · moneda |
+| `c17` | ⭐ **la existencia ANTES del movimiento** (la calcula el cliente de Kepler; medido 2026-11-24, `[PQ.112.1]`) |
+| `c29` | el primer dígito del renglón (5,798 de 5,798) |
 | `c30` | `E` entrada / `S` salida |
 | `c37`-`c41` | el documento de origen (`A-37` para la orden de entrada, `D-41` para la recepción de un traspaso) |
+
+⭐ **`[PQ.112.1]`/`[PQ.112.2]` (2026-11-24):** una orden de entrada deja exactamente un `kdij` por renglón y sus 42
+columnas salen del renglón y su cabecera (salvo `c17`, `c29`, `c30`). Kepler **no convierte la unidad en ningún paso**
+(OC → vale → orden → kardex), y `kdil` suma crudo. El costo que queda es **promedio móvil** (552 casos contra 3 de
+«última entrada»; 7.7 % sin regla). Detalle y el hallazgo de las OC en `CJA` escritas por la Suite:
+[anexo R §3b](IMPLEMENTACION/FASES/FASE_PQ_ANEXO_RECEPCION_EN_KEPLER.md).
 
 ⭐ **Se consulta por su llave** `(sucursal, c1, c2, c3)`: el barrido de la primera entrada de ~1,200 SKUs
 en las 9 sucursales tarda **0.8 s**. ⚠️ No hay índice por `c3` solo: sin fijar `sucursal`/`c1` es un
