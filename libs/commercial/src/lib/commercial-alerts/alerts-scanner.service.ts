@@ -4,6 +4,7 @@ import { Knex } from 'knex';
 import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { AlertsService } from './alerts.service';
 import { ALERT_THRESHOLDS } from './alerts.types';
+import { EXISTENCIA_ODS_CON_APARTADO_SQL } from '../commercial-inventory/stock-state';
 
 /**
  * Scanner cron que detecta condiciones de alerta sin trigger inmediato:
@@ -62,10 +63,21 @@ export class AlertsScannerService {
       await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`);
 
       // 1. Low stock crítico
-      const lowStock = await trx('commercial.stock as s')
+      //
+      // `[CANON.7.4d]` La existencia sale del ODS (Kepler) y el apartado del libro de la Suite
+      // (`EXISTENCIA_ODS_CON_APARTADO_SQL`), no de la copia `commercial.stock`. Medido en prod el 2026-11-25:
+      // la copia tiene **27,035 celdas que Kepler ya no tiene** —el almacén borrado `MD-32` y productos
+      // congelados desde la migración de cada sucursal—, y como quedaron en cero **todas** caen bajo el umbral:
+      // este scanner emitía una alerta de «bajo stock» por cada producto fantasma.
+      //
+      // ⛔ El tenant va EXPLÍCITO: este cron corre con la conexión de servicio (`KNEX_NEW_DB`, sin RLS) y
+      // `analytics.*` no tiene política. Con la copia, el `SET LOCAL app.tenant_id` de arriba alcanzaba porque
+      // `commercial.stock` sí tiene RLS; la vista del ODS no, así que el filtro tiene que estar acá.
+      const lowStock = await trx.from(trx.raw(`${EXISTENCIA_ODS_CON_APARTADO_SQL} AS s`))
         .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
         .leftJoin('public.products as p', 'p.id', 's.product_id')
         .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
+        .where('s.tenant_id', tenantId)
         .whereRaw('(s.quantity - s.reserved_quantity) < ?', [ALERT_THRESHOLDS.LOW_STOCK_AVAILABLE])
         .where('w.active', true)
         .where('p.activo', true)

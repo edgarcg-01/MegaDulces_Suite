@@ -31,7 +31,7 @@ const LECTORES_A: Array<[archivo: string, quedan: number, porque: string]> = [
   ['commercial-analytics/commercial-analytics.service.ts', 0,
     'A1 deadStock · A2 lowStock · A3 sellOut · A4 salidas · B8 rankingOutOfStock ([CANON.7.3])'],
   ['commercial-intelligence/thot-chat/thot-tools.service.ts', 0, 'A5 reorderPolicy'],
-  ['commercial-inventory/inventory-monitoring.service.ts', 1, 'A6 recordCount: escribe el conteo → [CANON.7.4]'],
+  ['commercial-inventory/inventory-monitoring.service.ts', 0, 'A6 recordCount: el teórico del conteo rápido ([CANON.7.4d])'],
   ['commercial-products/commercial-products.service.ts', 0, 'A7 findById (total de la red)'],
   ['commercial-profitability/commercial-profitability.service.ts', 0, 'A8 overview · A9 breakdown'],
   ['commercial-replenishment/commercial-replenishment.service.ts', 0, 'A10 networkSurplus · A11 criticalStock · A12 summary'],
@@ -268,6 +268,35 @@ describe('[CANON.7.4b] los pedidos: existencia del ODS, apartado del libro de mo
     expect(f).toContain('FROM ${EXISTENCIA_ODS_CON_APARTADO_SQL} x');
     expect(f).toContain('WHERE x.warehouse_id = ANY(?::uuid[]) AND x.product_id = ANY(?::uuid[])) AS s');
     expect(f).toContain('.leftJoin(existenciaDelPedido, function () {');
+  });
+});
+
+/**
+ * `[CANON.7.4d]` Los dos que leían la copia dentro de algo que escribe y que por uso no entraban en 7.2: el teórico
+ * del conteo rápido de Monitoreo (A6) y la alerta de bajo stock del scanner. Los dos fabricaban un número falso con
+ * la copia — el primero un faltante contra un teórico congelado, el segundo una alerta por cada una de las **27,035
+ * celdas que Kepler ya no tiene** (medido en prod el 2026-11-25), todas en cero y por lo tanto bajo cualquier umbral.
+ */
+describe('[CANON.7.4d] el conteo rápido y la alerta de bajo stock', () => {
+  const leer = (rel: string) => readFileSync(join(LIB, rel), 'utf8').split('\r\n').join('\n');
+
+  it('el teórico del conteo rápido sale del ODS, y si no se puede leer NO se registra el conteo', () => {
+    const f = leer('commercial-inventory/inventory-monitoring.service.ts');
+    expect(lecturasDeLaCopia(f).map((l) => l.trim())).toEqual([]);
+    // `existenciaYApartado` lanza si la vista no responde; `leerExistencia` se traga el error y devuelve 0.
+    // Acá el 0 inventado quedaría GUARDADO como `expected_qty` y la diferencia acusaría un faltante.
+    expect(f).toContain('const { existencia: expected } = await existenciaYApartado(trx, mon.warehouse_id, mon.product_id);');
+    expect(f).not.toContain('leerExistencia(');
+  });
+
+  it('la alerta de bajo stock lee existencia del ODS + apartado del libro, con el tenant EXPLÍCITO', () => {
+    const f = readFileSync(join(LIB, 'commercial-alerts/alerts-scanner.service.ts'), 'utf8').split('\r\n').join('\n');
+    expect(lecturasDeLaCopia(f).map((l) => l.trim())).toEqual([]);
+    expect(f).toContain('EXISTENCIA_ODS_CON_APARTADO_SQL');
+    // ⛔ El cron corre con KNEX_NEW_DB (sin RLS) y `analytics.*` no tiene política: sin este filtro, un tenant
+    // recibiría las alertas de otro. Con la copia bastaba el `SET LOCAL app.tenant_id` porque ella sí tiene RLS.
+    expect(f).toContain(`.where('s.tenant_id', tenantId)`);
+    expect(f).toMatch(/\(s\.quantity - s\.reserved_quantity\) < \?/);
   });
 });
 
