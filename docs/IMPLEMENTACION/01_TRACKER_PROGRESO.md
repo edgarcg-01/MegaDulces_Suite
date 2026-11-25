@@ -10128,6 +10128,39 @@ más) — PR aparte para no volver ilegible el diff.
     precio y existencia hoy**, y **0 tienen imagen** — subir una ficha sin foto es publicar un
     renglón vacío. Eso depende de D3, no de la API.
 
+- [ ] **[COT.7.50]** ⬜ **El pedido llega a Kepler solo, venga de donde venga — dos productores para una puerta que ya existe**
+  (Edgar, 2026-11-25: *«cuando se genere un pedido se vaya automáticamente a pedido de tlmk»*; al
+  preguntarle qué pedido: **«los dos»**. Plan:
+  [`FASE_COT7_ANEXO_DOS_ORIGENES_2026-11-25.md`](FASES/FASE_COT7_ANEXO_DOS_ORIGENES_2026-11-25.md))
+  - ⭐ **La mitad ya está hecha: 625 de 625 cotizaciones aceptadas de telemarketing tienen folio de
+    Kepler**, ninguna con error. La máquina de escribir el documento está en prod y no se toca.
+    Falta **el productor**: armar el `PedidoTlmkEntrada` desde otros dos orígenes (ADR-056: se reusa
+    el primitivo, no se inventa el noveno).
+  - **Origen A, la tienda Wix:** de 848 pedidos históricos, **176 pagados** (635 sin pagar, 640
+    cancelados). Un pedido pagado ya trae SKU, cantidad, precio y domicilio. ⭐ **El cliente existe
+    y se usa:** `kdud` clave **`ONLINE`**, «ENVIOS ONLINE (E-COMMERCE)», en las 9 sucursales,
+    vendedor `00002`, contado — con **1,078 documentos** ya capturados a mano (953 en `01`, 125 en
+    `00`). Automatizar reemplaza una captura que ya ocurre.
+  - ⭐⭐ **Origen B, los pedidos de la Suite, son del VENDEDOR DE RUTA y ahí está el dinero:** 1,819
+    de 1,844 los creó un `vendedor_ruta`, y **noviembre lleva 1,671 por $1,450,081** contra 128 en
+    octubre. Es **~180 veces** la tienda Wix (~$8,045/mes). **Ninguno llegó escrito a Kepler**, y
+    **ninguno nació de una cotización** (`quotes.order_id` vacío en los 1,844: el motor «pasar a
+    venta» `[MCP.34]`, del 2026-11-24, todavía no produjo un pedido en prod).
+  - ⚠️ **Un doctipo NO se lee del folio.** Los 14 pedidos que figuran ligados a Kepler tienen folios
+    `UD1003`/`UD1004` y los leí como preventa: son `U-D-10` **tipo 03 y 04**, o sea tickets de
+    mostrador, y además están **ligados, no escritos** (`link_source='mesa'`, los 14 el mismo día).
+    `U-D-40` es **el Pedido** a secas (`c2='U' c3='D' c4=40`, folio `PD-`); «Telemarketing» es el
+    nombre de la pantalla, no una naturaleza. **Un solo doctipo sirve para los dos orígenes.**
+  - ⚠️ **NO MEDIDO:** que los 1,078 documentos de `ONLINE` sean pedidos *de Wix* y no de otro canal
+    en línea. Se cruza una muestra por importe y fecha **con control negativo** antes de construir.
+  - **Decisiones para Edgar** (detalle en el anexo): sucursal `01` **declarada** para la tienda ·
+    sólo pedidos **pagados** · escribe solo, con el interruptor y el tope diario que ya existen ·
+    **sin recuperar históricos** · disparo **por evento**, nunca cron ni importer.
+  - ⛔ **El riesgo es el volumen:** el carril pasa de ~1 documento por cotización a potencialmente
+    1,671 al mes. Entra por canario, con tope, y se verifica **releyendo el ERP**, no el acuse.
+  - ⚠️ **Contra el cupo:** 10 fases 🔨 contra un tope de 4. Por eso esto entra como **item de COT.7**,
+    no como fase nueva.
+
 - [x] **[TDA.7]** 🧪 **El mayoreo sigue al código leído, y su base estaba equivocada** (2026-09-10)
   — 0Sistemas: *"se critico con tu trabajo"*, sobre TDA.5/TDA.6 (mayoreo en pantalla, centrado,
   resorte escalonado, count-up en el ahorro), que yo había cerrado reportando *"15 suites / 185
