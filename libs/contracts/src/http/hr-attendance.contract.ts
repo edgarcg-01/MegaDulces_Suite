@@ -1108,3 +1108,16 @@ export interface HrExpedienteFirmasDto {
   user_id?: string | null;
   firmas: HrExpedienteFirmaDto[];
 }
+
+/**
+ * `[RH.1.5c]` ¿Es una sección / departamento de PROMOTORÍA DE MARCA? (la promotora la paga la marca y no se mide en la
+ * asistencia de piso). «PROMOTORIA MEGA DULCES» NO lo es: a esas las paga Mega Dulces y se miden como personal. Regla de
+ * RH en Mega Talento (3938723, 08/10/2026).
+ *
+ * `[RH.21]` H6 — Vive AQUÍ para que el servidor (que decide quién es promotora) y la pantalla (que avisa cuando la
+ * sección la hace promotora aunque se desmarque la casilla) usen UNA sola regla, no dos copias que diverjan.
+ */
+export function esDeptoDePromotoria(departamento: string | null | undefined): boolean {
+  const d = String(departamento || '');
+  return /promotor/i.test(d) && !/mega\s*dulces/i.test(d);
+}

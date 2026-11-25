@@ -10,6 +10,7 @@
  * Talento no se trae, porque su propia nota dice que derivaba (51 personas sin marcar el
  * 27/08) y el departamento ya era la segunda fuente que la corregía.
  */
+import { esDeptoDePromotoria } from '@megadulces/contracts';
 
 /**
  * ¿Esta ficha es de una PROMOTORA?
@@ -47,14 +48,10 @@ export function esPromotora(
 }
 
 /**
- * `[RH.1.5c]` ¿Es un departamento de PROMOTORÍA DE MARCA? (la promotora la paga la marca y no se mide en la
- * asistencia de piso). «PROMOTORIA MEGA DULCES» NO lo es: a esas las paga Mega Dulces y se miden como personal.
- * Regla de RH en Mega Talento (3938723, 08/10/2026); es la única regla, la que usan `esPromotora` y el directorio.
+ * `[RH.1.5c]` ¿Es un departamento de PROMOTORÍA DE MARCA? `[RH.21]` La regla vive en `@megadulces/contracts`: es la
+ * misma para el servidor (quién es promotora) y la pantalla (el aviso de la ficha). Se re-exporta para los de aquí.
  */
-export function esDeptoDePromotoria(departamento: string | null | undefined): boolean {
-  const d = String(departamento || '');
-  return /promotor/i.test(d) && !/mega\s*dulces/i.test(d);
-}
+export { esDeptoDePromotoria };
 
 /** Reglas soportadas por el detector. */
 export type Regla =
