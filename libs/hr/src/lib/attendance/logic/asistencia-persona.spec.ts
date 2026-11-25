@@ -153,11 +153,24 @@ describe('asistencia por persona', () => {
     const p = ana(escenario({}, { registrado: false, userId: null }));
     expect([p?.registrado, p?.usable, p?.marcas.find((m) => m.codigo === 'fuera_del_padron')?.gravedad]).toEqual([false, true, 'media']);
   });
-  it('la promotora sale de la vista de planta y entra en la suya; la baja no sale en ninguna', () => {
+  it('la promotora sale de la vista de planta y entra en la suya', () => {
     const prom = escenario({}, { departamento: 'PROMOTORIA ZONA 2' });
     expect(ana(prom)).toBeUndefined();
     expect(ana({ ...prom, soloPromotoras: true })?.codigo).toBe('15');
-    const baja = escenario({}, { activo: false });
+  });
+  // `[RH.21]` H2: antes la baja no salía en ningún periodo, ni en los que trabajó (sus horas no llegaban a prenómina).
+  it('⛔ la baja NO borra hacia atrás: si checó en el periodo sale, con sus días trabajados, sin faltas y avisada', () => {
+    const activa = ana(escenario());
+    const baja = ana(escenario({}, { activo: false }));
+    expect(activa?.faltas).toBeGreaterThan(0);                          // control: el escenario sí tiene faltas
+    expect(baja?.codigo).toBe('15');
+    expect(baja?.faltas).toBe(0);
+    expect(baja?.minutosTrabajados).toBe(activa?.minutosTrabajados);    // mismas horas trabajadas que activa
+    expect(baja?.marcas.find((m) => m.codigo === 'de_baja_y_checo')?.gravedad).toBe('media');
+    expect(activa?.marcas.some((m) => m.codigo === 'de_baja_y_checo')).toBe(false);
+  });
+  it('la baja SIN checadas en el periodo sigue fuera de las dos vistas', () => {
+    const baja = escenario({ filas: [] }, { activo: false });
     expect([ana(baja), ana({ ...baja, soloPromotoras: true })]).toEqual([undefined, undefined]);
   });
   it('quien lleva 21 días en silencio queda marcado ex-trabajador y su número no es usable', () => {

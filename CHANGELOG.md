@@ -14,6 +14,13 @@
 - Los productos a granel por peso (medio kilo, kilo, bulto) y los que tienen otras unidades siguen igual.
 - Las cotizaciones ya guardadas que traían pieza se conservan: se puede cambiar la cantidad y volver a cotizarlas. Lo que ya no se puede es agregar un renglón nuevo en pieza, ni cambiar uno a pieza.
 
+### Added — Finanzas › Cartera: cerrar el resto de centavos con el documento correcto (GP.R.2 · GP.R.3 · 2026-11-25 · APAGADO, sin soltar)
+- Cuando un cliente paga su factura y quedan centavos sueltos, Crédito y cobranza podrá cerrarlos con el **Ajuste Abono** que el ERP ya trae, en vez de capturar un cobro de centavos que dice que entró dinero y no entró (74 de ésos en 60 días).
+- Queda registrado quién lo cerró, por qué, sobre cuáles facturas y qué contestó el ERP: hoy un resto cerrado así no se puede explicar tres meses después.
+- Hasta $10 por factura, y sólo si la factura ya recibió un cobro. Arriba de eso es deuda, no redondeo, y no entra.
+- ⛔ **Lo que esto NO cierra, y queda declarado en cada ajuste:** un Ajuste Abono no genera factura, y 220 de los 260 restos son de facturas con pago en parcialidades (PPD). Cerrar el resto en el ERP **no lo cierra ante el SAT** — eso necesita una nota de crédito, que la emite el ERP. Decisión abierta (D-F10, Contabilidad).
+- Nace **apagado**: la bandera de escritura, el interruptor de cada sucursal (los nueve apagados y sin tope) y el permiso son cuatro candados en serie. Migración `20261125100145`.
+- Internal: `ajuste-abono.armador.ts` (C1, puro) · `kepler-ajuste-abono-sink.adapter.ts` (escribe `kdm1` + `kdue` + `kdm5` en una transacción y **revierte si el saldo no queda en cero**) · `ajuste-abono.service.ts` (doble testigo: la cartera y el ERP vivo) · `POST /api/finance/ajuste-abono/:sucursal`. El ensayo con ROLLBACK contra el ERP vivo pasó el 2026-11-24. ⚠️ La migración y su prueba **no se ejercieron contra base real** (Docker caído en esa máquina): las corre el CI.
 ### Added — Compras › Calendario de compras: las primeras mejoras de los usuarios (PQ.3.15 · PQ.3.21 · PQ.3.22 · 2026-11-24)
 - «Por zona» y «Por sucursal» (antes «Una zona», «Una sucursal»), con casillas: se marcan varias y se guarda una regla por cada lugar, todas a la vez. Cada una se atiende con lo de su lugar.
 - Bajo los días de la semana, «¿Cada cuánto?»: cada semana, cada 2, 3 o 6 semanas a partir de una fecha, o una vez al mes (el primero, segundo, tercero, cuarto o último de ese día). «Un viernes sí y otro no» ya no se mueve con las órdenes de Kepler.

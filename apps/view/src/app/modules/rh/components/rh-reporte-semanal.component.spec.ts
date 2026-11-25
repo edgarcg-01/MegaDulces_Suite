@@ -66,3 +66,15 @@ describe('[RH.13.8] la columna Horario de la tabla semanal', () => {
     expect(el.querySelector('tr.rs-fila td.rs-hor small')?.textContent?.trim()).toBe('deducido');
   });
 });
+
+describe('[RH.21] la persona de baja que checó', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('su fila dice «de baja» (con palabra, no sólo color); la activa no', () => {
+    const el = montar([persona({ codigo: '1', activo: false }), persona({ codigo: '2', activo: true })]);
+    const filas = [...el.querySelectorAll('tr.rs-fila')];
+    const marca = (codigo: string) => filas.find((f) => f.querySelector('td.rs-clv')?.textContent?.trim() === codigo)?.querySelector('.rs-debaja');
+    expect(marca('1')?.textContent?.trim()).toBe('de baja');
+    expect(marca('2')).toBeFalsy();
+  });
+});

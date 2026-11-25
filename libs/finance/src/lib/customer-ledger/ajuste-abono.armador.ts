@@ -48,6 +48,10 @@ export const TIPO_AJUSTE = 30;
 export const SERIE_AJUSTE = 1;
 /** `md.kdm1.c11` es `varchar(20)`: la referencia de la Suite no puede pasarse (medido escribiendo, 2026-11-24). */
 export const REFERENCIA_MAX = 20;
+/** `kdm1.c43`: `N` normal, `C` cancelado (4 de los 67 ajustes vivos están en `C`). */
+export const ESTATUS_NORMAL = 'N';
+/** `kdue.c29`: el renglón del ajuste es un ABONO en la cartera (67 de 67 medidos). */
+export const ABONO = 'A';
 
 /** Una factura del cliente, como la lee la cartera. `importe` y `saldo` en pesos. */
 export interface FacturaConResto {
@@ -64,6 +68,10 @@ export interface FacturaConResto {
 
 export interface PeticionAjuste {
   sucursal: string;
+  /** La fecha del ajuste, `YYYY-MM-DD` en México. ⛔ Sin ella el documento nace con la fecha de la PLANTILLA. */
+  fecha: string;
+  /** `HH:MM`, como la guarda Kepler en `kdm1.c69` (medido: `13:01`, `12:48`). */
+  hora: string;
   /** `kdud.c2`. */
   cliente: string;
   facturas: FacturaConResto[];
@@ -98,6 +106,8 @@ export function armarAjusteAbono(p: PeticionAjuste): Resolucion<PlanAjuste> {
   const suc = (p.sucursal ?? '').trim();
   const cliente = (p.cliente ?? '').trim();
   const ref = (p.referencia ?? '').trim();
+  const fecha = (p.fecha ?? '').trim();
+  const hora = (p.hora ?? '').trim();
 
   if (!/^\d{2}$/.test(suc)) return { ok: false, motivo: `La sucursal «${suc}» no es de dos dígitos` };
   if (!cliente) return { ok: false, motivo: 'Falta el cliente: un Ajuste Abono es de UN cliente' };
@@ -105,6 +115,8 @@ export function armarAjusteAbono(p: PeticionAjuste): Resolucion<PlanAjuste> {
   if (ref.length > REFERENCIA_MAX) {
     return { ok: false, motivo: `La referencia «${ref}» tiene ${ref.length} caracteres y kdm1.c11 admite ${REFERENCIA_MAX}` };
   }
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(fecha)) return { ok: false, motivo: `La fecha «${fecha}» no es YYYY-MM-DD: el ajuste caería en el mes de la plantilla` };
+  if (!/^[0-9]{2}:[0-9]{2}$/.test(hora)) return { ok: false, motivo: `La hora «${hora}» no es HH:MM` };
   if (!Number.isFinite(tope) || tope <= 0) return { ok: false, motivo: `El tope del resto («${tope}») no es un número positivo` };
   if (!p.facturas?.length) return { ok: false, motivo: 'No hay facturas con resto que cerrar' };
 
@@ -131,8 +143,11 @@ export function armarAjusteAbono(p: PeticionAjuste): Resolucion<PlanAjuste> {
   return {
     ok: true,
     valor: {
-      kdm1: { c10: cliente, c11: ref, c16: total, c42: total, c67: CAPTURISTA_SUITE },
-      kdue: { c2: cliente, c11: total, c17: String(total), c16: ref },
+      kdm1: {
+        c9: fecha, c68: fecha, c69: hora, c10: cliente, c11: ref,
+        c16: total, c42: total, c43: ESTATUS_NORMAL, c67: CAPTURISTA_SUITE,
+      },
+      kdue: { c2: cliente, c7: fecha, c11: total, c16: ref, c17: total, c29: ABONO },
       kdm5: p.facturas.map((f, i) => ({
         c7: i + 1, c8: 'D', c9: f.tipo, c10: f.serie, c11: f.folio, c12: r2(f.saldo), c13: r2(f.saldo), c14: ref,
       })),
