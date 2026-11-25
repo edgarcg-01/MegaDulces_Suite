@@ -33,6 +33,13 @@
  * **no deja póliza**: la cartera baja y los libros no se enteran) y D-R3 (¿Crédito y cobranza deja de usar los
  * «Cobros» de centavos?).
  *
+ * ⛔⛔ **APLICADA EN PROD el 2026-11-25 18:09:26 UTC (batch 1251), por otra sesión desde el árbol compartido,
+ * 42 minutos ANTES de que este archivo llegara a `origin/main`** — o sea que lo que corrió allá es la versión
+ * previa: **sin `cfdi_insoluto`** y con el `CHECK` de `estado` sin `ya_estaba`. Las dos cosas las agrega
+ * `20261125125330_gpr3_insoluto_sat_y_ya_estaba.js`, idempotente, para que prod y una base nueva lleguen al
+ * mismo esquema por caminos distintos. **Esta migración ya no se toca** (Knex compara el ledger con el
+ * filesystem).
+ *
  * Idempotente.
  *
  * @param { import("knex").Knex } knex
