@@ -11,6 +11,27 @@ cancelados; 7 renglones contados de 18,845; 0 exportaciones a Kepler—. Todo lo
 **por primera vez**: no hay un «antes» con qué comparar, y por eso cada prueba anota lo que vio,
 no sólo si pasó.
 
+> ## ⛔⛔ Ya sabemos por qué nunca se cerró un folio — leer esto ANTES de ejecutar el plan
+>
+> El 2026-11-25 se recorrió el proceso **a mano, contra producción**, con el folio
+> `INV-2026-00010` (Padre Hidalgo, sin congelar). Los **14 defectos funcionales medidos, con su
+> evidencia y severidad, están en [`inventario-fisico.md` §9d](inventario-fisico.md)**. No se
+> repiten acá.
+>
+> El que manda sobre todo el plan es éste: **contar NO escribe en el artículo del folio.** El
+> conteo queda en la sesión del contador; el artículo sigue en `count_1: null, status: pending`.
+> Y «Resolver item», que sí fija la cantidad final, **no cuenta como conteo**. Cerrar exige las dos
+> cosas, así que **el folio es incerrable por construcción** y el total del progreso **crece con
+> cada conteo** (3,363 → 3,364 tras uno solo).
+>
+> **Qué significa para este plan:** cualquier renglón que termine en «el avance sube» o «el folio
+> cierra» **va a fallar por F1/F2, no por lo que la prueba quería medir**. Se ejecutan igual —el
+> rojo es correcto— pero se anota **cuál de los dos defectos lo tumbó**, para no abrir catorce
+> reportes del mismo bug.
+>
+> **Sigue sin medirse**, y no se declara funcionando: `reconcile`, «Calcular discrepancias»,
+> «Cancelar folio», asignar contadores, el camino sin conexión y el doble envío.
+
 ---
 
 ## Las seis personas, cada una con su plan
