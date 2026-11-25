@@ -17,14 +17,26 @@
  * timbra— y eso **no lo puede hacer la Suite**: el timbre lo pone Kepler. Decisión abierta: D-F10.
  */
 
-/** Una factura con resto, como la manda la pantalla. El servidor NO le cree el saldo: lo relee de Kepler. */
+/**
+ * Una factura con resto, **como la manda la pantalla**: con el `doc_code` que la cartera ya le dio
+ * (`UD0801` = tipo 8, serie 1) y su folio. El tipo y la serie de Kepler los **deriva el servidor**
+ * ({@link docCodeATipoSerie}): la pantalla manda lo que ve, no lo que habría que calcular.
+ * ⛔ Y el saldo no viaja: el servidor lo relee de la cartera **y** del Kepler vivo.
+ */
 export interface FacturaRestoBody {
-  /** `kdm1.c4` (8 = Factura Telemarketing, 6 = Venta crédito). */
-  tipo: number;
-  /** `kdm1.c5`. */
-  serie: number;
-  /** `kdm1.c6`, sin espacios. */
+  /** `analytics.customer_receivables_current.doc_code`, p. ej. `UD0801`. */
+  doc_code: string;
+  /** El folio del documento, sin espacios. */
   folio: string;
+}
+
+/**
+ * `UD0801` → tipo 8, serie 1. `null` si no tiene esa forma.
+ * Medido el 2026-11-25: los 261 restos vivos son `UD0801` (220), `UD1301` (37) y `UD1201` (3).
+ */
+export function docCodeATipoSerie(docCode: string): { tipo: number; serie: number } | null {
+  const m = /^UD(\d{2})(\d{2})$/.exec(String(docCode ?? '').trim());
+  return m ? { tipo: Number(m[1]), serie: Number(m[2]) } : null;
 }
 
 export interface CerrarRestosBody {

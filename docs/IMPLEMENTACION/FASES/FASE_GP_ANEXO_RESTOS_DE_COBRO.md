@@ -281,3 +281,106 @@ distingue «nuestra escritura es igual a la de Kepler» de «se le parece».
    CFDI. El ajuste **declara** lo que queda debiendo; cerrarlo es otra decisión y otro documento.
 2. **Las 1,782 facturas de 2026 que ya quedaron con su resto vivo ante el SAT** ($729.78): sus
    complementos están timbrados y no se editan. Esto para el goteo hacia adelante, no hacia atrás.
+
+---
+
+## 8. `[GP.R.4]` La entrada: las cinco preguntas, contestadas antes de maquetar
+
+> Obligatorio por [`diseno` §0b](../../../.claude/skills/diseno/SKILL.md). Escrito el 2026-11-25,
+> **antes de la primera línea de plantilla**, con prod medido en sólo lectura.
+
+### Lo medido primero (pasos 1–3 de `diseno` §0a)
+
+**El propósito** no es «una pantalla de restos»: es **un acto que falta en una pantalla que ya
+contesta la pregunta**. La ficha del cliente en `/finanzas/cartera` ya dice qué centavos le quedan
+—marca «Redondeo» desde `[GP.R.1]`—; lo que no hay es **cómo cerrarlos**.
+
+**Quién entra y con qué pregunta** (`analytics.ui_usage`, últimos 30 días, último uso **hoy**):
+
+| Endpoint | Rol | Hits |
+|---|---|---:|
+| `/api/finance/receivables` (la lista) | `credito_cobranza` | **2,771** |
+| `/api/finance/receivables/:sucursal/:cliente` (**la ficha**) | `credito_cobranza` | **867** |
+| `/api/finance/cartera-telefonos/:sucursal/:cliente` | `credito_cobranza` | 140 |
+
+⭐ **La ficha se abre 867 veces al mes, y la misma gente ya ejerce desde ahí una acción que escribe
+en Kepler** (el teléfono del cliente, `[CXC.48]`). O sea: el lugar existe, el rol existe y el
+precedente de escritura existe. ⛔ *Corrección de instrumento: `node .claude/skills/pm/uso.js
+/finanzas/cartera` dio «SIN LLAMADAS» — `ui_usage` guarda la ruta de la **API**, no la del front.
+Un cero de instrumento, no de uso.*
+
+**El estado real** — restos vivos (≤ $10, con cobro previo), por sucursal:
+
+| Sucursal | Restos | Clientes | Pesos |
+|---|---:|---:|---:|
+| **Morelia Abastos** (la única encendida) | **53** | **27** | $27.31 |
+| Canindo | 98 | 51 | $87.64 |
+| Morelia Madero | 72 | 43 | $58.01 |
+| CEDIS | 37 | 22 | $8.18 |
+| Zamora | 1 | 1 | $6.16 |
+
+⭐ **La unidad de trabajo es el CLIENTE, no la factura**: un `U-A-30` cierra varias facturas de una
+vez. En Morelia Abastos son **27 decisiones**, no 53.
+
+### ⛔ La decisión de fondo: NO va una bandeja nueva
+
+`[GP.R.4]` estaba escrito como «bandeja Restos por cerrar». **Se cambia, y por lo medido:** una
+bandeja sería **una segunda lista del mismo hecho** que la ficha ya muestra —justo lo que
+[`diseno` §9](../../../.claude/skills/diseno/SKILL.md) prohíbe y lo que costó las dos pestañas de
+`/compras/oc-abiertas`—, y mandaría a Crédito a un lugar nuevo cuando ya va a la ficha 867 veces al
+mes. **El acto se pone donde el resto ya se ve.** Si algún día hace falta trabajar los 144 clientes
+en lote, esa es otra conversación y otra medición.
+
+### Las cinco preguntas
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| **1** | **¿Qué ve al entrar, y en qué orden?** | En la ficha del cliente, **arriba de las partidas**: una línea que dice **cuántos centavos sueltos tiene y en cuántas facturas**, con el acto al lado. El orden de las partidas **no cambia** — esto no reordena nada |
+| **2** | **¿Qué NO ve?** | No ve una bandeja nueva · no ve el tope ni el nombre del documento de Kepler como si fueran configuración · y **donde el interruptor está apagado no ve el acto** (8 de 9 sucursales hoy): ofrecer un botón que va a fallar es el error como primer recurso (Poka-yoke) |
+| **3** | **¿Qué accesibilidad necesita la información?** | ⛔ La jerga sale del `title`: hoy *«Centavos que quedaron de una factura ya cobrada… se cierran con un Ajuste Abono, no con otro cobro»* vive **sólo en un `title`**, y sin mouse no existe (regla P). Va a `<app-context-help>`. El acto es un botón real, alcanzable con teclado, con **confirmación en línea** —el patrón que esta misma pantalla ya usa para cancelar un compromiso, no un diálogo encima del diálogo— y **deshabilitado síncrono en el primer clic** (idempotencia visual) |
+| **4** | **¿Está ligada a otro proceso?** | Sí, a dos. Hacia atrás: el **cobro** que dejó el resto (ya se ve como aplicación bajo la factura). Hacia adelante: el **Ajuste Abono** queda con su folio de Kepler, y al recargar las partidas las facturas aparecen saldadas con su aplicación. ⛔ Y una liga que **no** se puede cerrar: el **CFDI**. El ajuste no timbra, así que la respuesta **declara lo que la factura sigue debiendo ante el SAT** y la pantalla lo dice — nunca dibuja la factura como cerrada ante Hacienda (D-F10) |
+| **5** | **¿Este proceso la debe ver?** | Sí: es Crédito y cobranza quien decide hoy —con un «Cobro» de centavos— y quien ya está en esta pantalla. Llave propia (`FINANCE_RESTOS_CERRAR`), que no viene con «ver cartera» |
+
+### ⬜ Lo que la interfaz NO puede resolver (paso 12, se dice primero)
+
+1. **El insoluto ante el SAT** (D-F10): ninguna pantalla lo cierra. Se **declara**.
+2. **El automático**: existe en el interruptor (`tope_dia`) y sigue **apagado**. Esta entrada es
+   sólo a mano, con nombre y motivo.
+3. **Las 8 sucursales apagadas**: la acción no aparece ahí hasta que alguien las encienda, y eso no
+   es una decisión de diseño.
+
+### Las cinco preguntas, otra vez — con la pantalla terminada (2026-11-25)
+
+La skill las pide **dos** veces, y la segunda cambió dos cosas:
+
+| # | Lo que se contestó antes | Lo que quedó |
+|---|---|---|
+| **1** | una línea con el conteo y el monto, arriba de las partidas | igual, y **el monto se puede recorrer**: las facturas que lo forman están abajo, marcadas «Redondeo» (`check:cifra`: 0 nuevas) |
+| **2** | donde está apagado no se ve el acto | igual, **y se dice por qué** — un «no se puede» mudo manda a buscar el problema donde no está |
+| **3** | la jerga sale del `title` y va al diccionario | hecho: tema `restos_cliente`, con lo que el ajuste **no** cierra. ⛔ Y el `title` del tag dejó de ser la definición: ahora es una etiqueta corta |
+| **4** | el ajuste queda ligado a las facturas que cerró | igual, **y la ficha se recarga sola** para que las facturas se vean saldadas |
+| **5** | le toca a esta pantalla, con llave propia | igual |
+
+#### ⛔ Dos cosas que cambiaron al construir, y la segunda era un defecto de verdad
+
+1. **El motivo ya no se teclea: lo deriva el sistema.** El diseño pedía un campo de texto obligatorio.
+   Medido contra el trabajo real: en Morelia Abastos son **27 clientes**, o sea 27 textos a mano para cerrar
+   $27.31. Lo que aporta la persona es **la decisión**, no la redacción — y su nombre queda en el registro
+   igual. El motivo describe el acto («Resto de centavos de facturas ya cobradas, hasta $10»).
+2. ⛔⛔ **El aviso se borraba solo, y lo cazó una prueba, no la vista.** Al cerrar, la ficha se recarga para
+   mostrar las facturas saldadas; esa recarga volvía a preguntar si el acto está habilitado, y ese paso
+   **limpiaba el aviso recién puesto**. O sea: la persona cerraba los centavos y **nunca veía la confirmación
+   ni la advertencia del SAT**. Ahora el aviso sólo se limpia al empezar algo nuevo o al cambiar de cliente,
+   y el arreglo está sellado con su **prueba negativa** (roto a propósito: 2 pruebas en rojo; restaurado: 50 en verde).
+
+#### Lo medido al cerrar
+
+- **50 pruebas** del componente (9 nuevas), **154** de finanzas, **1,846** de contratos.
+- `check:pantalla -- finanzas-cartera`: **tipa con 0 errores semánticos** y **0 fallas NUEVAS** (las 3 que
+  quedan son deuda declarada desde antes). `check:templates-types`: *«las plantillas de lo que se va a pushear
+  typechequean»*. `check:templates`, `check:cifra`, `check:tables`: sin falla nueva.
+- ⛔ **La compuerta me cazó a mí**: puse backticks en un comentario **dentro** de la plantilla, que es justo lo
+  que parte el template literal (con número par el archivo parsea igual y revienta después). Verificado que sin
+  mi cambio el repo estaba en verde, o sea que la falla era mía.
+- ⚠️ **Sin validación visual**: no se vio en navegador, ni a 390 px. La advertencia `#9` (qué hace en angosto)
+  y los otros `title` con definición son **deuda previa** de esta pantalla, no de este tramo.

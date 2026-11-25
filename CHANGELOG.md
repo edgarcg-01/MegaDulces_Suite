@@ -32,6 +32,13 @@
 - Accesibilidad: el anillo que marca dónde estás al moverte con las flechas pasa de casi invisible a visible; el número del cuadro sube al piso de letra del sistema; «dada de baja» y «sin dar de alta» se distinguen por su trazo y un ícono, no sólo por color; la leyenda ya no se oculta al lector de pantalla y sólo lista los estados que esa zona tiene.
 - Internal: `renglones_totales` y `productos_asignados` por ubicación; `contenido_medido`, `con_producto` y `fuera_del_mapa` en el resumen; `productosDeRack` y `ariaDeRack` con sus pruebas negativas; `?rack=` en Asignación. Sale de una auditoría de diseño con nivel B+C — **sin pantalla viva**, así que píxeles, teclado real, `forced-colors` y 390 px quedan NO MEDIDOS.
 
+### Added — Finanzas › Cartera: ya se pueden cerrar los centavos desde la ficha del cliente (GP.R.4 · 2026-11-25)
+- En la ficha de un cliente, arriba de sus facturas, aparece cuántas tienen centavos sueltos y cuánto suman, con el botón para cerrarlos de una vez. Las facturas que forman ese monto están ahí mismo, marcadas «Redondeo».
+- Pide confirmar antes de escribir, y el botón se apaga en el primer clic: el doble clic del apuro no cobra dos veces.
+- Donde todavía está apagado no aparece el botón, y se dice por qué en vez de dejar que falle.
+- La explicación de qué son los centavos sueltos y cómo se cierran dejó de vivir en un globo de ayuda que sólo veía quien usa mouse: ahora está en la ayuda de la pantalla, y dice también **lo que el cierre no arregla** (la factura sigue con esos centavos ante el SAT).
+- Internal: `POST /api/finance/ajuste-abono/:sucursal` + `GET` del mismo para saber si está habilitado; el contrato recibe `doc_code` y el servidor deriva tipo y serie (una sola implementación, en `contracts`). Tema `restos_cliente` del diccionario de ayuda. 9 pruebas nuevas del componente.
+
 ### Added — Finanzas › Cartera: cerrar el resto de centavos con el documento correcto (GP.R.2 · GP.R.3 · 2026-11-25 · APAGADO, sin soltar)
 - Cuando un cliente paga su factura y quedan centavos sueltos, Crédito y cobranza podrá cerrarlos con el **Ajuste Abono** que el ERP ya trae, en vez de capturar un cobro de centavos que dice que entró dinero y no entró (74 de ésos en 60 días).
 - Queda registrado quién lo cerró, por qué, sobre cuáles facturas y qué contestó el ERP: hoy un resto cerrado así no se puede explicar tres meses después.
