@@ -4,7 +4,7 @@ import {
 import { ButtonModule } from 'primeng/button';
 import JsBarcode from 'jsbarcode';
 import { printIsolated } from '../../../../shared/util/print-isolated';
-import { CSS_ETIQUETA_UBICACION, PAGINA_TSC_AMARILLA, etiquetasUbicacionHtml } from '../etiqueta-ubicacion';
+import { ROLLOS_AMARILLOS, ROLLO_POR_OMISION, anchoUtilMm, cssEtiquetaUbicacion, etiquetasUbicacionHtml, paginaTscAmarilla, type RolloAmarillo } from '../etiqueta-ubicacion';
 
 /**
  * `[UB.RF.12]` `cartel` = media carta, dos por hoja (bodega: se lee caminando). `etiqueta` = la chica, para
@@ -53,8 +53,10 @@ const MODULO_PX = 2;
   template: `
     <div class="ct">
       @if (formato() === 'etiqueta') {
+        <!-- [UB.RF.20] La nota dice el tamano del rollo ELEGIDO, porque hay dos y se cargan en impresoras
+             distintas. Decir «el rollo amarillo» a secas manda a cargar el que no es. -->
         <p class="ct-nota">
-          Salen en la <b>TSC TE200</b> con el <b>rollo amarillo</b> (5.5 × 2.5 cm), una por etiqueta. Al imprimir, elige la TSC con papel de 55 × 25 mm.
+          Salen en la <b>TSC TE200</b> con el <b>rollo amarillo de {{ medidaRollo().cm }}</b>, una por etiqueta. Al imprimir, elige la TSC con papel de <b>{{ medidaRollo().rotulo }}</b>.
         </p>
       } @else {
         <p class="ct-nota">
@@ -67,7 +69,7 @@ const MODULO_PX = 2;
            distinto de lo que se vio en pantalla es como se cuelan los carteles con
            el código recortado. -->
       @if (formato() === 'etiqueta') {
-        <div class="ct-prev ct-prev-et" #hoja>
+        <div class="ct-prev ct-prev-et" #hoja [style]="estiloRollo()">
           @for (u of ubicaciones(); track u.code) {
             <article class="ct-et">
               <div class="ct-et-arriba">{{ arriba(u) }}</div>
@@ -139,19 +141,21 @@ const MODULO_PX = 2;
       display: flex; justify-content: space-between; width: 100%;
       font-size: clamp(8px, 2.6vw, 14px); color: #555; font-variant-numeric: tabular-nums;
     }
-    /* [UB.RF.16] La etiqueta del rollo amarillo en su proporción REAL (55 × 24.6 mm), sobre amarillo como el
-       papel. Las medidas en cqw son las de la impresión entre 55 mm: código 9 mm, rótulo 2.4, barras 22.5 × 7. */
+    /* [UB.RF.20] La etiqueta en la proporción REAL del rollo elegido, sobre amarillo como el papel. Las
+       medidas vienen del rollo en variables (mm entre el ancho, en cqw), porque hay DOS rollos y la vista
+       previa tiene que mostrar el que se va a imprimir: si enseña otra proporción, lo que se aprueba en
+       pantalla no es lo que sale de la TSC. */
     .ct-prev-et { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: var(--sp-2); max-width: 640px; }
     .ct-et {
       container-type: inline-size;
-      aspect-ratio: 55 / 24.6;
+      aspect-ratio: var(--et-ratio, 55 / 24.6);
       display: flex; flex-direction: column; align-items: center; justify-content: space-between;
-      padding: 2.5%; background: #fde68a; color: #111;
+      padding: var(--et-pad, 2.5%); background: #fde68a; color: #111;
       border: 1px solid var(--border-color); border-radius: var(--r-sm); overflow: hidden;
     }
-    .ct-et-arriba { font-size: 4.4cqw; font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-    .ct-et-code { font-size: 16.4cqw; font-weight: 900; line-height: 1; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
-    .ct-et .ct-bar { width: 40.9%; height: 12.7cqw; }
+    .ct-et-arriba { font-size: var(--et-rotulo, 4.4cqw); font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .ct-et-code { font-size: var(--et-code, 16.4cqw); font-weight: 900; line-height: 1; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+    .ct-et .ct-bar { width: var(--et-bar-w, 40.9%); height: var(--et-bar-h, 12.7cqw); }
     .ct-acciones { display: flex; flex-direction: column; gap: var(--sp-1); }
     .ct-go { width: 100%; min-height: 54px; font-size: var(--fs-body); font-weight: var(--fw-bold); }
   `],
@@ -160,6 +164,31 @@ export class AndenCartelComponent implements AfterViewInit {
   readonly ubicaciones = input.required<CartelUbicacion[]>();
   /** `[UB.RF.12]` Cartel de media carta (por omisión, como siempre) o etiqueta chica de 30 por hoja. */
   readonly formato = input<FormatoCartel>('cartel');
+  /**
+   * `[UB.RF.20]` Cuál de los dos rollos amarillos tiene cargado la impresora de esa sucursal. Las dos
+   * medidas están tomadas con regla (Edgar, 2026-11-25). Por omisión el de 55 × 25, que es el que ya
+   * estaba: así las pantallas que todavía no eligen rollo imprimen exactamente igual que antes.
+   */
+  readonly rollo = input<RolloAmarillo>(ROLLO_POR_OMISION);
+
+  readonly medidaRollo = computed(() => ROLLOS_AMARILLOS[this.rollo()]);
+
+  /**
+   * Las medidas de la vista previa, derivadas del rollo: cada mm de la impresión, como porcentaje del
+   * ancho del papel. Así la previa es la MISMA proporción que sale de la TSC, para los dos rollos.
+   */
+  readonly estiloRollo = computed<Record<string, string>>(() => {
+    const r = this.medidaRollo();
+    const cqw = (mm: number) => `${Math.round((mm / r.anchoMm) * 1000) / 10}cqw`;
+    return {
+      '--et-ratio': `${r.anchoMm} / ${r.etiquetaAltoMm}`,
+      '--et-rotulo': cqw(r.rotuloMm),
+      '--et-code': cqw(r.codigoMm),
+      '--et-bar-h': cqw(r.barrasAltoMm),
+      '--et-bar-w': `${Math.round((anchoUtilMm(this.rollo()) / r.anchoMm) * 1000) / 10}%`,
+      '--et-pad': `${Math.round((r.margenMm / r.anchoMm) * 1000) / 10}%`,
+    };
+  });
   readonly cerrar = output<void>();
 
   readonly imprimiendo = signal(false);
@@ -257,8 +286,8 @@ export class AndenCartelComponent implements AfterViewInit {
   private imprimirEtiquetas(): void {
     printIsolated({
       html: etiquetasUbicacionHtml(this.ubicaciones()),
-      page: PAGINA_TSC_AMARILLA,
-      css: CSS_ETIQUETA_UBICACION,
+      page: paginaTscAmarilla(this.rollo()),
+      css: cssEtiquetaUbicacion(this.rollo()),
       bodyClass: 'anden-cartel-printing',
       fallbackClass: 'anden-cartel-fallback',
       onDone: () => this.imprimiendo.set(false),
