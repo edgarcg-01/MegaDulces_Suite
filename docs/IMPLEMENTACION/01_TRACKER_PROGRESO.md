@@ -10066,6 +10066,26 @@ más) — PR aparte para no volver ilegible el diff.
   - ⚠️ **El precio es un blanco móvil:** entre la primera lectura (14:57) y la verificación (16:12)
     Kepler movió un SKU (`97021`, paquete 75.06 → 20.62). Se cerró con el feed fresco, pero **esto
     vuelve a desfasarse solo**: la corrección de hoy es un parche, no el mecanismo.
+  - ⛔⛔ **El universo comparable NO es la tienda entera, y lo que escribí hoy puede VENDER DE MÁS.**
+    (medido el 2026-11-25 releyendo la tienda y cruzando contra `analytics.v_erp_stock_on_hand`)
+    - **Precio:** las "1,158 de 1,158" son **1,158 de 1,642 renglones**. Fuera quedaron las 337
+      "Pieza" ocultas (decidido), **127 renglones (64 SKU) cuyo SKU el mostrador de Kepler no
+      conoce**, 17 cuya "presentación" es el nombre del producto —dato roto en Wix, no en Kepler—
+      y 3 sin esa unidad. Y ya difieren 2 de los 1,158: el precio se mueve solo.
+    - **Existencia, la dirección que NO se arregló:** 77 SKU siguen publicados como agotados
+      teniendo existencia. 26 son "Pieza" sin precio en Kepler (correctamente retiradas); los
+      otros 51 la tienen en menos de 5 almacenes, que fue mi propio corte, no una medición. Y
+      **29 SKU están a la venta sin ninguna fila en el ERP**.
+    - ⛔ **La cantidad publicada ofrece el mismo inventario una vez por presentación.** Calculé
+      cada presentación contra la existencia TOTAL del SKU, así que la misma caja se ofrece como
+      caja, como paquete y como pieza. **146 SKU publican más de lo que hay, 56 de ellos por lo
+      que escribí hoy** (90 ya venían de la carga del 6-nov). `97245` tiene 316 piezas y la tienda
+      ofrece 540 (31 paquetes × 10 + 1 caja × 180 + 50 piezas). El reparto entre presentaciones
+      tiene que **descontar, no repetir** — y la comparación sólo vale convertida por el factor
+      de Kepler: sumar cajas con piezas daba 2.36 M contra 991 k, un número sin significado.
+    - **Descripción: NO MEDIDA y nunca escrita.** El `GET` de Catálogo V3 no devolvió el campo en
+      ninguno de los 637 productos. El **nombre** sí difiere del de Kepler en 572 de 573, pero eso
+      es copy de tienda a propósito: el SKU es la única liga entre los dos catálogos.
   - **Lo que sigue (no hecho):** automatizar la sincronización por evento. Hoy la tienda se escribe
     a mano, de golpe, y queda congelada. Requiere la llave nueva (ver abajo) y reconstruir el
     productor del dato: `GET /api/kp/productos` no se portó a `apps/api` (deuda declarada en
