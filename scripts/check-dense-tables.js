@@ -115,6 +115,8 @@ const DEUDA_COLUMNAS = new Set([
   'apps/view/src/app/modules/compras/pages/compras-catalogo.component.ts',
   'apps/view/src/app/modules/compras/pages/compras-cuadre-proveedor.component.ts',
   'apps/view/src/app/modules/compras/pages/compras-entradas-control.component.ts',
+  // [PQ.148] PARCIAL, no se poda: la conciliación del detalle ya es .dt-stack, la lista de 10 columnas todavía no
+  // (la compuerta mira por archivo y basta un dt-stack en el texto para que la ofrezca como podable).
   'apps/view/src/app/modules/compras/pages/compras-entradas.component.ts',
   'apps/view/src/app/modules/compras/pages/compras-flujo.component.ts',
   'apps/view/src/app/modules/compras/pages/compras-hallazgos.component.ts',

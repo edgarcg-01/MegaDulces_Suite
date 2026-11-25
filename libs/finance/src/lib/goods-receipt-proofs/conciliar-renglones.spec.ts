@@ -1,5 +1,5 @@
 import type { RemisionLine } from '@megadulces/platform-core';
-import { aprendibles, casiIgual, conciliarRenglones, lineSimilarity, tokenize, type EntradaConciliar, type RenglonKepler } from './conciliar-renglones';
+import { aprendibles, casiIgual, conciliarRenglones, lineSimilarity, normCodigo, tokenize, type EntradaConciliar, type RenglonKepler } from './conciliar-renglones';
 
 /**
  * `[RE.53]` El caso que lo trajo (entrada 0001088 de 8 Esquinas, AGA), con importes SINTÉTICOS
@@ -104,6 +104,107 @@ describe('[RE.53] qué se aprende solo al dar por buena la factura', () => {
     ]);
     const c = conciliarRenglones(entrada([rem('RED COLA 24/400', 8, conIva(1000)), rem('OTRA COLA', 8, conIva(1000))], { aliases }));
     expect(aprendibles(c).some((x) => x.sku === 'S400')).toBe(false);
+  });
+});
+
+/**
+ * `[PQ.148]` El código del proveedor (`NoIdentificacion` del CFDI) va antes que la descripción. Códigos
+ * SINTÉTICOS (el repo es público); las reglas salen de lo medido en prod (anexo P §3): los códigos de
+ * 1–2 caracteres son número de renglón y 27 de 2,274 facturas repiten un código en dos renglones.
+ */
+describe('[PQ.148] el código del proveedor manda sobre la descripción', () => {
+  const conCodigo = (l: RemisionLine, codigo: string | null): RemisionLine => ({ ...l, sku_proveedor: codigo });
+  const s400 = { sku: 'S400', nombre_interno: 'RED COLA 400ML AGA', box_factor: 24 };
+
+  it('normCodigo: mayúsculas y espacios colapsados, los ceros se quedan; 1–2 caracteres no son código', () => {
+    expect(normCodigo('  ag-0012 ')).toBe('AG-0012');
+    expect(normCodigo('0012')).toBe('0012');
+    expect(normCodigo('RC  400   24')).toBe('RC 400 24');
+    for (const x of ['1', '27', ' 3 ', '', null, undefined]) expect(normCodigo(x)).toBeNull();
+  });
+
+  it('una descripción que ya no se parece a nada se resuelve por su código', () => {
+    const r = conCodigo(rem('PRESENTACION NUEVA 7781', 7, conIva(900)), 'AGA-400');
+    // CONTROL: sin la equivalencia por código, el renglón no tiene a quién ir (nombre y números no alcanzan).
+    expect(conciliarRenglones(entrada([r])).lines[0]).toMatchObject({ resolved_sku: null, status: 'sin_match' });
+    const c = conciliarRenglones(entrada([r], { aliasesPorCodigo: new Map([['AGA-400', s400]]) }));
+    expect(c.lines[0]).toMatchObject({ resolved_sku: 'S400', method: 'alias', alias_hit: true });
+    expect(c.lines[0].kepler?.sku).toBe('S400');
+  });
+
+  it('el código gana aunque la descripción tenga su propia equivalencia a otro producto', () => {
+    const r = conCodigo(rem('RED COLA 24/400', 8, conIva(1000)), 'AGA-400');
+    const aliases = new Map([['red cola 24 400', { sku: 'S600', nombre_interno: null, box_factor: 24 }]]);
+    const c = conciliarRenglones(entrada([r], { aliases, aliasesPorCodigo: new Map([['AGA-400', s400]]) }));
+    expect(c.lines[0]).toMatchObject({ resolved_sku: 'S400', status: 'cuadra' });
+  });
+
+  it('NEGATIVA: un código cuyo producto NO viene en la entrada no fija nada; manda la descripción', () => {
+    const r = conCodigo(rem('RED COLA 24/400', 8, conIva(1000)), 'AGA-400');
+    const aliases = new Map([['red cola 24 400', s400]]);
+    const c = conciliarRenglones(entrada([r], { aliases, aliasesPorCodigo: new Map([['AGA-400', { sku: 'NO-VINO', nombre_interno: null, box_factor: null }]]) }));
+    // Si el código fijara su SKU ausente, el renglón saldría «sin_match» con resolved_sku NO-VINO.
+    expect(c.lines[0]).toMatchObject({ resolved_sku: 'S400', status: 'cuadra' });
+  });
+
+  it('se aprende con su código cuando el código es único en la factura', () => {
+    const cods = ['AGA-400', 'AGA-600', 'AGA-M600', 'AGA-Q2L', 'AGA-Z600', 'AGA-PINA'];
+    const a = aprendibles(conciliarRenglones(entrada(remisionAga.map((r, i) => conCodigo(r, cods[i])))));
+    expect(a.find((x) => x.sku === 'S400')?.codigo_proveedor).toBe('AGA-400');
+    expect(a.find((x) => x.sku === 'Q2L')?.codigo_proveedor).toBe('AGA-Q2L');
+  });
+
+  it('NEGATIVA: un código repetido en dos renglones de la factura, o de 1–2 caracteres, no se aprende como llave', () => {
+    const cods = ['AGA-COLA', 'AGA-COLA', 'AGA-M600', '4', 'AGA-Z600', 'AGA-PINA'];
+    const a = aprendibles(conciliarRenglones(entrada(remisionAga.map((r, i) => conCodigo(r, cods[i])))));
+    expect(a.find((x) => x.sku === 'S400')).toMatchObject({ codigo_proveedor: null });
+    expect(a.find((x) => x.sku === 'S600')).toMatchObject({ codigo_proveedor: null });
+    expect(a.find((x) => x.sku === 'Q2L')).toMatchObject({ codigo_proveedor: null });
+    // CONTROL dentro de la misma factura: el que sí es único conserva su código.
+    expect(a.find((x) => x.sku === 'M600')?.codigo_proveedor).toBe('AGA-M600');
+  });
+
+  // Lo que enseña la HISTORIA (`commercial.v_supplier_item_code_history`): propone, no confirma.
+  const hist = (codigo: string, sku: string) => new Map([[codigo, { sku, nombre_interno: `HIST ${sku}`, box_factor: null }]]);
+
+  it('la historia resuelve por su código lo que la descripción ya no alcanza, y lo dice («historia», no «alias»)', () => {
+    const r = conCodigo(rem('PRESENTACION NUEVA 7781', 7, conIva(900)), 'AGA-400');
+    // CONTROL: sin la historia, el renglón no tiene a quién ir.
+    expect(conciliarRenglones(entrada([r])).lines[0]).toMatchObject({ resolved_sku: null, status: 'sin_match' });
+    const c = conciliarRenglones(entrada([r], { historiaPorCodigo: hist('AGA-400', 'S400') }));
+    expect(c.lines[0]).toMatchObject({ resolved_sku: 'S400', method: 'historia', alias_hit: false });
+    expect(c.lines[0].kepler?.sku).toBe('S400');
+  });
+
+  it('lo que una persona confirmó gana sobre la historia (por código y por descripción)', () => {
+    const r = conCodigo(rem('RED COLA 24/400', 8, conIva(1000)), 'AGA-400');
+    const porCodigo = conciliarRenglones(entrada([r], {
+      aliasesPorCodigo: new Map([['AGA-400', s400]]), historiaPorCodigo: hist('AGA-400', 'S600'),
+    }));
+    expect(porCodigo.lines[0]).toMatchObject({ resolved_sku: 'S400', method: 'alias' });
+    const porDescripcion = conciliarRenglones(entrada([r], {
+      aliases: new Map([['red cola 24 400', s400]]), historiaPorCodigo: hist('AGA-400', 'S600'),
+    }));
+    expect(porDescripcion.lines[0]).toMatchObject({ resolved_sku: 'S400', method: 'alias' });
+  });
+
+  it('NEGATIVA: la historia no fija un producto que no vino en la entrada; sigue la descripción', () => {
+    const r = conCodigo(rem('RED COLA 24/400', 8, conIva(1000)), 'AGA-400');
+    const c = conciliarRenglones(entrada([r], { historiaPorCodigo: hist('AGA-400', 'NO-VINO') }));
+    expect(c.lines[0]).toMatchObject({ resolved_sku: 'S400', method: 'descripcion', status: 'cuadra' });
+  });
+
+  it('NEGATIVA: un código de 1–2 caracteres no consulta la historia', () => {
+    const r = conCodigo(rem('PRESENTACION NUEVA 7781', 7, conIva(900)), '7');
+    const c = conciliarRenglones(entrada([r], { historiaPorCodigo: hist('7', 'S400') }));
+    expect(c.lines[0]).toMatchObject({ resolved_sku: null, status: 'sin_match' });
+  });
+
+  it('lo que propuso la historia y cuadró se aprende al dar por buena la factura (no «refuerza»: es nuevo)', () => {
+    const r = conCodigo(rem('PRESENTACION NUEVA 7781', 8, conIva(1000)), 'AGA-400');
+    const c = conciliarRenglones(entrada([r], { historiaPorCodigo: hist('AGA-400', 'S400') }));
+    expect(c.lines[0].status).toBe('cuadra');
+    expect(aprendibles(c)).toEqual([expect.objectContaining({ sku: 'S400', codigo_proveedor: 'AGA-400', refuerza: false })]);
   });
 });
 
