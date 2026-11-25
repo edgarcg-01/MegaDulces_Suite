@@ -1660,8 +1660,10 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Qué cuenta como explicado',
         entries: [
           { term: 'Explicado', def: 'Tiene su documento de Kepler, su pago del Calendario, su cliente declarado o una categoría con evidencia. Un depósito que el motor llamó «cobranza» sólo por ser depósito NO está explicado.' },
-          { term: 'Falta explicar', def: 'Lo que no está explicado. Al abrirlo ves cada movimiento con su motivo.' },
+          { term: 'Falta explicar', def: 'Lo que no está explicado. Arriba se dice en pesos; en las tablas, en movimientos («Movs. por explicar»; «todos» cuando no hay ninguno explicado). Al abrirlo ves cada movimiento con su motivo.' },
           { term: 'Tarde', def: 'Lleva más de 5 días hábiles sin ligar: Kepler ya tuvo tiempo de capturarlo.' },
+          { term: 'Los colores', def: 'Verde con palomita: explicado. Ámbar: falta explicar y todavía está a tiempo. Rojo: tarde. La barra de cada tabla reparte sus movimientos (sin lo de entre tus cuentas) en esos tres estados.' },
+          { term: 'Sin clasificar', def: 'Movimientos del libro (banco y caja) que todavía no tienen categoría contable. Es otra lista: un movimiento puede estar explicado y sin categoría, o al revés.' },
         ],
       },
       {
@@ -1669,7 +1671,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         entries: [
           { term: 'Venta de tienda', def: 'El depósito casado con el cobro de un corte de caja de la sucursal. Se abre por sucursal y cada una lleva a sus cortes de caja.' },
           { term: 'Cobranza de facturas', def: 'El depósito casado con el cobro de una factura a un cliente.' },
-          { term: 'Traspasos entre tus cuentas', def: 'Dinero que vino de otra cuenta tuya. No es ingreso ni egreso: por eso «de fuera» y «a fuera» lo restan.' },
+          { term: 'SPEI devuelto', def: 'Una transferencia que enviaste y el banco regresó. No es lo mismo que «Devolución» en Sin documento: ahí el banco sólo dice «devolución» y falta saber de qué.' },
+          { term: 'Entre tus cuentas', def: 'Dinero que pasó de una cuenta tuya a otra. No es ingreso ni egreso: va en su propio renglón, debajo del total de cada tabla, y no se suma a él.' },
           { term: 'Sin documento', def: 'Depósitos que no casan con ningún documento de Kepler. El grupo es lo que escribe el banco (tarjeta, efectivo, transferencia, préstamo): una pista para ligarlo, no una explicación.' },
         ],
       },
