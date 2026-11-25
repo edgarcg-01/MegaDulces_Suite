@@ -1,7 +1,8 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
-import type { HrPuenteNominaDto, HrPuenteRegistroDto } from '@megadulces/contracts';
+import type { HrPeriodosDto, HrPuenteNominaDto, HrPuenteRegistroDto } from '@megadulces/contracts';
+import { HrNominaPeriodosService } from './nomina-periodos.service';
 import { HrNominaPuenteService } from './nomina-puente.service';
 
 /**
@@ -17,11 +18,23 @@ import { HrNominaPuenteService } from './nomina-puente.service';
 @ApiTags('hr')
 @ApiBearerAuth()
 @UseGuards(RolesGuard)
-@Controller('hr/nomina/puente')
+@Controller('hr/nomina')
 export class HrNominaController {
-  constructor(private readonly puente: HrNominaPuenteService) {}
+  constructor(
+    private readonly puente: HrNominaPuenteService,
+    private readonly periodos: HrNominaPeriodosService,
+  ) {}
 
-  @Get()
+  @Post('periodos/sincronizar')
+  @RequirePermissions(Permission.HR_NOMINA_GESTIONAR)
+  @ApiOperation({
+    summary: 'RH · nómina — poblar hr.payroll_periods con las semanas que declara ContPAQi (sábado→viernes). Idempotente; omite y reporta lo que no cae en viernes, y lo que no puede derivar lo declara desconocido.',
+  })
+  sincronizaPeriodos(@Body() b?: { desde?: string }): Promise<HrPeriodosDto> {
+    return this.periodos.sincroniza(b?.desde);
+  }
+
+  @Get('puente')
   @RequirePermissions(Permission.HR_NOMINA_GESTIONAR)
   @ApiOperation({
     summary: 'RH · nómina — calcular el puente contra ContPAQi SIN escribir: cuántos ligan, por qué no ligan los demás, y qué códigos ya apuntan a otra persona.',
@@ -30,7 +43,7 @@ export class HrNominaController {
     return this.puente.calcula(dias === undefined || dias === '' ? undefined : Number(dias));
   }
 
-  @Post('registrar')
+  @Post('puente/registrar')
   @RequirePermissions(Permission.HR_NOMINA_GESTIONAR)
   @ApiOperation({
     summary: 'RH · nómina — registrar en hr.person_aliases los que ligan. Idempotente, y NO pisa un alias que apunta a otra persona: lo reporta como conflicto.',

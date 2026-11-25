@@ -59,6 +59,35 @@ export interface HrConflictoAliasDto {
   userIdCalculado: string;
 }
 
+// ── `[NE.2.2]` El periodo de nómina, derivado de ContPAQi ────────────────────────────────────
+
+/** Por qué una fecha de pago no se volvió un periodo. */
+export type HrMotivoOmitirPeriodo =
+  /** No cayó en viernes. La semana de nómina es sábado→viernes y la tabla lo exige. */
+  | 'no-es-viernes'
+  /** Ya existe un periodo con esa fecha y dice algo distinto: no se pisa, se reporta. */
+  | 'ya-existe-distinto';
+
+export interface HrPeriodoOmitidoDto {
+  paidOn: string;
+  motivo: HrMotivoOmitirPeriodo;
+  detalle: string;
+}
+
+export interface HrPeriodosDto {
+  /** Fechas de pago de nómina ORDINARIA que se miraron. */
+  universo: number;
+  /** Periodos escritos en esta corrida. */
+  insertados: number;
+  /** Ya estaban, iguales: no se tocaron. */
+  yaEstaban: number;
+  /** Con rango de días derivado de ContPAQi (7 días que terminan el día del pago). */
+  conRango: number;
+  /** ⚠️ Sin rango: se escribieron con `starts_on`/`ends_on` NULL, declarados, no inventados. */
+  sinRango: number;
+  omitidos: HrPeriodoOmitidoDto[];
+}
+
 /** Lo que devuelve el registro. Idempotente: correrlo dos veces no inserta de nuevo. */
 export interface HrPuenteRegistroDto extends HrPuenteNominaDto {
   /** Aliases nuevos escritos en esta corrida. */

@@ -28,6 +28,7 @@ import { HrAttendanceSchedulesService } from './attendance/attendance-schedules.
 // `[NE.2.3]` El puente entre el padrón de nómina y el de la Suite: quien escribe
 // `hr.person_aliases` es la APLICACIÓN (la única con `INSERT`), no un script.
 import { HrNominaController } from './nomina/nomina.controller';
+import { HrNominaPeriodosService } from './nomina/nomina-periodos.service';
 import { HrNominaPuenteService } from './nomina/nomina-puente.service';
 import { HrTalentController } from './talent/talent.controller';
 import { HrTalentCandidatesService } from './talent/talent-candidates.service';
@@ -87,7 +88,7 @@ import { HrDocumentRequestService } from './talent/bot/pedir-documentos.service'
     HrDocumentRequestService,
     // `[NE.2.3]` puente de padrones de nómina · `[NE.2.2]` el periodo, derivado de ContPAQi.
     // ⚠️ Los dos van acá: `HrNominaController` inyecta AMBOS. Sin uno, Nest no arranca (#414).
-    HrNominaPuenteService,
+    HrNominaPuenteService, HrNominaPeriodosService,
   ],
   // `[RH.3.1]` HrRecruitmentBotService se exporta para el binding de RECRUITMENT_BOT_PORT (composition root).
   exports: [HrAttendanceIngestService, HrAttendanceReportService, HrRecruitmentBotService],

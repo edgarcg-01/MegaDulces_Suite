@@ -133,8 +133,14 @@ Timbrado y CFDI (**ContPAQi es el sistema de registro**, ADR-040) · la dispersi
   crudo **y** sitio/área resueltos aparte, **dinero en centavos enteros**, el sobre denominación por
   denominación, y **el renglón original como `jsonb`**. `tenant_id` + audit fields, RLS forzada,
   `GRANT` a `app_runtime`. **Depende de D9.**
-- ⬜ `[NE.2.2]` **El periodo se puebla**: `hr.payroll_periods` tiene 0 filas y su llave (el viernes)
-  ya está probada. Se llenan los periodos del tramo vivo, desde el servicio, no a mano.
+- 🧪 `[NE.2.2]` **El periodo se puebla desde ContPAQi** — hecho y probado contra base real.
+  ⭐⭐ **Y deroga una premisa de `[NE.0.4]`:** el rango de días **sí está registrado**. El rango modal
+  de cada fecha de pago cubre el **98.2 %** de sus pagos en promedio (mínimo 90.4 %) y en **516 de
+  517** fechas es de **7 días que terminan el día del pago** — la semana es **sábado→viernes**. Lo
+  que no llega al consenso se escribe en NULL, declarado. ⚠️ **Aviso para `[NE.0.7]`:** el `CHECK`
+  del viernes **va a rechazar el 2018-03-28** (miércoles de Semana Santa, la única excepción en diez
+  años) cuando se cargue el histórico. ⛔ La nómina **extraordinaria** (junio/PTU y diciembre/
+  aguinaldo) **no es un periodo semanal** y no entra.
 
 ### C1 · dominio — **ya está, y no se toca**
 
