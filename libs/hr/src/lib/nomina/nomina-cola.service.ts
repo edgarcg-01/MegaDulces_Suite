@@ -113,8 +113,12 @@ export class HrNominaColaService {
         `(SELECT max(paid_on) FROM contpaqi_ods.v_nomina_pago_periodo) - (? || ' days')::interval`, [dias],
       ))
       .groupBy('e.employee_code')
+      // ⛔⛔ `count(DISTINCT p.paid_on)`, NUNCA `count(*)`: esta vista registra **cada pago hasta
+      //    tres veces** —exactamente 3.000 filas por persona y fecha entre 2019 y 2024— y dejó de
+      //    hacerlo el 2026-10-30. Con `count(*)` la pantalla decía 18 pagos donde había 11
+      //    (peor caso: 22 contra 13). Un pago es una FECHA, no una fila. → VERDAD_ABSOLUTA §40.8.
       .select(trx.raw(
-        `e.employee_code AS codigo, max(e.full_name) AS nombre, max(p.paid_on)::text AS ultimo, count(*)::int AS pagos`,
+        `e.employee_code AS codigo, max(e.full_name) AS nombre, max(p.paid_on)::text AS ultimo, count(DISTINCT p.paid_on)::int AS pagos`,
       ));
     return new Map(rows.map((r: Record<string, unknown>) => [
       String(r['codigo']),

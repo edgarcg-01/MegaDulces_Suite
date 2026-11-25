@@ -96,7 +96,8 @@ fecha de muerte es exactamente el que la regla prohíbe.
 | **D6** | ¿ContPAQi o el `.mdb`? | ✅ **ambos** — Edgar, 2026-11-24 |
 | **D7** | ¿Cómo entra el histórico? | ✅ **una mudanza de una pasada que mata el Access**, con las 3 condiciones de §4 — Edgar, 2026-11-24 |
 | **D8** | Al morir el Access, ¿la Suite **produce** la mitad en efectivo (el sobre), o sólo la guarda? | ⬜ **Edgar**. Recomendación: **producirla** — el primitivo `sobre.ts` ya existe y sin eso el apagado deja un hueco de dinero |
-| **D9** | ¿El recibo vive en una **tabla propia** o se deriva al vuelo? | ⬜ **Edgar**. Recomendación: **tabla propia** (`hr.payroll_receipts`): es dato propio, el histórico la necesita igual (§9.7) y derivar 159 mil recibos al vuelo no se sostiene |
+| **D9** | ¿El recibo vive en una **tabla propia** o se deriva al vuelo? | ⬜ **Edgar**. Recomendación: **tabla propia** (`hr.payroll_receipts`): es dato propio, el histórico la necesita igual (§9.7) y derivar 159 mil recibos al vuelo no se sostiene. ⭐ **Ya tiene una cifra (2026-11-25):** derivar **la semana viva** de ContPAQi tarda **~130 ms** (217 personas; tres corridas: 136/126/131 ms). O sea: *para la semana viva, derivar alcanza de sobra*. Lo que sigue **NO MEDIDO** es derivar el histórico, que es donde la tabla se gana el lugar |
+| **D11** | ⛔ `net_paid` de ContPAQi es **derivado**, no medido (`[NE.0.18]`): ¿se abre `contpaqi_nom.add_nomina.totalpagado` a `app_runtime`, o el árbitro del recibo es **el banco**? | ⬜ **Edgar / Sistemas**. Sin una de las dos, la identidad del recibo **no se puede verificar sin circularidad** y `[NE.2.4]` no cierra. Recomendación: **abrir la columna** —es una lectura más en una superficie que ya existe— y dejar el banco como segundo testigo |
 | **D10** | Un caso de la cola que **de verdad no liga** (cobra y no es nadie de la Suite), ¿se puede **descartar**, y dónde se guarda esa decisión? | ⬜ **Edgar**. Recomendación: **todavía no**. Hoy los casos reaparecen en cada carga, que es lo correcto: un `sin-candidato` se arregla **dando de alta a la persona**, no callándola. Si aparecen casos legítimamente irresolubles (un pago a alguien que nunca será usuario), eso es **dato propio** y pide su tabla — es un item C0, no un `boolean` colgado del alias |
 | **D1–D5** | puntualidad, asistencia, el cierre, la semana, el permiso | ⬜ siguen abiertas — **RH / Dirección** |
 
@@ -154,9 +155,14 @@ Timbrado y CFDI (**ContPAQi es el sistema de registro**, ADR-040) · la dispersi
 - ⬜ `[NE.2.3]` **El servicio del puente**: alimenta `tiendePuente` desde `contpaqi_ods` y escribe
   `hr.person_aliases` corriendo **como la aplicación**. Idempotente; los rechazos **se guardan como
   rechazos**, no se tiran. Clave de permiso propia y **repartida en prod** (regla 20).
-- ⬜ `[NE.2.4]` **El recibo de la semana viva**: arma el recibo de un periodo con lo que ya hay
+- ⚠️ `[NE.2.4]` **El recibo de la semana viva**: arma el recibo de un periodo con lo que ya hay
   dentro de la base (ContPAQi + asistencia + el banco de horas) y lo guarda. **Prueba contra base
-  real con el payload de la pantalla** (regla 13).
+  real con el payload de la pantalla** (regla 13). **BLOQUEADA el 2026-11-25 por D11**: `net_paid`
+  de ContPAQi es `COALESCE(totalpagado, percepciones + otros − deducciones)`, así que verificar la
+  identidad del recibo contra esa columna es **comprobarla contra sí misma**. Antes de construir
+  hace falta un **testigo independiente** (ver `[NE.0.18]` y `VERDAD_ABSOLUTA.md` §40.8).
+  ⭐ La semana viva **cierra 217 de 217 y sin un solo NULL**: el problema no es la semana, es poder
+  demostrarlo.
 - 🧪 `[NE.2.5]` **La cola de los que no ligaron** (`[NE.0.5]`) — hecha y probada contra base real.
   `GET /hr/nomina/cola` lista cada caso con el nombre que usa nómina, cuándo cobró y **los mismos
   candidatos que el puente miró y descartó**; `POST /hr/nomina/cola/resolver` escribe

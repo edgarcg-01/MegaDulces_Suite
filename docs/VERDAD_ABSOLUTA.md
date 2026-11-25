@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 439 KB, 6549 líneas, 44 secciones.
+> **Índice navegable** — 443 KB, 6613 líneas, 44 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -49,8 +49,8 @@
 | 5829 | 5893 | 5 | 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05) |
 | 5894 | 5998 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
 | 5999 | 6070 | 5 | 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026- |
-| 6071 | 6266 | 11 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
-| 6267 | 6605 | 20 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
+| 6071 | 6330 | 15 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
+| 6331 | 6669 | 20 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -6261,6 +6261,70 @@ Quedan dos, y necesitan una persona, no una consulta:
 
 ⚠️ **NO MEDIDO:** si esas dos se corrigieron en la semana siguiente (el sistema no guarda bitácora,
 patrón B3); por qué dos personas tienen una tarifa horaria distinta al resto.
+
+---
+
+### 40.8 ⛔⛔ ContPAQi también guarda cada pago TRES veces — y dejó de hacerlo el 2026-10-30 (NE.2.4, 2026-11-25)
+
+§40.2 midió que en el ERP cada peso de nómina se cuenta **tres veces**. La misma trampa está en
+`contpaqi_ods.v_nomina_pago_periodo`, que es de donde el frente NE toma el dato — y **no es una
+vista mal escrita: la fila repetida ya viene así de origen**.
+
+**Medido en prod (sólo lectura, `system_identifier` 7688376744939610156):** filas por
+`(persona, fecha de pago)` en nómina ordinaria.
+
+| año | filas | pares (persona, fecha) | filas por par |
+|---|---:|---:|---:|
+| 2017 | 20,688 | 10,238 | 2.021 |
+| 2018 | 31,206 | 10,675 | 2.923 |
+| 2019–2022 | ~27,000/año | ~9,000/año | **3.000** |
+| 2023 | 31,984 | 10,516 | 3.041 |
+| 2024 | 30,508 | 10,165 | 3.001 |
+| 2025 | 30,176 | 10,570 | 2.855 |
+| 2026 | 19,024 | 9,837 | 1.934 |
+
+⭐ **Las copias son idénticas columna por columna** (8,986 pares de 2026 comprobados: ninguno
+difiere en rango, periodicidad, departamento, puesto, días ni neto). No son pagos distintos ni
+correcciones: son **la misma fila repetida**.
+
+⭐⭐ **Y se corta en una fecha exacta.** Hasta el **2026-10-23** cada semana trae 2.00 filas por
+persona; desde el **2026-10-30**, 1.00 — sin que nadie lo anunciara:
+
+| fecha de pago | filas | personas |
+|---|---:|---:|
+| 2026-10-16 | 414 | 207 |
+| 2026-10-23 | 408 | 204 |
+| **2026-10-30** | **207** | **207** |
+| 2026-11-20 | 217 | 217 |
+
+**Lo que cuesta creerle.** Sumar el neto de 2026 tal cual da **$35,077,569.88**; deduplicando por
+`(persona, fecha)` da **$18,184,390.97**. Casi el doble de un año parcial.
+
+⚠️ **Coincidencia no explicada, anotada para que nadie la descubra dos veces:** la ventana en que
+§40.7 midió la sequía de monedas de 50 centavos (2026-10-02 a 2026-10-23) termina **el mismo
+viernes** en que se corta la triplicación. Son dos sistemas distintos y **no hay ninguna evidencia
+de que estén ligados** — se deja escrito como pregunta, no como relación.
+
+**Cómo se usa este dato sin equivocarse:**
+
+- Un pago es una **fecha**, no una fila: `count(DISTINCT paid_on)`, nunca `count(*)`.
+- Cualquier **suma de dinero** pide `DISTINCT (employee_code, paid_on, …)` primero.
+- Lo que **no** se ve afectado: contar por `GROUP BY` sobre la persona (el universo del puente dio
+  **248 = 248**) y las proporciones por fecha de pago (`[NE.2.2]` re-medido deduplicado: **517**
+  fechas, **516** viernes, cobertura **98.2 %** promedio y **90.4 %** mínima — idénticas). La
+  duplicación es uniforme, así que las razones sobreviven y los totales no.
+
+⛔ **Límite declarado, NO MEDIDO.** `net_paid` de esa vista **no es una columna medida**: es
+`COALESCE(totalpagado, percepciones + otros − deducciones)`. Así que «la identidad del recibo
+cierra» es **parcialmente circular** — donde `totalpagado` viene vacío, la identidad es cierta *por
+definición*. Sólo se puede afirmar la cota inferior: **173 filas** (todas de 2017–2019) tienen neto
+medido y **no** cierran. Deshacer la circularidad exige leer `contpaqi_nom.add_nomina`, cuyo ACL es
+sólo `postgres` (medido: `permission denied for schema` como `edgar`), o cruzar contra el banco.
+
+**Lo que sí se puede afirmar:** tratando el NULL como cero, la identidad cierra en **274,340 de
+274,513** filas, y **desde 2020 no falla ni una** (192,751 filas, siete años). Que el NULL significa
+cero está probado **con control negativo**: 39,266 de 39,334 filas con NULL cierran tratándolo como
+cero, y **0** cierran si se le da cualquier otro valor.
 
 ---
 

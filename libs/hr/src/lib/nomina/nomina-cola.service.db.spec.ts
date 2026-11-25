@@ -109,6 +109,12 @@ suite('la cola de nómina contra la base', () => {
         await trx('contpaqi_ods.v_nomina_pago_periodo').insert([
           { employee_code: `A${sello}`, paid_on: hoy },
           { employee_code: `A${sello}`, paid_on: ayer },   // dos pagos: la cola los cuenta
+          // ⛔⛔ PRUEBA NEGATIVA DEL GRANO: la vista real registra **cada pago hasta tres veces**
+          //    (3.000 filas por persona y fecha entre 2019 y 2024; dejó de hacerlo el 2026-10-30).
+          //    Estas dos copias del pago de hoy NO deben contar: un pago es una FECHA, no una fila.
+          //    Con `count(*)` la pantalla decía 18 pagos donde había 11. → VERDAD_ABSOLUTA §40.8.
+          { employee_code: `A${sello}`, paid_on: hoy },
+          { employee_code: `A${sello}`, paid_on: hoy },
           { employee_code: `D${sello}`, paid_on: hoy },
         ]);
 
