@@ -13,21 +13,21 @@
 - El mayoreo del verificador (y del checador del vendedor y el respaldo del kiosco) se lee de la vista viva sobre el ODS, igual que la etiqueta del anaquel, y ya no de una tabla que recalculaba un importer. Lo que Compras corrige en Kepler llega con el ODS (~5 min). En la tienda 01, 457 productos más muestran su mayoreo (los que Kepler tiene y la tabla no).
 ### Fixed — Verificador de precios: ya no muestra un «paquete» que el producto no tiene (VAC.PAQ.1, 2026-11-25 · en código, sin soltar)
 - 620 productos mostraban «desde N paquetes» con un precio de una unidad PAQ que su ficha en Kepler no tiene (p. ej. 18016, cajeta 1 kg: pieza y caja). Ahora ese escalón no se publica, ni en línea ni en el respaldo del kiosco. Los paquetes reales (incluido el de 1 pieza) se quedan.
-### Fixed — Almacén › Ubicaciones: lo que acabas de ubicar ya no desaparece (UB.RF.19 · 2026-11-25 · en código, sin soltar)
+### Fixed — Almacén › Ubicaciones: lo que acabas de ubicar ya no desaparece (UB.RF.19 · 2026-11-25 · **en producción**)
 - Reporte: «los productos no se están almacenando ni mostrando». **Sí se estaban guardando** — dos asignaciones ese mismo día en TA011 de Padre Hidalgo, sin un solo error. Lo que no había era dónde verlos: al guardar, el producto salía de la lista (el filtro de entrada es «Por ubicar» y ya había dejado de estarlo) y la única señal era un aviso que se va.
 - Ahora **«Acabas de ubicar (N)»** queda a la vista en la lista, con el código donde quedó cada producto y su «Quitar». Antes esa bandeja sólo se llenaba si trabajabas parado en una ubicación.
 - Si el almacén que estás viendo no tiene ningún producto ubicado y otro sí, **se dice con su nombre y su cifra**: «CEDIS todavía no tiene productos ubicados. Padre Hidalgo tiene 23», con el botón para cambiarte. Quien no tiene almacén en su ficha abría siempre en CEDIS —375 ubicaciones, 0 productos— y leía «no hay nada» sobre el almacén equivocado.
 - El almacén va **en el título** de la pantalla, no en gris chico al lado.
 - Internal: `ubicaciones` y `con_producto` por almacén en `alcance` (consulta agregada, 8 ms). ⚠️ Su primera versión usaba `count(*)` sobre un `LEFT JOIN` que multiplica la ubicación por cada producto y daba 185 en vez de 156: lo cazó el control de la consulta, no una prueba. Va con `count(DISTINCT b.id)`.
 
-### Changed — Almacén › Ubicaciones: cada pasillo es un corredor con sus dos frentes (UB.RF.18 · 2026-11-25 · en código, sin soltar)
+### Changed — Almacén › Ubicaciones: cada pasillo es un corredor con sus dos frentes (UB.RF.18 · 2026-11-25 · **en producción**)
 - Un pasillo tiene racks de los dos lados. Ahora el mapa lo dibuja así: los **nones** de un lado del corredor y los **pares** del otro, cada frente con su regleta de números pegada a su fila, y el rack 05 exactamente enfrente del 06.
 - El frente **no se escribe en el código**: se deduce del número, como en las calles. `BA053` sigue siendo el mismo código, con el mismo escáner y las mismas etiquetas.
 - **El recorrido de surtido baja por los nones y vuelve por los pares.** Antes iba 01, 02, 03…, que obliga a cruzar el corredor una vez por rack: 24 cruces en un pasillo de 25.
 - El detalle de un rack dice de qué frente es y qué tiene enfrente.
 - Internal: `rackFace` / `rackOpuesto` en contracts, `defaultPickSequence` en serpentina, migración `20261125131938` que recalcula el recorrido de las 531 ubicaciones existentes (531 de 531 tenían la fórmula vieja: 0 editadas a mano). ⚠️ Sólo hace UPDATE: **aplicar antes de mergear**.
 
-### Changed — Almacén › Ubicaciones: el mapa dice lo que varía, y lo que no se midió se declara (UB.RF.17 · 2026-11-25 · en código, sin soltar)
+### Changed — Almacén › Ubicaciones: el mapa dice lo que varía, y lo que no se midió se declara (UB.RF.17 · 2026-11-25 · **en producción**)
 - Cada cuadro del mapa muestra ahora **cuántos productos tienen su lugar en ese rack**, que es lo único que cambia de un rack a otro. Antes mostraba cuántos niveles tiene, que es el mismo número en todo el almacén: los 75 racks de CEDIS se veían idénticos, y los 2 racks de Padre Hidalgo que ya tienen producto se veían igual que los otros 37.
 - Al tocar un rack, **«Ver sus N productos»** abre Asignación con ese rack ya filtrado, y la lista avisa que está recortada con «Ver todo el almacén» al lado.
 - Las cifras de arriba cuentan **lo que la pantalla muestra**, no el almacén entero. Zamora Centro decía «3 activas» con el mapa vacío porque sus tres son carretas: ahora dice que están fuera del mapa y ofrece verlas.
