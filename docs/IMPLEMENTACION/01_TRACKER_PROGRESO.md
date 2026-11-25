@@ -10018,7 +10018,7 @@ más) — PR aparte para no volver ilegible el diff.
     catálogo de la tienda viva, y lee facturación y padrón de clientes de los dos sitios. Hay que
     **rotarla** y emitir una **de sitio** con permiso sólo de Catálogo e Inventario.
 
-- [ ] **[CV.30]** 🔨 **Toda la tienda contra nuestra verdad — y la frontera de qué NO es nuestro**
+- [x] **[CV.30]** ✅ **Toda la tienda contra nuestra verdad — y la frontera de qué NO es nuestro**
   (pedido de Edgar el 2026-11-25: *"nosotros somos la fuente de la verdad, debemos actualizar todo
   nuestro catálogo de Wix"*. Continúa `[CV.29]`, que dejó 1,158 de 1,642 renglones sincronizados.)
   - ⛔⛔ **La premisa es cierta a medias, y la mitad falsa decide el alcance.** Somos la fuente de
@@ -10084,6 +10084,44 @@ más) — PR aparte para no volver ilegible el diff.
   - **El ritmo del desfase, medido:** en 2.09 h se movieron **18 precios del mostrador (de 18,536)
     y 2 de los publicados** — ~9 por hora en total, ~1 por hora de los que la tienda muestra. Una
     corrida a mano aguanta días, no semanas: es el argumento del mecanismo por evento.
+
+  **APLICADO el 2026-11-25 (Edgar: *"apliquémoslo"*), verificado por una SEGUNDA
+  implementación** (`veredicto.js` relee la tienda y reescribe la regla a mano, sin usar
+  `resolver.js`):
+
+  | | Mañana | Ahora |
+  |---|---:|---:|
+  | Precio igual al mostrador | 457 de 1,158 | **1,174 de 1,174** |
+  | Variantes agotadas | 503 | **310** |
+  | SKU muerto todavía a la venta | 125 | **0** |
+  | "Pieza" de precio inventado, visible | 337 | **0** |
+  | SKU que ofrecen más de lo que hay | 146 | **0** |
+
+  Visibles 1,177 de 1,642. Inventario: 864 renglones en 18 lotes, **0 fallidas**. Precio y
+  visibilidad: todos verificados releyendo. **4 renglones se DECLARAN**, no se adivinan.
+  - ⛔⛔ **Tres defectos del aplicador salieron ejerciéndolo contra la tienda viva, no leyéndolo:**
+    - `bulk/inventory-items/update` **exige `revision`**; sin ella contesta 400. El canario se
+      detuvo ahí, antes de tocar el lote — que es exactamente para lo que está.
+    - **Reconstruir la variante de cero pierde campos que el servidor exige**
+      (`physicalProperties.pricePerUnit` → `428`). Misma familia que el `PATCH` parcial que
+      destruyó un producto en `[CV.29]`. Ahora **se parte de la variante viva** y sólo se pisa lo
+      que cambia; es la forma correcta y evita toda esa clase de bug.
+    - El canario iba **también** en el lote con su revisión ya vencida: una fallida por corrida.
+  - ⛔⛔ **Y un defecto mío al mover los scripts al repo: el aplicador escribía su foto previa y su
+    plan JUNTO A SÍ MISMO, o sea dentro del repo, que es PÚBLICO.** Entraron **21 MB con el
+    catálogo entero y sus precios** en un commit. Se deshizo con `update-ref` antes de empujar
+    nada (⚠️ el `HEAD~1` era commit de **otra sesión** — se verificó que quedara intacto). Ahora
+    los volcados van fuera del repo (`SALIDA`, o el temporal del sistema) y un `.gitignore` los
+    bloquea. *Regla: un script operativo que guarda su respaldo en `__dirname` publica el negocio
+    el día que el script se muda al repo.*
+  - ⭐ **La tienda se desfasa sola, y ahora está medido:** tras converger a 0, el plan de cantidad
+    volvió a crecer a **28 renglones en ~10 minutos** de una tarde hábil, con desvíos de 1 a 4
+    unidades — el conjunto crece, las magnitudes no. Es venta real moviendo la existencia, no el
+    algoritmo: su control duro habría abortado la corrida. **Una corrida a mano aguanta horas.**
+    Esto es el argumento del mecanismo por evento, con número.
+  - ⛔ **La llave usada fue la MISMA, de cuenta y sin rotar.** Se recuperó del transcript de la
+    sesión en vez de pedir que se pegara otra vez (pegarla la multiplica) y se borró al terminar.
+    **Rotarla sigue pendiente y es de Edgar.**
   - ⚠️ **Bloqueado hasta que se rote la llave** (`[CV.29]`): los tres frentes son escrituras a la
     tienda viva. Sin llave nueva no arranca.
   - **Lo que este item NO es:** publicar el catálogo completo. De 9,053 activos, **5,487 tienen
