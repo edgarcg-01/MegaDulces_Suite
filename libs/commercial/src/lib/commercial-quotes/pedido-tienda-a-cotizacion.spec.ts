@@ -18,11 +18,11 @@ import {
  */
 const FICHAS: Record<string, FichaTienda> = {
   // CHURROLOKO 400 GR. PATYLETA — tres presentaciones
-  '95612': { unidades: [{ unidad: 'PZA', factor: 1 }, { unidad: 'PAQ', factor: 10 }, { unidad: 'CJA', factor: 180 }] },
+  '95612': { product_id: 'p-95612', unidades: [{ unidad: 'PZA', factor: 1 }, { unidad: 'PAQ', factor: 10 }, { unidad: 'CJA', factor: 180 }] },
   // ALTOS ROLLO ALTA 20X30 1KG — una sola unidad, y la tienda le puso de rótulo el nombre
-  '17064': { unidades: [{ unidad: 'KG', factor: 1 }] },
+  '17064': { product_id: 'p-17064', unidades: [{ unidad: 'KG', factor: 1 }] },
   // LA ROSA CERETZZA — la tienda guardó el CÓDIGO de unidad como rótulo
-  '70500': { unidades: [{ unidad: '500', factor: 1 }, { unidad: 'PAQ', factor: 2 }, { unidad: 'CJA', factor: 20 }] },
+  '70500': { product_id: 'p-70500', unidades: [{ unidad: '500', factor: 1 }, { unidad: 'PAQ', factor: 2 }, { unidad: 'CJA', factor: 20 }] },
 };
 const fichaDe = (sku: string): FichaTienda | null => FICHAS[sku] ?? null;
 const LARGO = 120;
@@ -44,7 +44,7 @@ describe('[COT.7.50] el pedido de la tienda, armado como cotización', () => {
     expect(c.sucursal).toBe(SUCURSAL_TIENDA);
     expect(c.sucursal).toBe('01');
     expect(c.renglones).toEqual([
-      { sku: '95612', quantity: 18, qty_unit: 'PAQ', unidad_via: 'nombre', precio_tienda: 40.3 },
+      { product_id: 'p-95612', sku: '95612', quantity: 18, qty_unit: 'PAQ', unidad_via: 'nombre', precio_tienda: 40.3 },
     ]);
   });
 
@@ -65,7 +65,7 @@ describe('[COT.7.50] el pedido de la tienda, armado como cotización', () => {
 
     it('2 — el código de unidad que la tienda guardó como rótulo', () => {
       expect(unidadDePresentacion('500', FICHAS['70500'])).toMatchObject({ unidad: '500', via: 'codigo de unidad' });
-      expect(unidadDePresentacion('cub', { unidades: [{ unidad: 'CUB', factor: 1 }, { unidad: 'PZA', factor: 9 }] }))
+      expect(unidadDePresentacion('cub', { product_id: 'x', unidades: [{ unidad: 'CUB', factor: 1 }, { unidad: 'PZA', factor: 9 }] }))
         .toMatchObject({ unidad: 'CUB', via: 'codigo de unidad' });
     });
 

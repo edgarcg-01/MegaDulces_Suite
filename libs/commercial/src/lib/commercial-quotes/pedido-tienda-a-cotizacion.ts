@@ -53,19 +53,17 @@ export interface PedidoTienda {
   renglones: RenglonTienda[];
 }
 
-/**
- * La ficha del SKU en NUESTRO catálogo, leída por quien llama. Su sola existencia prueba que el
- * mostrador de esa sucursal conoce el SKU; **no lleva `product_id` porque la cotización se crea
- * por SKU** y el servicio lo resuelve — un id acá sería un campo que hay que mantener en sincronía
- * sin que nadie lo use.
- */
+/** La ficha del SKU en NUESTRO catálogo, leída por quien llama. */
 export interface FichaTienda {
+  /** `catalog.products.id`: lo que `commercial.quote_lines.product_id` necesita. */
+  product_id: string;
   /** Unidades que el mostrador vende para este SKU: `{ unidad, factor }`. */
   unidades: { unidad: string; factor: number }[];
 }
 
 /** El renglón ya armado para `commercial.quote_lines`. */
 export interface RenglonCotizado {
+  product_id: string;
   sku: string;
   quantity: number;
   /** La unidad de Kepler (`PAQ`, `CJA`, `PZA`…), no el rótulo de la tienda. */
@@ -175,6 +173,7 @@ export function pedidoTiendaACotizacion(
       );
     }
     renglones.push({
+      product_id: ficha.product_id,
       sku,
       quantity: Number(r.cantidad),
       qty_unit: u.unidad,
