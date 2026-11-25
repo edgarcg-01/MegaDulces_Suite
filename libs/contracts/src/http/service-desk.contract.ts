@@ -540,27 +540,6 @@ export interface SdTransferResult {
   status: SdStatus;
 }
 
-/**
- * `[MSP.5.0]` A qué áreas se puede trasladar: TODAS las encendidas que tienen categorías, sin el filtro de puestos de «Nueva solicitud»
- * (`[MSP.2.1]`). Trasladar no es levantar (D8): la coordinación de TI tiene que poder mandarle a Presupuestos una reposición aunque ella
- * no pueda levantar ahí. Sólo para quien coordina; no trae la lista de puestos.
- */
-export interface SdTransferTargetQueueDto {
-  id: string;
-  code: string;
-  name: string;
-  confidential: boolean;
-}
-export interface SdTransferTargetCategoryDto {
-  id: string;
-  queue_id: string;
-  name: string;
-}
-export interface SdTransferTargetsResponse {
-  queues: SdTransferTargetQueueDto[];
-  categories: SdTransferTargetCategoryDto[];
-}
-
 /** `[MS.7.12]` Marcar (o quitar la marca de) ticket de prueba. Sólo la coordinación del área donde está; queda en el hilo. */
 export interface SdMarkTestDto {
   is_test: boolean;
