@@ -125,3 +125,21 @@
      sin ::ng-deep (check:cascada) y sin tocar la hoja global. El input y el botón se estiran con él (inline-flex). */
   .cc-form p-select, .cc-form p-datepicker, .cc-form p-inputnumber { min-height: var(--tap-min, 44px); }
 }
+
+/* [PQ.3.21] Las casillas de zonas y sucursales (DC28): el renglón entero (casilla + nombre) es el objetivo.
+   min-width: 0 porque un fieldset no se encoge solo, y en el celular empujaría el diálogo de lado. */
+.cc-lugares { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.cc-lugares-suc { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: var(--sp-1) var(--sp-3); }
+.cc-lugares legend { padding: 0; margin-bottom: var(--sp-1); }
+.cc-casilla { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--fg-1); }
+.cc-casilla label { cursor: pointer; }
+/* [PQ.3.22] «Mis revisiones»: un interruptor junto a la búsqueda; pulsado = filtro puesto (y lo dice aria-pressed). */
+.cc-mias {
+  padding: var(--sp-1) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-pill); background: none;
+  cursor: pointer; font: inherit; font-size: var(--fs-sm); color: var(--fg-1);
+}
+.cc-mias.is-on { border-color: var(--action); font-weight: var(--fw-medium); box-shadow: inset 0 0 0 1px var(--action); }
+.cc-mias:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (pointer: coarse) {
+  .cc-casilla, .cc-mias { min-height: var(--tap-min, 44px); }
+}

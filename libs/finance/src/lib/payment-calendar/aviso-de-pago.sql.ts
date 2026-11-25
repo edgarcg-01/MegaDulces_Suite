@@ -37,6 +37,25 @@ SELECT p.id::text AS id, nullif(btrim(p.ocr_referencia), '') AS rastreo,
  ORDER BY (p.id = a.paid_proof_id) DESC, (p.status = 'validado') DESC, p.created_at DESC
  LIMIT 1`;
 
+/**
+ * `[PGP.208]` **La salida del banco que pagó este pago, tal como la trae la descarga del banco**: la clave de rastreo y
+ * la cuenta que recibió. Es el respaldo del comprobante: un pago que el estado de cuenta probó (`paid_bank_movement_id`)
+ * ya tiene su transferencia identificada aunque nadie haya subido el PDF. El movimiento sale de la descarga con
+ * `client_uuid = 'banco:' || line_key` (`[CB.60b]`); se busca por la llave única de la descarga (tenant, cuenta, llave).
+ * Medido el 2026-11-24: de 275 pagos ejecutados, 53 traían la clave del comprobante; con esto, 29 más (Santander). Las
+ * descargas de BBVA, Banorte y BanBajío no traen clave (traspasos del mismo banco, cheques, servicios): ésos la declaran.
+ * Parámetros: `[tenant, allocation_id]`.
+ */
+export const SQL_BANCO_DEL_AVISO = `
+SELECT nullif(btrim(s.tracking_key), '') AS rastreo, nullif(btrim(s.counterparty_account), '') AS cuenta_destino,
+       to_char(s.movement_date, 'YYYY-MM-DD') AS fecha
+  FROM finance.payment_allocations a
+  JOIN finance.bank_movements m ON m.id = a.paid_bank_movement_id AND m.tenant_id = a.tenant_id
+  JOIN finance.bank_statement_lines s ON s.tenant_id = m.tenant_id AND s.bank_account_id = m.bank_account_id
+   AND m.client_uuid LIKE 'banco:%' AND s.line_key = substring(m.client_uuid FROM 7)
+ WHERE a.tenant_id = ? AND a.id = ?
+ LIMIT 1`;
+
 /** Los renglones del pago, en su orden. Parámetros: `[tenant, allocation_id]`. */
 export const SQL_RENGLONES_DEL_AVISO = `
 SELECT i.id::text AS item_id, i.applied_amount::float8 AS pagado, coalesce(i.discount_amount, 0)::float8 AS descuento

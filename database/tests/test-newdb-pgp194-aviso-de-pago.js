@@ -19,6 +19,9 @@
  *      el historial del pago trae los dos, el más nuevo primero;
  *   5. ⛔ correo o WhatsApp mal escritos, o un canal que no existe: 400, sin fila;
  *   6. la liga: abre el pago de SU aviso; revocada no abre; un token de otro tipo o basura no abre.
+ *   7. ⭐ [PGP.208] un pago que el banco probó, sin comprobante: la clave de rastreo y la cuenta destino salen de la
+ *      descarga del banco, y el mensaje al proveedor la lleva;
+ *   8. ⛔ [PGP.208] descarga sin clave: no se inventa, se declara; con comprobante manda la del comprobante.
  */
 const path = require('path');
 try { require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true }); } catch { /* opcional */ }
@@ -166,6 +169,46 @@ const esperaError = async (fn) => { try { await fn(); return null; } catch (e) {
       const e6b = await esperaError(() => s.pdfDeLaLiga(ajeno));
       const e6c = await esperaError(() => s.pdfDeLaLiga('basura'));
       ok(!!e6a && /ya no está disponible/.test(e6a.message) && !!e6b && !!e6c, '6. ⛔ revocada, de otro tipo o basura: no abre');
+
+      // 7–8. [PGP.208] Un pago que el BANCO probó y nadie le subió comprobante (DISTRIBUIDORA DE LA ROSA, 2026-11-20):
+      // la clave de rastreo y la cuenta que recibió salen de la descarga del banco. Sin comprobante y con una descarga
+      // que no trae clave (traspaso del mismo banco), se declara — antes salía «—» sin decir nada.
+      await trx('kepler_ods.kdxe').insert({ sucursal: '00', c1: '00', c2: PROV, c3: 'A', c4: 20, c5: 1, c6: 'FZZ194C', c7: '2099-03-01', c11: 900 });
+      await trx('kepler_ods.kdxe').insert({ sucursal: '00', c1: '00', c2: PROV, c3: 'A', c4: 20, c5: 1, c6: 'FZZ194D', c7: '2099-03-01', c11: 800 });
+      const archivo = (await trx('finance.bank_statement_files').insert({
+        tenant_id: T, bank_account_id: cuenta.id, bank: 'BBVA', file_sha1: 'pgp208-prueba', date_from: '2099-03-10', date_to: '2099-03-10',
+        lines_in_file: 2, lines_new: 2, opening_balance: 5000, closing_balance: 3500, total_in: 0, total_out: 1500, balance_ok: true, account_check: 'sin_testigo',
+      }).returning('*'))[0];
+      const estado = (await trx('finance.bank_statements').insert({ tenant_id: T, bank_account_id: cuenta.id, period: '2099-03' }).returning('*'))[0];
+      const salida = async (llave, importe, extra) => {
+        await trx('finance.bank_statement_lines').insert({
+          tenant_id: T, file_id: archivo.id, bank_account_id: cuenta.id, line_no: llave === 'pgp208-con' ? 1 : 2, seq: llave === 'pgp208-con' ? 1 : 2,
+          movement_date: '2099-03-10', concept: 'PAGO TRANSFERENCIA SPEI', amount_in: 0, amount_out: importe, running_balance: 0, line_key: llave, ...extra,
+        });
+        return (await trx('finance.bank_movements').insert({
+          tenant_id: T, statement_id: estado.id, bank_account_id: cuenta.id, movement_date: '2099-03-10', concept: 'PAGO TRANSFERENCIA SPEI',
+          amount_in: 0, amount_out: importe, client_uuid: `banco:${llave}`, sync_source: 'banco',
+        }).returning('id'))[0].id;
+      };
+      const RASTREO_DEL_BANCO = ' RASTREO-BANCO-208 '; // con espacios a propósito: el aviso los recorta
+      const movCon = await salida('pgp208-con', 700, { tracking_key: RASTREO_DEL_BANCO, counterparty_account: '002320000000008208' });
+      const movSin = await salida('pgp208-sin', 800, { tracking_key: null, counterparty_account: null });
+      const porBanco = await mk('FZZ194C', { status: 'executed', executed_at: trx.fn.now(), destination_account_text: null, paid_bank_movement_id: movCon, paid_bank_date: '2099-03-10', paid_bank_amount: 700 });
+      const sinClave = await mk('FZZ194D', { status: 'executed', executed_at: trx.fn.now(), destination_account_text: null, paid_bank_movement_id: movSin, paid_bank_date: '2099-03-10', paid_bank_amount: 800 });
+
+      const a7 = await s.datos(porBanco.id);
+      ok(a7.rastreo === 'RASTREO-BANCO-208' && a7.destino === '···8208' && a7.fecha_pago === '2099-03-10' && a7.comprobante_id === null,
+        `7. ⭐ [PGP.208] sin comprobante, la clave y la cuenta salen de la descarga del banco (${a7.rastreo} → ${a7.destino})`);
+      ok(a7.faltantes.some((x) => /sin comprobante anexo/.test(x)) && !a7.faltantes.some((x) => /clave de rastreo/i.test(x)),
+        `7. declara el PDF que falta y NO declara la clave, porque sí la tiene (${a7.faltantes.join(' | ')})`);
+      const c7 = await s.crear(porBanco.id, { canal: 'liga' }, 'prueba_pgp208');
+      ok(decodeURIComponent(c7.whatsapp_url).includes('RASTREO-BANCO-208'), '7. el mensaje al proveedor lleva la clave de rastreo del banco');
+
+      const a8 = await s.datos(sinClave.id);
+      ok(a8.rastreo === null && a8.destino === null && a8.faltantes.some((x) => /Sin clave de rastreo/.test(x)),
+        `8. ⛔ [PGP.208] la descarga sin clave (traspaso del mismo banco): no se inventa, se declara (${a8.faltantes.join(' | ')})`);
+      // Control: el pago con comprobante (caso 1) sigue tomando SU clave, no la del banco.
+      ok((await s.datos(pagado.id)).rastreo === 'RASTREO194', '8. control: con comprobante manda la clave del comprobante');
 
       throw ROLLBACK;
     });

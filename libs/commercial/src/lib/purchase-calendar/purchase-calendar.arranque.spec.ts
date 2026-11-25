@@ -31,6 +31,8 @@ describe('[PQ.3.4] el módulo del Calendario de compras arranca', () => {
     // [PQ.3.6] «Sin regla» es de toda la empresa: sólo quien define ciclos (la pantalla y la API dicen lo mismo).
     ['propuestas', P.propuestas, RequestMethod.GET, 'propuestas', [Permission.COMPRAS_CALENDARIO_CICLO], [Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR]],
     ['guardarRegla', P.guardarRegla, RequestMethod.POST, 'reglas', [Permission.COMPRAS_CALENDARIO_CICLO], [Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR]],
+    // `[PQ.3.22]` Quién puede ser responsable: sólo quien define reglas (lista personas y dónde escriben).
+    ['responsables', P.responsables, RequestMethod.GET, 'responsables', [Permission.COMPRAS_CALENDARIO_CICLO], [Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR]],
     ['darDeBaja', P.darDeBaja, RequestMethod.POST, 'reglas/:id/baja', [Permission.COMPRAS_CALENDARIO_CICLO], [Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR]],
     ['fueraDeCiclo', P.fueraDeCiclo, RequestMethod.POST, 'reglas/:id/fuera-de-ciclo', [Permission.COMPRAS_CALENDARIO_CICLO], [Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR]],
     ['marcar', P.marcar, RequestMethod.POST, 'reglas/:id/marcas', [Permission.COMPRAS_CALENDARIO_GESTIONAR], [Permission.COMPRAS_CALENDARIO_VER]],

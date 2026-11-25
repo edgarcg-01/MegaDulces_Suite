@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req } from '@nestjs/
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type {
   CalendarioCompras, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta, MarcarRevisionDto, PropuestasCalendario,
+  ResponsablesCalendario,
 } from '@megadulces/contracts';
 import { Permission, RequireAnyPermission, RequirePermissions } from '@megadulces/platform-core';
 import { PurchaseCalendarService } from './purchase-calendar.service';
@@ -43,9 +44,17 @@ export class PurchaseCalendarController {
     return this.service.propuestas();
   }
 
+  /** `[PQ.3.22]` Quién puede ser responsable de una regla (DC30), con dónde escribe: sólo lo usa quien define reglas. */
+  @Get('responsables')
+  @RequirePermissions(Permission.COMPRAS_CALENDARIO_CICLO)
+  @ApiOperation({ summary: 'PQ.3.22: las personas activas que pueden marcar (llave efectiva) y las sucursales donde escriben en Compras' })
+  responsables(): Promise<ResponsablesCalendario> {
+    return this.service.responsables();
+  }
+
   @Post('reglas')
   @RequirePermissions(Permission.COMPRAS_CALENDARIO_CICLO)
-  @ApiOperation({ summary: 'PQ.3.4: definir la regla de un proveedor en un alcance (si ya hay una viva, se reemplaza su patrón)' })
+  @ApiOperation({ summary: 'PQ.3.4: definir la regla de un proveedor en un alcance (si ya hay una viva, se reemplaza su patrón). PQ.3.21: con varias zonas o sucursales, una regla por lugar, todas o ninguna' })
   guardarRegla(@Body() dto: GuardarReglaDto, @Req() req: Sesion): Promise<GuardarReglaRespuesta> {
     return this.service.guardarRegla(quien(req), dto);
   }
