@@ -186,6 +186,33 @@ export interface Diagnostico {
   recon_estado?: ReconEstado | null;
   /** `[CB.68]` Fecha del último movimiento cargado del periodo ('YYYY-MM-DD'): hasta dónde ve el cierre. `null` = sin movimientos. */
   movimientos_hasta?: string | null;
+  /** `[BFU.7.6]`/`[BFU.4.5.6]` El motor de categoría y quién explica cada peso, sobre la descarga del banco del periodo. */
+  cobertura_categoria?: CoberturaCategoria;
+}
+
+/** `[BFU.4.5.6]` Un área (departamento o grupo declarado) y lo que explica de sus movimientos del banco. */
+export interface CoberturaPorArea {
+  /** Código de `identity.departments`, o grupo: `otros` · `por_asignar` · `quien_captura` · `en_plazo` · `sin_motivo`. */
+  area: string;
+  nombre?: string;
+  /** Quién responde por un grupo que no es un área (`otros`, `por_asignar` → `tesoreria`). */
+  atiende: string | null;
+  n: number; monto: number;
+  sin_categoria: { n: number; monto: number };
+  /** `null` = no medido: nunca se dibuja como cero. */
+  explicado: { n: number; monto: number } | null;
+  por_ligar: { n: number; monto: number } | null;
+  /** De lo que falta ligar, con más de 5 días hábiles. */
+  atrasados: number | null;
+  /** Por qué falta ligar, el de más dinero primero. */
+  motivos: { motivo: string; n: number; monto: number }[];
+}
+export interface CoberturaCategoria {
+  evaluados: number;
+  suma_cuadra: boolean | null;
+  por_area: CoberturaPorArea[];
+  /** `null` = no medido. */
+  explicado: { n: number; monto: number; por_ligar: { n: number; monto: number }; atrasados: number } | null;
 }
 
 /** CB.15.2 — Flujo de un movimiento (de dónde viene). */
@@ -251,6 +278,10 @@ export interface MovementsQuery {
   uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
   /** [CB.64] 'solo_descarga' | 'no_trae'. */
   contra_descarga?: string;
+  /** [BFU.4.5.6] Sólo esa área (la misma regla que la cifra por área). */
+  area?: string;
+  /** [BFU.4.5.6] Sólo lo que falta ligar. */
+  por_ligar?: boolean;
 }
 
 /** CB.24 — Cuadre 3 vías (Workbook ↔ Kepler 102 ↔ ContPAQi). */
@@ -551,6 +582,8 @@ export class BankService {
     if (q.limit != null) p.set('limit', String(q.limit));
     if (q.offset != null) p.set('offset', String(q.offset));
     if (q.contra_descarga) p.set('contra_descarga', q.contra_descarga);
+    if (q.area) p.set('area', q.area);
+    if (q.por_ligar) p.set('por_ligar', 'true');
     return this.http.get<MovementsPage>(`${this.base}/movements?${p.toString()}`);
   }
 

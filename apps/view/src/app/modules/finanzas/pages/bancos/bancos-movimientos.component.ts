@@ -38,6 +38,16 @@ import { CategorizarEgresoComponent } from '../../../../shared/components/catego
       <p-select [options]="reconOpts()" optionLabel="label" optionValue="value"
                 [ngModel]="fRecon()" (ngModelChange)="filter.emit({ field: 'recon', value: $event })"
                 appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Estado de conciliación"></p-select>
+      <!-- [BFU.4.5.6] Por área (departamento) y lo que falta ligar: la misma regla del servidor que «Quién explica cada peso». -->
+      @if (areaOpts().length > 1) {
+        <p-select [options]="areaOpts()" optionLabel="label" optionValue="value" [filter]="true"
+                  [ngModel]="fArea()" (ngModelChange)="filter.emit({ field: 'area', value: $event })"
+                  appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Área"></p-select>
+        <span class="fb-check">
+          <p-checkbox [ngModel]="fPorLigar()" [binary]="true" inputId="fPorLigar" (onChange)="filter.emit({ field: 'porLigar', value: $event.checked })"></p-checkbox>
+          <label for="fPorLigar">Solo por ligar</label>
+        </span>
+      }
       <span class="fb-check">
         <p-checkbox [ngModel]="fUncat()" [binary]="true" inputId="fUncat" (onChange)="filter.emit({ field: 'uncat', value: $event.checked })"></p-checkbox>
         <label for="fUncat">Solo sin clasificar</label>
@@ -324,6 +334,10 @@ export class BancosMovimientosComponent {
   /** [CB.64] La descarga del banco en el mes y la cuenta a la vista; null = no hay descarga (no se pinta nada de ella). */
   readonly descarga = input<DescargaEnMovimientos | null>(null);
   readonly fDescarga = input<string>('');
+  /** [BFU.4.5.6] Las áreas del periodo (la primera opción es «Todas»); sin cobertura, no se pinta el filtro. */
+  readonly areaOpts = input<{ label: string; value: string }[]>([]);
+  readonly fArea = input<string>('');
+  readonly fPorLigar = input<boolean>(false);
   @Output() filter = new EventEmitter<{ field: string; value: any }>();
   @Output() searchChange = new EventEmitter<string>();
   /** `[CB.70]` Se categorizó un egreso (y quizá otros por la regla): el shell recarga la lista y el Cierre. */

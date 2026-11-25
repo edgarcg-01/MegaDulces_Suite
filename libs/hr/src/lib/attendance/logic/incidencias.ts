@@ -232,6 +232,16 @@ export function validarCaptura(b: CapturaIncidencia): { ok: true; valor: Captura
     if (!Number.isFinite(minutos) || minutos < 1 || minutos > 720) {
       return { ok: false, error: 'Indica cuántas horas extra usó (entre 1 minuto y 12 horas).' };
     }
+    // `[NE.0.15]` Un movimiento que BAJA el saldo del banco se captura diciendo POR QUÉ y con permiso
+    // de QUIÉN, igual que `horario_distinto` desde el 01/10/2026. *Cifra: medido en prod el
+    // 2026-11-24, de los 25 usos que había **0 traían motivo y 0 traían autorizante** — no porque
+    // nadie los escribiera, sino porque el formulario no los pedía.* Un retiro sin razón no se
+    // audita: no se puede saber si fue un día tomado, una corrección o un error de captura.
+    const motivo = String(b.reason ?? '').trim();
+    if (!motivo) return { ok: false, error: 'Escribe por qué usó sus horas extra.' };
+    if (!autorizo) return { ok: false, error: 'Escribe quién autorizó el uso de sus horas extra.' };
+    // El motivo va primero; lo que RH haya escrito en la nota, detrás (igual que `horario_distinto`).
+    nota = nota ? `${motivo} — ${nota}` : motivo;
   }
   // `[RH.6.6]` Visita fuera: la recogida (minuto del día) y el lapso hasta que lo dejaron; la entrega no pasa de 23:59.
   if (tipo === 'visita_fuera') {

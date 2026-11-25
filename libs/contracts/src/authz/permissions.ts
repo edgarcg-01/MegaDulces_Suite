@@ -120,6 +120,13 @@ export enum Permission {
   // Dar de alta y pausar relojes, y mandarles órdenes (renombrar, restaurar a alguien). Fuera de
   // los grupos «de paquete»: una orden se ejecuta en el equipo físico de una plaza.
   HR_DEVICES_GESTIONAR = 'HR_DEVICES_GESTIONAR',
+  // Módulo: RH / Nómina — frente NE, `[NE.2.3]`. Ligar el código con que un sistema de nómina
+  // nombra a una persona (ContPAQi hoy; el padrón viejo cuando entre) con la persona de la Suite,
+  // y consultar por qué los que no ligaron no ligaron. ⚠️ Una sola clave porque consultar y
+  // registrar son el mismo acto y la superficie es chica. Se REPARTE con la pantalla de `[NE.2.5]`
+  // (mientras, `SIN_REPARTIR` del candado de reparto): un alias equivocado liga a una persona con
+  // el sueldo de otra, así que no se concede antes de que haya dónde revisarlo.
+  HR_NOMINA_GESTIONAR = 'HR_NOMINA_GESTIONAR',
   // Módulo: RH / Reclutamiento — `[RH.2.2]`, lo que antes vivía en el portal de Mega Talento.
   // VER lee candidatos y vacantes; GESTIONAR mueve de etapa, registra eventos, marca (no
   // recontratable, spam), fusiona duplicados, manda a la papelera y publica vacantes. La pantalla es

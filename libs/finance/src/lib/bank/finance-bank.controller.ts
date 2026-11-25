@@ -201,10 +201,13 @@ export class FinanceBankController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('contra_descarga') contra_descarga?: string,
+    @Query('area') area?: string,
+    @Query('por_ligar') por_ligar?: string,
   ) {
     const q: ListMovementsQuery = {
       period, account_id, category_id, group_key, uncategorized, recon_status, search,
       limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined, contra_descarga,
+      area, por_ligar, // [BFU.4.5.6] por área y lo que falta ligar
     };
     return this.svc.movements(q);
   }
