@@ -177,7 +177,23 @@ const STEPS = {
     // carril. analytics.cash_sessions queda sin lector ni escritor; su borrado espera D2 (anexo CANON).
   ],
   stock:   [
-    path.join(K, 'import-branch-stock-live.js'),
+    // ⛔ RETIRADO 2026-11-25 `[CANON.7.5]` (Edgar: «hay que matar ese importer»): import-branch-stock-live.
+    //
+    // Era el ÚNICO escritor de `commercial.stock.quantity`, la copia de la existencia. Desde
+    // `[CANON.7.1]`–`[CANON.7.4]` la existencia se lee de `analytics.v_erp_stock_on_hand` (el ODS), que
+    // acierta 100 % contra el POS donde la copia acertaba 91 %. Lo medido en prod el 2026-11-25, celda por
+    // (almacén, producto): la copia tenía **27,035 que Kepler ya no tiene** —el almacén borrado `MD-32` y
+    // productos congelados desde la migración de cada sucursal— y **343 que decían otra cosa**.
+    //
+    // ⚠️ La tabla NO se borra (regla 5): queda CONGELADA con su última pasada. Le siguen escribiendo, con
+    // 0 uso medido en 90 días, el ajuste y los movimientos de `commercial-inventory.service.ts`, la
+    // recepción propia, la carga de camioneta y el conteo físico — `[CANON.7.4d]` los retira o los repunta
+    // uno por uno. La sonda `stock` de db-health queda RETIRADA con su relevo nombrado (el carril del ODS),
+    // y se auto-denuncia si algo escribe la copia después del corte.
+    //
+    // ⭐ El carril `stock` NO desaparece: `import-replenishment-plan` sigue corriendo cada 15 min, y ahora
+    // tiene más sentido que antes — refresca el fact del pedido tras cambiar la existencia, que es
+    // justamente lo que el ODS mueve solo.
     // RETIRADO 2026-10-27 [OPS-AUD.3]: import-cedis-stock-wincaja — el CEDIS vive en Kepler desde el
     // corte del 2026-09-30 y Wincaja Irapuato queda sólo para históricos. El guard ya lo frenaba
     // (`cutover_done`), pero corría 2× por ciclo y su MERGE con DELETE revivía si alguien vaciaba

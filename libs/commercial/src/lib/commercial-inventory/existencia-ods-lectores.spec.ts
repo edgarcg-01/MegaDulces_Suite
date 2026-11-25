@@ -301,6 +301,43 @@ describe('[CANON.7.4d] el conteo rápido y la alerta de bajo stock', () => {
 });
 
 /**
+ * `[CANON.7.5]` El importer que escribía la copia está FUERA del carril, y la sonda que lo vigilaba, retirada con
+ * su relevo nombrado. Edgar, 2026-11-25: «hay que matar ese importer».
+ *
+ * ⛔ Lo que este bloque existe para que no vuelva: que alguien re-enganche `import-branch-stock-live` «para que la
+ * copia no quede vieja». Correrlo hoy no la actualiza — **revive las 27,035 celdas que Kepler ya no tiene**.
+ */
+describe('[CANON.7.5] el importer de la copia, fuera del carril', () => {
+  const feeds = readFileSync(join(RAIZ, 'database/importers/kepler/run-prod-feeds.js'), 'utf8').split('\r\n').join('\n');
+
+  it('ningún carril lo engancha (sólo se lo nombra en el comentario del retiro)', () => {
+    const enganchado = feeds.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l) && /branch-stock-live/.test(l));
+    expect(enganchado).toEqual([]);
+    expect(feeds).toContain('RETIRADO 2026-11-25'); // el porqué queda escrito donde estaba el paso
+  });
+
+  it('el carril `stock` NO desaparece: sigue refrescando el fact del pedido', () => {
+    const i = feeds.indexOf('  stock:   [');
+    expect(i).toBeGreaterThan(0);
+    expect(feeds.slice(i, feeds.indexOf('\n  ],', i))).toContain('import-replenishment-plan.js');
+  });
+
+  it('el propio importer avisa que está retirado, por si alguien lo corre a mano', () => {
+    const imp = readFileSync(join(RAIZ, 'database/importers/kepler/import-branch-stock-live.js'), 'utf8');
+    expect(imp.slice(0, 1200)).toMatch(/RETIRADO EL 2026-11-25/);
+  });
+
+  it('la sonda de db-health queda retirada con fecha y con su relevo nombrado (si no, rojo para siempre)', () => {
+    const dh = readFileSync(join(RAIZ, 'apps/api/src/modules/db-health/db-health.service.ts'), 'utf8').split('\r\n').join('\n');
+    const i = dh.indexOf(`key: 'stock',`);
+    expect(i).toBeGreaterThan(0);
+    const cfg = dh.slice(i, i + 700);
+    expect(cfg).toContain(`retiredOn: '2026-11-25'`);
+    expect(cfg).toMatch(/ods_branch_check_stale|ods_live_hot/); // el relevo, con nombre
+  });
+});
+
+/**
  * `[CANON.7.4c]` Capturar una caducidad ya no lee ni escribe la copia, ni el lote `NA` guardado: declara hasta lo libre
  * (existencia de Kepler − lo declarado, `lotes-declarados.ts`). Hasta el 2026-11-20 exigía renglón en la copia.
  */

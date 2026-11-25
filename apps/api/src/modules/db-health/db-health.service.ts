@@ -63,7 +63,29 @@ interface ExtCfg {
 
 const APP_SOURCES: SourceCfg[] = [
   { key: 'sales_daily',     label: 'Ventas (Command Center)', table: 'analytics.sales_daily',          tsCandidates: ['updated_at'],                warnH: 26,  critH: 50,  cadence: 'intradía + nightly' },
-  { key: 'stock',           label: 'Stock sucursales',        table: 'commercial.stock',               tsCandidates: ['updated_at', 'created_at'],  warnH: 6,   critH: 14,  cadence: 'cada 15-30 min' },
+  // ⛔ RETIRADA `[CANON.7.5]`. **No se cayó: la apagamos nosotros.** El 2026-11-25 salió
+  // `import-branch-stock-live` del carril `stock` y `commercial.stock` quedó congelada: la existencia
+  // sale de `analytics.v_erp_stock_on_hand` (el ODS) desde `[CANON.7.1]`–`[CANON.7.4]`. Sin esta
+  // retirada la sonda entraba en `warn` a las 6 h y en `crit` a las 14 h, y se quedaba roja para
+  // siempre diciendo *«el feed de stock se cayó»*, que es falso.
+  //
+  // ⭐ **El relevo ya existe y es más fino**: `ods_branch_check_stale` (la sucursal que nadie revisó),
+  // la sonda de `kepler_ods.kdil` de más abajo y el carril `ods_live_hot` (warn 0.5 h, crit 2 h)
+  // vigilan la fuente de verdad, sucursal por sucursal, en vez de un `max()` global de la copia.
+  //
+  // ⭐ Y no queda ciega: si algo volviera a escribir la copia DESPUÉS del corte, la sonda pasa a
+  // `warn` y lo denuncia — que es justo lo que hay que saber mientras `[CANON.7.4d]` termina de
+  // quitarle los escritores que le quedan (ajuste, movimientos, recepción, carga de camioneta y el
+  // conteo físico).
+  {
+    key: 'stock', label: 'Stock sucursales (copia congelada — la existencia sale del ODS)',
+    table: 'commercial.stock', tsCandidates: ['updated_at', 'created_at'],
+    retiredOn: '2026-11-25',
+    retiredWhy: 'salió import-branch-stock-live del carril stock ([CANON.7.5]); la existencia se lee '
+      + 'de analytics.v_erp_stock_on_hand y la vigilan ods_branch_check_stale, la sonda de kdil y el '
+      + 'carril ods_live_hot',
+    warnH: 6, critH: 14, cadence: 'cada 15-30 min — RETIRADO 25-nov',
+  },
   { key: 'stock_movements', label: 'Movimientos inventario',  table: 'analytics.stock_movements',      tsCandidates: ['imported_at', 'updated_at'], warnH: 50,  critH: 96,  cadence: 'nightly' },
   // El tránsito ya no es tabla propia: se deriva del ODS dentro del fact del pedido (GOTCHAS §25),
   // que además se refresca cada 15-30 min, no nightly.

@@ -410,3 +410,56 @@ carga de camioneta (`commercial-route-control`) y el conteo físico (**D-EX8**, 
 pasillos (`warehouse-aisles`) leen `aisle_id`, que **sólo existe en la copia**: no se puede repuntar, se retira o
 lo reemplaza la ubicación de UB — deuda con nombre. Y `[CANON.7.5]` sigue pendiente: `import-branch-stock-live`
 escribió la copia hoy a las 08:20 y a las 08:50.
+
+### 5.4 `[CANON.7.5]` — el importer de la copia, fuera del carril (2026-11-25)
+
+> **Pedido, literal (Edgar, 2026-11-25):** «hay que matar ese importer».
+
+`import-branch-stock-live` sale de `STEPS.stock` en `run-prod-feeds.js`. Era el **único escritor** de
+`commercial.stock.quantity` — comprobado: no hay `feeds-ingest` desplegado ni `FEEDS_SINK` en ningún
+deployment, así que el camino alterno (`stock-delta` de `services/feeds-ingest`) está muerto. La tabla
+**no se borra** (regla 5): queda congelada en su última pasada.
+
+**Lo que se midió antes de apagar, para saber a quién dejaba colgando:**
+
+| Lo que podía romperse | Medido en prod el 2026-11-25 | Qué se hizo |
+|---|---|---|
+| Pasillos (`listAisles`, 19 llamadas, la última el 16-oct) | **0 de 59,265 filas de la copia tienen `aisle_id`**: ningún producto está asignado a un pasillo | Nada que repuntar — la pantalla ya mostraba 4 pasillos vacíos. `aisle_id` sólo existe en la copia: se retira o lo reemplaza la ubicación de UB (deuda con nombre) |
+| Sonda `stock` de db-health (warn 6 h, crit 14 h sobre `updated_at`) | Se habría puesto roja **para siempre** a las 14 h, diciendo «el feed se cayó», que es falso | **Retirada** con `retiredOn: '2026-11-25'` y el relevo NOMBRADO: `ods_branch_check_stale`, la sonda de `kdil` y el carril `ods_live_hot` (warn 0.5 h) — que vigilan la fuente sucursal por sucursal, no un `max()` global. Y se auto-denuncia: si algo escribe la copia después del corte, pasa a `warn` |
+| Conteos de inventario abiertos | **0 vivos** | Nada bloquea |
+| `/inventory/unlocated` y `/bins` (110 y 78 llamadas) | **No leen la copia**: leen `stock_lots` y `stock_lot_locations` | Sin cambio por el corte — pero ver abajo |
+| Caminos de 0 uso en 90 días | `adjust`, `movements`, `stock/:wh/:prod`, `aisles/brands`, `aisles/assign`, `assign-lot`: **cero llamadas** | Siguen escribiendo una tabla congelada; `[CANON.7.4d]` los retira uno por uno |
+
+**El carril `stock` no desaparece:** `import-replenishment-plan` sigue cada 15 min, y ahora tiene más
+sentido que antes — refresca el fact del pedido tras cambiar la existencia, que es justo lo que el ODS
+mueve solo.
+
+**Candado** en `existencia-ods-lectores.spec.ts` (43 casos), con **dos mutantes en rojo**: re-enganchar
+el importer en el carril, y quitarle el `retiredOn` a la sonda. El propio importer abre con un aviso de
+retiro, porque correrlo a mano **no actualiza la copia: revive las 27,035 celdas que Kepler ya no tiene**.
+`api:typecheck` sin caché, verde. Actualizados `REGISTRO_CANONICO_COMPLETO.md` y
+`MODELO_CANONICO_DATOS.md`, que seguían declarando `commercial.stock` como la fuente de la existencia.
+
+⚠️ **El corte no surte efecto hasta que la imagen de ingesta se despliegue** (el paso vive en
+`run-prod-feeds.js`, dentro del pod `feeds-cron`). Hasta entonces el importer sigue escribiendo cada 15
+minutos. Empujar y desplegar: de Edgar.
+
+### 5.5 Lo que el borrado de los `NA` dejó a la vista — **D-EX9**
+
+Los 64,564 renglones `NA` que se borraron eran lo que `GET /inventory/unlocated` («por ubicar» de
+Ubicaciones) listaba: **30,041 de ellos tenían saldo**, con 107.7 M de piezas — es decir, la pantalla
+mostraba el almacén entero como «por ubicar», topado a 1,000 renglones, encabezado por el `NA` del CEDIS
+con 97 M de piezas de un solo SKU. Hoy muestra sólo los lotes fechados sin ubicar.
+
+El paso 2 de `[CANON.7.4c]` preveía que «por ubicar» leyera el `NA` **derivado** (existencia del ODS −
+lo declarado), y eso **no se implementó** en `bin-location.unlocated`: sigue leyendo `stock_lots` crudo.
+
+⚠️ Y hay algo más de fondo: esa pantalla pertenece al sistema **lote × bin** (`stock_lot_locations`,
+**1 fila en prod**), que compite con **UB** (`bin_assignments`, producto × presentación, 30 asignaciones
+en el piloto de PH). Reconstruirla sobre el ODS sin decidir cuál de los dos vive sería construir sobre
+el que está muerto.
+
+- **D-EX9 (Edgar):** «por ubicar» se deriva del ODS (existencia − lo ubicado) **o** se retira porque UB
+  la reemplaza. Uso medido: 110 llamadas en 90 días, 16 en noviembre y de `direccion`/`superadmin` — en
+  octubre, cuando corría el piloto, eran 174 con `almacenista`. Recomendación: **que la reemplace UB**,
+  porque el auxiliar por lote lleva una sola fila desde que existe.
