@@ -11,14 +11,16 @@ vendedoras y preventa en la app) y **Telemarketing** (lo que llega de Kepler). L
 - **Problema:** el pedido de preventa salía del almacén sin nada que dijera de quién era: el vendedor tenía que
   preguntar cuál bolsa era de qué cliente.
 - **Solución (decisiones D18–D19 de David):** en «Surtido terminado» de un pedido de Sucursal, «Imprimir etiqueta del
-  pedido» la manda a la **etiquetera TSC** (32 × 48 mm, la misma del checado), 3 iguales para llenar la fila: folio,
-  cliente, vendedor, día de entrega, QR (el folio) y código de barras. Una ola de Telemarketing (Kepler) no la ofrece.
+  pedido» la manda a la **impresora de tickets** (80 mm, la misma de la cajera en Revisión; David, 2026-11-24):
+  folio, cliente, vendedor, día de entrega, productos, QR (el folio) y código de barras. Una por toque: una por bolsa. Una ola de Telemarketing (Kepler) no la ofrece.
   En la lista, escanear la etiqueta de un pedido lo abre si es nuevo o tuyo; si lo surte otra persona dice quién, si
   está por cancelar lo dice, y si ya se surtió ofrece «Reimprimir etiqueta».
 - **Implementada:** `almacen-surtir.component.ts` + `pedido-etiqueta-impresion.ts` (compartido con Revisión);
   el formato del código, `libs/contracts/src/http/pedido-etiqueta.ts`.
 - **Probado:** Surtir 130/130 (2 nuevas); almacén 949/949.
-- **NO MEDIDO:** cómo sale impresa en la TSC real y si el lector la lee; si la bandeja de Surtir trae pedidos ya
+- **Corrección (2026-11-24):** al verla impresa, el formato TSC (3 por fila de 32 × 48 mm) salía mal en la impresora
+  de tickets, que es donde se imprime: se retiró y Surtir imprime el mismo ticket que Revisión.
+- **NO MEDIDO:** cómo sale impresa en la impresora de tickets real y si el lector la lee; si la bandeja de Surtir trae pedidos ya
   surtidos (si no, «Reimprimir» desde la lista casi no se verá; queda en «Surtido terminado»).
 
 

@@ -92,10 +92,10 @@ export type Escaneo =
  * `[MCP.31]` (David, 2026-11-24: se quita «Está bien»; **un escaneo = todo el renglón**). Lo que se ESCANEA —por
  * código, en cualquier unidad, o por SKU— marca el renglón por revisar como «bien» entero, aunque sean 12. Lo
  * encontrado por NOMBRE nunca confirma: escribir no prueba que el producto esté en la mano. Un faltante se
- * completa escaneándolo sólo si la cajera ya lo estaba atendiendo (`atendiendo`: lo señaló antes —escaneándolo,
- * tocándolo o contándolo— o lo dejó «esperando al surtidor»): el primer escaneo de un faltante sólo lo señala,
- * aunque ya esté en grande, porque lo que hay en el carrito son los que SÍ vinieron. Un renglón que ya no puede
- * volver al pedido (`restorable: false`) sólo se señala.
+ * completa escaneándolo sólo si la cajera lo está atendiendo (`atendiendo`: la pantalla pasa el faltante que tiene
+ * abierto en grande o el que ya señaló —escaneándolo, tocándolo o contándolo—) o lo dejó «esperando al surtidor».
+ * Si no lo está atendiendo, el primer escaneo sólo lo señala y lo trae al frente. Un renglón que ya no puede volver
+ * al pedido (`restorable: false`) sólo se señala.
  */
 export function alEscanear(
   lines: PresaleReviewLine[], p: ProgresoPedido, texto: string, atendiendo: string | null = null,

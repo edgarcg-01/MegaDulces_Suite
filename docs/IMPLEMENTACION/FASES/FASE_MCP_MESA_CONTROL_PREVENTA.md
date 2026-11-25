@@ -258,7 +258,7 @@ documento al entregar. **MCP.7** (liquidación) es el que retira el papel de la 
 | # | Decisión |
 |---|---|
 | **D17** | En **Revisión de pedidos** (caja) se quita «Está bien»: **un escaneo marca bueno el renglón entero**, cualquiera que sea la cantidad (David eligió esto sobre «cada escaneo suma»; queda dicho que así no se cuenta pieza por pieza). Lo que faltó se corrige y, al traerlo, se escanea para pasar a bueno. |
-| **D18** | La **etiqueta del pedido** (QR + código de barras + folio + cliente) la imprime **cada quien en la suya**: el surtidor en la etiquetera TSC del almacén, la cajera en el ticket de caja. |
+| **D18** | La **etiqueta del pedido** (QR + código de barras + folio + cliente) sale en la **impresora de tickets** (80 mm), la misma para el surtidor (al terminar en Surtir) y la cajera (en Revisión). Corregida por David el 2026-11-24 al verla impresa: antes el surtidor la mandaba a la TSC («cada quien en la suya»). |
 | **D19** | El **lector pedido-entrega** va en la **app del vendedor** (cámara) **y en la Suite** (Revisión y Surtir, con el escáner de mano). |
 | **D20** | **Pasar a venta**: sólo las cotizaciones de la **app del vendedor** (las de telemarketing van a Kepler por COT.7, decisión de Edgar). Un toque **pide el día y manda el pedido** al surtidor. |
 | **D21** | Al pasar a venta, **el precio es el de hoy** («que los precios estén actualizados»); se enseña contra lo cotizado antes de confirmar. |
@@ -650,20 +650,20 @@ actualizados, además agregas las existencias en el catálogo de las cotizacione
 | C1 | 🧪 | `cotizacion-a-pedido.engine.spec.ts` 4 (negativas: de otro, de telemarketing, cerrada, sin cliente); `pedido-etiqueta.spec.ts` 6 (ida y vuelta, `'` por `-`, un EAN-13 y una etiqueta del checado NO son pedido); `revision-caja.spec.ts` 28 (escribir el nombre NO confirma; **sabotaje** de esa regla salió en rojo); `pedido-etiqueta-impresion.spec.ts` 8; `cotizacion.spec.ts` 8 (sin lectura dice «Sin dato», una lectura de más de 6 h no es número) |
 | C2 | 🧪 · probado contra Postgres real local | `POST /api/commercial/orders/from-quote/:quoteId` (`COMMERCIAL_ORDERS_CONFIRMAR`: el mismo de `POST /orders/:id/place`, con el que la app ya manda cada pedido; su reparto en prod NO se midió hoy). `pasar-a-venta.it.spec.ts` **4/4 contra el Postgres local** como `app_runtime`, payload de `VendorQuoteService.pasarAVenta`: vista previa sin escritura, venta confirmada y ligada, segundo toque devuelve el mismo pedido, 3 negativas sin nada escrito. **Sabotaje** (quitar la protección del doble toque) → rojo. Typecheck `libs/commercial`: 0 errores nuevos |
 | C3 | 🧪 · sin validación visual | App del vendedor 682/682; almacén 949/949 (Revisión 31, Surtir 130); `check:templates-types` de las 4 apps sin errores; `check:pantalla -- almacen` 39 → 39 fallas, ninguna nueva en Revisión ni Surtir (no cubre `apps/vendor`) |
-| C4 | ⬜ | Sin migración. Falta PR, CI, despliegue, verlo en prod desde el menú y **imprimir una prueba** en la TSC y en el ticket de caja |
+| C4 | ⬜ | Sin migración. Falta PR, CI, despliegue, verlo en prod desde el menú y **imprimir una prueba** en la impresora de tickets |
 
 **Lo que cambia:** `docs/MODULOS/almacen-revision-de-pedidos.md`, `almacen-surtir.md` y `vendedor-mis-pedidos.md`
 (2026-11-24). En corto: en Revisión se escanea en lugar de «Está bien» (a mano sólo lo que no tiene código); la
-etiqueta del pedido sale en la TSC desde «Surtido terminado» y en el ticket desde Revisión; escanear esa etiqueta
+etiqueta del pedido sale en la impresora de tickets desde «Surtido terminado» y desde Revisión; escanear esa etiqueta
 abre el pedido en Revisión y en Surtir, y en la app del vendedor la cámara lo busca; la cotización del vendedor se
 pasa a venta en un toque con precios de hoy, y su catálogo dice la existencia.
 
 **Declarado / fuera de alcance:**
-- **Decisión de implementación en Revisión:** el primer escaneo de un faltante sólo lo SEÑALA; se completa al
-  escanearlo cuando la cajera ya lo estaba atendiendo (lo señaló, lo tocó, lo contó o lo dejó esperando al
-  surtidor). Lo que hay en el carrito son los que sí vinieron: completar con el primer escaneo marcaría completo lo
-  que falta. Reemplaza la regla de MCP.10.3 («la pieza de un pedido de 1 caja sólo señala»): con D17 sí confirma.
-- La etiqueta TSC sale **3 veces** (llena la fila del rollo, igual que la caja P del checado).
+- **Regla del faltante en Revisión (corregida por David el 2026-11-24):** escanearlo lo completa cuando la cajera lo
+  está atendiendo: lo tiene abierto en grande, o ya lo señaló, tocó, contó o dejó esperando al surtidor. Si en grande
+  hay otro producto, el primer escaneo sólo lo trae al frente. La primera versión exigía dos escaneos aun con la
+  tarjeta abierta («cuando te lo traiga, escanéalo»); el segundo podía ser la misma pieza, así que no protegía nada. Reemplaza la regla de MCP.10.3 («la pieza de un pedido de 1 caja sólo señala»): con D17 sí confirma.
+- La etiqueta sale **una por toque** en la impresora de tickets; si el pedido va en varias bolsas, se imprime una por bolsa. (El formato TSC de 3 por fila se retiró el 2026-11-24: en la de tickets salía mal.)
 - NO MEDIDO: cómo salen impresas y si la cámara o el lector de mano leen el QR de 16 mm y las barras; las pantallas
   en un navegador y en el teléfono; el camino de pasar a venta con renglones en caja/paquete contra factores reales de
   Kepler (la prueba usa piezas); si la bandeja de Surtir trae pedidos ya surtidos (si no, «ya se surtió · Reimprimir»

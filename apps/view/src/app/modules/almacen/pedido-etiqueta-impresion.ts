@@ -1,15 +1,15 @@
 import { codigoDeBarrasDePedido } from '@megadulces/contracts';
-import { CSS_FILA_TSC_3X, PAGINA_TSC_3X, anchoBarrasMm, barrasSvg, escHtml, filasHtml, qrSvg } from '@megadulces/ui-web';
+import { anchoBarrasMm, barrasSvg, escHtml, qrSvg } from '@megadulces/ui-web';
 import { printIsolated } from '../../shared/util/print-isolated';
 
 /**
  * `[MCP.32]` La **etiqueta del pedido** de preventa: para que quien recoge (el vendedor) sepa de qué pedido es
- * cada bolsa y para quién, sin preguntar. «Cada quien la suya» (David, 2026-11-24):
+ * cada bolsa y para quién, sin preguntar. Sale en la **impresora de tickets** de 80 mm (área útil ~72 mm, como
+ * `ticket-arqueo.ts`), la misma para el **surtidor** (al terminar en Surtir) y la **cajera** (en Revisión): David,
+ * 2026-11-24, «la etiqueta será impresa en la de tickets». Antes el surtidor la mandaba a la TSC (fila de 3 de
+ * 32 × 48 mm): en la impresora de tickets esa hoja salía mal, y se retiró.
  *
- *  · el **surtidor**, al terminar en Surtir → la etiquetera **TSC** (32 × 48 mm, fila de 3, la misma del checado);
- *  · la **cajera**, en Revisión → la impresora de **tickets** de 80 mm (área útil ~72 mm, como `ticket-arqueo.ts`).
- *
- * Las dos llevan lo mismo: folio, cliente, vendedor, día de entrega, un **QR** con el folio y un **código de
+ * Lleva folio, cliente, vendedor, día de entrega, cuántos productos, un **QR** con el folio y un **código de
  * barras** (`codigoDeBarrasDePedido`: 12 dígitos, cabe en 25 mm). Lo que codifican es SÓLO el folio; el resto va
  * en texto. La lectura es `folioDeLectura` (los dos viven en `libs/contracts/src/http/pedido-etiqueta.ts`).
  *
@@ -51,42 +51,6 @@ export function diaDeEntrega(v: string | null | undefined): string {
 const esc = (s: string | null | undefined): string => escHtml(String(s ?? ''));
 const productosTexto = (n: number | null | undefined): string =>
   n == null || !(n >= 0) ? '' : `${n} ${n === 1 ? 'producto' : 'productos'}`;
-
-/** UNA etiqueta de 32 × 48 mm (la celda de la fila de la TSC). */
-export function celdaEtiquetaPedido(d: DatosEtiquetaPedido, c: CodigosEtiqueta): string {
-  const barras = c.barras ? `${c.barras}<div class="pe-num">${esc(codigoDeBarrasDePedido(d.folio))}</div>` : '';
-  const entrega = diaDeEntrega(d.entrega);
-  return `
-          <div class="pe">
-            <div class="pe-folio">${esc(d.folio)}</div>
-            <div class="pe-cli">${esc(d.cliente || 'Cliente sin nombre')}</div>
-            <div class="pe-ven">${esc(d.vendedor || 'Sin vendedor')}</div>
-            ${entrega ? `<div class="pe-ent">Entrega ${esc(entrega)}</div>` : ''}
-            ${c.qr ? `<div class="pe-qr">${c.qr}</div>` : ''}
-            ${barras}
-          </div>`;
-}
-
-/** La fila de la TSC: la MISMA etiqueta `copias` veces (3 llena la fila: no se tira papel). */
-export function etiquetasPedidoTscHtml(d: DatosEtiquetaPedido, c: CodigosEtiqueta, copias = 3): string {
-  const n = Math.max(1, Math.floor(copias) || 1);
-  return filasHtml(Array.from({ length: n }, () => d), (x) => celdaEtiquetaPedido(x, c));
-}
-
-export const CSS_ETIQUETA_PEDIDO = [
-  CSS_FILA_TSC_3X,
-  '.pe{box-sizing:border-box;width:32mm;height:100%;padding:1.5mm;display:flex;flex-direction:column;align-items:stretch;',
-  'background:white;color:black;font-family:Arial,Helvetica,sans-serif;overflow:hidden}',
-  '.pe-folio{font-size:3mm;font-weight:900;line-height:1.1;white-space:nowrap;overflow:hidden}',
-  '.pe-cli{font-size:2.5mm;font-weight:700;line-height:1.15;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}',
-  '.pe-ven,.pe-ent{font-size:2.2mm;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-  // ~16 mm de QR: lo lee la cámara de un teléfono a un palmo.
-  '.pe-qr{margin:auto 0 0;display:flex;justify-content:center}',
-  '.pe-qr svg{display:block;width:16mm;height:16mm}',
-  // Las barras a su ancho real (2 puntos por módulo, ~25 mm): estiradas o encogidas, el lector falla.
-  '.pe-bar{display:block;height:5.5mm;margin:0.8mm auto 0}',
-  '.pe-num{font-size:1.9mm;text-align:center;line-height:1.1}',
-].join('');
 
 /** El ticket de 80 mm (área útil 72 mm): los mismos datos, en grande. */
 export function ticketPedidoHtml(d: DatosEtiquetaPedido, c: CodigosEtiqueta): string {
@@ -134,32 +98,17 @@ async function qrTexto(folio: string, clase: string): Promise<string | null> {
   return svg.outerHTML;
 }
 
-/** Dibuja los dos códigos. Las barras, a 2 puntos por módulo en la TSC; en el ticket, a 1.5× (más fácil de leer). */
-export async function dibujarCodigos(folio: string, destino: 'tsc' | 'ticket'): Promise<CodigosEtiqueta> {
+/** Dibuja los dos códigos para el ticket. Las barras, a 1.5× su ancho mínimo: más fáciles de leer con la pistola. */
+export async function dibujarCodigos(folio: string): Promise<CodigosEtiqueta> {
   const codigo = codigoDeBarrasDePedido(folio);
   const ancho = codigo ? anchoBarrasMm(codigo) : null;
-  const barras = codigo
-    ? barrasSvg(codigo, destino === 'tsc' ? 'pe-bar' : 'pt-bar', ancho == null ? null : destino === 'tsc' ? ancho : Math.round(ancho * 1.5 * 100) / 100) || null
-    : null;
-  return { qr: await qrTexto(folio, destino === 'tsc' ? 'pe-qrsvg' : 'pt-qrsvg'), barras };
+  const barras = codigo ? barrasSvg(codigo, 'pt-bar', ancho == null ? null : Math.round(ancho * 1.5 * 100) / 100) || null : null;
+  return { qr: await qrTexto(folio, 'pt-qrsvg'), barras };
 }
 
-/** El surtidor: 3 etiquetas iguales a la TSC (llena la fila). `onDone` al terminar (imprimió o canceló). */
-export async function imprimirEtiquetaPedido(d: DatosEtiquetaPedido, onDone?: () => void): Promise<void> {
-  const c = await dibujarCodigos(d.folio, 'tsc');
-  printIsolated({
-    html: etiquetasPedidoTscHtml(d, c),
-    page: PAGINA_TSC_3X,
-    css: CSS_ETIQUETA_PEDIDO,
-    bodyClass: 'pedido-etiqueta-printing',
-    fallbackClass: 'pedido-etiqueta-fallback',
-    onDone,
-  });
-}
-
-/** La cajera: el ticket de 80 mm. */
+/** El ticket de 80 mm: lo imprimen el surtidor (Surtir) y la cajera (Revisión). */
 export async function imprimirTicketPedido(d: DatosEtiquetaPedido, onDone?: () => void): Promise<void> {
-  const c = await dibujarCodigos(d.folio, 'ticket');
+  const c = await dibujarCodigos(d.folio);
   printIsolated({
     html: ticketPedidoHtml(d, c),
     page: PAGINA_TICKET_80,
