@@ -147,6 +147,8 @@ describe('FinanzasAprobacionGastosComponent', () => {
     for (const r of http.match(esDetalle)) if (!r.cancelled) r.flush({});
     // [PGP.122.6] Dónde se puede cancelar la solicitud capturada en Kepler: se pide una vez al cargar.
     for (const r of http.match((x) => x.url.endsWith('/finance/expenses/solicitudes/cancelacion'))) if (!r.cancelled) r.flush({ sucursales: [] });
+    // [PGP.123] G-AUD.16: el panel de un vale validado que no viene de la cola pide su gasto (X-A-10) él mismo.
+    for (const r of http.match((x) => x.url.endsWith('/gasto-kepler'))) if (!r.cancelled) r.flush(null);
     http.verify();
   });
 
@@ -1176,11 +1178,14 @@ describe('FinanzasAprobacionGastosComponent', () => {
       const t = txt();
       expect(t).toContain('3 por comprobar · $1,768.00');
       expect(t).toContain('listas para generar: 1 · con motivo: 2');
-      // Primero lo que necesita una decisión, después lo rutinario, al final lo que hace la Suite.
+      // [PGP.123] G-AUD.15 (2026-11-23): primero lo que se resuelve aquí con un clic; después lo que mueve otra área.
+      // (Antes iba al final: medido en prod, 33 vales de un clic a ~6 pantallas y el firmado hoy a ~10.)
       const titulos = [...fix.nativeElement.querySelectorAll('.ap-kep-h')].map((h: Element) => (h.textContent ?? '').trim());
-      expect(titulos[0]).toContain('Las comprueba la sucursal, en Kepler');
-      expect(titulos[1]).toContain('Listas, pero en su base la Suite todavía no genera gastos');
-      expect(titulos[2]).toContain('Listas para generar el gasto');
+      expect(titulos[0]).toContain('Listas para generar el gasto');
+      expect(titulos[1]).toContain('Las comprueba la sucursal, en Kepler');
+      expect(titulos[2]).toContain('Listas, pero en su base la Suite todavía no genera gastos');
+      // G-AUD.20: lo que completa la cifra del selector se dice en el encabezado.
+      expect(t).not.toContain('esperan autorización en Kepler: 0');
       // G.UI.6: el renglón dice qué le falta, con su consecuencia.
       expect(t).toContain('El vale es por $347.59 y la solicitud por $518.00: se comprueba en Kepler');
       expect(t).toContain('Lista para generar, pero la escritura de gastos a Kepler todavía está apagada en esta base');
@@ -1394,9 +1399,79 @@ describe('FinanzasAprobacionGastosComponent', () => {
       c.reintentarGasto('k1');
       const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/proofs/k1/reintentar-gasto'));
       req.flush({ id: 'k1', status: 'written', folio: '0000123', poliza: 'kdc22611/D/4', fecha: '2026-11-10', nota: null, intentos: 1, siguiente: null });
-      expect(add).toHaveBeenCalledWith(expect.objectContaining({ severity: 'success', detail: 'X-A-10 0000123 · póliza D 4 (nov 2026).' }));
+      // G-AUD.21: el aviso nombra la solicitud. G-AUD.18: la fila se va en el momento, antes de que vuelva la cola.
+      expect(add).toHaveBeenCalledWith(expect.objectContaining({ severity: 'success', detail: 'Gasto de la solicitud 0000501: X-A-10 0000123 · póliza D 4 (nov 2026).' }));
+      expect(c.esperanKepler()?.vales.some((v) => v.id === 'k1')).toBe(false);
       colaKepler().flush(RESP({ vales: [] }));
       expect(c.actuando()).toBeNull();
+    });
+
+    /** G-AUD.18 NEGATIVA: si no se escribió, la fila se queda (el aviso dice por qué). */
+    it('⛔ «Todavía no se genera»: la fila NO se quita', () => {
+      montar();
+      colaKepler().flush(RESP({ vales: [K({ gasto_kepler: LISTO_ABIERTA })] }));
+      c.reintentarGasto('k1');
+      http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/proofs/k1/reintentar-gasto'))
+        .flush({ id: 'k1', status: 'retry', folio: null, poliza: null, fecha: null, nota: 'Kepler no contestó', intentos: 1, siguiente: null });
+      expect(c.esperanKepler()?.vales.some((v) => v.id === 'k1')).toBe(true);
+      colaKepler().flush(RESP({ vales: [K({ gasto_kepler: LISTO_ABIERTA })] }));
+    });
+
+    /** G-AUD.14 — Un gasto que Kepler canceló: «Generar otra vez» gris, y el segundo clic confirma. */
+    it('lo que Kepler canceló pide confirmar antes de escribir otro gasto', () => {
+      montar();
+      const CANCELADO: ComprobacionEnLaCola = { ...LISTO_ABIERTA, gasto: { id: 'k1', status: 'cancelled', folio: null, poliza: null, fecha: null,
+        nota: 'Kepler canceló el gasto X-A-10 0000091 (póliza kdc22611/D/370): el vale vuelve a esperar su gasto; la Suite no lo reescribe sola («Reintentar el gasto»)', intentos: 1, siguiente: null } };
+      colaKepler().flush(RESP({ vales: [K({ gasto_kepler: CANCELADO })] }));
+      c.verPestana('kepler');
+      fix.detectChanges();
+      const botones = () => [...fix.nativeElement.querySelectorAll('.ap-kep button')].map((b: Element) => (b.textContent ?? '').trim());
+      expect(botones().some((t) => t.startsWith('Generar gasto'))).toBe(false);
+      expect(botones()).toContain('Generar otra vez · $1,000.00');
+      expect(txt()).toContain('«Generar otra vez»');
+      expect(txt()).not.toContain('Reintentar el gasto');
+      // Primer clic: sólo pregunta. Nada viaja.
+      (fix.nativeElement.querySelector('.ap-kep button.ap-kep-gen') as HTMLButtonElement).click();
+      fix.detectChanges();
+      http.expectNone((r) => r.url.endsWith('/reintentar-gasto'));
+      expect(botones()).toContain('Sí, escribir otro · $1,000.00');
+      // ⛔ El lugar del primer clic queda en «No»: un doble clic no escribe otro gasto (modern-web-guidance, dialog).
+      expect((fix.nativeElement.querySelector('.ap-kep-conf button') as HTMLButtonElement).textContent?.trim()).toBe('No');
+      // «No» lo deja como estaba.
+      ([...fix.nativeElement.querySelectorAll('.ap-kep-conf button')].find((b: Element) => (b.textContent ?? '').trim() === 'No') as HTMLButtonElement).click();
+      fix.detectChanges();
+      expect(botones()).toContain('Generar otra vez · $1,000.00');
+      http.expectNone((r) => r.url.endsWith('/reintentar-gasto'));
+      // Confirmado: un POST.
+      (fix.nativeElement.querySelector('.ap-kep button.ap-kep-gen') as HTMLButtonElement).click();
+      fix.detectChanges();
+      ([...fix.nativeElement.querySelectorAll('.ap-kep-conf button')].find((b: Element) => (b.textContent ?? '').includes('Sí, escribir otro')) as HTMLButtonElement).click();
+      http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/proofs/k1/reintentar-gasto')).flush(null);
+      colaKepler().flush(RESP({ vales: [] }));
+    });
+
+    it('G.16: la lectura distinta ofrece «Ya lo comparé · Generar» y manda lectura_comparada; «Generar gasto» no la manda', () => {
+      const LECTURA: ComprobacionEnLaCola = { comprobacion: { listo: false, motivo: 'lectura_distinta', quien: 'sucursal', texto: 'La lectura del comprobante dice $6,000.00 y la solicitud $250.00: compáralos antes de generar el gasto' },
+        escritura: { abierta: true, motivo: null, detalle: null }, gasto: null };
+      montar();
+      colaKepler().flush(RESP({ vales: [K({ id: 'l1', folio_solicitud: '0000801', importe: 250, gasto_kepler: LECTURA }), K({ id: 'g2', folio_solicitud: '0000802', gasto_kepler: LISTO_ABIERTA })] }));
+      c.verPestana('kepler');
+      fix.detectChanges();
+      const botones = [...fix.nativeElement.querySelectorAll('.ap-kep-gen')] as HTMLButtonElement[];
+      const comparar = botones.find((b) => /Ya lo comparé/.test(b.textContent ?? ''))!;
+      expect((comparar.textContent ?? '').trim()).toBe('Ya lo comparé · Generar $250.00');
+      expect(fix.nativeElement.textContent).toContain('compáralos antes de generar el gasto');
+      comparar.click();
+      const r1 = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/proofs/l1/reintentar-gasto'));
+      expect(r1.request.body).toEqual({ lectura_comparada: true });
+      r1.flush({ id: 'l1', status: 'written', folio: '0000130', poliza: 'kdc22611/D/7', fecha: '2026-11-21', nota: 'La lectura del comprobante decía $6000.00: la comparó X y generó el gasto', intentos: 1, siguiente: null });
+      colaKepler().flush(RESP({ vales: [K({ id: 'g2', folio_solicitud: '0000802', gasto_kepler: LISTO_ABIERTA })] }));
+      fix.detectChanges();
+      (fix.nativeElement.querySelector('.ap-kep-gen') as HTMLButtonElement).click();
+      const r2 = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/g2/reintentar-gasto'));
+      expect(r2.request.body).toEqual({});
+      r2.flush({ id: 'g2', status: 'written', folio: '0000131', poliza: 'kdc22611/D/8', fecha: '2026-11-21', nota: null, intentos: 1, siguiente: null });
+      colaKepler().flush(RESP());
     });
 
     it('si no se escribe, dice el motivo del servidor (no un «listo» falso)', () => {

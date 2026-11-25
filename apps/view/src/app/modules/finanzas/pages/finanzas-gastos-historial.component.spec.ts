@@ -84,7 +84,8 @@ describe('FinanzasGastosHistorialComponent', () => {
     perms = TestBed.inject(PermissionsService);
   });
 
-  afterEach(() => http.verify());
+  // [PGP.123] G-AUD.16: el panel de un vale validado pide su gasto (X-A-10) él mismo; aquí se contesta vacío.
+  afterEach(() => { for (const r of http.match((x) => x.url.endsWith('/gasto-kepler'))) if (!r.cancelled) r.flush(null); http.verify(); });
 
   it('arranca pidiendo el mes actual, en «míos»', () => {
     const req = montar('superadmin');

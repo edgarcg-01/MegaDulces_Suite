@@ -54,6 +54,11 @@ export interface EntregaGastoKepler {
   /** Tope diario del interruptor (`kepler_push_switch.tope_dia`); `null` = sin tope. */
   tope_dia: number | null;
   /**
+   * `[PGP.123]` G.16 — Sólo para la bitácora (el escritor no lo usa): la lectura del comprobante decía otro monto y una
+   * persona dijo que lo comparó antes de generar el gasto (DG12).
+   */
+  lecturaComparada?: { por: string | null; monto: number | null };
+  /**
    * Lo que aprobó la regla G.5, leído del ODS: el total, el acreedor (`c10`) y la fecha (`c9`) de la X-A-15. El escritor
    * lo compara con la X-A-15 VIVA que bloquea y NO escribe si cambió: armaba el gasto con lo vivo sin ver si era lo que
    * la regla aprobó (revisión independiente, 2026-11-17). Obligatorio: sin él no se escribe a ciegas.

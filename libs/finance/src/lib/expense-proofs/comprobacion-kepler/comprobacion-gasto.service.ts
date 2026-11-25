@@ -53,6 +53,9 @@ type Trx = Knex | Knex.Transaction;
 type Ejecutor = <T>(fn: (trx: Knex.Transaction) => Promise<T>) => Promise<T>;
 export type DisparoDelGasto = 'firma' | 'validacion' | 'cron' | 'reintento';
 
+/** `[PGP.123]` G.16 — Lo que trae el clic de una persona. `lecturaComparada`: «Ya lo comparé» (DG12). */
+export interface OpcionesDelClic { lecturaComparada?: boolean }
+
 /** `HH:MM` en México, para `c69`. */
 function horaMx(d = new Date()): string {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
@@ -146,8 +149,8 @@ export class ComprobacionGastoService {
    * dueño del vale (quien lo pidió) y quien aprueba gastos; esa cerradura la pone `ExpenseProofsService.generarGasto`.
    * También retoma lo atorado, lo que Kepler rechazó (ya corregido) y lo que Kepler canceló.
    */
-  async generar(id: string, actor: string): Promise<EstadoKeplerDelGasto | null> {
-    return this.intentar((fn) => this.tk.run(fn), id, 'reintento', actor);
+  async generar(id: string, actor: string, opciones: OpcionesDelClic = {}): Promise<EstadoKeplerDelGasto | null> {
+    return this.intentar((fn) => this.tk.run(fn), id, 'reintento', actor, opciones);
   }
 
   private estadoDe(v: Pick<ValeParaGasto, 'id' | 'kepler_expense_status' | 'kepler_expense_folio' | 'kepler_expense_note' | 'kepler_expense_attempts' | 'kepler_expense_next_at' | 'kepler_expense_policy' | 'kepler_expense_date'>): EstadoKeplerDelGasto {
@@ -279,7 +282,7 @@ export class ComprobacionGastoService {
   }
 
   /** Un intento completo: leer → decidir (contrato) → (si quedó en duda, buscar el gasto) → reclamar → Kepler → anotar. */
-  private async intentar(run: Ejecutor, id: string, disparo: DisparoDelGasto, actor: string | null): Promise<EstadoKeplerDelGasto | null> {
+  private async intentar(run: Ejecutor, id: string, disparo: DisparoDelGasto, actor: string | null, opciones: OpcionesDelClic = {}): Promise<EstadoKeplerDelGasto | null> {
     const manual = disparo === 'reintento';
     const leer = async (trx: Trx): Promise<ValeParaGasto | undefined> => (await trx('finance.expense_proofs').where({ id })
       .first([...COLUMNAS_DEL_VALE, trx.raw(`to_char(kepler_expense_date, 'YYYY-MM-DD') AS kepler_expense_date`)])) as ValeParaGasto | undefined;
@@ -328,10 +331,14 @@ export class ComprobacionGastoService {
     }
 
     const hoy = todayMx();
+    const leido = montoLeidoDelVale(v.monto_ocr, v.revision_nota);
+    const comparada = disparo === 'reintento' && opciones.lecturaComparada === true && leido != null;
     const decision = comprobacionDelVale({
       status: v.status, sucursal: v.sucursal, folio_solicitud: v.folio_solicitud,
       total: totalParaComprobar(v.importe, v.capture_meta), cfdi: factura.cfdi, cfdi_declarado: factura.declarado,
-      monto_leido: montoLeidoDelVale(v.monto_ocr, v.revision_nota),
+      // G.16: «Ya lo comparé» — una persona dice que comparó el comprobante con la solicitud: la lectura deja de frenar
+      // (sólo ella; todo lo demás de la regla sigue). Sin ese acto, DG12 manda.
+      monto_leido: comparada ? null : leido,
     }, s, hoy);
     if (!decision.listo) {
       // Una persona ya lo capturó en Kepler: se reconoce con su folio y el lazo queda cerrado.
@@ -397,6 +404,7 @@ export class ComprobacionGastoService {
       formaPagoVale: formaPagoKepler(v.forma_pago), vale: id, tope_dia: sw?.tope_dia ?? null,
       // Lo que aprobó G.5 (del ODS): el escritor lo compara con la X-A-15 viva antes de escribir.
       esperado: { total: s.total, acreedor: String(s.acreedor ?? ''), fecha: s.fecha },
+      ...(comparada ? { lecturaComparada: { por: actor, monto: leido } } : {}),
     };
     let r: ResultadoEscrituraGasto;
     try {
@@ -414,7 +422,11 @@ export class ComprobacionGastoService {
     let cambio: Record<string, unknown>;
     if (r.estado === 'escrito') {
       cambio = { kepler_expense_status: 'written', kepler_expense_folio: r.folio, kepler_expense_policy: `${r.tablaPoliza}/D/${r.poliza}`,
-        kepler_expense_date: entrega?.fecha ?? null, kepler_expense_next_at: null, kepler_expense_note: null };
+        kepler_expense_date: entrega?.fecha ?? null, kepler_expense_next_at: null,
+        // G.16: si se generó con la lectura comparada, queda dicho quién y qué decía el comprobante.
+        kepler_expense_note: entrega?.lecturaComparada
+          ? `La lectura del comprobante decía $${Number(entrega.lecturaComparada.monto ?? 0).toFixed(2)}: la comparó ${entrega.lecturaComparada.por ?? 'una persona'} y generó el gasto`
+          : null };
     } else if (r.estado === 'ya_estaba') {
       cambio = { kepler_expense_status: 'written', kepler_expense_folio: r.folio, kepler_expense_next_at: null,
         kepler_expense_note: `Kepler ya tenía el gasto de esta solicitud (X-A-10 ${r.folio}, ${r.kepler}): no se escribió otro` };
@@ -546,7 +558,8 @@ export class ComprobacionGastoService {
               SET kepler_expense_status = 'cancelled', updated_at = now(),
                   kepler_expense_note = 'Kepler canceló el gasto X-A-10 ' || p.kepler_expense_folio
                     || coalesce(' (póliza ' || p.kepler_expense_policy || ')', '')
-                    || ': el vale vuelve a esperar su gasto; la Suite no lo reescribe sola («Reintentar el gasto»)',
+                    -- [PGP.123] G-AUD.14: la nota nombraba «Reintentar el gasto», un botón que no existe. El que existe pide confirmar.
+                    || ': el vale vuelve a esperar su gasto; la Suite no lo reescribe sola («Generar otra vez»)',
                   kepler_expense_folio = NULL, kepler_expense_policy = NULL, kepler_expense_date = NULL, kepler_expense_next_at = NULL
              FROM kepler_ods.kdm1 g
             WHERE p.tenant_id = ? AND p.kepler_expense_status IN ('written', 'seen_in_ods') AND ${ESTE_GASTO} AND btrim(g.c43) = 'C'`, [MEGA]);

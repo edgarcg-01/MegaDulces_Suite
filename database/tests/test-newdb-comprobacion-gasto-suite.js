@@ -250,7 +250,7 @@ async function main() {
     check(!!sw0, 'la migración sembró el interruptor comprobacion_gasto de la 05');
     if (!sw0) return;
     // Lo que haya dejado una corrida abortada, por los folios EXCLUSIVOS de la prueba (no existen en ningún Kepler).
-    const FOLIOS = ['0990120', '0990121', '0990122', '0990123', '0990124', '0990125', '0990126', '0990127', '0990128',
+    const FOLIOS = ['0990120', '0990121', '0990122', '0990123', '0990124', '0990125', '0990126', '0990127', '0990128', '0990129',
       '0990140', '0990141', '0990142', '0990143', '0990144', '0990145', '0990146', '0990147', '0990150', '0990151', '0990152', '0990153'];
     await knex.raw(`DELETE FROM kepler_ods.kdm1 WHERE sucursal = ? AND c2 = 'X' AND c3 = 'A' AND ((c4 = 15 AND c6 = ANY(?)) OR (c4 = 10 AND c39 = ANY(?)))`, [SUC, FOLIOS, FOLIOS]);
     const viejos = await knex('finance.expense_proofs').where({ tenant_id: T, sucursal: SUC, solicitante: 'prueba pgp123' }).whereIn('folio_solicitud', FOLIOS).pluck('id');
@@ -435,6 +435,29 @@ async function main() {
     check(ih.length === 0, 'el 409 no deja intento en la bitácora', ih);
 
     // ── I ────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // ── H2 ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    console.log('\n— H2. G.16 (DG12): la lectura del comprobante dice otro monto: el clic común no lo genera; «Ya lo comparé» sí');
+    await solicitudEnKepler('0990129');
+    await solicitudEnOds('0990129');
+    // Como lo deja el lector (GX.33 + DG12): el monto en monto_ocr; validar desde la revisión borra la nota, el monto queda.
+    const l = await valeAprobado('0990129', { monto_ocr: 6000, revision_nota: '⚠ El comprobante dice $6,000.00 y la solicitud $116.00 (difieren $5,884.00). Revísalo antes de autorizar.' });
+    await proofs.validate(l, QUIEN.full_name, PANTALLA, QUIEN);
+    const rl1 = await generar(l);
+    check(rl1?.status === 'pending' && /La lectura del comprobante dice \$6,000\.00/.test(rl1?.nota ?? '') && (await gastoEnKepler('0990129')).length === 0,
+      '⛔ DG12: el clic común no lo genera; dice la lectura', rl1);
+    check(await estatusDe(() => proofs.generarGasto(l, AJENO, false, { lecturaComparada: true })) === 403 && (await gastoEnKepler('0990129')).length === 0,
+      '⛔ «Ya lo comparé» de quien no lo pidió ni aprueba → 403');
+    const rd3 = await proofs.generarGasto(d, QUIEN, true, { lecturaComparada: true });
+    check(rd3?.status === 'pending' && /\$100\.00/.test(rd3?.nota ?? '') && (await gastoEnKepler('0990122')).length === 0,
+      '⛔ «Ya lo comparé» sólo quita la lectura: otro importe sigue frenando', rd3);
+    const rl2 = await proofs.generarGasto(l, DUENO, false, { lecturaComparada: true });
+    const vl = await vale(l);
+    check(rl2?.status === 'written' && (await gastoEnKepler('0990129')).length === 1 && /decía \$6000\.00: la comparó Captura De Prueba/.test(vl.kepler_expense_note ?? ''),
+      'G.16: quien lo pidió dice que lo comparó → escrito, y el vale dice quién comparó y qué decía el comprobante', { rl2, nota: vl.kepler_expense_note });
+    const il = await knex('finance.expense_request_kepler_attempts').where({ proof_id: l }).orderBy('created_at').select('result', 'plan', 'created_by');
+    check(il.some((x) => x.result === 'escrito' && /"lecturaComparada":\{"por":"Captura De Prueba","monto":6000\}/.test(String(x.plan ?? ''))),
+      'la bitácora guarda en el plan quién comparó y el monto leído', il.map((x) => x.result));
+
     console.log('\n— I. G.UI.1b: el Expediente dice qué le falta en Kepler con la regla de la cola, y el monto de la cancelada');
     const exp = await proofs.expedientePorUsuario(2000);
     const valesExp = exp.personas.flatMap((p) => p.vales);

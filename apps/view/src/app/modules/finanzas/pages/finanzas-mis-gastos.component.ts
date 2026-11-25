@@ -5,7 +5,6 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { TableModule } from 'primeng/table';
-import { TagModule } from 'primeng/tag';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
@@ -15,6 +14,7 @@ import {
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { REFRESCO_VALES_MS } from '../vales-refresco';
 import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
+import { resumenDeLaRuta, rutaDelVale, segmentosDeLaRuta, type EstadoDelSegmento } from '../components/ruta-del-vale';
 import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
 import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
 import { BuscadorGastosComponent } from '../components/buscador-gastos.component';
@@ -22,7 +22,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
-import { lineaDelGasto, polizaCorta, puedeEscribirseYa } from './esperan-kepler.ayudas';
+import { lineaDelGasto, pideComparar, pideGenerarOtraVez, polizaCorta, puedeEscribirseYa } from './esperan-kepler.ayudas';
 import { diaMxDe, parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
 import type { EtapaEjercicio, ValeAsignado, TransferenciaGasto } from '@megadulces/contracts';
@@ -74,6 +74,12 @@ interface FilaLista {
   fechaDocumentoDistinta: string | null;
   /** `[GX.106]` Días desde que se mandó (antes: desde la fecha del gasto); `null` si no se puede leer. */
   dias: number | null;
+  /**
+   * `[PGP.123]` G-RED.2 — La barrita de la ruta (la misma `rutaDelVale` del panel) y lo que dice en palabras. Vacía en la
+   * solicitud de Kepler sin vale: no tiene ruta en la Suite, y no se le inventa una.
+   */
+  segmentos: EstadoDelSegmento[];
+  resumenRuta: string;
 }
 
 /** El orden del filtro y su rótulo. Es también el orden en que se elige el filtro inicial. */
@@ -105,7 +111,7 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
 @Component({
   selector: 'app-finanzas-mis-gastos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, TableModule, TagModule, RouterLink, BuscadorGastosComponent,
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, TableModule, RouterLink, BuscadorGastosComponent,
     ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent, LoadStateComponent, FreshnessPillComponent, SegmentedComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -235,7 +241,15 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
                     @if (diaLocal(f.fechaDocumentoDistinta); as d) { <span>documento del {{ d | date: 'dd/MM/yy' }}</span> }
                   </div>
                 </div></td>
-                <td class="mg-c-etapa" data-label="Etapa" role="cell"><p-tag [value]="f.situacion?.etapaNombre ?? '—'" severity="secondary" /></td>
+                <!-- [PGP.123] G-RED.2: la ruta del vale en cinco segmentos (los del panel), sobre el nombre de etapa que la gente
+                     ya usa (GX.65.5). La barrita es para el ojo; el lector de pantalla oye el paso en palabras. -->
+                <td class="mg-c-etapa" data-label="Etapa" role="cell"><div class="mg-celda">
+                  @if (f.segmentos.length) {
+                    <span class="mg-mini" aria-hidden="true">@for (s of f.segmentos; track $index) {<span class="mg-seg" [attr.data-estado]="s"></span>}</span>
+                    <span class="mg-sr">{{ f.resumenRuta }}. </span>
+                  }
+                  <div class="mg-etapa">{{ f.situacion?.etapaNombre ?? '—' }}</div>
+                </div></td>
                 <td [attr.data-label]="encabezadoSituacion()" role="cell"><div class="mg-celda">
                   <div [class.mg-mal]="f.situacion?.mal">{{ f.situacion?.texto ?? '—' }}</div>
                   @if (f.notaPago; as n) { <div class="mg-sub" [class.mg-mal]="n.clase === 'bad'">{{ n.texto }}</div> }
@@ -260,6 +274,25 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
                          Lleva la cifra; se apaga mientras escribe; dos clics no escriben dos gastos. -->
                     <button pButton type="button" class="p-button-sm" [loading]="generando() === f.proof.id" [disabled]="!!generando()"
                             (click)="generarGasto(f.proof)">Generar gasto · {{ money(f.importe) }}<span class="mg-sr"> del vale {{ f.folio || 'sin folio' }}</span></button>
+                  } @else if (f.proof && f.situacion?.aQuien === 'kepler' && pideComparar(f.proof.gasto_kepler)) {
+                    <!-- [PGP.123] G.16 (DG12): el comprobante dice otro monto; el acto dice que se comparó antes de generar. -->
+                    <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="generando() === f.proof.id" [disabled]="!!generando()"
+                            (click)="generarGasto(f.proof, true)">Ya lo comparé · Generar {{ money(f.importe) }}<span class="mg-sr"> el gasto del vale {{ f.folio || 'sin folio' }}</span></button>
+                  } @else if (f.proof && f.situacion?.aQuien === 'kepler' && pideGenerarOtraVez(f.proof.gasto_kepler)) {
+                    <!-- [PGP.123] G-AUD.14 (2026-11-23): Kepler canceló el gasto; quizá a propósito. Gris, y el segundo clic
+                         confirma que se escribe OTRO gasto. -->
+                    @if (confirmarOtraVez() === f.proof.id) {
+                      <!-- «No» va donde estaba «Generar otra vez»: un doble clic cae en lo seguro (modern-web-guidance, dialog). -->
+                      <span class="mg-conf">
+                        <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [disabled]="!!generando()"
+                                (click)="confirmarOtraVez.set(null)">No</button>
+                        <button pButton type="button" class="p-button-sm p-button-danger" [loading]="generando() === f.proof.id" [disabled]="!!generando()"
+                                (click)="generarOtraVez(f.proof)">Sí, escribir otro · {{ money(f.importe) }}<span class="mg-sr"> gasto del vale {{ f.folio || 'sin folio' }}</span></button>
+                      </span>
+                    } @else {
+                      <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!!generando()"
+                              (click)="confirmarOtraVez.set(f.proof.id)">Generar otra vez · {{ money(f.importe) }}<span class="mg-sr"> el gasto del vale {{ f.folio || 'sin folio' }}</span></button>
+                    }
                   } @else if (f.puedeSubir) {
                     <a pButton class="p-button-sm p-button-outlined" [routerLink]="['/finanzas/gastos']"
                        [queryParams]="{ folio: f.folio, sucursal: f.sucursal }">
@@ -289,7 +322,10 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
            pero quien decide sobre el dinero es otra persona. Lo único que se ofrece es sumar
            evidencia con su porqué ([GX.87]), que no mueve el estado. -->
       <app-vale-gasto-peek [open]="abierto() !== null" (openChange)="cerrar($event)" [vale]="abierto()"
-                           [acciones]="accionesDelVale()" (agregarEvidencia)="paraEvidencia.set($any($event))" />
+                           [acciones]="accionesDelVale()" [subirComprobante]="subirDelAbierto()"
+                           [gastoKepler]="gastoDelAbierto()" [puedeReintentarGasto]="true" [ocupado]="!!generando()"
+                           (reintentarGasto)="generarDesdePanel($event)"
+                           (agregarEvidencia)="paraEvidencia.set($any($event))" />
       <app-evidencia-adicional-dialog [open]="paraEvidencia() !== null" (openChange)="cerrarEvidencia($event)"
                                       [vale]="paraEvidencia()" (agregado)="alAgregarEvidencia($event)" />
     </div>
@@ -339,7 +375,25 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
     .mg-fecha { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--fg-1); }
     .mg-atorado { font-size: var(--fs-xs); color: var(--warn-soft-fg); font-weight: var(--fw-bold); margin-top: 2px; white-space: nowrap; }
     .mg-acc { white-space: nowrap; text-align: right; }
+    .mg-conf { display: inline-flex; align-items: baseline; gap: var(--sp-1); }
     .mg-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+    /* [PGP.123] G-RED.2 — La barrita de la ruta. Mismo código que los marcadores del panel: lleno = hecho, naranja = toca
+       ahora, rojo = con problema, contorno = después, punteado = no aplica / sin leer, tenue = cortado por un rechazo.
+       El estado nunca va sólo en el color: la columna «Qué te falta» lo dice en palabras y el lector oye el paso. */
+    .mg-mini { display: flex; gap: 2px; width: 5.5rem; margin-bottom: 4px; }
+    .mg-seg { flex: 1; height: 6px; border-radius: 2px; box-sizing: border-box; border: 1px solid var(--fg-3); background: transparent; }
+    .mg-seg[data-estado='hecho'] { background: var(--fg-1); border-color: var(--fg-1); }
+    .mg-seg[data-estado='actual'] { background: var(--action); border-color: var(--action); }
+    .mg-seg[data-estado='mal'] { background: var(--bad-fg); border-color: var(--bad-fg); }
+    .mg-seg[data-estado='no_aplica'], .mg-seg[data-estado='sin_medir'] { border-style: dashed; }
+    .mg-seg[data-estado='cortado'] { border-color: var(--border-color); }
+    .mg-etapa { font-size: var(--fs-xs); color: var(--fg-2); }
+    @media (forced-colors: active) {
+      .mg-seg { forced-color-adjust: none; border-color: CanvasText; }
+      .mg-seg[data-estado='hecho'], .mg-seg[data-estado='actual'], .mg-seg[data-estado='mal'] { background: CanvasText; }
+      .mg-seg[data-estado='cortado'] { border-color: GrayText; }
+    }
 
     .mg-cortes { margin: var(--sp-2) 0 0; padding-left: var(--sp-4); font-size: var(--fs-xs); color: var(--warn-soft-fg); }
   `],
@@ -352,6 +406,10 @@ export class FinanzasMisGastosComponent {
   readonly generando = signal<string | null>(null);
   readonly avisoGasto = signal<{ texto: string; mal: boolean } | null>(null);
   readonly puedeEscribirseYa = puedeEscribirseYa;
+  readonly pideComparar = pideComparar;
+  readonly pideGenerarOtraVez = pideGenerarOtraVez;
+  /** `[PGP.123]` G-AUD.14 — El vale cuyo «Generar otra vez» espera el segundo clic. */
+  readonly confirmarOtraVez = signal<string | null>(null);
   readonly lineaDelGasto = lineaDelGasto;
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute, { optional: true });
@@ -403,7 +461,7 @@ export class FinanzasMisGastosComponent {
       const enviado = diaMxDe(v.capturado ?? v.fecha) || null;
       const documento = diaMxDe(v.fecha) || null;
       return { ...base, situacion: situacionDe(base), enviado, dias: diasDesde(enviado),
-        fechaDocumentoDistinta: documento && documento !== enviado ? documento : null };
+        fechaDocumentoDistinta: documento && documento !== enviado ? documento : null, segmentos: [], resumenRuta: '' };
     }),
     ...this.filas().map((p): FilaLista => {
       const base = {
@@ -419,9 +477,14 @@ export class FinanzasMisGastosComponent {
         notaPago: notaDePago((p.transferencias ?? null) as TransferenciaGasto[] | null, Number(p.importe) || 0),
         proof: p,
         fechaDocumentoDistinta: null,
+        // G.16b: la misma regla que ofrece «Ya lo comparé · Generar»: el texto nunca promete un botón que no está.
+        lecturaDistinta: pideComparar(p.gasto_kepler),
       };
       const enviado = diaMxDe(p.created_at) || null;
-      return { ...base, situacion: situacionDe(base), enviado, dias: diasDesde(enviado) };
+      // G-RED.2: el gasto que trajo la fila (`undefined` = el servidor no lo mandó → «sin leer», nunca «hecho»).
+      const ruta = rutaDelVale(p as unknown as ValeGasto, null, p.gasto_kepler);
+      return { ...base, situacion: situacionDe(base), enviado, dias: diasDesde(enviado),
+        segmentos: segmentosDeLaRuta(ruta), resumenRuta: resumenDeLaRuta(ruta) };
     }),
   ]);
 
@@ -548,6 +611,10 @@ export class FinanzasMisGastosComponent {
 
   private aplicar(r: ExpenseProofsReport): void {
     this.filas.set(r.rows ?? []);
+    // G-RED.1b: el vale abierto se re-apunta a su fila nueva, para que el panel diga lo que acaba de pasar (p. ej. el gasto
+    // recién generado). El refresco de fondo no corre con un vale abierto (GX.73); esto sólo lo alcanza `cargar()`.
+    const a = this.abierto();
+    if (a) { const n = (r.rows ?? []).find((x) => x.id === a.id); if (n) this.abierto.set(n as ValeGasto); }
     this.asignados.set(r.asignados ?? []);
     this.reporte.set(r);
     this.ultimaCarga.set(new Date());
@@ -574,11 +641,31 @@ export class FinanzasMisGastosComponent {
    * `[PGP.123]` G.14 — «Generar gasto»: escribe en Kepler el gasto (X-A-10) del vale que pidió esta persona (D1) y dice
    * cómo quedó; nada lo escribe solo (D2). Un clic, sin confirmación: el botón lleva la cifra y se apaga mientras escribe.
    */
-  generarGasto(p: ExpenseProof): void {
+  /** G-AUD.14 — Confirmado: escribe OTRO gasto. Si lo único que frena es la lectura del comprobante, cuenta como comparado. */
+  generarOtraVez(p: ExpenseProof): void {
+    this.confirmarOtraVez.set(null);
+    const c = p.gasto_kepler?.comprobacion;
+    this.generarGasto(p, !!c && !c.listo && c.motivo === 'lectura_distinta');
+  }
+
+  /**
+   * G-RED.1b (H2 de la auditoría) — El panel ya ofrecía «Generar gasto» / «Generar otra vez» (con su segundo clic), pero
+   * Mis gastos no se lo encendía: el texto decía «si fue un error, “Generar otra vez”» y el botón sólo estaba en la fila.
+   * Se le pasa el gasto que ya trae la fila (no se vuelve a pedir) y el mismo camino que la fila.
+   */
+  readonly gastoDelAbierto = computed(() => (this.abierto() as ExpenseProof | null)?.gasto_kepler);
+
+  generarDesdePanel(id: string): void {
+    const p = this.filas().find((x) => x.id === id);
+    if (!p) return;
+    if (pideGenerarOtraVez(p.gasto_kepler)) this.generarOtraVez(p); else this.generarGasto(p);
+  }
+
+  generarGasto(p: ExpenseProof, lecturaComparada = false): void {
     if (this.generando()) return;
     this.generando.set(p.id);
     this.avisoGasto.set(null);
-    this.svc.reintentarGasto(p.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.reintentarGasto(p.id, lecturaComparada).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (e) => {
         this.generando.set(null);
         const ok = !!e?.folio && (e.status === 'written' || e.status === 'seen_in_ods');
@@ -596,6 +683,11 @@ export class FinanzasMisGastosComponent {
   cerrar(abierto: boolean): void { if (!abierto) this.abierto.set(null); }
 
   /** `[GX.87]` Todo lo de esta lista es tuyo: se ofrece sumar evidencia, salvo en un rechazado. */
+  /** `[PGP.123]` G-RED.1 — La ruta del panel ofrece subir el comprobante donde lo ofrece la fila (vale firmado). */
+  subirDelAbierto(): { folio: string | null; sucursal: string | null } | null {
+    const v = this.abierto();
+    return v?.status === 'aprobada' ? { folio: v.folio_solicitud, sucursal: v.sucursal } : null;
+  }
   accionesDelVale(): readonly AccionVale[] {
     return aceptaEvidenciaAdicional(this.abierto()?.status) ? ['agregar_evidencia'] : [];
   }

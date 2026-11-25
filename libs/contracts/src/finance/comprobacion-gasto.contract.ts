@@ -132,7 +132,7 @@ export function comprobacionDelVale(v: ValeAComprobar, s: SolicitudAComprobar | 
   // escribe por el monto de la solicitud. Misma tolerancia que el lector ($1 o 1 %, redondeo e IVA).
   const leido = v.monto_leido == null ? null : Number(v.monto_leido);
   if (leido != null && Number.isFinite(leido) && Math.abs(leido - Number(s.total)) > Math.max(1, Math.abs(Number(s.total)) * 0.01)) {
-    return no('lectura_distinta', 'sucursal', `La lectura del comprobante dice ${pesos(cent(leido))} y la solicitud ${pesos(cent(s.total))}: compáralo y compruébalo en Kepler`);
+    return no('lectura_distinta', 'sucursal', `La lectura del comprobante dice ${pesos(cent(leido))} y la solicitud ${pesos(cent(s.total))}: compáralos antes de generar el gasto`);
   }
   if (!FECHA.test(s.fecha ?? '') || !FECHA.test(hoy ?? '')) return no('sin_medir', 'nadie', 'La fecha de la solicitud no se pudo leer');
   if (s.fecha > hoy) return no('fecha_futura', 'sucursal', `La solicitud tiene fecha futura (${s.fecha})`);

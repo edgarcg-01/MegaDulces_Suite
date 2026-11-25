@@ -1,30 +1,31 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 86 KB, 981 líneas, 18 secciones.
+> **Índice navegable** — 89 KB, 1004 líneas, 19 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_COMPROBACION_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 30 | 66 | 3 | Fase PGP · Anexo G — La comprobación del gasto (X-A-10) se escribe desde la Suite |
-| 67 | 76 | 1 | 1. El pedido, literal |
-| 77 | 116 | 3 | 2. Qué es comprobar hoy (medido) |
-| 117 | 277 | 11 | 3. Qué escribe un X-A-10 dentro de Kepler (las 9 escrituras) |
-| 278 | 294 | 1 | 4. Lo que Kepler no cuida y la Suite sí |
-| 295 | 392 | 6 | 5. El diseño |
-| 393 | 412 | 1 | 6. Alcance v1 y lo que no entra |
-| 413 | 419 | 1 | 7. El orden de construcción, de abajo hacia arriba |
-| 420 | 439 | 2 | 8. Plan por capas (`[PGP.123]`) |
-| 440 | 452 | 1 | 9. Pruebas (cada compuerta con su prueba negativa) |
-| 453 | 477 | 5 | 10. Decisiones |
-| 478 | 500 | 1 | 11. Riesgos y NO MEDIDO |
-| 501 | 513 | 1 | 12. Hallazgos fuera de alcance, con su dueño |
-| 514 | 555 | 10 | 13. Construcción — lo que ya está y lo que es de Edgar |
-| 556 | 904 | 31 | 14. La interfaz de la comprobación — prueba visual (2026-11-15) |
-| 905 | 937 | 3 | 15. El primer gasto escrito por la Suite (2026-11-20) |
-| 938 | 977 | 4 | 16. «Generar gasto»: una persona lo genera con un clic (G.14, 2026-11-21) |
-| 978 | 1011 | 3 | 17. Mis gastos: el folio de la comprobación con su columna (G.15, 2026-11-21) |
+| 31 | 67 | 3 | Fase PGP · Anexo G — La comprobación del gasto (X-A-10) se escribe desde la Suite |
+| 68 | 77 | 1 | 1. El pedido, literal |
+| 78 | 117 | 3 | 2. Qué es comprobar hoy (medido) |
+| 118 | 278 | 11 | 3. Qué escribe un X-A-10 dentro de Kepler (las 9 escrituras) |
+| 279 | 295 | 1 | 4. Lo que Kepler no cuida y la Suite sí |
+| 296 | 393 | 6 | 5. El diseño |
+| 394 | 413 | 1 | 6. Alcance v1 y lo que no entra |
+| 414 | 420 | 1 | 7. El orden de construcción, de abajo hacia arriba |
+| 421 | 440 | 2 | 8. Plan por capas (`[PGP.123]`) |
+| 441 | 453 | 1 | 9. Pruebas (cada compuerta con su prueba negativa) |
+| 454 | 478 | 5 | 10. Decisiones |
+| 479 | 501 | 1 | 11. Riesgos y NO MEDIDO |
+| 502 | 514 | 1 | 12. Hallazgos fuera de alcance, con su dueño |
+| 515 | 556 | 10 | 13. Construcción — lo que ya está y lo que es de Edgar |
+| 557 | 905 | 31 | 14. La interfaz de la comprobación — prueba visual (2026-11-15) |
+| 906 | 938 | 3 | 15. El primer gasto escrito por la Suite (2026-11-20) |
+| 939 | 978 | 4 | 16. «Generar gasto»: una persona lo genera con un clic (G.14, 2026-11-21) |
+| 979 | 1012 | 3 | 17. Mis gastos: el folio de la comprobación con su columna (G.15, 2026-11-21) |
+| 1013 | 1035 | 2 | 18. En prod, en las 9, y «Ya lo comparé · Generar» (G.16, 2026-11-21) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo G — La comprobación del gasto (X-A-10) se escribe desde la Suite
@@ -1008,3 +1009,26 @@ en la página, `dt-stack` en la tabla, cada celda con su rótulo y `role="cell"`
 acción vacía no deja hueco. Medido en el celular: cada vale es un bloque con el folio, su sucursal y «comprobación …»
 arriba, y debajo Proveedor, Cómo cerró (o A qué espera), Se mandó e Importe, sin desborde; escritorio y Fold siguen en
 rejilla. NO MEDIDO: el botón apilado (las filas locales no traen acción); su piso de 44 px lo pone `dense-table.css`.
+
+## 18. En prod, en las 9, y «Ya lo comparé · Generar» (G.16, 2026-11-21)
+
+- **En prod** `f43a7340e`; la prueba contra Postgres del clic, en el CI: **65 ✓ · 0 ✗**. Prueba de Edgar en 05: el vale
+  `8bd9e0ff` → X-A-10 `0000093` con el botón. **El interruptor `comprobacion_gasto` quedó encendido en las 9** (Edgar,
+  «avanzamos»), con el tope de la solicitud de cada sucursal (00: 60 · 01: 15 · 02: 12 · 03: 10 · 04: 10 · 05: 10 ·
+  06: 15 · 07: 12 · 08: 20). Ya no escribe nada solo: encender sólo hace aparecer el botón.
+- **El caso que lo pidió:** los dos vales de prueba de Edgar (`0000097` y `0000098`) no mostraban el botón: su
+  comprobante se leía como $6,000.00 contra $1.02 y $1.03 (DG12). En la base, **628 de 2,254 vales validados en 60 días
+  (28 %)** traen ese aviso — muchos, comisiones bancarias cuyo comprobante es el estado de cuenta.
+- **G.16:** donde lo ÚNICO que frena es la lectura distinta, la fila ofrece **«Ya lo comparé · Generar $importe»** (al
+  dueño del vale y a quien aprueba). El `POST` lleva `lectura_comparada`; el servicio sólo quita la lectura de la regla
+  — todo lo demás sigue frenando (otro importe, otra fecha, factura…). Queda dicho quién comparó y qué decía el
+  comprobante, en la nota del vale y en el plan de la bitácora. DG12 se cumple: sigue siendo una persona la que compara.
+- **Pruebas:** la regla (`pideComparar`, con su negativa: nunca a la vez que «Generar gasto»), Aprobación y Mis gastos
+  (el botón, el `POST` con y sin `lectura_comparada`) 189 ✓; `expense-proofs` 401 ✓; contrato 14 ✓; `tsc`/`ngc`/estilos
+  limpios; `check:pantalla` 0 nuevas. **NO MEDIDO:** la sección H2 de la prueba contra Postgres (el clic común no lo
+  genera, 403 del ajeno, otro importe sigue frenando, «Ya lo comparé» lo escribe y deja quién) — corre en el CI.
+- **Corrección (2026-11-25):** el «En prod» de este apartado vale para G.14, no para G.16. **El código de G.16 (con
+  G-AUD.14, G-AUD.16 y G-RED) se quedó sin commitear en el árbol compartido** y prod siguió sin el botón — testigo: el
+  vale `0000377` de 06 (lectura $291.65 contra $25,162.59) sin forma de generarse, con `/api/health` en `c9a22dead`.
+  Entró el 2026-11-25 junto con **G.16b**: en Mis gastos, cuando se ofrece el botón, «A qué espera» dice «Compara el
+  comprobante y genera el gasto» (la misma regla `pideComparar`: el texto nunca promete un botón que no está).
