@@ -1,11 +1,14 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
-import { AJUSTE_ABONO_MOTIVO_MAX, RESTO_TOLERADO_CLIENTE } from '@megadulces/contracts';
+import { AJUSTE_ABONO_MOTIVO_MAX, RESTO_TOLERADO_CLIENTE, docCodeATipoSerie } from '@megadulces/contracts';
 import type { CerrarRestosBody, EstadoAjusteAbono, ResultadoAjusteAbono } from '@megadulces/contracts';
 
 import { REFERENCIA_MAX } from './ajuste-abono.armador';
-import { KeplerAjusteAbonoSinkAdapter, type ResultadoAjusteAbonoKepler } from './kepler-ajuste-abono-sink.adapter';
+import {
+  KeplerAjusteAbonoSinkAdapter, escrituraDeAjusteAbonoEncendida,
+  type ResultadoAjusteAbonoKepler,
+} from './kepler-ajuste-abono-sink.adapter';
 
 /**
  * `[GP.R.3]` C2 — **Cerrar los restos de centavos de un cliente: el interruptor, el registro y Kepler.**
@@ -84,7 +87,8 @@ export const INSOLUTO_SAT = `
    ORDER BY substring(a from 'NumParcialidad="([0-9]+)"')::int DESC NULLS LAST, fecha DESC
    LIMIT 1`;
 
-export interface CierreValidado { sucursal: string; cliente: string; motivo: string; facturas: { tipo: number; serie: number; folio: string }[] }
+export interface FacturaValidada { doc_code: string; folio: string; tipo: number; serie: number }
+export interface CierreValidado { sucursal: string; cliente: string; motivo: string; facturas: FacturaValidada[] }
 
 /** Lo que manda la pantalla, revisado. Puro: se prueba sin base. */
 export function validarCierre(sucursal: string, body: Partial<CerrarRestosBody> | undefined): CierreValidado {
@@ -98,13 +102,14 @@ export function validarCierre(sucursal: string, body: Partial<CerrarRestosBody> 
   const lista = Array.isArray(body?.facturas) ? body.facturas : [];
   if (!lista.length) throw new BadRequestException('Elige al menos una factura con resto.');
   const facturas = lista.map((f) => {
-    const tipo = Number(f?.tipo); const serie = Number(f?.serie); const folio = String(f?.folio ?? '').trim();
-    if (!Number.isInteger(tipo) || tipo <= 0) throw new BadRequestException(`tipo de documento inválido: ${String(f?.tipo)}`);
-    if (!Number.isInteger(serie) || serie <= 0) throw new BadRequestException(`serie inválida: ${String(f?.serie)}`);
+    const doc_code = String(f?.doc_code ?? '').trim();
+    const folio = String(f?.folio ?? '').trim();
+    const ts = tipoSerieDe(doc_code);
+    if (!ts) throw new BadRequestException(`documento inválido: ${String(f?.doc_code)}`);
     if (!FOLIO.test(folio)) throw new BadRequestException(`folio inválido: ${String(f?.folio)}`);
-    return { tipo, serie, folio };
+    return { doc_code, folio, tipo: ts.tipo, serie: ts.serie };
   });
-  const vistas = new Set(facturas.map((f) => `${f.tipo}-${f.serie}-${f.folio}`));
+  const vistas = new Set(facturas.map((f) => `${f.doc_code}-${f.folio}`));
   if (vistas.size !== facturas.length) throw new BadRequestException('Una factura viene dos veces: se aplicaría su resto doble.');
   return { sucursal: s, cliente, motivo, facturas };
 }
@@ -169,6 +174,29 @@ export class AjusteAbonoService {
   }
 
   /**
+   * `[GP.R.4]` **Si en esta sucursal se puede cerrar un resto desde la Suite**, para que la pantalla no ofrezca un
+   * botón que va a fallar (Poka-yoke: el error es el último recurso, no el primero). Los dos candados que la pantalla
+   * no puede ver desde el navegador: el interruptor de la sucursal y la bandera de proceso de la API.
+   *
+   * ⛔ `motivo` **sólo cuando está apagado**, y dice cuál de los dos falta: un «no se puede» sin razón manda a
+   * buscar el problema donde no está.
+   */
+  async habilitadoEn(sucursal: string): Promise<{ habilitado: boolean; motivo?: string }> {
+    const s = String(sucursal ?? '').trim();
+    if (!SUCURSAL.test(s)) throw new BadRequestException('sucursal inválida');
+    const hay = await this.tk.run(async (trx) => ({
+      tabla: await this.hayTabla(trx),
+      interruptor: await this.interruptorEncendido(trx, s),
+    }));
+    if (!hay.tabla) return { habilitado: false, motivo: 'Falta aplicar la migración de GP.R.2.' };
+    if (!hay.interruptor) return { habilitado: false, motivo: 'Cerrar restos desde la Suite está apagado en esta sucursal.' };
+    if (!escrituraDeAjusteAbonoEncendida(process.env)) {
+      return { habilitado: false, motivo: 'La escritura de ajustes a Kepler está apagada.' };
+    }
+    return { habilitado: true };
+  }
+
+  /**
    * Lo que cada factura del ajuste **sigue debiendo ante el SAT**, sumado. `null` = NO MEDIDO (ninguna de sus
    * facturas tenía un complemento legible), que es distinto de cero.
    */
@@ -203,22 +231,19 @@ export class AjusteAbonoService {
       const vivos = (await trx.raw(RESTOS_DEL_CLIENTE, [d.sucursal, d.cliente])).rows as
         { doc_code: string; folio: string; importe: number; saldo: number }[];
       const elegidas = d.facturas.map((f) => {
-        const v = vivos.find((x) => {
-          const ts = tipoSerieDe(x.doc_code);
-          return ts?.tipo === f.tipo && ts.serie === f.serie && x.folio === f.folio;
-        });
-        if (!v) throw new NotFoundException(`La factura ${f.tipo}-${f.serie}-${f.folio} ya no tiene resto en la cartera del cliente ${d.cliente}.`);
+        const v = vivos.find((x) => x.doc_code === f.doc_code && x.folio === f.folio);
+        if (!v) throw new NotFoundException(`La factura ${f.folio} ya no tiene resto en la cartera del cliente ${d.cliente}.`);
         if (v.saldo > RESTO_TOLERADO_CLIENTE) {
-          throw new ConflictException(`La factura ${f.tipo}-${f.serie}-${f.folio} debe ${v.saldo.toFixed(2)}, más que el tope de ${RESTO_TOLERADO_CLIENTE}: es deuda, no redondeo.`);
+          throw new ConflictException(`La factura ${f.folio} debe ${v.saldo.toFixed(2)}, más que el tope de ${RESTO_TOLERADO_CLIENTE}: es deuda, no redondeo.`);
         }
-        return { ...f, doc_code: v.doc_code, importe: v.importe, saldo: v.saldo };
+        return { ...f, importe: v.importe, saldo: v.saldo };
       });
       const importe = Math.round(elegidas.reduce((s, f) => s + f.saldo, 0) * 100) / 100;
 
       try {
         const r = await trx.raw(INSERTAR_AJUSTE, [
           d.sucursal, d.cliente, referencia, importe,
-          JSON.stringify(elegidas.map((f) => ({ tipo: f.tipo, serie: f.serie, folio: f.folio, doc_code: f.doc_code, importe: f.importe, saldo: f.saldo }))),
+          JSON.stringify(elegidas.map((f) => ({ doc_code: f.doc_code, folio: f.folio, tipo: f.tipo, serie: f.serie, importe: f.importe, saldo: f.saldo }))),
           false, d.motivo, 'pendiente', usuario, usuario,
         ]);
         return { id: String(r.rows[0].id), elegidas, importe };
@@ -231,7 +256,8 @@ export class AjusteAbonoService {
     // ── 2. Kepler. El adaptador nunca lanza: devuelve lo que pasó ───────────────────────────────────────────
     const r = await this.kepler.entregar({
       sucursal: d.sucursal, cliente: d.cliente, referencia,
-      facturas: d.facturas, tope: RESTO_TOLERADO_CLIENTE,
+      facturas: d.facturas.map((f) => ({ tipo: f.tipo, serie: f.serie, folio: f.folio })),
+      tope: RESTO_TOLERADO_CLIENTE,
     });
     const fin = desenlace(r);
 

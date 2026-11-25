@@ -15,8 +15,10 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { RESTO_TOLERADO_CLIENTE, esRestoDeFactura } from '@megadulces/contracts';
+import type { ResultadoAjusteAbono } from '@megadulces/contracts';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
 /** `[CXC.43]` Fecha en México (AAAA-MM-DD) de un instante ISO: «hoy» es el día de la sucursal. */
 const diaMx = (iso: string | Date): string =>
@@ -58,7 +60,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
   selector: 'app-finanzas-cartera',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, CarteraSegmentsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent, FreshnessPillComponent, LoadStateComponent, SucursalPipe],
+  imports: [RouterLink, CarteraSegmentsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent, FreshnessPillComponent, LoadStateComponent, SucursalPipe, ContextHelpComponent],
   template: `
     <div class="surf-page in">
       <!-- La barra de Finanzas FALTABA acá: esta pantalla era la única del proyecto sin
@@ -555,6 +557,37 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
             </p>
           }
         </div>
+        <!-- [GP.R.4] Los centavos sueltos del cliente. El acto va DONDE EL RESTO YA SE VE: la ficha se abre
+             867 veces al mes (medido), asi que una bandeja aparte seria una segunda lista del mismo hecho. -->
+        @if (restosCliente(); as rs) {
+          <div class="ct-restos">
+            <p class="ct-restos-txt">
+              <b>{{ rs.n }}</b> {{ rs.n === 1 ? "factura" : "facturas" }} con centavos sueltos &middot;
+              <b class="ct-restos-monto">{{ rs.total | number:"1.2-2" }}</b>
+              <app-context-help topic="restos_cliente" />
+            </p>
+            @if (restoHabil(); as h) {
+              @if (h.habilitado && puedeCerrarRestos()) {
+                @if (restoConfirma()) {
+                  <span class="ct-restos-confirma">¿Cerrar {{ rs.total | number:"1.2-2" }} de {{ rs.n }} {{ rs.n === 1 ? "factura" : "facturas" }}?</span>
+                  <button pButton type="button" class="p-button-sm" [disabled]="restoBusy()" (click)="cerrarRestos(det)">
+                    {{ restoBusy() ? "Cerrando…" : "Sí, cerrar" }}
+                  </button>
+                  <button pButton type="button" class="p-button-sm p-button-text" [disabled]="restoBusy()" (click)="restoConfirma.set(false)">No</button>
+                } @else {
+                  <button pButton type="button" class="p-button-sm p-button-outlined" (click)="restoConfirma.set(true)">Cerrar los centavos</button>
+                }
+              } @else if (!h.habilitado) {
+                <span class="muted ct-restos-off">{{ h.motivo }}</span>
+              }
+            }
+          </div>
+          @if (restoAviso(); as av) {
+            <p class="ct-restos-aviso" [class.ct-pdf-err]="av.error" role="status">
+              <i class="pi" [class.pi-check-circle]="!av.error" [class.pi-exclamation-triangle]="av.error" aria-hidden="true"></i> {{ av.texto }}
+            </p>
+          }
+        }
         <table class="ct-det-table">
           <thead><tr><th>Documento</th><th>Folio</th><th>Fecha</th><th>Vence</th><th class="ta-r">Importe</th><th class="ta-r">Saldo</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
           <tbody>
@@ -948,6 +981,12 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-det-state { display: flex; align-items: center; gap: .6rem; padding: 1.2rem .2rem; font-size: .85rem; color: var(--text-muted); }
     .ct-det-err { color: var(--bad-fg); }
     .ct-row-pagada td { opacity: .6; }
+    .ct-restos { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: var(--sp-3) 0 var(--sp-1); }
+    .ct-restos-txt { margin: 0; font-size: var(--fs-sm); color: var(--text-main); display: flex; align-items: center; gap: .25rem; }
+    .ct-restos-monto { font-variant-numeric: tabular-nums; }
+    .ct-restos-confirma { font-size: .8rem; color: var(--text-main); }
+    .ct-restos-off { font-size: var(--fs-sm); }
+    .ct-restos-aviso { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); display: flex; align-items: center; gap: .35rem; }
     .ct-tag-redondeo { border: 1px solid var(--border-color); color: var(--text-muted); border-radius: 4px; padding: .1rem .4rem; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
     .ct-tag-pag { background: var(--ok-soft-bg); color: var(--ok-soft-fg); border-radius: 4px; padding: .1rem .4rem; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
     .ct-link-btn { background: none; border: 0; padding: 0; font: inherit; font-size: .82rem; color: var(--action); cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
@@ -1236,8 +1275,83 @@ export class FinanzasCarteraComponent implements OnInit {
   esResto(p: Partida): boolean {
     return !p.saldada && esRestoDeFactura(Number(p.saldo_documento), Number(p.importe), RESTO_TOLERADO_CLIENTE);
   }
-  readonly tituloRedondeo =
-    `Centavos que quedaron de una factura ya cobrada (hasta $${RESTO_TOLERADO_CLIENTE}). Siguen en Kepler; se cierran con un Ajuste Abono, no con otro cobro.`;
+  // ── `[GP.R.4]` Cerrar los centavos sueltos del cliente (Ajuste Abono en Kepler) ───────────────
+  /** Si en la sucursal abierta se puede cerrar, y por que no. `null` = todavia no se pregunto. */
+  readonly restoHabil = signal<{ habilitado: boolean; motivo?: string } | null>(null);
+  readonly restoConfirma = signal(false);
+  readonly restoBusy = signal(false);
+  readonly restoAviso = signal<{ texto: string; error: boolean } | null>(null);
+  /**
+   * Los centavos sueltos del cliente abierto, DERIVADOS de sus partidas con la MISMA regla que pinta el tag
+   * «Redondeo» (`esResto`). No hay una segunda fuente que pueda discrepar.
+   */
+  readonly restosCliente = computed(() => {
+    const ps = (this.detalle()?.partidas || []).filter((x) => this.esResto(x));
+    if (!ps.length) return null;
+    return { n: ps.length, total: Math.round(ps.reduce((s, x) => s + Number(x.saldo_documento), 0) * 100) / 100, partidas: ps };
+  });
+  readonly puedeCerrarRestos = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_RESTOS_CERRAR] === true);
+
+  /** Se pregunta al abrir la ficha: el acto no se ofrece donde va a fallar (Poka-yoke). */
+  private pedirHabilitado(sucursal: string) {
+    // ⛔ Aqui NO se toca `restoAviso`: esto corre tambien al RECARGAR la ficha despues de cerrar, y borraba
+    //    el aviso recien puesto. Lo limpia quien empieza algo nuevo (`cerrarRestos`) o quien cambia de ficha.
+    this.restoHabil.set(null); this.restoConfirma.set(false);
+    if (!this.puedeCerrarRestos()) return;
+    this.svc.ajusteHabilitado(sucursal).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (h) => this.restoHabil.set(h),
+      error: () => this.restoHabil.set({ habilitado: false, motivo: "No se pudo saber si esta habilitado aqui." }),
+    });
+  }
+
+  /**
+   * ⛔ **Escribe en Kepler.** Cierra de una vez los restos del cliente con UN Ajuste Abono.
+   * El motivo lo DERIVA el sistema: lo que aporta la persona es la decision, no la redaccion — y su nombre queda
+   * en el registro. El boton se apaga en el PRIMER clic, antes de esperar la respuesta (idempotencia visual).
+   */
+  cerrarRestos(det: CarteraDetalle) {
+    const rs = this.restosCliente();
+    if (!rs || this.restoBusy()) return;
+    this.restoBusy.set(true);
+    this.restoAviso.set(null);
+    const suc = det.cliente.sucursal; const cli = det.cliente.cliente_code;
+    this.svc.cerrarRestos(suc, {
+      cliente: cli,
+      facturas: rs.partidas.map((x) => ({ doc_code: x.doc_code, folio: x.folio })),
+      motivo: "Resto de centavos de facturas ya cobradas (hasta $" + RESTO_TOLERADO_CLIENTE + ")",
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.restoBusy.set(false); this.restoConfirma.set(false);
+        this.restoAviso.set({ texto: this.textoDelAjuste(r), error: r.estado === "rechazado" || r.estado === "apagado" });
+        if (r.estado === "escrito" || r.estado === "ya_estaba") this.reloadDetalle(suc, cli);
+      },
+      error: (e) => {
+        this.restoBusy.set(false); this.restoConfirma.set(false);
+        this.restoAviso.set({ texto: e?.error?.message || e?.message || "No se pudo cerrar.", error: true });
+      },
+    });
+  }
+
+  /**
+   * Lo que se le dice a la persona. ⛔ **Nunca afirma que la factura quedo cerrada ante el SAT**: el Ajuste Abono
+   * no emite CFDI, asi que si hay insoluto se dice, y si no se pudo medir se dice tambien (nunca cero por omision).
+   */
+  private textoDelAjuste(r: ResultadoAjusteAbono): string {
+    if (r.estado === "rechazado" || r.estado === "apagado") return r.mensaje;
+    const sat = r.cfdi_insoluto == null
+      ? " No se pudo medir que queda pendiente ante el SAT."
+      : r.cfdi_insoluto > 0
+        ? " Ante el SAT estas facturas siguen con " + r.cfdi_insoluto.toFixed(2) + " pendientes: el ajuste no emite factura."
+        : " Ante el SAT no queda nada pendiente de estas facturas.";
+    return r.mensaje + sat;
+  }
+  /**
+   * Era la DEFINICION completa, y vivia solo aqui: sin mouse no existia (regla P, y TBL de check:pantalla).
+   * La definicion se mudo al diccionario versionado (tema `restos_cliente`), que se abre con teclado desde la
+   * ficha del cliente. Esto queda como etiqueta corta del tag, no como la explicacion.
+   */
+  readonly tituloRedondeo = `Centavos de una factura ya cobrada (hasta ${RESTO_TOLERADO_CLIENTE})`;
   readonly visibles = computed(() => this.filtradas().slice(0, FinanzasCarteraComponent.FILAS_VISIBLES));
 
   // ── `[CXC.42]` Recorrer la lista desde la ficha ─────────────────────────────────
@@ -1600,6 +1714,7 @@ export class FinanzasCarteraComponent implements OnInit {
     const c = det.cliente;
     this.pdfBusy.set(true);
     this.pdfAviso.set(null);
+    this.restoAviso.set(null); this.restoConfirma.set(false);   // `[GP.R.4]` el aviso es de ESTE cliente
     this.svc.estadoCuentaPdf(c.sucursal, c.cliente_code, this.dateFromEC()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (b) => {
         this.pdfBusy.set(false);
@@ -1751,6 +1866,7 @@ export class FinanzasCarteraComponent implements OnInit {
       this.precargarSiguiente();
       this.pedirEnlace(sucursal, cliente);
       this.pedirTelefonos(enCache);
+      this.pedirHabilitado(sucursal);
       return;
     }
     this.detalle.set(null); this.detalleLoading.set(true);
@@ -1761,6 +1877,7 @@ export class FinanzasCarteraComponent implements OnInit {
         this.precargarSiguiente();
         this.pedirEnlace(sucursal, cliente);
         this.pedirTelefonos(d);
+        this.pedirHabilitado(sucursal);
       },
       error: (e) => { this.detalleError.set(e?.error?.message || e?.message || 'error'); this.detalleLoading.set(false); },
     });

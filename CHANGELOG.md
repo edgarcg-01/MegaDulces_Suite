@@ -36,6 +36,12 @@
 - En los productos que se venden en pieza, paquete y caja (362, como los chocolates de 6), la pieza es para el piso de ventas: al cotizar sólo aparecen Paquete y Caja, con el paquete elegido, y una nota dice «Pieza: sólo en piso de ventas». Escanear el código de la pieza deja elegido el paquete.
 - Los productos a granel por peso (medio kilo, kilo, bulto) y los que tienen otras unidades siguen igual.
 - Las cotizaciones ya guardadas que traían pieza se conservan: se puede cambiar la cantidad y volver a cotizarlas. Lo que ya no se puede es agregar un renglón nuevo en pieza, ni cambiar uno a pieza.
+### Added — Finanzas › Cartera: ya se pueden cerrar los centavos desde la ficha del cliente (GP.R.4 · 2026-11-25)
+- En la ficha de un cliente, arriba de sus facturas, aparece cuántas tienen centavos sueltos y cuánto suman, con el botón para cerrarlos de una vez. Las facturas que forman ese monto están ahí mismo, marcadas «Redondeo».
+- Pide confirmar antes de escribir, y el botón se apaga en el primer clic: el doble clic del apuro no cobra dos veces.
+- Donde todavía está apagado no aparece el botón, y se dice por qué en vez de dejar que falle.
+- La explicación de qué son los centavos sueltos y cómo se cierran dejó de vivir en un globo de ayuda que sólo veía quien usa mouse: ahora está en la ayuda de la pantalla, y dice también **lo que el cierre no arregla** (la factura sigue con esos centavos ante el SAT).
+- Internal: `POST /api/finance/ajuste-abono/:sucursal` + `GET` del mismo para saber si está habilitado; el contrato recibe `doc_code` y el servidor deriva tipo y serie (una sola implementación, en `contracts`). Tema `restos_cliente` del diccionario de ayuda. 9 pruebas nuevas del componente.
 
 ### Added — Finanzas › Cartera: cerrar el resto de centavos con el documento correcto (GP.R.2 · GP.R.3 · 2026-11-25 · APAGADO, sin soltar)
 - Cuando un cliente paga su factura y quedan centavos sueltos, Crédito y cobranza podrá cerrarlos con el **Ajuste Abono** que el ERP ya trae, en vez de capturar un cobro de centavos que dice que entró dinero y no entró (74 de ésos en 60 días).
