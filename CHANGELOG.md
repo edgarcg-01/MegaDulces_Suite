@@ -9,6 +9,15 @@
 ---
 
 ## [Unreleased]
+### Added — Compras › Calendario de compras: quién cambió cada regla y de qué a qué (PQ.3.17 · 2026-11-24 · en código, sin soltar)
+- El detalle de una regla dice, además de quién la definió, «Último cambio: quién, el día». Debajo, «Cambios» dice de qué a qué, el más nuevo primero: el patrón entero, el responsable, fuera de ciclo con su motivo, la nota y la baja.
+- De un cambio hecho antes de que se guardara el historial se dice quién y cuándo, no de qué a qué.
+- Una regla definida en bloque («Sacar del ciclo a los N») no dice que se cambió: salir del ciclo es parte de cómo se definió.
+- Internal: sin tabla nueva: las reglas se suman a `analytics.master_data_history` con un disparador (mig `20261124231747`, aplicar antes de soltar); cada escritura declara quién (`app.actor`). Sin el disparador, la API declara el historial no medido.
+### Added — Compras › Calendario de compras: los ocasionales, de una vez (PQ.3.18 · 2026-11-24 · en código, sin soltar)
+- En «Sin regla», el escalón 3 tiene «Sacar del ciclo a los N» (sólo para quien define reglas). A cada proveedor que compró una o pocas veces en 12 meses y sigue sin regla le pone una regla para todas las sucursales «cada 180 días» y lo deja fuera de ciclo 26 semanas, con el motivo escrito. En esa fecha regresa solo a «Por revisar».
+- El diálogo dice qué va a hacer antes de hacerlo. Si alguno ya tiene regla al guardar, no se toca y el aviso lo cuenta.
+- Internal: `POST /compras/calendario/reglas/ocasionales` (`COMPRAS_CALENDARIO_CICLO` y alcance en todas las sucursales); el servidor vuelve a medir quién es ocasional y escribe todo en una transacción. Sin migración. El manual de capacitación quedó al día.
 ### Added — Compras › Calendario de compras: las primeras mejoras de los usuarios (PQ.3.15 · PQ.3.21 · PQ.3.22 · 2026-11-24)
 - «Por zona» y «Por sucursal» (antes «Una zona», «Una sucursal»), con casillas: se marcan varias y se guarda una regla por cada lugar, todas a la vez. Cada una se atiende con lo de su lugar.
 - Bajo los días de la semana, «¿Cada cuánto?»: cada semana, cada 2, 3 o 6 semanas a partir de una fecha, o una vez al mes (el primero, segundo, tercero, cuarto o último de ese día). «Un viernes sí y otro no» ya no se mueve con las órdenes de Kepler.
