@@ -265,8 +265,10 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
                       }
                     </ul>
                     <div class="ub-acts ub-acts-start">
-                      <!-- [UB.RF.17] Q.4: el número que el mapa publica lleva a su lugar de arreglo, con el rack ya filtrado. -->
-                      <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verAsignacion(s.pasillo, s.celda.rack)"><span class="p-button-icon pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">{{ s.celda.productos ? 'Ver sus ' + s.celda.productos + ' ' + (s.celda.productos === 1 ? 'producto' : 'productos') : 'Asignar productos' }}</span></button>
+                      <!-- [UB.RF.17] Q.4: el numero del mapa lleva a donde se arregla. El boton NO dice
+                           "ver sus N productos" porque Asignacion todavia no se puede filtrar por rack:
+                           [UB.RF.15] trae ese filtro y no esta en el repo. Prometerlo seria un rotulo falso. -->
+                      <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verAsignacion()"><span class="p-button-icon pi pi-sitemap" aria-hidden="true"></span><span class="p-button-label">Asignar productos</span></button>
                       <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="verCarteles({ pasillo: s.pasillo, rack: s.celda.rack })"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">Imprimir {{ formatoCartel() === 'etiqueta' ? 'las etiquetas' : 'los carteles' }}</span></button>
                     </div>
                   } @else {
@@ -647,11 +649,15 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   }
 
   /**
-   * `[UB.RF.17]` El rack elegido, abierto en Asignación con ese filtro ya puesto (`rack=TA01`, el formato
-   * que ya acepta el backend por `[UB.RF.15]`). Sin esto, el número del mapa denuncia y no lleva a nada.
+   * `[UB.RF.17]` Abre Asignación, que es donde se le pone lugar a un producto.
+   *
+   * ⚠️ Deuda con nombre: todavía **sin el rack filtrado**. El filtro `?rack=TA01` existe en el backend
+   * sólo dentro de `[UB.RF.15]`, que vive sin commitear en el checkout compartido; mandarlo igual haría
+   * que la pantalla dijera «sólo los de este rack» mostrando los 86,619 del catálogo. Cuando `[UB.RF.15]`
+   * entre al repo, esto vuelve a llevar el rack y el botón puede decir «ver sus N productos».
    */
-  verAsignacion(pasillo: string, rack: number): void {
-    void this.router.navigate(['/almacen/ubicaciones/asignacion'], { queryParams: { rack: `${this.zona()}${pasillo}${this.dos(rack)}` } });
+  verAsignacion(): void {
+    void this.router.navigate(['/almacen/ubicaciones/asignacion']);
   }
 
   verCaptura(si: boolean): void {
