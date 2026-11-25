@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { BehaviorSubject, NEVER, of, throwError } from 'rxjs';
 import { vi } from 'vitest';
-import type { SdCatalogResponse, SdRequestDetail, SdRequestRow, SdStatsResponse, SdStatus, SdTransferResult } from '@megadulces/contracts';
+import type { SdCatalogResponse, SdRequestDetail, SdRequestRow, SdStatsResponse, SdStatus, SdTransferResult, SdTransferTargetsResponse } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { SdRequestDetailComponent } from '../sd-request-detail.component';
 import { ServiceDeskService } from '../service-desk.service';
@@ -114,6 +114,11 @@ describe('[MS.7.16] ficha — Transferir a otra área', () => {
     ],
     impacts: ['yo', 'varios', 'sucursal', 'red'],
   };
+  // `[MSP.5.0]` La lista de traslado tiene su propio endpoint. Por omisión, las mismas áreas que el catálogo.
+  const DEST: SdTransferTargetsResponse = {
+    queues: CAT.queues.map((q) => ({ id: q.id, code: q.code, name: q.name, confidential: q.confidential })),
+    categories: CAT.categories.map((k) => ({ id: k.id, queue_id: k.queue_id, name: k.name })),
+  };
   const T = (status: SdStatus): SdRequestDetail => ({
     id: 't1', folio: 'SRV-2026-00001', queue_id: 'q-ti', queue_name: 'TI', category_id: 'c-ti', category_name: 'Caja', title: 'No abre', priority: 'alta', priority_suggested: 'alta',
     impact: 'yo', blocks_work: false, pause_reason: null, status, requester_id: 'u1', requester_name: 'Ana', warehouse_code: null, warehouse_name: null, zone_code: null, zone_name: null,
@@ -129,8 +134,8 @@ describe('[MS.7.16] ficha — Transferir a otra área', () => {
   let fix: ReturnType<typeof TestBed.createComponent<SdRequestDetailComponent>>;
   const texto = () => (fix.nativeElement as HTMLElement).textContent ?? '';
 
-  async function render(status: SdStatus, coord: boolean, transfer?: ReturnType<typeof vi.fn>) {
-    api = { detail: vi.fn(() => of(T(status))), catalog: vi.fn(() => of(CAT)), transfer: transfer ?? vi.fn(() => of({ id: 't1', folio: 'SRV-2026-00001', queue_id: 'q-mto', queue_name: 'Mantenimiento', category_name: 'Plomería', status: 'nuevo' } as SdTransferResult)), agents: vi.fn(() => of([])) };
+  async function render(status: SdStatus, coord: boolean, transfer?: ReturnType<typeof vi.fn>, destinos: SdTransferTargetsResponse = DEST) {
+    api = { detail: vi.fn(() => of(T(status))), catalog: vi.fn(() => of(CAT)), transferTargets: vi.fn(() => of(destinos)), transfer: transfer ?? vi.fn(() => of({ id: 't1', folio: 'SRV-2026-00001', queue_id: 'q-mto', queue_name: 'Mantenimiento', category_name: 'Plomería', status: 'nuevo' } as SdTransferResult)), agents: vi.fn(() => of([])) };
     await TestBed.configureTestingModule({ imports: [SdRequestDetailComponent], providers: [{ provide: ServiceDeskService, useValue: api }] }).compileComponents();
     fix = TestBed.createComponent(SdRequestDetailComponent);
     fix.componentRef.setInput('id', 't1');
@@ -175,11 +180,37 @@ describe('[MS.7.16] ficha — Transferir a otra área', () => {
   it('⭐ ofrece sólo áreas con categorías y NO la actual; las categorías son las del área elegida', async () => {
     await render('nuevo', true);
     c.pedirTraslado();
-    expect(api['catalog']).toHaveBeenCalledTimes(1);
+    expect(api['transferTargets']).toHaveBeenCalledTimes(1);
     expect(c.areasDestino().map((a) => a.name)).toEqual(['Mantenimiento']); // ni TI (actual) ni la que no tiene categorías
     expect(c.categoriasDestino()).toEqual([]);
     c.elegirDestino('q-mto');
     expect(c.categoriasDestino().map((k) => k.name)).toEqual(['Plomería']);
+  });
+
+  it('⭐ [MSP.5.0] la lista sale de transfer-targets, NO del catálogo de «Nueva solicitud»: Presupuestos aparece aunque el catálogo no la traiga', async () => {
+    // Prod, 2026-11-24: el catálogo le esconde Presupuestos a la coordinación de TI (no está en sus 3 puestos). Trasladar no es levantar (D8).
+    const conPres: SdTransferTargetsResponse = {
+      queues: [...DEST.queues, { id: 'q-pres', code: 'presupuestos', name: 'Presupuestos y Requerimientos', confidential: false }],
+      categories: [...DEST.categories, { id: 'c-pres', queue_id: 'q-pres', name: 'Compra de activos' }],
+    };
+    expect(CAT.queues.some((q) => q.id === 'q-pres')).toBe(false); // CONTROL: el catálogo NO la trae
+    await render('en_proceso', true, undefined, conPres);
+    c.pedirTraslado();
+    expect(c.areasDestino().map((a) => a.name)).toEqual(['Mantenimiento', 'Presupuestos y Requerimientos']);
+    c.elegirDestino('q-pres');
+    expect(c.categoriasDestino().map((k) => k.name)).toEqual(['Compra de activos']);
+    c.destinoCategoria.set('c-pres');
+    c.notaModo.set('La impresora no tiene reparación; pasa a Presupuestos para autorizar la compra');
+    c.ejecutarModo();
+    expect(api['transfer']).toHaveBeenCalledWith('t1', { queue_id: 'q-pres', category_id: 'c-pres', reason: 'La impresora no tiene reparación; pasa a Presupuestos para autorizar la compra' });
+  });
+
+  it('⛔ si la lista de áreas no carga, se dice (no se dibuja un selector vacío como si no hubiera áreas)', async () => {
+    await render('en_proceso', true);
+    api['transferTargets'].mockReturnValueOnce(throwError(() => new HttpErrorResponse({ status: 500 })));
+    c.pedirTraslado();
+    expect(c.error()).toBeTruthy();
+    expect(c.areasDestino()).toEqual([]);
   });
 
   it('⛔ NEGATIVA — sin área, categoría y motivo no se manda nada', async () => {
