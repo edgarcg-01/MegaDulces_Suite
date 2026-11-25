@@ -206,6 +206,19 @@ export interface CoberturaPorArea {
   atrasados: number | null;
   /** Por qué falta ligar, el de más dinero primero. */
   motivos: { motivo: string; n: number; monto: number }[];
+  /** `[BFU.4.5.12]` Sólo en la venta de tienda: por sucursal del corte (código de Kepler y nombre). */
+  sucursales?: { sucursal: string; nombre?: string; n: number; monto: number }[];
+}
+/**
+ * `[BFU.4.5.12]` Lo que entró (grupos = su ORIGEN: `venta_tienda`, `cobranza`, `traspaso`, `sin_documento:<lo que dice el
+ * banco>`…) o lo que salió (grupos = el ÁREA que lo explica). Los grupos suman la dirección; las dos, el periodo.
+ */
+export interface CoberturaPorDireccion {
+  n: number; monto: number;
+  explicado: { n: number; monto: number } | null;
+  por_ligar: { n: number; monto: number } | null;
+  atrasados: number | null;
+  grupos: CoberturaPorArea[];
 }
 export interface CoberturaCategoria {
   evaluados: number;
@@ -213,6 +226,9 @@ export interface CoberturaCategoria {
   por_area: CoberturaPorArea[];
   /** `null` = no medido. */
   explicado: { n: number; monto: number; por_ligar: { n: number; monto: number }; atrasados: number } | null;
+  /** `[BFU.4.5.12]` `null` = algún renglón sin dirección: no se reparte. Ausente = API anterior. */
+  entradas?: CoberturaPorDireccion | null;
+  salidas?: CoberturaPorDireccion | null;
 }
 
 /** CB.15.2 — Flujo de un movimiento (de dónde viene). */
@@ -282,6 +298,12 @@ export interface MovementsQuery {
   area?: string;
   /** [BFU.4.5.6] Sólo lo que falta ligar. */
   por_ligar?: boolean;
+  /** [BFU.4.5.12] 'entra' | 'sale'. */
+  direccion?: 'entra' | 'sale';
+  /** [BFU.4.5.12] Sólo las entradas de ese origen. */
+  origen?: string;
+  /** [BFU.4.5.12] Sólo la venta de tienda de esa sucursal. */
+  sucursal_venta?: string;
 }
 
 /** CB.24 — Cuadre 3 vías (Workbook ↔ Kepler 102 ↔ ContPAQi). */
@@ -584,6 +606,9 @@ export class BankService {
     if (q.contra_descarga) p.set('contra_descarga', q.contra_descarga);
     if (q.area) p.set('area', q.area);
     if (q.por_ligar) p.set('por_ligar', 'true');
+    if (q.direccion) p.set('direccion', q.direccion);
+    if (q.origen) p.set('origen', q.origen);
+    if (q.sucursal_venta) p.set('sucursal_venta', q.sucursal_venta);
     return this.http.get<MovementsPage>(`${this.base}/movements?${p.toString()}`);
   }
 

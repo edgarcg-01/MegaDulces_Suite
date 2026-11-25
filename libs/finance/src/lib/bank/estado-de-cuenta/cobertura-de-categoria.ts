@@ -17,6 +17,7 @@
  */
 import { diasHabiles, PLAZO_DE_CAPTURA, RESPONSABLE, type MotivoSinCategoria, type Responsable } from './motor-de-categoria';
 import { explicarRenglon, type PorDeCategoria } from './explicacion-del-renglon';
+import { claveDeEntrada, ORDEN_DE_ORIGEN } from './origen-del-renglon';
 
 /** Un grupo leído de la base: renglones del mismo estado, motivo, responsable y día. */
 export interface FilaDeCobertura {
@@ -45,6 +46,12 @@ export interface FilaDeCobertura {
   pago?: boolean | null;
   /** Con cliente declarado (`customer_code`, CC.11). */
   cliente?: boolean | null;
+  /** `[BFU.4.5.12]` El texto del banco (`bank_movements.concept`): de él sale lo que dice el banco de un depósito sin documento. */
+  concepto?: string | null;
+  /** `[BFU.4.5.12]` El origen de su documento de Kepler (`venta_tienda` · `cobranza` · `traspaso` · `otro_documento`), `null` sin documento. */
+  origen_doc?: string | null;
+  /** `[BFU.4.5.12]` La sucursal del corte, cuando es venta de tienda. */
+  sucursal_doc?: string | null;
 }
 
 /** Lo que se lee de un renglón al día `hoy`: a quién le toca, si está explicado y, si no, por qué. */
@@ -101,6 +108,22 @@ export interface CoberturaPorArea {
   motivos: { motivo: string; n: number; monto: number }[];
   /** El nombre que se muestra (lo pone la API con `identity.departments`; los grupos declarados, `NOMBRE_DE_GRUPO`). */
   nombre?: string;
+  /** `[BFU.4.5.12]` Sólo en la venta de tienda: por sucursal del corte, la de más dinero primero. La suma es la del grupo. */
+  sucursales?: { sucursal: string; nombre?: string; n: number; monto: number }[];
+}
+
+/**
+ * `[BFU.4.5.12]` Lo que ENTRÓ o lo que SALIÓ del periodo, con sus grupos: las entradas por su origen (`claveDeEntrada`),
+ * las salidas por el área que las explica (`leerFila`). Los grupos de una dirección suman la dirección, y las dos
+ * direcciones suman el periodo.
+ */
+export interface CoberturaPorDireccion {
+  n: number;
+  monto: number;
+  explicado: { n: number; monto: number } | null;
+  por_ligar: { n: number; monto: number } | null;
+  atrasados: number | null;
+  grupos: CoberturaPorArea[];
 }
 
 const ATIENDE: Record<string, string | null> = { otros: 'tesoreria', por_asignar: 'tesoreria', quien_captura: null, en_plazo: null, sin_motivo: null };
@@ -169,17 +192,78 @@ export interface CoberturaDeCategoria {
    * `PLAZO_DE_CAPTURA` días hábiles. `null` = no medido (las filas no traían los hechos).
    */
   explicado: { n: number; monto: number; por_ligar: { n: number; monto: number }; atrasados: number } | null;
+  /**
+   * `[BFU.4.5.12]` Lo que entró, por su origen (venta de tienda, cobranza, traspasos… y lo que falta ligar, con lo que
+   * dice el banco). `null` si algún renglón no trae la dirección del dinero: no se reparte a ciegas.
+   */
+  entradas: CoberturaPorDireccion | null;
+  /** `[BFU.4.5.12]` Lo que salió, por el área que lo explica. `null` como `entradas`. */
+  salidas: CoberturaPorDireccion | null;
 }
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
+
+type Acum = CoberturaPorArea & {
+  _motivos: Map<string, { motivo: string; n: number; monto: number }>;
+  _sucs: Map<string, { sucursal: string; n: number; monto: number }> | null;
+  _medido: boolean;
+};
+
+function nuevoGrupo(clave: string, atiende: string | null, conSucursales = false): Acum {
+  return { area: clave, atiende, n: 0, monto: 0, sin_categoria: { n: 0, monto: 0 }, explicado: { n: 0, monto: 0 },
+    por_ligar: { n: 0, monto: 0 }, atrasados: 0, motivos: [], _motivos: new Map(), _sucs: conSucursales ? new Map() : null, _medido: true };
+}
+
+/** Suma UN renglón (ya leído) a un grupo. Las tres agrupaciones (área, entradas, salidas) pasan por aquí. */
+function sumarAlGrupo(a: Acum, f: FilaDeCobertura, l: LecturaDeLaFila, n: number, monto: number): void {
+  a.n += n; a.monto += monto;
+  if (!f.con_categoria) { a.sin_categoria.n += n; a.sin_categoria.monto += monto; }
+  if (l.explicado === null) a._medido = false;
+  else if (l.explicado) { a.explicado!.n += n; a.explicado!.monto += monto; }
+  else {
+    a.por_ligar!.n += n; a.por_ligar!.monto += monto;
+    if (l.atrasado) a.atrasados! += n;
+    const m = a._motivos.get(l.por_que_no as string) ?? { motivo: l.por_que_no as string, n: 0, monto: 0 };
+    m.n += n; m.monto += monto; a._motivos.set(m.motivo, m);
+  }
+  if (a._sucs) {
+    const k = f.sucursal_doc ?? '';
+    const s = a._sucs.get(k) ?? { sucursal: k, n: 0, monto: 0 };
+    s.n += n; s.monto += monto; a._sucs.set(k, s);
+  }
+}
+
+function cerrarGrupo({ _motivos, _sucs, _medido, ...a }: Acum): CoberturaPorArea {
+  return {
+    ...a, monto: r2(a.monto), sin_categoria: { n: a.sin_categoria.n, monto: r2(a.sin_categoria.monto) },
+    // Un grupo con UN renglón sin hechos no se mide entero: una cifra parcial se leería como la del grupo.
+    explicado: _medido ? { n: a.explicado!.n, monto: r2(a.explicado!.monto) } : null,
+    por_ligar: _medido ? { n: a.por_ligar!.n, monto: r2(a.por_ligar!.monto) } : null,
+    atrasados: _medido ? a.atrasados : null,
+    motivos: _medido ? Array.from(_motivos.values()).map((m) => ({ ...m, monto: r2(m.monto) })).sort((x, y) => y.monto - x.monto || y.n - x.n) : [],
+    ...(_sucs ? { sucursales: Array.from(_sucs.values()).map((s) => ({ ...s, monto: r2(s.monto) })).sort((x, y) => y.monto - x.monto || y.n - x.n) } : {}),
+  };
+}
+
+/** La dirección entera a partir de sus grupos ya cerrados: se suma de ellos, así nunca puede contar distinto. */
+function cerrarDireccion(grupos: CoberturaPorArea[]): CoberturaPorDireccion {
+  const medido = grupos.every((g) => g.explicado !== null);
+  const s = (k: (g: CoberturaPorArea) => number) => grupos.reduce((t, g) => t + k(g), 0);
+  return {
+    n: s((g) => g.n), monto: r2(s((g) => g.monto)),
+    explicado: medido ? { n: s((g) => g.explicado!.n), monto: r2(s((g) => g.explicado!.monto)) } : null,
+    por_ligar: medido ? { n: s((g) => g.por_ligar!.n), monto: r2(s((g) => g.por_ligar!.monto)) } : null,
+    atrasados: medido ? s((g) => g.atrasados!) : null,
+    grupos,
+  };
+}
 
 export function coberturaDeCategoria(filas: readonly FilaDeCobertura[], hoy: string, totalIndependiente?: number | null): CoberturaDeCategoria {
   let evaluados = 0, vencidos = 0;
   const con = { n: 0, monto: 0 }, sinMotivo = { n: 0, monto: 0 };
   const grupos = new Map<string, PorResolver>();
-  type Acum = CoberturaPorArea & { _motivos: Map<string, { motivo: string; n: number; monto: number }>; _medido: boolean };
-  const areas = new Map<string, Acum>();
-  let medidoTodo = filas.length > 0;
+  const areas = new Map<string, Acum>(), entradas = new Map<string, Acum>(), salidas = new Map<string, Acum>();
+  let medidoTodo = filas.length > 0, conDireccion = filas.length > 0;
   const total = { n: 0, monto: 0, ligar_n: 0, ligar_monto: 0, atrasados: 0 };
   for (const f of filas) {
     const n = Number(f.n || 0), monto = Number(f.monto || 0);
@@ -193,33 +277,29 @@ export function coberturaDeCategoria(filas: readonly FilaDeCobertura[], hoy: str
       const g = grupos.get(k) ?? { motivo: l.motivo as string, responsable: l.responsable as string, n: 0, monto: 0 };
       g.n += n; g.monto += monto; grupos.set(k, g);
     }
-    const a = areas.get(l.area) ?? { area: l.area, atiende: l.area in ATIENDE ? ATIENDE[l.area] : l.area, n: 0, monto: 0,
-      sin_categoria: { n: 0, monto: 0 }, explicado: { n: 0, monto: 0 }, por_ligar: { n: 0, monto: 0 }, atrasados: 0, motivos: [],
-      _motivos: new Map(), _medido: true };
-    a.n += n; a.monto += monto;
-    if (!f.con_categoria) { a.sin_categoria.n += n; a.sin_categoria.monto += monto; }
-    if (l.explicado === null) { a._medido = false; medidoTodo = false; }
-    else if (l.explicado) { a.explicado!.n += n; a.explicado!.monto += monto; total.n += n; total.monto += monto; }
-    else {
-      a.por_ligar!.n += n; a.por_ligar!.monto += monto; total.ligar_n += n; total.ligar_monto += monto;
-      if (l.atrasado) { a.atrasados! += n; total.atrasados += n; }
-      const m = a._motivos.get(l.por_que_no as string) ?? { motivo: l.por_que_no as string, n: 0, monto: 0 };
-      m.n += n; m.monto += monto; a._motivos.set(m.motivo, m);
-    }
+    const a = areas.get(l.area) ?? nuevoGrupo(l.area, l.area in ATIENDE ? ATIENDE[l.area] : l.area);
+    sumarAlGrupo(a, f, l, n, monto);
     areas.set(l.area, a);
+    if (l.explicado === null) medidoTodo = false;
+    else if (l.explicado) { total.n += n; total.monto += monto; }
+    else { total.ligar_n += n; total.ligar_monto += monto; if (l.atrasado) total.atrasados += n; }
+    // [BFU.4.5.12] Y por dirección: lo que entró por su origen, lo que salió por su área.
+    if (f.entra === true) {
+      const k = claveDeEntrada(f);
+      const e = entradas.get(k) ?? nuevoGrupo(k, null, k === 'venta_tienda');
+      sumarAlGrupo(e, f, l, n, monto); entradas.set(k, e);
+    } else if (f.entra === false) {
+      const s = salidas.get(l.area) ?? nuevoGrupo(l.area, l.area in ATIENDE ? ATIENDE[l.area] : l.area);
+      sumarAlGrupo(s, f, l, n, monto); salidas.set(l.area, s);
+    } else conDireccion = false;
   }
   const por_resolver = Array.from(grupos.values()).map((g) => ({ ...g, monto: r2(g.monto) }))
     .sort((a, b) => b.monto - a.monto || b.n - a.n);
-  const por_area: CoberturaPorArea[] = Array.from(areas.values())
-    .map(({ _motivos, _medido, ...a }) => ({
-      ...a, monto: r2(a.monto), sin_categoria: { n: a.sin_categoria.n, monto: r2(a.sin_categoria.monto) },
-      // Un área con UN renglón sin hechos no se mide entera: una cifra parcial se leería como la del área.
-      explicado: _medido ? { n: a.explicado!.n, monto: r2(a.explicado!.monto) } : null,
-      por_ligar: _medido ? { n: a.por_ligar!.n, monto: r2(a.por_ligar!.monto) } : null,
-      atrasados: _medido ? a.atrasados : null,
-      motivos: _medido ? Array.from(_motivos.values()).map((m) => ({ ...m, monto: r2(m.monto) })).sort((x, y) => y.monto - x.monto || y.n - x.n) : [],
-    }))
-    .sort((a, b) => b.monto - a.monto || b.n - a.n);
+  const porMonto = (a: CoberturaPorArea, b: CoberturaPorArea) => b.monto - a.monto || b.n - a.n;
+  const por_area = Array.from(areas.values()).map(cerrarGrupo).sort(porMonto);
+  const orden = (k: string) => { const i = ORDEN_DE_ORIGEN.indexOf(k); return i < 0 ? ORDEN_DE_ORIGEN.length : i; };
+  // Las salidas: lo que más falta ligar primero (es lo que alguien tiene que ir a hacer), después por monto.
+  const porLigarPrimero = (a: CoberturaPorArea, b: CoberturaPorArea) => (b.por_ligar?.monto ?? 0) - (a.por_ligar?.monto ?? 0) || porMonto(a, b);
   return {
     evaluados,
     con_categoria: { n: con.n, monto: r2(con.monto) },
@@ -229,5 +309,16 @@ export function coberturaDeCategoria(filas: readonly FilaDeCobertura[], hoy: str
     vencidos_al_leer: vencidos,
     por_area,
     explicado: medidoTodo ? { n: total.n, monto: r2(total.monto), por_ligar: { n: total.ligar_n, monto: r2(total.ligar_monto) }, atrasados: total.atrasados } : null,
+    entradas: conDireccion ? cerrarDireccion(Array.from(entradas.values()).map(cerrarGrupo).sort((a, b) => orden(a.area) - orden(b.area) || porMonto(a, b))) : null,
+    salidas: conDireccion ? cerrarDireccion(Array.from(salidas.values()).map(cerrarGrupo).sort(porLigarPrimero)) : null,
   };
+}
+
+/**
+ * `[BFU.4.5.12]` El grupo de UN renglón en su dirección: el mismo que usa la cifra (`coberturaDeCategoria`), para que el
+ * filtro de la lista de movimientos abra exactamente lo que cuenta la celda.
+ */
+export function grupoDeLaFila(f: FilaDeCobertura, hoy: string): { direccion: 'entra' | 'sale' | null; grupo: string } {
+  if (f.entra === true) return { direccion: 'entra', grupo: claveDeEntrada(f) };
+  return { direccion: f.entra === false ? 'sale' : null, grupo: leerFila(f, hoy).area };
 }

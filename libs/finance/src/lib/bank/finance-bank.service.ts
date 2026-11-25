@@ -3,13 +3,14 @@ import * as crypto from 'node:crypto';
 import * as ExcelJS from 'exceljs';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, applySmartSearch, todayMx } from '@megadulces/platform-core';
-import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
+import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput, warehouseName } from '@megadulces/contracts';
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimFueraDeAlcance, claimVerdict, type ClaimRow } from './recon-claim-key';
 import { elegirEnLaSemana } from './recon-pase-semana';
 import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
 import { aplicarMotorDeCategoria } from './estado-de-cuenta/motor-de-categoria.aplicar';
-import { coberturaDeCategoria, leerFila, NOMBRE_DE_GRUPO, type FilaDeCobertura } from './estado-de-cuenta/cobertura-de-categoria';
+import { coberturaDeCategoria, grupoDeLaFila, leerFila, NOMBRE_DE_GRUPO, type FilaDeCobertura } from './estado-de-cuenta/cobertura-de-categoria';
+import { NOMBRE_DE_ORIGEN } from './estado-de-cuenta/origen-del-renglon';
 import { leerHechosDelPeriodo } from './estado-de-cuenta/hechos-del-periodo.query';
 import { compileRules, classifyWith, normKey } from './classify-rules';
 import { avisarBancos } from './aviso-bancos';
@@ -220,6 +221,12 @@ export interface ListMovementsQuery {
   area?: string;
   /** `[BFU.4.5.6]` 'true' → sólo lo que falta ligar (no explicado según `explicarRenglon`). */
   por_ligar?: string;
+  /** `[BFU.4.5.12]` 'entra' → sólo depósitos · 'sale' → sólo retiros. */
+  direccion?: string;
+  /** `[BFU.4.5.12]` Sólo las entradas de ese origen (`claveDeEntrada`: `venta_tienda`, `cobranza`, `sin_documento:terminal`…). */
+  origen?: string;
+  /** `[BFU.4.5.12]` Sólo la venta de tienda de esa sucursal (código de Kepler del corte). */
+  sucursal_venta?: string;
 }
 
 @Injectable()
@@ -748,13 +755,19 @@ export class FinanceBankService {
       // [BFU.4.5.6] Por área / lo que falta ligar: los renglones que `leerFila` pone ahí, con los MISMOS hechos y la misma
       // regla que la cifra «quién explica cada peso» — el número y la lista que abre no pueden contar distinto. Sólo hay
       // área en el universo del motor (la descarga del banco ya en el libro): lo que la descarga trae y el libro no, no entra.
+      // [BFU.4.5.12] Y por dirección (entradas / salidas), por origen de la entrada y por sucursal del corte: el grupo lo
+      // decide `grupoDeLaFila`, la misma pieza que arma la cifra.
       let idsDelArea: string[] | null = null;
-      if (q.area || q.por_ligar === 'true') {
-        if (!q.period) throw new BadRequestException('el filtro por área necesita el periodo');
+      const direccion = q.direccion === 'entra' || q.direccion === 'sale' ? q.direccion : null;
+      if (q.area || q.por_ligar === 'true' || direccion || q.origen || q.sucursal_venta) {
+        if (!q.period) throw new BadRequestException('el filtro por área, dirección u origen necesita el periodo');
         const hoy = todayMx();
         idsDelArea = (await leerHechosDelPeriodo(trx, q.period)).filter((h) => {
-          const l = leerFila(h, hoy);
-          return (!q.area || l.area === q.area) && (q.por_ligar !== 'true' || l.explicado === false);
+          const l = leerFila(h, hoy), g = grupoDeLaFila(h, hoy);
+          return (!q.area || l.area === q.area) && (q.por_ligar !== 'true' || l.explicado === false)
+            && (!direccion || g.direccion === direccion)
+            && (!q.origen || (g.direccion === 'entra' && g.grupo === q.origen))
+            && (!q.sucursal_venta || h.sucursal_doc === q.sucursal_venta);
         }).map((h) => h.id);
       }
       const soloDelLibro = q.uncategorized === 'true' || !!q.recon_status || idsDelArea !== null;
@@ -1735,7 +1748,14 @@ export class FinanceBankService {
       // [BFU.4.5.6] + quién explica cada peso, por área, con el nombre del departamento (o del grupo declarado).
       cobertura_categoria: (() => {
         const c = coberturaDeCategoria(filasCobertura, todayMx(), totalBanco);
-        for (const a of c.por_area) a.nombre = nombresDeArea.get(a.area) ?? NOMBRE_DE_GRUPO[a.area] ?? a.area;
+        const nombreDeArea = (k: string) => nombresDeArea.get(k) ?? NOMBRE_DE_GRUPO[k] ?? k;
+        for (const a of c.por_area) a.nombre = nombreDeArea(a.area);
+        // [BFU.4.5.12] Las entradas se nombran por su origen; la venta de tienda, por sucursal; las salidas, por área.
+        for (const g of c.entradas?.grupos ?? []) {
+          g.nombre = NOMBRE_DE_ORIGEN[g.area] ?? g.area;
+          for (const x of g.sucursales ?? []) x.nombre = warehouseName(x.sucursal) || 'Sin sucursal';
+        }
+        for (const g of c.salidas?.grupos ?? []) g.nombre = nombreDeArea(g.area);
         return c;
       })(),
       recon_estado: reconEstado,

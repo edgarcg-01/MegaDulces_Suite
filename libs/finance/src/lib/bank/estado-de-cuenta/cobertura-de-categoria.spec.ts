@@ -1,4 +1,4 @@
-import { coberturaDeCategoria, leerFila, type FilaDeCobertura } from './cobertura-de-categoria';
+import { coberturaDeCategoria, grupoDeLaFila, leerFila, type FilaDeCobertura } from './cobertura-de-categoria';
 
 const HOY = '2026-11-23'; // lunes
 const f = (o: Partial<FilaDeCobertura>): FilaDeCobertura =>
@@ -40,7 +40,7 @@ describe('[BFU.7.6] coberturaDeCategoria — con categoría + por qué y de qui�
   });
   it('sin renglones: ceros, no inventa nada', () => {
     expect(coberturaDeCategoria([], HOY, 0)).toEqual({ evaluados: 0, con_categoria: { n: 0, monto: 0 }, por_resolver: [],
-      sin_motivo: { n: 0, monto: 0 }, suma_cuadra: true, vencidos_al_leer: 0, por_area: [], explicado: null });
+      sin_motivo: { n: 0, monto: 0 }, suma_cuadra: true, vencidos_al_leer: 0, por_area: [], explicado: null, entradas: null, salidas: null });
   });
 });
 
@@ -140,5 +140,66 @@ describe('[BFU.4.5.6] coberturaDeCategoria — quién explica cada peso, por ár
     expect(leerFila(filas[5], HOY)).toMatchObject({ area: 'por_asignar', explicado: true, por_que_no: null, atrasado: false });
     // [negativa] lo explicado nunca está «atrasado», por viejo que sea (el atraso es de lo que falta ligar).
     expect(leerFila(h({ documento: true, fecha: '2026-11-03' }), HOY)).toMatchObject({ explicado: true, atrasado: false });
+  });
+});
+
+describe('[BFU.4.5.12] coberturaDeCategoria — lo que entró por su origen, lo que salió por su área', () => {
+  const h = (o: Partial<FilaDeCobertura>): FilaDeCobertura => f({ con_categoria: true, area: 'credito_cobranza', entra: true, categoria: 'cobranza',
+    classified_by: 'documento', fuente: 'documento', documento: true, pago: false, cliente: false, ...o });
+  const filas: FilaDeCobertura[] = [
+    h({ origen_doc: 'venta_tienda', sucursal_doc: '08', n: 5, monto: 500 }),
+    h({ origen_doc: 'venta_tienda', sucursal_doc: '05', n: 2, monto: 900 }),
+    h({ origen_doc: 'cobranza', n: 3, monto: 300 }),
+    h({ origen_doc: 'traspaso', categoria: 'traspaso_entre_cuentas', area: 'tesoreria', n: 1, monto: 1000 }),
+    // sin documento: lo que dice el banco, y falta ligar (D8)
+    h({ documento: false, fuente: 'deposito', concepto: 'VENTAS DEBITO/0001 TERMINALES PUNTO DE VENTA', fecha: '2026-11-03', n: 4, monto: 40 }),
+    h({ documento: false, fuente: 'deposito', concepto: 'DEPOSITO DE PRESTAMO/0000123', n: 1, monto: 11000 }),
+    // retiros: por área, como siempre
+    h({ entra: false, origen_doc: 'otro_documento', area: 'compras', categoria: 'compra_mercancia', n: 2, monto: 700 }),
+    h({ entra: false, con_categoria: false, area: null, categoria: null, fuente: null, documento: false, motivo: 'pareo_debil', responsable: 'tesoreria', n: 1, monto: 60 }),
+  ];
+  const c = coberturaDeCategoria(filas, HOY, 19);
+  const ent = (k: string) => c.entradas!.grupos.find((g) => g.area === k)!;
+
+  it('⛔ las dos direcciones parten el periodo: entradas + salidas = evaluados, en renglones y en pesos', () => {
+    expect(c.entradas!.n + c.salidas!.n).toBe(c.evaluados);
+    expect(c.entradas!.monto + c.salidas!.monto).toBe(c.por_area.reduce((t, a) => t + a.monto, 0));
+    expect(c.entradas).toMatchObject({ n: 16, monto: 13740 });
+    expect(c.salidas).toMatchObject({ n: 3, monto: 760 });
+  });
+  it('⛔ cada dirección es la suma de sus grupos, y en cada grupo explicado + por ligar = n', () => {
+    for (const d of [c.entradas!, c.salidas!]) {
+      expect(d.grupos.reduce((t, g) => t + g.n, 0)).toBe(d.n);
+      for (const g of d.grupos) expect(g.explicado!.n + g.por_ligar!.n).toBe(g.n);
+      expect(d.explicado!.n + d.por_ligar!.n).toBe(d.n);
+    }
+    expect(c.entradas!.explicado!.n + c.salidas!.explicado!.n).toBe(c.explicado!.n);
+  });
+  it('las entradas van por su origen, en orden de lectura: primero lo que tiene documento, después lo que falta ligar', () => {
+    expect(c.entradas!.grupos.map((g) => g.area)).toEqual(['venta_tienda', 'cobranza', 'traspaso', 'sin_documento:terminal', 'sin_documento:prestamo']);
+    expect(ent('sin_documento:terminal')).toMatchObject({ n: 4, explicado: { n: 0 }, por_ligar: { n: 4, monto: 40 }, atrasados: 4 });
+  });
+  it('la venta de tienda se abre por sucursal del corte, la de más dinero primero, y suma el grupo', () => {
+    expect(ent('venta_tienda').sucursales).toEqual([{ sucursal: '05', n: 2, monto: 900 }, { sucursal: '08', n: 5, monto: 500 }]);
+    expect(ent('cobranza').sucursales).toBeUndefined();
+  });
+  it('las salidas van por el área que las explica; lo que más falta ligar, primero', () => {
+    expect(c.salidas!.grupos.map((g) => g.area)).toEqual(['tesoreria', 'compras']);
+  });
+  it('grupoDeLaFila da el mismo grupo que la cifra (lo usa el filtro de la lista)', () => {
+    expect(grupoDeLaFila(filas[0], HOY)).toEqual({ direccion: 'entra', grupo: 'venta_tienda' });
+    expect(grupoDeLaFila(filas[5], HOY)).toEqual({ direccion: 'entra', grupo: 'sin_documento:prestamo' });
+    expect(grupoDeLaFila(filas[7], HOY)).toEqual({ direccion: 'sale', grupo: 'tesoreria' });
+  });
+  it('⛔ [negativa] un renglón sin dirección conocida NO se reparte: entradas y salidas salen null', () => {
+    const d = coberturaDeCategoria([...filas, h({ entra: null })], HOY);
+    expect(d.entradas).toBeNull();
+    expect(d.salidas).toBeNull();
+    expect(grupoDeLaFila(h({ entra: null }), HOY).direccion).toBeNull();
+  });
+  it('⛔ [negativa] un grupo con un renglón sin hechos no se mide: su dirección tampoco (null, nunca cero)', () => {
+    const d = coberturaDeCategoria([h({ origen_doc: 'cobranza' }), h({ origen_doc: 'cobranza', documento: undefined })], HOY);
+    expect(d.entradas!.grupos[0]).toMatchObject({ area: 'cobranza', n: 2, explicado: null, por_ligar: null });
+    expect(d.entradas).toMatchObject({ n: 2, explicado: null, por_ligar: null, atrasados: null });
   });
 });

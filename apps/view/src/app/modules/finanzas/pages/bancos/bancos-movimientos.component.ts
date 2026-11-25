@@ -38,11 +38,13 @@ import { CategorizarEgresoComponent } from '../../../../shared/components/catego
       <p-select [options]="reconOpts()" optionLabel="label" optionValue="value"
                 [ngModel]="fRecon()" (ngModelChange)="filter.emit({ field: 'recon', value: $event })"
                 appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Estado de conciliación"></p-select>
-      <!-- [BFU.4.5.6] Por área (departamento) y lo que falta ligar: la misma regla del servidor que «Quién explica cada peso». -->
-      @if (areaOpts().length > 1) {
-        <p-select [options]="areaOpts()" optionLabel="label" optionValue="value" [filter]="true"
-                  [ngModel]="fArea()" (ngModelChange)="filter.emit({ field: 'area', value: $event })"
-                  appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Área"></p-select>
+      <!-- [BFU.4.5.6] Por área (departamento) y lo que falta ligar: la misma regla del servidor que «Quién explica cada peso».
+           [BFU.4.5.12] Un solo selector: entradas por su origen (y la venta de tienda por sucursal), salidas por su área. -->
+      @if (grupoOpts().length) {
+        <p-select [options]="grupoOpts()" [group]="true" optionGroupLabel="label" optionGroupChildren="items"
+                  optionLabel="label" optionValue="value" [filter]="true" placeholder="Entradas y salidas" [showClear]="!!fGrupo()"
+                  [ngModel]="fGrupo() || null" (ngModelChange)="filter.emit({ field: 'grupo', value: $event || '' })"
+                  appendTo="body" styleClass="fb-sel sel-liquid" ariaLabel="Entradas o salidas, por origen o área"></p-select>
         <span class="fb-check">
           <p-checkbox [ngModel]="fPorLigar()" [binary]="true" inputId="fPorLigar" (onChange)="filter.emit({ field: 'porLigar', value: $event.checked })"></p-checkbox>
           <label for="fPorLigar">Solo por ligar</label>
@@ -335,8 +337,9 @@ export class BancosMovimientosComponent {
   readonly descarga = input<DescargaEnMovimientos | null>(null);
   readonly fDescarga = input<string>('');
   /** [BFU.4.5.6] Las áreas del periodo (la primera opción es «Todas»); sin cobertura, no se pinta el filtro. */
-  readonly areaOpts = input<{ label: string; value: string }[]>([]);
-  readonly fArea = input<string>('');
+  /** [BFU.4.5.12] Grupos del selector: «Entradas» (por origen y sucursal) y «Salidas» (por área). Valor: `dir|grupo|sucursal`. */
+  readonly grupoOpts = input<{ label: string; items: { label: string; value: string }[] }[]>([]);
+  readonly fGrupo = input<string>('');
   readonly fPorLigar = input<boolean>(false);
   @Output() filter = new EventEmitter<{ field: string; value: any }>();
   @Output() searchChange = new EventEmitter<string>();

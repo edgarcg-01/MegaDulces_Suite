@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Output, computed, input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -17,21 +18,112 @@ import { BANCOS_STYLES } from './bancos.styles';
 @Component({
   selector: 'bancos-cuentas',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TableModule, TagModule, MetricStripComponent],
+  imports: [CommonModule, RouterLink, ButtonModule, TableModule, TagModule, MetricStripComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <!-- [BFU.4.5.6] Quién explica cada peso, por área (maqueta «Bancos por área», tablero 1). Primario = el porcentaje
-         explicado y lo que falta ligar; secundario = la tabla por área, lo más pendiente arriba; terciario = el motivo.
-         Cada área abre sus movimientos (la MISMA regla del servidor que esta cifra: leerFila). -->
+    <!-- [BFU.4.5.6] Quién explica cada peso (maqueta «Bancos por área», tablero 1).
+         [BFU.4.5.12] Partido en lo que ENTRÓ y lo que SALIÓ (Edgar, 2026-11-25: «a simple vista le falta si es ingreso o
+         egreso, y faltan las ventas de la tienda»). Primario = cuánto entró, cuánto salió, la venta de tienda y lo que falta
+         ligar; secundario = las dos tablas (entradas por su ORIGEN, salidas por su ÁREA); terciario = lo que dice el banco
+         y el motivo. Cada renglón abre sus movimientos con la MISMA regla del servidor (grupoDeLaFila). -->
     @if (cobertura(); as cob) {
       <section class="card-premium card-flat fb-tablewrap fb-areas" aria-labelledby="fb-areas-t">
-        <h3 id="fb-areas-t" class="fb-card-title fb-pnl-title">Quién explica cada peso <span class="muted">— por área, sobre la descarga del banco · explicado = tiene su documento de Kepler, su pago del Calendario, su cliente, o el banco dice qué es · clic en un área para ver sus movimientos</span></h3>
-        @if (cob.explicado) {
-          <app-metric-strip [items]="cifras()" density="compact" ariaLabel="Quién explica cada peso" (drill)="abrirPorLigar()" />
+        <h3 id="fb-areas-t" class="fb-card-title fb-pnl-title">De dónde viene y a dónde va cada peso <span class="muted">— sobre la descarga del banco · explicado = tiene su documento de Kepler, su pago del Calendario, su cliente, o el banco dice qué es · clic en un renglón para ver sus movimientos</span></h3>
+        @if (cob.explicado && cob.entradas && cob.salidas) {
+          <app-metric-strip [items]="cifras()" density="compact" ariaLabel="De dónde viene y a dónde va cada peso" (drill)="onDrill($event)" />
+        } @else if (!cob.entradas || !cob.salidas) {
+          <p class="fb-areas-nm" role="status"><i class="pi pi-info-circle" aria-hidden="true"></i> No se pudo separar lo que entró de lo que salió en este periodo: se muestra el reparto por área.</p>
         } @else {
-          <p class="fb-areas-nm" role="status"><i class="pi pi-info-circle" aria-hidden="true"></i> Lo explicado no se pudo medir en este periodo: se muestra sólo el reparto por área.</p>
+          <p class="fb-areas-nm" role="status"><i class="pi pi-info-circle" aria-hidden="true"></i> Lo explicado no se pudo medir en este periodo.</p>
         }
-        <p-table [value]="areas()" dataKey="area" size="small" [rowHover]="true" class="surf-table surf-table--plain">
+
+        @if (cob.entradas; as ent) {
+          <h4 class="fb-dir" id="fb-ent-t"><i class="pi pi-arrow-down-left" aria-hidden="true"></i> Entradas <span class="muted">— de dónde vino el dinero</span>
+            <span class="fb-dir-tot mono">{{ ent.monto | currency:'MXN':'symbol-narrow':'1.0-0' }} · {{ ent.n | number }} depósitos</span></h4>
+          <p-table [value]="ent.grupos" dataKey="area" size="small" [rowHover]="true" class="surf-table surf-table--plain" ariaLabelledBy="fb-ent-t">
+            <ng-template #header>
+              <tr>
+                <th scope="col">De dónde vino</th>
+                <th scope="col" class="ta-r comm-num">Movimientos</th>
+                <th scope="col" class="ta-r comm-num">Pesos</th>
+                <th scope="col" class="fb-col-expl">Explicado</th>
+                <th scope="col" class="ta-r comm-num">Por ligar</th>
+                <th scope="col" class="ta-r comm-num">Más de 5 días hábiles</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-g let-expanded="expanded">
+              <tr class="fb-row-click" tabindex="0" (click)="abrirEntrada(g, false)" (keydown.enter)="abrirEntrada(g, false)"
+                  (keydown.space)="$event.preventDefault(); abrirEntrada(g, false)">
+                <th scope="row" class="fb-area-n">
+                  <span class="fb-org">
+                    @if (g.sucursales?.length) {
+                      <button type="button" class="fb-tog" [pRowToggler]="g" (click)="$event.stopPropagation()" (keydown.enter)="$event.stopPropagation()"
+                              [attr.aria-expanded]="expanded" [attr.aria-label]="(expanded ? 'Plegar' : 'Ver') + ' la venta de tienda por sucursal'">
+                        <i class="pi" [class.pi-chevron-down]="expanded" [class.pi-chevron-right]="!expanded" aria-hidden="true"></i></button>
+                    }
+                    <span>{{ g.nombre || g.area }}<span class="sr-only">, abre sus movimientos</span>
+                      <span class="fb-area-at">{{ queEs(g.area) }}</span></span>
+                  </span>
+                </th>
+                <td class="ta-r mono comm-num">{{ g.n | number }}</td>
+                <td class="ta-r mono comm-num">{{ g.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td>
+                  @if (pctExplicado(g); as p) {
+                    <span class="fb-expl"><span class="fb-bar" aria-hidden="true"><span [style.width.%]="p.pct"></span></span><span class="mono">{{ p.pct }} %</span></span>
+                  } @else { <span class="muted">no medido</span> }
+                </td>
+                <td class="ta-r comm-num">
+                  @if (g.por_ligar === null) { <span class="muted">no medido</span> }
+                  @else if (g.por_ligar.n > 0) {
+                    <button type="button" class="fb-ligar" (click)="$event.stopPropagation(); abrirEntrada(g, true)"
+                            [attr.aria-label]="'Ver los ' + g.por_ligar.n + ' movimientos por ligar de ' + (g.nombre || g.area)">
+                      <b class="mono">{{ g.por_ligar.n | number }}</b> <span class="mono muted">{{ g.por_ligar.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></button>
+                  } @else { <span class="muted">—</span> }
+                </td>
+                <td class="ta-r comm-num">
+                  @if (g.atrasados) { <p-tag [value]="(g.atrasados | number) ?? ''" severity="warn" /> }
+                  @else if (g.atrasados === null) { <span class="muted">no medido</span> }
+                  @else { <span class="muted">—</span> }
+                </td>
+              </tr>
+            </ng-template>
+            <!-- [BFU.4.5.12] La venta de tienda por sucursal del corte: cada una abre sus depósitos y lleva a sus cortes. -->
+            <ng-template #expandedrow let-g>
+              @for (x of g.sucursales ?? []; track x.sucursal) {
+                <tr class="fb-row-click fb-suc" tabindex="0" (click)="abrirSucursal(g, x)" (keydown.enter)="abrirSucursal(g, x)"
+                    (keydown.space)="$event.preventDefault(); abrirSucursal(g, x)">
+                  <th scope="row" class="fb-suc-n">{{ x.nombre || x.sucursal }}<span class="sr-only">, abre sus depósitos</span></th>
+                  <td class="ta-r mono comm-num">{{ x.n | number }}</td>
+                  <td class="ta-r mono comm-num">{{ x.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                  <td colspan="3">
+                    <a class="fb-cortes" [routerLink]="['/finanzas/cortes-sucursales']" [queryParams]="{ month: period(), sucursal: x.sucursal }"
+                       (click)="$event.stopPropagation()" (keydown.enter)="$event.stopPropagation()">Ver sus cortes de caja <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
+                  </td>
+                </tr>
+              }
+            </ng-template>
+            <ng-template #footer>
+              <tr class="fb-areas-tot">
+                <th scope="row">Total entradas</th>
+                <td class="ta-r mono comm-num">{{ ent.n | number }}</td>
+                <td class="ta-r mono comm-num">{{ ent.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td>@if (pctDe(ent); as p) { <span class="mono">{{ p }} %</span> }</td>
+                <td class="ta-r mono comm-num">@if (ent.por_ligar; as l) { {{ l.n | number }} }</td>
+                <td class="ta-r mono comm-num">@if (ent.atrasados !== null) { {{ ent.atrasados | number }} }</td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="6"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin depósitos en {{ period() }}.</p></div></td></tr>
+            </ng-template>
+          </p-table>
+        }
+
+        @if (cob.salidas; as sal) {
+          <h4 class="fb-dir" id="fb-sal-t"><i class="pi pi-arrow-up-right" aria-hidden="true"></i> Salidas <span class="muted">— quién explica cada pago</span>
+            <span class="fb-dir-tot mono">{{ sal.monto | currency:'MXN':'symbol-narrow':'1.0-0' }} · {{ sal.n | number }} retiros</span></h4>
+        }
+        <p-table [value]="tablaDeAreas()" dataKey="area" size="small" [rowHover]="true" class="surf-table surf-table--plain"
+                 [attr.aria-labelledby]="cob.salidas ? 'fb-sal-t' : null">
           <ng-template #header>
             <tr>
               <th scope="col">Área</th>
@@ -76,18 +168,30 @@ import { BANCOS_STYLES } from './bancos.styles';
             </tr>
           </ng-template>
           <ng-template #footer>
-            <tr class="fb-areas-tot">
-              <th scope="row">Total</th>
-              <td class="ta-r mono comm-num">{{ cob.evaluados | number }}</td>
-              <td class="ta-r mono comm-num">{{ totalPesos() | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-              <td>@if (cob.explicado; as e) { <span class="mono">{{ pctTotal() }} %</span> }</td>
-              <td class="ta-r mono comm-num">@if (cob.explicado; as e) { {{ e.por_ligar.n | number }} }</td>
-              <td class="ta-r mono comm-num">@if (cob.explicado; as e) { {{ e.atrasados | number }} }</td>
-              <td>@if (cob.suma_cuadra === false) { <span class="bad">las áreas no suman el total</span> }</td>
-            </tr>
+            @if (cob.salidas; as sal) {
+              <tr class="fb-areas-tot">
+                <th scope="row">Total salidas</th>
+                <td class="ta-r mono comm-num">{{ sal.n | number }}</td>
+                <td class="ta-r mono comm-num">{{ sal.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td>@if (pctDe(sal); as p) { <span class="mono">{{ p }} %</span> }</td>
+                <td class="ta-r mono comm-num">@if (sal.por_ligar; as l) { {{ l.n | number }} }</td>
+                <td class="ta-r mono comm-num">@if (sal.atrasados !== null) { {{ sal.atrasados | number }} }</td>
+                <td>@if (cob.suma_cuadra === false) { <span class="bad">los renglones no suman el total del banco</span> }</td>
+              </tr>
+            } @else {
+              <tr class="fb-areas-tot">
+                <th scope="row">Total</th>
+                <td class="ta-r mono comm-num">{{ cob.evaluados | number }}</td>
+                <td class="ta-r mono comm-num">{{ totalPesos() | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                <td>@if (cob.explicado; as e) { <span class="mono">{{ pctTotal() }} %</span> }</td>
+                <td class="ta-r mono comm-num">@if (cob.explicado; as e) { {{ e.por_ligar.n | number }} }</td>
+                <td class="ta-r mono comm-num">@if (cob.explicado; as e) { {{ e.atrasados | number }} }</td>
+                <td>@if (cob.suma_cuadra === false) { <span class="bad">las áreas no suman el total</span> }</td>
+              </tr>
+            }
           </ng-template>
           <ng-template #emptymessage>
-            <tr><td colspan="7"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos del banco en {{ period() }}.</p></div></td></tr>
+            <tr><td colspan="7"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin {{ cob.salidas ? 'retiros' : 'movimientos del banco' }} en {{ period() }}.</p></div></td></tr>
           </ng-template>
         </p-table>
       </section>
@@ -244,6 +348,21 @@ import { BANCOS_STYLES } from './bancos.styles';
     .fb-ligar:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
     .fb-area-mot { font-size: var(--fs-xs); color: var(--text-main); }
     .fb-areas-tot > th, .fb-areas-tot > td { font-weight: 700; }
+    /* [BFU.4.5.12] Entradas y salidas: un encabezado por dirección, con su total a la derecha. */
+    .fb-dir { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-1);
+      font-size: var(--fs-h3); font-weight: 700; color: var(--text-main); }
+    .fb-dir .pi { font-size: var(--fs-sm); color: var(--text-muted); }
+    .fb-dir .muted { font-weight: 400; font-size: var(--fs-sm); }
+    .fb-dir-tot { margin-left: auto; font-size: var(--fs-sm); font-weight: 600; }
+    .fb-org { display: inline-flex; align-items: flex-start; gap: var(--sp-1); }
+    .fb-tog { display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; flex: none;
+      background: none; border: 0; border-radius: var(--r-sm); color: var(--text-muted); cursor: pointer; padding: 0; }
+    .fb-tog:hover { background: var(--hover-bg); color: var(--text-main); }
+    .fb-tog:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+    tr.fb-suc > th, tr.fb-suc > td { background: var(--surface-ground); }
+    tr.fb-suc > th.fb-suc-n { text-align: left; font-weight: 400; color: var(--text-main); padding-left: calc(var(--sp-3) + 1.5rem); }
+    .fb-cortes { font-size: var(--fs-xs); color: var(--text-main); text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+    .fb-cortes:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
   `],
 })
 export class BancosCuentasComponent {
@@ -253,9 +372,27 @@ export class BancosCuentasComponent {
     try {
       const b = this.balances();
       await exportXlsx('Cuentas ' + this.period(), [
-        // [BFU.4.5.6] Lo mismo que la tabla «Quién explica cada peso», en el mismo orden.
+        // [BFU.4.5.12] Lo mismo que la tabla de entradas, en el mismo orden; la venta de tienda, también por sucursal.
+        ...(this.cobertura()?.entradas ? [{
+          name: 'Entradas', subtitle: this.period(),
+          rows: this.cobertura()!.entradas!.grupos.flatMap((g) => [g,
+            ...(g.sucursales ?? []).map((x) => ({ ...x, area: g.area, _suc: true, nombre: `   ${g.nombre || g.area} · ${x.nombre || x.sucursal}` }))]),
+          cols: [
+            { header: 'De donde vino', get: (r: any) => r.nombre || r.area, width: 34 },
+            { header: 'Que es', get: (r: any) => (r._suc ? 'sucursal del corte' : this.queEs(r.area)), width: 34 },
+            { header: 'Movimientos', get: (r: any) => (r._suc ? null : r.n), type: 'int' as const, total: true },
+            { header: 'Pesos', get: (r: any) => (r._suc ? null : r.monto), type: 'money' as const, total: true },
+            { header: 'Movimientos de la sucursal', get: (r: any) => (r._suc ? r.n : null), type: 'int' as const },
+            { header: 'Pesos de la sucursal', get: (r: any) => (r._suc ? r.monto : null), type: 'money' as const },
+            { header: 'Pesos explicados', get: (r: any) => (r._suc ? null : r.explicado?.monto ?? null), type: 'money' as const, total: true },
+            { header: 'Por ligar', get: (r: any) => (r._suc ? null : r.por_ligar?.n ?? null), type: 'int' as const, total: true },
+            { header: 'Por ligar (pesos)', get: (r: any) => (r._suc ? null : r.por_ligar?.monto ?? null), type: 'money' as const, total: true },
+            { header: 'Mas de 5 dias habiles', get: (r: any) => (r._suc ? null : r.atrasados), type: 'int' as const, total: true },
+          ],
+        }] : []),
+        // [BFU.4.5.6] Lo mismo que la tabla de áreas (con direcciones: las salidas), en el mismo orden.
         ...(this.cobertura() ? [{
-          name: 'Por area', subtitle: this.period(), rows: this.areas(),
+          name: this.cobertura()?.salidas ? 'Salidas' : 'Por area', subtitle: this.period(), rows: this.tablaDeAreas(),
           cols: [
             { header: 'Area', get: (r: any) => r.nombre || r.area, width: 26 },
             { header: 'Lo atiende', get: (r: any) => (r.atiende && r.atiende !== r.area ? this.nombreDe(r.atiende) : ''), width: 14 },
@@ -307,35 +444,58 @@ export class BancosCuentasComponent {
   @Output() openAccount = new EventEmitter<{ bank: string; account_label: string }>();
   /** [BFU.0.2] El shell lleva a Estados de cuenta, donde se pasa una cuenta al banco. */
   @Output() irAEstados = new EventEmitter<void>();
-  /** [BFU.4.5.6] El shell abre Movimientos con esa área ('' = todas) y, si se pidió, sólo lo que falta ligar. */
-  @Output() openArea = new EventEmitter<{ area: string; nombre: string; porLigar: boolean }>();
+  /**
+   * [BFU.4.5.6] El shell abre Movimientos con ese grupo y, si se pidió, sólo lo que falta ligar.
+   * [BFU.4.5.12] Una entrada va por su origen (y la venta de tienda, por sucursal); una salida, por su área.
+   */
+  @Output() openGrupo = new EventEmitter<{ direccion?: '' | 'entra' | 'sale'; area?: string; origen?: string; sucursal?: string; porLigar?: boolean }>();
   dm = dmShort;
 
-  // ── [BFU.4.5.6] Quién explica cada peso, por área ─────────────────────────────────────────────
+  // ── [BFU.4.5.6] Quién explica cada peso · [BFU.4.5.12] lo que entró y lo que salió ──────────────────
   readonly cobertura = computed<CoberturaCategoria | null>(() => this.diagnostico()?.cobertura_categoria ?? null);
-  /** Lo más pendiente arriba (pesos por ligar), y después lo que más dinero mueve. */
-  readonly areas = computed<CoberturaPorArea[]>(() => [...(this.cobertura()?.por_area ?? [])]
-    .sort((x, y) => (y.por_ligar?.monto ?? 0) - (x.por_ligar?.monto ?? 0) || y.monto - x.monto));
+  /**
+   * La tabla de áreas: las SALIDAS por área; si la API no separa direcciones (anterior, o algún renglón sin dirección),
+   * todas por área como antes. Lo más pendiente arriba, y después lo que más dinero mueve.
+   */
+  readonly tablaDeAreas = computed<CoberturaPorArea[]>(() => {
+    const cob = this.cobertura();
+    return [...(cob?.salidas?.grupos ?? cob?.por_area ?? [])]
+      .sort((x, y) => (y.por_ligar?.monto ?? 0) - (x.por_ligar?.monto ?? 0) || y.monto - x.monto);
+  });
   readonly totalPesos = computed(() => (this.cobertura()?.por_area ?? []).reduce((s, a) => s + Number(a.monto || 0), 0));
   readonly pctTotal = computed(() => {
     const e = this.cobertura()?.explicado, t = this.totalPesos();
     return e && t ? Math.round((1000 * e.monto) / t) / 10 : null;
   });
   readonly cifras = computed<MetricStripItem[]>(() => {
-    const cob = this.cobertura(), t = this.totalPesos(), pct = this.pctTotal();
-    const e = cob?.explicado;
-    if (!cob || !e) return [];
-    const completas = cob.por_area.filter((a) => a.por_ligar && a.por_ligar.n === 0).length;
-    const pendientes = cob.por_area.filter((a) => (a.por_ligar?.n ?? 0) > 0).map((a) => a.nombre || a.area);
+    const cob = this.cobertura();
+    const e = cob?.explicado, ent = cob?.entradas, sal = cob?.salidas;
+    if (!cob || !e || !ent || !sal) return [];
+    const tienda = ent.grupos.find((g) => g.area === 'venta_tienda');
     return [
-      { label: 'Pesos explicados', value: `${pct ?? 0} %`, format: 'text', sub: `${millones(e.monto)} de ${millones(t)}` },
+      { label: 'Entró', value: millones(ent.monto), format: 'text', sub: `${num(ent.n)} depósitos · ${this.pctDe(ent) ?? 0} % explicado`,
+        drill: 'entra', drillLabel: 'Ver todo lo que entró' },
+      { label: 'Salió', value: millones(sal.monto), format: 'text', sub: `${num(sal.n)} retiros · ${this.pctDe(sal) ?? 0} % explicado`,
+        drill: 'sale', drillLabel: 'Ver todo lo que salió' },
+      { label: 'Venta de tienda', value: millones(tienda?.monto ?? 0), format: 'text',
+        sub: tienda ? `${num(tienda.n)} depósitos · ${tienda.sucursales?.length ?? 0} sucursales · ligada a sus cortes` : 'ningún depósito ligado a un corte',
+        ...(tienda ? { drill: 'venta_tienda', drillLabel: 'Ver los depósitos de venta de tienda' } : {}) },
       { label: 'Por ligar', value: e.por_ligar.n, format: 'number', sub: `movimientos · ${millones(e.por_ligar.monto)}`,
         tone: e.por_ligar.n ? 'warn' : 'ok', drill: 'por_ligar', drillLabel: 'Ver los movimientos por ligar' },
       { label: 'Más de 5 días hábiles', value: e.atrasados, format: 'number', sub: 'de lo que falta ligar', tone: e.atrasados ? 'bad' : 'ok' },
-      { label: 'Áreas con todo explicado', value: `${completas} de ${cob.por_area.length}`, format: 'text',
-        sub: pendientes.length ? `faltan ${pendientes.join(', ')}` : 'todas' },
     ];
   });
+  /** El porcentaje de PESOS explicados de una dirección (`null` = no medido). */
+  pctDe(d: { monto: number; n: number; explicado: { n: number; monto: number } | null }): number | null {
+    if (!d.explicado) return null;
+    const base = d.monto ? d.monto : d.n, parte = d.monto ? d.explicado.monto : d.explicado.n;
+    return base ? Math.round((1000 * parte) / base) / 10 : 0;
+  }
+  /** [BFU.4.5.12] Qué es cada origen, en una línea, bajo su nombre: de dónde sale el dato. */
+  queEs(clave: string): string {
+    if (clave.startsWith('sin_documento:')) return 'sin documento de Kepler · así lo nombra el banco';
+    return QUE_ES[clave] ?? '';
+  }
   /** El porcentaje de PESOS explicados de un área (por renglones si no movió dinero); null = no medido. */
   pctExplicado(a: CoberturaPorArea): { pct: number } | null {
     if (!a.explicado) return null;
@@ -347,8 +507,20 @@ export class BancosCuentasComponent {
     return this.cobertura()?.por_area.find((x) => x.area === code)?.nombre ?? (code === 'tesoreria' ? 'Tesorería' : code);
   }
   motivo = motivoPorLigar;
-  abrirArea(a: CoberturaPorArea, porLigar: boolean): void { this.openArea.emit({ area: a.area, nombre: a.nombre || a.area, porLigar }); }
-  abrirPorLigar(): void { this.openArea.emit({ area: '', nombre: '', porLigar: true }); }
+  /** Un renglón de la tabla de áreas: con direcciones, son salidas; sin ellas (API anterior), el área sola. */
+  abrirArea(a: CoberturaPorArea, porLigar: boolean): void {
+    this.openGrupo.emit({ direccion: this.cobertura()?.salidas ? 'sale' : '', area: a.area, porLigar });
+  }
+  abrirEntrada(g: CoberturaPorArea, porLigar: boolean): void { this.openGrupo.emit({ direccion: 'entra', origen: g.area, porLigar }); }
+  abrirSucursal(g: CoberturaPorArea, x: { sucursal: string }): void {
+    this.openGrupo.emit({ direccion: 'entra', origen: g.area, sucursal: x.sucursal });
+  }
+  /** Las cifras de arriba: entró / salió / venta de tienda / por ligar. */
+  onDrill(k: string): void {
+    if (k === 'entra' || k === 'sale') this.openGrupo.emit({ direccion: k });
+    else if (k === 'venta_tienda') this.openGrupo.emit({ direccion: 'entra', origen: 'venta_tienda' });
+    else this.openGrupo.emit({ porLigar: true });
+  }
 
   /** [BFU.0.1] Día hasta donde trae el banco, sólo si va adelante de lo que se muestra (cuenta con el libro). */
   bancoAdelante(a: BalanceRow): string | null {
@@ -372,6 +544,17 @@ export class BancosCuentasComponent {
     return it?.evidencia ?? [];
   }
 }
+
+/** `[BFU.4.5.12]` La línea bajo cada origen de las entradas: de qué documento sale. */
+const QUE_ES: Readonly<Record<string, string>> = {
+  venta_tienda: 'cobro de un corte de caja de la sucursal',
+  cobranza: 'cobro de una factura a un cliente',
+  traspaso: 'de otra cuenta propia',
+  devolucion: 'el banco regresó una transferencia',
+  otro_documento: 'casado con otro documento',
+};
+
+const num = (v: number) => new Intl.NumberFormat('es-MX').format(Number(v || 0));
 
 /** `[BFU.4.5.6]` Pesos en millones para el subtítulo de una cifra («$80.9 M»); debajo del millón, completo. */
 function millones(v: number): string {
