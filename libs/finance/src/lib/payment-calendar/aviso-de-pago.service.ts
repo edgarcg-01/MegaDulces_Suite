@@ -13,7 +13,7 @@ import { anexarPdfs, type PdfEvidencia } from '../expense-dossier/evidencias-pdf
 import { SQL_CIERRE_KEPLER, type FilaCierreKepler } from './cierre-kepler.sql';
 import { SQL_LLAVES_DE_RENGLONES, leerCfdiDeFacturas } from './cfdi-factura.sql';
 import {
-  SQL_ACREEDOR_DEL_AVISO, SQL_AVISOS_DEL_PAGO, SQL_COMPROBANTE_DEL_AVISO, SQL_FACTURAS_DEL_AVISO, SQL_PAGO_DEL_AVISO,
+  SQL_ACREEDOR_DEL_AVISO, SQL_AVISOS_DEL_PAGO, SQL_BANCO_DEL_AVISO, SQL_COMPROBANTE_DEL_AVISO, SQL_FACTURAS_DEL_AVISO, SQL_PAGO_DEL_AVISO,
   SQL_REFERENCIAS_DE_APLICACIONES, SQL_RENGLONES_DEL_AVISO,
 } from './aviso-de-pago.sql';
 import { htmlDelAviso } from './aviso-de-pago.html';
@@ -71,6 +71,10 @@ export class AvisoDePagoService {
       const comp = (await trx.raw(SQL_COMPROBANTE_DEL_AVISO, [tenantId, allocationId])).rows[0] as {
         id: string; rastreo: string | null; fecha: string | null; cuenta_origen: string | null; cuenta_destino: string | null;
         files: unknown;
+      } | undefined;
+      // `[PGP.208]` Lo que el comprobante no dice lo dice la descarga del banco, si el banco probó este pago.
+      const banco = (await trx.raw(SQL_BANCO_DEL_AVISO, [tenantId, allocationId])).rows[0] as {
+        rastreo: string | null; cuenta_destino: string | null; fecha: string | null;
       } | undefined;
       const renglones = (await trx.raw(SQL_RENGLONES_DEL_AVISO, [tenantId, allocationId])).rows as { item_id: string; pagado: number; descuento: number }[];
       const ids = renglones.map((x) => x.item_id);
@@ -138,7 +142,7 @@ export class AvisoDePagoService {
       const origen = pago.origen_cuenta || pago.origen_banco
         ? [pago.origen_alias || pago.origen_banco, enmascarar(pago.origen_cuenta)].filter(Boolean).join(' ')
         : enmascarar(comp?.cuenta_origen);
-      const destino = enmascarar(pago.destino_clabe || pago.destino_numero || pago.destino_texto || comp?.cuenta_destino);
+      const destino = enmascarar(pago.destino_clabe || pago.destino_numero || pago.destino_texto || comp?.cuenta_destino || banco?.cuenta_destino);
       const archivos = Array.isArray(comp?.files) ? comp?.files as { role?: string; url?: string }[] : typeof comp?.files === 'string' ? JSON.parse(comp.files) as { role?: string; url?: string }[] : [];
       const archivo = archivos.find((f) => f.role === 'comprobante')?.url ?? archivos[0]?.url ?? null;
 
@@ -146,13 +150,13 @@ export class AvisoDePagoService {
         : pago.status === 'pending' ? 'El pago todavía no está marcado pagado: el aviso se manda cuando el dinero ya salió.'
           : pago.status === 'failed' ? 'Este pago rebotó: no hay pago que avisar.' : 'Este pago está cancelado.';
       const base = {
-        rastreo: comp?.rastreo ?? null, comprobante_id: comp?.id ?? null, facturas,
+        rastreo: comp?.rastreo ?? banco?.rastreo ?? null, comprobante_id: comp?.id ?? null, facturas,
       };
       const aviso: AvisoDePago = {
         pago_id: allocationId,
         emisor: emisorFila?.rfc && emisorFila?.tax_name ? { nombre: String(emisorFila.tax_name).trim(), rfc: String(emisorFila.rfc).trim().toUpperCase() } : null,
         proveedor: { codigo, nombre: proveedorFila?.proveedor_nombre?.trim() || codigo || 'Proveedor', rfc: proveedorFila?.rfc?.trim() || null },
-        fecha_pago: comp?.fecha ?? (pago.status === 'executed' ? pago.dia : null),
+        fecha_pago: comp?.fecha ?? banco?.fecha ?? (pago.status === 'executed' ? pago.dia : null),
         importe: r2(Number(pago.importe) || 0),
         origen: origen || null, destino,
         contacto: contactoFila ? { nombre: contactoFila.contact_name ?? null, email: contactoFila.email ?? null, whatsapp: contactoFila.whatsapp ?? null } : null,

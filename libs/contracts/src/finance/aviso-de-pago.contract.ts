@@ -135,7 +135,13 @@ export function normalizarCorreo(crudo: string | null | undefined): string | nul
 export function faltantesDelAviso(a: Pick<AvisoDePago, 'rastreo' | 'comprobante_id' | 'facturas'>): string[] {
   const f: string[] = [];
   if (!a.comprobante_id) f.push('La Suite no tiene el PDF de la transferencia: el aviso sale sin comprobante anexo.');
-  else if (!a.rastreo) f.push('No se pudo leer la clave de rastreo del comprobante.');
+  // `[PGP.208]` La clave puede venir del comprobante o de la descarga del banco; si ninguno la trae, se dice — antes,
+  // sin comprobante, el PDF ponía «—» sin explicar por qué.
+  if (!a.rastreo) {
+    f.push(a.comprobante_id
+      ? 'No se pudo leer la clave de rastreo del comprobante, y la descarga del banco no la trae.'
+      : 'Sin clave de rastreo: no hay comprobante y la descarga del banco no la trae (un traspaso del mismo banco o un cheque no llevan).');
+  }
   const sinUuid = a.facturas.filter((x) => !x.uuid).length;
   if (sinUuid) f.push(`${sinUuid} de ${a.facturas.length} factura${a.facturas.length === 1 ? '' : 's'} sin CFDI ligado: va con su referencia, sin UUID.`);
   return f;
