@@ -24,6 +24,14 @@ export const PATRONES_REVISION: readonly PatronRevision[] = ['weekdays', 'month_
 export type CorrimientoFinDeSemana = 'friday' | 'monday';
 export const CORRIMIENTOS_FIN_DE_SEMANA: readonly CorrimientoFinDeSemana[] = ['friday', 'monday'];
 
+/**
+ * `[PQ.3.15]` La cadencia de una regla por días de la semana (DC29, migración 20261124133043): cada cuántas semanas
+ * (2, 3 o 6; cada semana se guarda NULL) a partir de una fecha, o «una vez al mes». Las mismas listas que el CHECK.
+ */
+export const SEMANAS_CADENCIA: readonly number[] = [2, 3, 6];
+/** «Una vez al mes»: el 1º–4º de ese día en el mes, o éste = el último. */
+export const SEMANA_DEL_MES_ULTIMA = 5;
+
 /** Lo que quien revisa dice de una fecha cuando Kepler no lo dice solo. */
 export type ResultadoRevision = 'ordered_outside_kepler' | 'skipped';
 export const RESULTADOS_REVISION: readonly ResultadoRevision[] = ['ordered_outside_kepler', 'skipped'];
@@ -59,7 +67,16 @@ export interface ReglaRevision {
   readonly month_last_day: boolean;
   readonly every_n_days: number | null;
   readonly weekend_shift: CorrimientoFinDeSemana;
-  /** `null` = revisa el puesto del alcance (corporativo: gerencia de compras; sucursal: su encargado). */
+  /** `[PQ.3.15]` Días de la semana: cada cuántas semanas (2, 3 o 6). `null`/ausente = cada semana. */
+  readonly week_interval?: number | null;
+  /** `[PQ.3.15]` A partir de qué fecha cuenta `week_interval`: su semana (lunes a domingo) es la semana 0. */
+  readonly week_anchor?: string | null;
+  /** `[PQ.3.15]` «Una vez al mes» (DC29): el 1º–4º de ese día en el mes, o `SEMANA_DEL_MES_ULTIMA` = el último. */
+  readonly month_week?: number | null;
+  /**
+   * `null` = revisa el puesto del alcance (corporativo: gerencia de compras; sucursal: su encargado).
+   * `[PQ.3.22]` Con valor, es la persona RESPONSABLE de la regla (DC30): puede marcarla y la ve en «Mis revisiones».
+   */
   readonly reviewer_user_id: string | null;
   readonly out_of_cycle_until: string | null;
   readonly out_of_cycle_reason: string | null;
@@ -73,7 +90,8 @@ export interface ReglaRevision {
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Lo que la fecha de una regla necesita: el patrón y sus días. */
-export type PatronDeRegla = Pick<ReglaRevision, 'pattern' | 'weekdays' | 'month_days' | 'month_last_day' | 'every_n_days' | 'weekend_shift'>;
+export type PatronDeRegla = Pick<ReglaRevision, 'pattern' | 'weekdays' | 'month_days' | 'month_last_day' | 'every_n_days' | 'weekend_shift'
+  | 'week_interval' | 'week_anchor' | 'month_week'>;
 
 /** Una fecha de revisión. `corrida_de` = la fecha original cuando cayó en fin de semana y se movió. */
 export interface FechaDeRevision {
@@ -102,10 +120,41 @@ function corrida(f: string, hacia: CorrimientoFinDeSemana): string {
   return f;
 }
 
+/** El lunes de la semana de `f` (las semanas van de lunes a domingo). */
+const lunesDe = (f: string): string => sumarDias(f, 1 - diaIso(f));
+
+/** Cuántos días tiene el mes de `f`. */
+const diasDelMes = (f: string): number => {
+  const [y, m] = f.split('-').map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+};
+
+/**
+ * `[PQ.3.15]` ¿A la fecha `f` (que ya cae en un día de la regla) le toca por la cadencia (DC29)?
+ * - **Una vez al mes:** el Nº de ese día en el mes (días 1–7 = el primero, 8–14 = el segundo…) o, con
+ *   `SEMANA_DEL_MES_ULTIMA`, el último (le faltan menos de 7 días al fin de mes).
+ * - **Cada N semanas:** desde la semana de la ancla, una sí y N−1 no. Antes de la ancla no hay revisiones, y sin
+ *   ancla no se inventa una.
+ * - **Cada semana** (sin cadencia): todas.
+ */
+function tocaPorCadencia(r: PatronDeRegla, f: string): boolean {
+  const mw = r.month_week ?? null;
+  if (mw != null) {
+    const dia = Number(f.slice(8, 10));
+    return mw === SEMANA_DEL_MES_ULTIMA ? dia + 7 > diasDelMes(f) : Math.ceil(dia / 7) === mw;
+  }
+  const k = r.week_interval ?? null;
+  if (k == null || k <= 1) return true;
+  if (!r.week_anchor || aMs(f) < aMs(r.week_anchor)) return false;
+  const semanas = Math.round((aMs(lunesDe(f)) - aMs(lunesDe(r.week_anchor))) / (7 * 86_400_000));
+  return semanas % k === 0;
+}
+
 /**
  * Las fechas de revisión de la regla en [`desde`, `hasta`] (las dos incluidas), en orden.
  *
- * - **Días de la semana:** cada día que coincide; sábado y domingo valen si la regla los nombra.
+ * - **Días de la semana:** cada día que coincide; sábado y domingo valen si la regla los nombra. Con cadencia
+ *   (`[PQ.3.15]`), sólo las semanas que tocan: cada N semanas desde la ancla, o el Nº/último del mes.
  * - **Días del mes:** cada día de la lista y, si aplica, el último del mes. Un día que el mes no tiene
  *   (31 de noviembre, 30 de febrero) **no** se recorre al último: para eso está «el último». Si cae en
  *   fin de semana se corre (DC19) y cuenta la fecha corrida, aunque cambie de mes (el último de enero
@@ -119,7 +168,9 @@ export function fechasDeLaRegla(r: PatronDeRegla, desde: string, hasta: string, 
   if (r.pattern === 'weekdays') {
     const dias = new Set(r.weekdays ?? []);
     if (!dias.size) return [];
-    for (let f = desde; aMs(f) <= aMs(hasta); f = sumarDias(f, 1)) if (dias.has(diaIso(f))) out.push({ fecha: f, corrida_de: null });
+    for (let f = desde; aMs(f) <= aMs(hasta); f = sumarDias(f, 1)) {
+      if (dias.has(diaIso(f)) && tocaPorCadencia(r, f)) out.push({ fecha: f, corrida_de: null });
+    }
     return out;
   }
   if (r.pattern === 'month_days') {
@@ -432,11 +483,19 @@ export interface PropuestaDiaFijo {
   readonly ultima: string;
 }
 
-/** Lo que la regla propuesta guarda: «días de la semana» si es cada semana; si no, «cada N días». */
-export function patronDelDiaFijo(p: Pick<PropuestaDiaFijo, 'weekday' | 'every_days'>): PatronDeRegla {
-  return p.every_days === 7
-    ? { pattern: 'weekdays', weekdays: [p.weekday], month_days: null, month_last_day: false, every_n_days: null, weekend_shift: 'friday' }
-    : { pattern: 'every_n_days', weekdays: null, month_days: null, month_last_day: false, every_n_days: p.every_days, weekend_shift: 'friday' };
+/**
+ * Lo que la regla propuesta guarda: «días de la semana» si es cada semana. `[PQ.3.15]` Si es cada 2, 3 o 6 semanas,
+ * también: con esa cadencia y la ancla en la última orden o entrada de ESA sucursal, para que «un viernes sí y otro
+ * no» no se mueva con la actividad de Kepler (antes era «cada 14 días»). Cualquier otro periodo, «cada N días».
+ */
+export function patronDelDiaFijo(p: Pick<PropuestaDiaFijo, 'weekday' | 'every_days' | 'ultima'>): PatronDeRegla {
+  const base = { month_days: null, month_last_day: false, weekend_shift: 'friday' as const, month_week: null };
+  if (p.every_days === 7) return { ...base, pattern: 'weekdays', weekdays: [p.weekday], every_n_days: null, week_interval: null, week_anchor: null };
+  const semanas = p.every_days / 7;
+  if (SEMANAS_CADENCIA.includes(semanas) && p.ultima) {
+    return { ...base, pattern: 'weekdays', weekdays: [p.weekday], every_n_days: null, week_interval: semanas, week_anchor: p.ultima };
+  }
+  return { ...base, pattern: 'every_n_days', weekdays: null, every_n_days: p.every_days, week_interval: null, week_anchor: null };
 }
 
 export interface PropuestasCalendario {
@@ -463,20 +522,93 @@ export interface GuardarReglaDto {
   readonly scope: AlcanceRevision;
   readonly zone_code?: string | null;
   readonly branch_code?: string | null;
+  /**
+   * `[PQ.3.21]` Varias zonas o varias sucursales en una sola captura (DC28): se guarda UNA regla por lugar, con el mismo
+   * patrón, todas en la misma transacción (o entran todas o ninguna). Cada una se atiende con lo de su lugar.
+   */
+  readonly zone_codes?: readonly string[] | null;
+  readonly branch_codes?: readonly string[] | null;
   readonly pattern: PatronRevision;
   readonly weekdays?: readonly number[] | null;
   readonly month_days?: readonly number[] | null;
   readonly month_last_day?: boolean;
   readonly every_n_days?: number | null;
   readonly weekend_shift?: CorrimientoFinDeSemana;
+  /** `[PQ.3.15]` La cadencia de «días de la semana» (DC29). */
+  readonly week_interval?: number | null;
+  readonly week_anchor?: string | null;
+  readonly month_week?: number | null;
+  /** `[PQ.3.22]` La persona responsable (DC30): activa, puede marcar y escribe en TODAS las sucursales de la regla. */
   readonly reviewer_user_id?: string | null;
   readonly note?: string | null;
 }
 
 export interface GuardarReglaRespuesta {
+  /** La primera regla de la captura (la única, si fue un solo lugar). */
   readonly id: string;
   /** `actualizada` = ya había una regla viva de ese proveedor en ese alcance y se reemplazó su patrón. */
   readonly accion: 'creada' | 'actualizada';
+  /** `[PQ.3.21]` Una por lugar, en el orden de la captura. `lugar` = la zona o sucursal (`null` en la corporativa). */
+  readonly reglas: readonly { readonly lugar: string | null; readonly id: string; readonly accion: 'creada' | 'actualizada' }[];
+}
+
+/** `[PQ.3.21]` Los lugares de una captura: las zonas o sucursales elegidas (la lista, o la única de antes). Corporativa = `[]`. */
+export function lugaresDeLaCaptura(d: Pick<GuardarReglaDto, 'scope' | 'zone_code' | 'zone_codes' | 'branch_code' | 'branch_codes'>): string[] {
+  const de = (lista: readonly string[] | null | undefined, uno: string | null | undefined): string[] =>
+    [...new Set(lista && lista.length ? lista : uno ? [uno] : [])];
+  if (d.scope === 'zone') return de(d.zone_codes, d.zone_code);
+  if (d.scope === 'branch') return de(d.branch_codes, d.branch_code);
+  return [];
+}
+
+/** `[PQ.3.21]` Una captura, en una regla por lugar: el DTO de cada una con su zona o sucursal sola. */
+export function reglasDeLaCaptura(d: GuardarReglaDto): GuardarReglaDto[] {
+  const base: GuardarReglaDto = { ...d, zone_codes: undefined, branch_codes: undefined };
+  if (d.scope === 'corporate') return [{ ...base, zone_code: null, branch_code: null }];
+  return lugaresDeLaCaptura(d).map((p) => (d.scope === 'zone'
+    ? { ...base, zone_code: p, branch_code: null }
+    : { ...base, zone_code: null, branch_code: p }));
+}
+
+/** `[PQ.3.21]` La validación de la captura entera: hay al menos un lugar, y cada regla que sale de ella es válida. */
+export function validarCaptura(d: GuardarReglaDto, zonas: readonly string[], sucursales: readonly string[]): string | null {
+  if (!d) return 'Falta la regla.';
+  const listas = [d.zone_codes, d.branch_codes].filter((x) => x != null);
+  if (listas.some((x) => !Array.isArray(x) || !x.every((c) => typeof c === 'string'))) return 'Las zonas y sucursales van en una lista.';
+  if (d.zone_codes?.length && d.scope !== 'zone') return 'Sólo una regla por zona lleva zonas.';
+  if (d.branch_codes?.length && d.scope !== 'branch') return 'Sólo una regla por sucursal lleva sucursales.';
+  if (d.scope === 'zone' && !lugaresDeLaCaptura(d).length) return 'Elige al menos una zona.';
+  if (d.scope === 'branch' && !lugaresDeLaCaptura(d).length) return 'Elige al menos una sucursal.';
+  for (const r of reglasDeLaCaptura(d)) {
+    const motivo = validarRegla(r, zonas, sucursales);
+    if (motivo) return motivo;
+  }
+  return null;
+}
+
+/** `[PQ.3.22]` Quien puede ser responsable de una regla (DC30): persona activa que puede marcar, y dónde escribe. */
+export interface ResponsablePosible {
+  readonly user_id: string;
+  readonly nombre: string;
+  readonly puesto: string;
+  /** Las sucursales donde puede ESCRIBIR en Compras; `null` = todas. */
+  readonly sucursales: readonly string[] | null;
+}
+
+export interface ResponsablesCalendario {
+  readonly personas: readonly ResponsablePosible[];
+}
+
+/**
+ * `[PQ.3.22]` ¿Esta persona puede ser responsable de una regla que cubre `plazas` (las sucursales del lugar; en la
+ * corporativa, todas)? Sí si escribe en todas ellas: la MISMA cuenta que `reglaEnAlcance` del dominio, para que la
+ * pantalla no ofrezca a quien la API rechazaría.
+ */
+export function puedeSerResponsable(sucursalesDeLaPersona: readonly string[] | null, plazas: readonly string[]): boolean {
+  if (sucursalesDeLaPersona === null) return true;
+  if (!plazas.length) return false;
+  const suyas = new Set(sucursalesDeLaPersona);
+  return plazas.every((p) => suyas.has(p));
 }
 
 export interface FueraDeCicloDto {
@@ -513,6 +645,19 @@ export function validarRegla(d: GuardarReglaDto, zonas: readonly string[], sucur
   if (d.pattern === 'weekdays') {
     if (!enteros(d.weekdays) || !d.weekdays.length || d.weekdays.some((x) => x < 1 || x > 7)) return 'Elige al menos un día de la semana.';
     if ((d.month_days && d.month_days.length) || d.month_last_day || d.every_n_days != null) return 'Una regla por días de la semana no lleva días del mes ni «cada N días».';
+  }
+  // `[PQ.3.15]` La cadencia (DC29): los mismos valores que el CHECK de la migración 20261124133043.
+  const wi = d.week_interval ?? null;
+  const wa = d.week_anchor ?? null;
+  const mw = d.month_week ?? null;
+  if (d.pattern !== 'weekdays' && (wi != null || wa != null || mw != null)) return 'Sólo una regla por días de la semana lleva cadencia.';
+  if (d.pattern === 'weekdays') {
+    if (wi != null && !SEMANAS_CADENCIA.includes(wi)) return 'La cadencia es cada semana, cada 2, 3 o 6 semanas, o una vez al mes.';
+    if (wi != null && mw != null) return 'Elige «cada N semanas» o «una vez al mes», no las dos.';
+    if (wi != null && wa == null) return 'Di a partir de qué fecha cuenta «cada N semanas».';
+    if (wi == null && wa != null) return '«A partir del» sólo va con «cada N semanas».';
+    if (wa != null && !esFecha(wa)) return 'La fecha «a partir del» no es válida.';
+    if (mw != null && !(Number.isInteger(mw) && mw >= 1 && mw <= SEMANA_DEL_MES_ULTIMA)) return '«Una vez al mes» va el primero, segundo, tercero, cuarto o último.';
   }
   if (d.pattern === 'month_days') {
     const dias = d.month_days ?? [];

@@ -42,13 +42,25 @@ function lista(xs: readonly string[]): string {
   return xs.length <= 1 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} y ${xs[xs.length - 1]}`;
 }
 
-/** «Cada miércoles» · «El 15 y el último de cada mes» · «Cada 14 días». */
+/** `[PQ.3.15]` «Una vez al mes»: el Nº de ese día en el mes (5 = el último). */
+const ORDINAL_DEL_MES = ['', 'primer', 'segundo', 'tercer', 'cuarto', 'último'];
+
+/**
+ * «Cada miércoles» · «El 15 y el último de cada mes» · «Cada 14 días». `[PQ.3.15]` Con cadencia (DC29):
+ * «Cada 2 semanas, en martes» · «El primer martes de cada mes» · «El último lunes y jueves de cada mes».
+ */
 export function patronEnPalabras(r: PatronDeRegla): string {
   if (r.pattern === 'weekdays') {
     const ds = [...(r.weekdays ?? [])].sort((a, b) => a - b);
+    const nombres = lista(ds.map((d) => DIAS[d - 1]));
+    if (r.month_week) return `El ${ORDINAL_DEL_MES[r.month_week] ?? r.month_week} ${nombres} de cada mes`;
+    if (r.week_interval && r.week_interval > 1) {
+      const que = ds.length === 7 ? 'todos los días' : ds.length === 5 && ds.every((d, i) => d === i + 1) ? 'de lunes a viernes' : `en ${nombres}`;
+      return `Cada ${r.week_interval} semanas, ${que}`;
+    }
     if (ds.length === 7) return 'Todos los días';
     if (ds.length === 5 && ds.every((d, i) => d === i + 1)) return 'De lunes a viernes';
-    return `Cada ${lista(ds.map((d) => DIAS[d - 1]))}`;
+    return `Cada ${nombres}`;
   }
   if (r.pattern === 'month_days') {
     const nums = [...(r.month_days ?? [])].sort((a, b) => a - b).map(String);
@@ -60,8 +72,12 @@ export function patronEnPalabras(r: PatronDeRegla): string {
   return n === 1 ? 'Cada día' : `Cada ${n} días`;
 }
 
-/** Lo que el patrón hace con un fin de semana (sólo «días del mes» se corre, DC19). */
+/**
+ * La línea de abajo del patrón: lo que hace con un fin de semana (sólo «días del mes» se corre, DC19). `[PQ.3.15]` En
+ * «cada N semanas», desde cuándo cuenta.
+ */
 export function corrimientoEnPalabras(r: PatronDeRegla): string | null {
+  if (r.pattern === 'weekdays' && r.week_interval && r.week_interval > 1 && r.week_anchor) return `A partir del ${diaCorto(r.week_anchor)}`;
   if (r.pattern !== 'month_days') return null;
   return r.weekend_shift === 'monday' ? 'Si cae en fin de semana, pasa al lunes' : 'Si cae en fin de semana, se adelanta al viernes';
 }

@@ -76,6 +76,8 @@ correr(async () => {
     if ((await trx.raw('show transaction_read_only')).rows[0].transaction_read_only === 'on') noMedido('la conexión es de sólo lectura');
     if (!(await trx('identity.tenants').where({ id: TENANT }).first('id'))) noMedido(`no existe el tenant ${TENANT}`);
     if (!(await trx.schema.withSchema('commercial').hasTable('purchase_review_rules'))) await mig.up(trx);
+    // `[PQ.3.15]` Las columnas de la cadencia (idempotente): el repositorio ya las escribe.
+    await require('../migrations-newdb/20261124133043_pq3_15_cadencia_dias_de_la_semana.js').up(trx);
 
     // Proveedores SIN regla viva: en una base con reglas (la local tras una prueba visual, prod algún día) la
     // primera regla sería «actualizada» y no «creada», y la prueba fallaría por el dato, no por el código.
@@ -126,8 +128,9 @@ correr(async () => {
     let rZona = null;
     if (conZona) {
       rSuc = await R.guardarRegla(trx, TENANT, quien, { supplier_code: P.code, scope: 'branch', branch_code: conZona.branch_code, pattern: 'weekdays', weekdays: [3] });
-      rZona = await R.guardarRegla(trx, TENANT, quien, { supplier_code: P2.code, scope: 'zone', zone_code: conZona.zona_code, pattern: 'every_n_days', every_n_days: 14, reviewer_user_id: usuario.id });
-      check(`el MISMO proveedor con regla corporativa y de sucursal (${conZona.branch_code}); otra de zona (${conZona.zona_code}) con quién revisa`,
+      // `[PQ.3.22]` El responsable (permiso + alcance) se prueba en test-newdb-pq3-21-calendario-mejoras.js; aquí, el puesto.
+      rZona = await R.guardarRegla(trx, TENANT, quien, { supplier_code: P2.code, scope: 'zone', zone_code: conZona.zona_code, pattern: 'every_n_days', every_n_days: 14 });
+      check(`el MISMO proveedor con regla corporativa y de sucursal (${conZona.branch_code}); otra de zona (${conZona.zona_code})`,
         rSuc.accion === 'creada' && rZona.accion === 'creada' && rSuc.id !== r1.id, { rSuc, rZona });
     } else {
       NM('la base no trae sucursales con zona en analytics.v_branch_zone: las reglas de sucursal y zona no se probaron');
@@ -161,7 +164,7 @@ correr(async () => {
     check('el resumen cuenta exactamente las reglas', suma === cal.reglas.length, cal.resumen);
     if (rZona) {
       const z = cal.reglas.find((r) => r.id === rZona.id);
-      check('la regla de zona dice su zona y la persona que revisa', !!z && z.alcance_nombre.startsWith('Zona ') && z.revisa === usuario.nombre, z && { alcance: z.alcance_nombre, revisa: z.revisa });
+      check('la regla de zona dice su zona y que la revisa la gerencia de esa zona', !!z && z.alcance_nombre.startsWith('Zona ') && z.revisa.startsWith('Gerencia de zona'), z && { alcance: z.alcance_nombre, revisa: z.revisa });
     }
     // `[PQ.3.5]` Lo que la pantalla necesita para el formulario y para «Abrir en Pedido», leído como app_runtime.
     const zonasBase = [...new Set(sucursales.map((s) => s.zona_code).filter(Boolean))].sort();

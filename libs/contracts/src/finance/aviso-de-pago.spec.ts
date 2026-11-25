@@ -47,6 +47,15 @@ describe('[PGP.194] el aviso de pago: lo que dice y lo que declara', () => {
     expect(faltantesDelAviso(aviso({ comprobante_id: null }))[0]).toMatch(/sin comprobante anexo/);
     expect(faltantesDelAviso(aviso({ rastreo: null }))[0]).toMatch(/clave de rastreo/);
   });
+  it('[PGP.208] ⭐ sin comprobante pero con la clave del banco: sólo falta el PDF, la clave no se declara', () => {
+    expect(faltantesDelAviso(aviso({ comprobante_id: null, rastreo: 'RASTREO-DEL-BANCO-208' })))
+      .toEqual(['La Suite no tiene el PDF de la transferencia: el aviso sale sin comprobante anexo.']);
+  });
+  it('[PGP.208] ⛔ sin comprobante y sin clave: se declaran LAS DOS (antes sólo el PDF, y la clave salía «—» sin decir)', () => {
+    const f = faltantesDelAviso(aviso({ comprobante_id: null, rastreo: null }));
+    expect(f).toHaveLength(2);
+    expect(f[1]).toMatch(/Sin clave de rastreo/);
+  });
   it('⛔ una factura sin CFDI ligado se cuenta, no se omite', () => {
     const f = faltantesDelAviso(aviso({ facturas: [factura(), factura({ uuid: null })] }));
     expect(f).toEqual(['1 de 2 facturas sin CFDI ligado: va con su referencia, sin UUID.']);

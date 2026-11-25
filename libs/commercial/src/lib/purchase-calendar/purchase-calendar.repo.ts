@@ -1,6 +1,6 @@
 import type { Knex } from 'knex';
 import {
-  ordenDelEmbudo, sumarDias, validarFueraDeCiclo, validarMarca, validarRegla, VENTANA_REZAGO_DIAS,
+  ordenDelEmbudo, reglasDeLaCaptura, sumarDias, validarCaptura, validarFueraDeCiclo, validarMarca, VENTANA_REZAGO_DIAS,
   type CalendarioCompras, type FueraDeCicloDto, type GuardarReglaDto, type GuardarReglaRespuesta, type MarcaVista,
   type MarcarRevisionDto, type PropuestaDiaFijo, type PropuestasCalendario, type PropuestaSinRegla,
 } from '@megadulces/contracts';
@@ -9,6 +9,7 @@ import {
   type AlmacenPedido, type CompraDoceMeses, type FilaActividad, type ReglaLeida, type SucursalZona,
 } from './purchase-calendar.domain';
 import { SQL_ACTIVIDAD_KEPLER, SQL_COMPRA_DOCE_MESES, SQL_SUCURSALES_Y_ZONAS } from './purchase-calendar.sql';
+import { isPlatformAdminRole, permisoEfectivoSql } from '@megadulces/platform-core';
 
 /**
  * `[PQ.3.4]` Calendario de compras — el acceso a la base. Cada función recibe la transacción con el
@@ -78,6 +79,7 @@ export async function leerReglas(trx: Knex.Transaction, tenant: string): Promise
   const { rows } = await trx.raw(`
     SELECT r.id, r.supplier_code, r.scope, r.zone_code, r.branch_code, r.pattern, r.weekdays, r.month_days,
            r.month_last_day, r.every_n_days, r.weekend_shift, r.reviewer_user_id,
+           r.week_interval, to_char(r.week_anchor, 'YYYY-MM-DD') AS week_anchor, r.month_week,
            to_char(r.out_of_cycle_until, 'YYYY-MM-DD') AS out_of_cycle_until, r.out_of_cycle_reason,
            s.name AS supplier_name, rv.nombre AS reviewer_name, def.nombre AS definida_por,
            to_char(r.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS definida_el,
@@ -231,17 +233,38 @@ async function leerDiasFijos(
   }
 }
 
-const PATRON_VACIO = { weekdays: null, month_days: null, month_last_day: false, every_n_days: null };
+const PATRON_VACIO = {
+  weekdays: null, month_days: null, month_last_day: false, every_n_days: null, week_interval: null, week_anchor: null, month_week: null,
+};
+
+/** `[PQ.3.22]` La llave de quien puede MARCAR: la que se le pide al responsable de una regla (DC30). */
+const LLAVE_MARCAR = 'COMPRAS_CALENDARIO_GESTIONAR';
+
+/**
+ * `[PQ.3.22]` El alcance del responsable, resuelto por el servicio ANTES de la transacción (`ScopeService` usa su
+ * propia conexión). `escribe` = las sucursales donde escribe en Compras; `null` = todas.
+ */
+export interface ResponsableResuelto {
+  readonly userId: string;
+  readonly escribe: readonly string[] | null;
+}
 
 /**
  * `POST /compras/calendario/reglas`. Una regla viva por proveedor y alcance: si ya hay una, se REEMPLAZA su
  * patrón (la gerencia redefine el ciclo, DC8) y conserva su id y sus marcas.
+ *
+ * `[PQ.3.21]` Con varias zonas o sucursales (DC28) se guarda UNA regla por lugar, con el mismo patrón, en la
+ * transacción de quien llama: si una falla (alcance, conflicto), no queda ninguna.
+ * `[PQ.3.22]` El responsable (DC30) tiene que estar activo, tener la llave de marcar y escribir en TODAS las
+ * sucursales de cada regla: así siempre ve y puede atender la suya.
  */
-export async function guardarRegla(trx: Knex.Transaction, tenant: string, quien: Quien, dto: GuardarReglaDto): Promise<GuardarReglaRespuesta> {
+export async function guardarRegla(
+  trx: Knex.Transaction, tenant: string, quien: Quien, dto: GuardarReglaDto, responsable?: ResponsableResuelto,
+): Promise<GuardarReglaRespuesta> {
   if (!quien.userId) throw new CalendarioError('invalida', 'No sabemos quién define la regla: vuelve a entrar.');
   const sucursales = await leerSucursales(trx);
   const zonas = [...new Set(sucursales.map((s) => s.zona_code).filter((z): z is string => !!z))];
-  const motivo = validarRegla(dto, zonas, sucursales.map((s) => s.branch_code));
+  const motivo = validarCaptura(dto, zonas, sucursales.map((s) => s.branch_code));
   if (motivo) throw new CalendarioError('invalida', motivo);
   const code = dto.supplier_code.trim();
   const existe = (await trx.raw(`
@@ -249,14 +272,71 @@ export async function guardarRegla(trx: Knex.Transaction, tenant: string, quien:
         OR EXISTS (SELECT 1 FROM analytics.erp_purchase_orders WHERE tenant_id = ? AND proveedor_code = ?) AS ok`,
   [tenant, code, tenant, code])).rows[0].ok;
   if (!existe) throw new CalendarioError('invalida', `No encontramos al proveedor ${code} ni en el catálogo ni en las órdenes de Kepler.`);
-  if (dto.reviewer_user_id) {
-    const u = await trx('identity.users').where({ id: dto.reviewer_user_id, tenant_id: tenant }).first('id');
-    if (!u) throw new CalendarioError('invalida', 'La persona que revisa no existe en esta empresa.');
+  const capturas = reglasDeLaCaptura({ ...dto, supplier_code: code });
+  // Antes de escribir la primera: que quien define alcance TODOS los lugares (no depender del rollback para no dejar media captura).
+  for (const c of capturas) await exigirAlcance(trx, quien, alcanceDe(c));
+  if (dto.reviewer_user_id) await exigirResponsable(trx, tenant, dto.reviewer_user_id, responsable, capturas, sucursales);
+  const reglas: { lugar: string | null; id: string; accion: 'creada' | 'actualizada' }[] = [];
+  for (const c of capturas) reglas.push({ lugar: c.zone_code ?? c.branch_code ?? null, ...(await guardarUna(trx, tenant, quien, code, c)) });
+  return { id: reglas[0].id, accion: reglas[0].accion, reglas };
+}
+
+/** El alcance de UNA regla de la captura (su zona o su sucursal sola). */
+const alcanceDe = (r: GuardarReglaDto): AlcanceRegla => ({
+  scope: r.scope, zone_code: r.scope === 'zone' ? r.zone_code ?? null : null, branch_code: r.scope === 'branch' ? r.branch_code ?? null : null,
+});
+
+/** `[PQ.3.22]` El responsable puede serlo de TODAS las reglas de la captura; si no, se dice quién y dónde no. */
+async function exigirResponsable(
+  trx: Knex.Transaction, tenant: string, userId: string, resuelto: ResponsableResuelto | undefined,
+  reglas: readonly GuardarReglaDto[], sucursales: readonly SucursalZona[],
+): Promise<void> {
+  const { rows } = await trx.raw(`
+    SELECT u.nombre, u.role_name, (${permisoEfectivoSql('u')}) AS puede
+      FROM identity.users u
+     WHERE u.tenant_id = ? AND u.id = ? AND u.activo AND u.deleted_at IS NULL`, [LLAVE_MARCAR, LLAVE_MARCAR, tenant, userId]);
+  const u = rows[0] as { nombre: string | null; role_name: string | null; puede: boolean } | undefined;
+  if (!u) throw new CalendarioError('invalida', 'La persona responsable no existe o ya no está activa.');
+  const nombre = u.nombre ?? 'Esa persona';
+  if (!u.puede) throw new CalendarioError('invalida', `${nombre} no tiene permiso de marcar revisiones del calendario: elige a otra persona.`);
+  // Fail-closed: sin el alcance resuelto por el servicio no se supone «todas».
+  if (!resuelto || resuelto.userId !== userId) throw new Error('[PQ.3.22] responsable sin alcance resuelto: quien llama debe resolverlo');
+  for (const r of reglas) {
+    const alcance = alcanceDe(r);
+    if (!reglaEnAlcance(alcance, sucursales, resuelto.escribe)) {
+      throw new CalendarioError('invalida', `${nombre} no ve ${nombreDelAlcance(alcance, sucursales)}: elige a quien sí, o deja la regla sin responsable.`);
+    }
   }
+}
+
+/**
+ * `[PQ.3.22]` Quién puede ser responsable (DC30): personas activas con la llave EFECTIVA de marcar (rol, complementos
+ * y ajuste por persona, como el JWT). Sin el god-mode (`superadmin`/`admin`): son cuentas de sistema, como en
+ * `receipt-devueltas`. Dónde escribe cada una lo agrega el servicio (`ScopeService`).
+ */
+export async function leerPosiblesResponsables(trx: Knex.Transaction, tenant: string): Promise<{ user_id: string; nombre: string; role_name: string }[]> {
+  const filas: { user_id: string; nombre: string | null; role_name: string | null }[] = await trx('identity.users as u')
+    .where('u.tenant_id', tenant).andWhere('u.activo', true).whereNull('u.deleted_at')
+    .whereRaw(permisoEfectivoSql('u'), [LLAVE_MARCAR, LLAVE_MARCAR])
+    .select('u.id as user_id', 'u.nombre', 'u.role_name')
+    .orderBy('u.nombre');
+  return filas.filter((f) => !isPlatformAdminRole(f.role_name)).map((f) => ({ user_id: f.user_id, nombre: f.nombre ?? '(sin nombre)', role_name: f.role_name ?? '' }));
+}
+
+/** Guarda UNA regla (un lugar): reemplaza la viva de ese proveedor en ese alcance, o crea una nueva. */
+async function guardarUna(
+  trx: Knex.Transaction, tenant: string, quien: Quien, code: string, dto: GuardarReglaDto,
+): Promise<{ id: string; accion: 'creada' | 'actualizada' }> {
   const patron = {
     ...PATRON_VACIO,
     pattern: dto.pattern,
-    ...(dto.pattern === 'weekdays' ? { weekdays: [...new Set(dto.weekdays ?? [])].sort((a, b) => a - b) } : {}),
+    ...(dto.pattern === 'weekdays' ? {
+      weekdays: [...new Set(dto.weekdays ?? [])].sort((a, b) => a - b),
+      // `[PQ.3.15]` La cadencia (DC29): la ancla sólo viaja con «cada N semanas».
+      week_interval: dto.week_interval ?? null,
+      week_anchor: dto.week_interval ? dto.week_anchor ?? null : null,
+      month_week: dto.month_week ?? null,
+    } : {}),
     ...(dto.pattern === 'month_days' ? {
       month_days: dto.month_days && dto.month_days.length ? [...new Set(dto.month_days)].sort((a, b) => a - b) : null,
       month_last_day: !!dto.month_last_day,
@@ -266,9 +346,7 @@ export async function guardarRegla(trx: Knex.Transaction, tenant: string, quien:
     reviewer_user_id: dto.reviewer_user_id ?? null,
     note: dto.note?.trim() || null,
   };
-  const alcance: AlcanceRegla = {
-    scope: dto.scope, zone_code: dto.scope === 'zone' ? dto.zone_code ?? null : null, branch_code: dto.scope === 'branch' ? dto.branch_code ?? null : null,
-  };
+  const alcance = alcanceDe(dto);
   await exigirAlcance(trx, quien, alcance);
   const viva = await trx(RULES)
     .where({ tenant_id: tenant, supplier_code: code, scope: alcance.scope })

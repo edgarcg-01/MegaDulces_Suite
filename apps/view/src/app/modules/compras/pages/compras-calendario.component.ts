@@ -11,9 +11,18 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
+import { CheckboxModule } from 'primeng/checkbox';
+import {
+  puedeSerResponsable, validarCaptura, type ResponsablePosible,
+} from '@megadulces/contracts';
+import {
+  anclaPorOmision, avisoDeGuardado, cadenciaDeLaRegla, camposDeCadencia, OPCIONES_CADENCIA, OPCIONES_SEMANA_DEL_MES, plazasDeLosLugares,
+  puestoLegible, type Cadencia,
+} from '../calendario-compras-captura';
+import { AuthService } from '../../../core/services/auth.service';
 import {
   ETIQUETA_MOTIVO_NO_SE_PIDE, MARCA_MAX_ADELANTE_DIAS, MOTIVOS_NO_SE_PIDE, ordenDelEmbudo, proximasRevisiones, sumarDias, validarFueraDeCiclo,
-  validarMarca, validarRegla, warehouseName,
+  validarMarca, warehouseName,
   type AlcanceRevision, type AvanceDelEmbudo, type CalendarioCompras, type EscalonLlenado, type CorrimientoFinDeSemana, type FueraDeCicloDto, type GuardarReglaDto,
   type MarcarRevisionDto, type MotivoNoSePide, type PatronDeRegla, type PatronRevision, type PropuestaDiaFijo, type PropuestaSinRegla,
   type PropuestasCalendario, type ReglaCalendario, type ResultadoRevision, patronDelDiaFijo,
@@ -66,7 +75,7 @@ interface ProveedorDelFormulario {
   imports: [
     FormsModule, RouterLink, ButtonModule, TableModule, TagModule, DialogModule, DatePickerModule, InputNumberModule, InputTextModule,
     SelectModule, TextareaModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, SegmentedComponent, SidePeekComponent,
-    ManualLinkComponent,
+    ManualLinkComponent, CheckboxModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -104,7 +113,18 @@ interface ProveedorDelFormulario {
         <app-segmented [options]="opcionesVista()" [value]="vista()" (valueChange)="irAVista($event)" ariaLabel="Qué ver" />
         <input pInputText type="search" class="cc-buscar" [value]="busqueda()" (input)="busqueda.set($any($event.target).value)"
                placeholder="Proveedor, clave o sucursal" aria-label="Buscar por proveedor, clave o sucursal" autocomplete="off" enterkeyhint="search" />
+        <!-- [PQ.3.22] «Mis revisiones» (DC30): sólo aparece si eres responsable de alguna regla; el número dice de cuántas. -->
+        @if (mias() && vista() !== 'sin_regla') {
+          <button type="button" class="cc-mias" [class.is-on]="soloMias()" [attr.aria-pressed]="soloMias()" (click)="soloMias.set(!soloMias())">
+            Mis revisiones ({{ mias() }})
+          </button>
+        }
       </div>
+      @if (soloMias() && vista() !== 'sin_regla') {
+        <p class="cc-nota" role="status">Viendo sólo las reglas de las que eres responsable.
+          <button type="button" class="cc-link" (click)="soloMias.set(false)">Ver todas</button>
+        </p>
+      }
 
       @if (vista() !== 'sin_regla') {
         <app-load-state class="dt-scope" [loading]="cargando()" [error]="error()" [isEmpty]="vacio()" [skeletonRows]="8"
@@ -134,7 +154,7 @@ interface ProveedorDelFormulario {
                   </td>
                   <td role="cell" data-label="Dónde">
                     <span class="cc-pri">{{ r.alcance_nombre }}</span>
-                    <span class="cc-sub">Revisa: {{ r.revisa }}</span>
+                    <span class="cc-sub">{{ r.reviewer_user_id ? 'Responsable' : 'Revisa' }}: {{ r.revisa }}</span>
                   </td>
                   <td role="cell" data-label="Cuándo toca">
                     {{ patron(r) }}
@@ -368,7 +388,7 @@ interface ProveedorDelFormulario {
               @if (proximas(r).length) {
                 <p class="cc-sub">Las siguientes: {{ proximasTexto(r) }}</p>
               }
-              <p class="cc-sub">Revisa: {{ r.revisa }}</p>
+              <p class="cc-sub">{{ r.reviewer_user_id ? 'Responsable' : 'Revisa' }}: {{ r.revisa }}</p>
             </section>
             <section>
               <h3>Última atención</h3>
@@ -434,15 +454,36 @@ interface ProveedorDelFormulario {
           @if (rEvidencia) { <p class="cc-sub">{{ rEvidencia }}</p> }
 
           <span class="cc-label">¿Dónde se revisa?</span>
-          <app-segmented [options]="opcionesAlcance" [value]="rScope" (valueChange)="cambiarAlcance($event)" ariaLabel="Dónde se revisa" />
-          @if (rScope === 'zone') {
-            <label class="cc-label" for="cc-zona">Zona</label>
-            <p-select [options]="opcionesZona()" [(ngModel)]="rZona" inputId="cc-zona" placeholder="Elige la zona" appendTo="body" />
-          } @else if (rScope === 'branch') {
-            <label class="cc-label" for="cc-suc">Sucursal</label>
-            <p-select [options]="opcionesSucursal()" [(ngModel)]="rSucursal" inputId="cc-suc" placeholder="Elige la sucursal" appendTo="body" />
+          @if (corrigiendo()) {
+            <!-- [PQ.3.21] Corregir no cambia el lugar (antes creaba otra regla y dejaba viva la anterior): otro lugar es otra regla. -->
+            <p class="cc-pri">{{ lugarFijo() }}</p>
+            <p class="cc-sub">Para revisarla también en otro lugar, usa «Otra regla para este proveedor».</p>
+          } @else {
+            <app-segmented [options]="opcionesAlcance" [value]="rScope" (valueChange)="cambiarAlcance($event)" ariaLabel="Dónde se revisa" />
+            <!-- [PQ.3.21] Varias zonas o sucursales con casillas (DC28): se guarda una regla por lugar, todas a la vez. -->
+            @if (rScope === 'zone') {
+              <fieldset class="cc-lugares">
+                <legend class="cc-label">Zonas</legend>
+                @for (z of opcionesZona(); track z.value) {
+                  <div class="cc-casilla">
+                    <p-checkbox [inputId]="'cc-z-' + z.value" [value]="z.value" [(ngModel)]="rZonas" />
+                    <label [for]="'cc-z-' + z.value">{{ z.label }}</label>
+                  </div>
+                }
+              </fieldset>
+            } @else if (rScope === 'branch') {
+              <fieldset class="cc-lugares cc-lugares-suc">
+                <legend class="cc-label">Sucursales</legend>
+                @for (s of opcionesSucursal(); track s.value) {
+                  <div class="cc-casilla">
+                    <p-checkbox [inputId]="'cc-s-' + s.value" [value]="s.value" [(ngModel)]="rSucursales" />
+                    <label [for]="'cc-s-' + s.value">{{ s.label }}</label>
+                  </div>
+                }
+              </fieldset>
+            }
           }
-          <p class="cc-sub">Revisa: {{ revisaDelFormulario() }}</p>
+          <p class="cc-sub">{{ revisaDelFormulario() }}</p>
 
           <span class="cc-label">¿Cuándo toca?</span>
           <app-segmented [options]="opcionesPatron" [value]="rPatron" (valueChange)="cambiarPatron($event)" ariaLabel="Cuándo toca" />
@@ -453,6 +494,17 @@ interface ProveedorDelFormulario {
                         [attr.aria-label]="diasSemanaLargo[$index]" (click)="rSemana[$index] = !rSemana[$index]">{{ d }}</button>
               }
             </div>
+            <!-- [PQ.3.15] La cadencia (DC29), en el orden en que la pidieron los usuarios. -->
+            <span class="cc-label">¿Cada cuánto?</span>
+            <app-segmented [options]="opcionesCadencia" [value]="rCadencia" (valueChange)="cambiarCadencia($event)" ariaLabel="Cada cuánto" />
+            @if (rCadencia === '2' || rCadencia === '3' || rCadencia === '6') {
+              <label class="cc-label" for="cc-ancla">A partir del</label>
+              <p-datepicker [(ngModel)]="rAncla" inputId="cc-ancla" dateFormat="dd/mm/yy" [showIcon]="true" [showOnFocus]="false" appendTo="body" />
+              <p class="cc-sub">Las semanas se cuentan desde ésa: una sí y {{ semanasQueNo() }} no. No se mueve con las órdenes de Kepler.</p>
+            } @else if (rCadencia === 'mes') {
+              <span class="cc-label">¿Cuál del mes?</span>
+              <app-segmented [options]="opcionesSemanaDelMes" [value]="'' + rMesSemana" (valueChange)="rMesSemana = +$event" ariaLabel="Cuál del mes" />
+            }
           } @else if (rPatron === 'month_days') {
             <div class="cc-mes" role="group" aria-label="Días del mes">
               @for (d of diasMes; track d) {
@@ -470,6 +522,15 @@ interface ProveedorDelFormulario {
             <p class="cc-sub">
               Cuenta desde la última orden o entrada de Kepler@if (rProv?.ancla) { (la última, {{ dia(rProv?.ancla) }})}.
             </p>
+          }
+
+          <!-- [PQ.3.22] El responsable (DC30): sólo se ofrece a quien puede marcar y escribe en todas las sucursales de la regla. -->
+          <label class="cc-label" for="cc-resp">Responsable (opcional)</label>
+          @if (errorResponsables(); as e) {
+            <p class="cc-advertencia" role="status">{{ e }}</p>
+          } @else {
+            <p-select [options]="opcionesResponsable()" [(ngModel)]="rResponsable" inputId="cc-resp" [filter]="true" filterBy="label"
+                      [showClear]="true" [loading]="!responsables()" placeholder="Sin responsable: revisa el puesto" appendTo="body" />
           }
 
           <label class="cc-label" for="cc-nota">Nota (opcional)</label>
@@ -589,10 +650,25 @@ export class ComprasCalendarioComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
 
+  private readonly auth = inject(AuthService);
+
   readonly puedeMarcar = this.perms.has$(Permission.COMPRAS_CALENDARIO_GESTIONAR);
   readonly puedeCiclo = this.perms.has$(Permission.COMPRAS_CALENDARIO_CICLO);
   readonly puedePedido = this.perms.has$(Permission.COMPRAS_PEDIDO_VER);
   readonly porPagina = POR_PAGINA;
+
+  // ── `[PQ.3.22]` Responsable y «Mis revisiones» (DC30) ─────────────────────────────────────────
+  /** Quién entró (el `sub` del JWT, el mismo id que guarda la API). */
+  private readonly yo = computed(() => this.auth.user()?.sub ?? null);
+  readonly soloMias = signal(false);
+  /** De cuántas reglas que VES eres responsable; 0 = el filtro no se ofrece. */
+  readonly mias = computed(() => {
+    const yo = this.yo();
+    return yo ? (this.cal()?.reglas ?? []).filter((r) => r.reviewer_user_id === yo).length : 0;
+  });
+  /** Quién puede ser responsable: se pide al abrir el formulario la primera vez (sólo quien define reglas). */
+  readonly responsables = signal<readonly ResponsablePosible[] | null>(null);
+  readonly errorResponsables = signal<string | null>(null);
 
   // ── Datos ───────────────────────────────────────────────────────────────────────────────────
   readonly cal = signal<CalendarioCompras | null>(null);
@@ -651,7 +727,11 @@ export class ComprasCalendarioComponent implements OnInit {
   // ── Derivados ───────────────────────────────────────────────────────────────────────────────
   readonly reglas = computed<ReglaCalendario[]>(() => {
     const q = this.busqueda();
-    return (this.cal()?.reglas ?? []).filter((r) => coincideBusqueda(q, r.supplier_name, r.supplier_code, r.alcance_nombre));
+    // `[PQ.3.22]` «Mis revisiones»: sólo las reglas de las que es responsable quien entró.
+    const yo = this.yo();
+    const mias = this.soloMias() ? yo : null;
+    return (this.cal()?.reglas ?? []).filter((r) => coincideBusqueda(q, r.supplier_name, r.supplier_code, r.alcance_nombre)
+      && (mias === null || r.reviewer_user_id === mias));
   });
   readonly porRevisar = computed(() => this.reglas().filter((r) => ['rezagada', 'toca_hoy', 'sin_ancla'].includes(r.estado.estado)));
   readonly fechas = computed<FechaEnCalendario[]>(() => {
@@ -832,9 +912,16 @@ export class ComprasCalendarioComponent implements OnInit {
   private reglaEditando: ReglaCalendario | null = null;
   rProv: ProveedorDelFormulario | null = null;
   rScope: AlcanceRevision = 'corporate';
-  rZona: string | null = null;
-  rSucursal: string | null = null;
+  /** `[PQ.3.21]` Las zonas o sucursales elegidas con casillas (DC28): una regla por cada una. */
+  rZonas: string[] = [];
+  rSucursales: string[] = [];
   rPatron: PatronRevision = 'weekdays';
+  /** `[PQ.3.15]` La cadencia de «días de la semana» (DC29). */
+  rCadencia: Cadencia = 'semana';
+  rAncla: Date | null = null;
+  rMesSemana = 1;
+  /** `[PQ.3.22]` La persona responsable (DC30); `null` = revisa el puesto del lugar. */
+  rResponsable: string | null = null;
   rSemana: boolean[] = new Array(7).fill(false);
   rMes: boolean[] = new Array(31).fill(false);
   rUltimo = false;
@@ -847,11 +934,14 @@ export class ComprasCalendarioComponent implements OnInit {
   readonly diasSemana = DIAS_SEMANA;
   readonly diasSemanaLargo = DIAS_SEMANA_LARGO;
   readonly diasMes = Array.from({ length: 31 }, (_, i) => i + 1);
+  // `[PQ.3.21]` «Por zona» y «Por sucursal» (antes «Una zona», «Una sucursal»): ahora se eligen varias.
   readonly opcionesAlcance: SegOption[] = [
     { label: 'Todas las sucursales', value: 'corporate' },
-    { label: 'Una zona', value: 'zone' },
-    { label: 'Una sucursal', value: 'branch' },
+    { label: 'Por zona', value: 'zone' },
+    { label: 'Por sucursal', value: 'branch' },
   ];
+  readonly opcionesCadencia: SegOption[] = OPCIONES_CADENCIA.map((o) => ({ label: o.label, value: o.value }));
+  readonly opcionesSemanaDelMes: SegOption[] = OPCIONES_SEMANA_DEL_MES.map((o) => ({ label: o.label, value: o.value }));
   readonly opcionesPatron: SegOption[] = [
     { label: 'Días de la semana', value: 'weekdays' },
     { label: 'Días del mes', value: 'month_days' },
@@ -887,10 +977,11 @@ export class ComprasCalendarioComponent implements OnInit {
     this.prepararRegla({ code: p.supplier_code, name: p.supplier_name, ancla: d.ultima }, null);
     const patron = patronDelDiaFijo(d);
     this.rScope = 'branch';
-    this.rSucursal = d.branch_code;
+    this.rSucursales = [d.branch_code];
     this.rPatron = patron.pattern;
     for (const w of patron.weekdays ?? []) this.rSemana[w - 1] = true;
     this.rCadaN = patron.every_n_days;
+    this.ponerCadencia(patron);
     this.rEvidencia = diaFijoEvidencia(d, warehouseName(d.branch_code));
     this.dlgRegla.set(true);
   }
@@ -900,8 +991,8 @@ export class ComprasCalendarioComponent implements OnInit {
     this.prepararRegla({ code: r.supplier_code, name: r.supplier_name, ancla: r.ultima_actividad?.fecha ?? null }, corregir ? r : null);
     if (corregir) {
       this.rScope = r.scope;
-      this.rZona = r.zone_code;
-      this.rSucursal = r.branch_code;
+      this.rZonas = r.zone_code ? [r.zone_code] : [];
+      this.rSucursales = r.branch_code ? [r.branch_code] : [];
       this.rPatron = r.pattern;
       for (const d of r.weekdays ?? []) this.rSemana[d - 1] = true;
       for (const d of r.month_days ?? []) this.rMes[d - 1] = true;
@@ -909,6 +1000,8 @@ export class ComprasCalendarioComponent implements OnInit {
       this.rCadaN = r.every_n_days;
       this.rCorre = r.weekend_shift;
       this.rNota = r.note ?? '';
+      this.ponerCadencia(r);
+      this.rResponsable = r.reviewer_user_id ?? null;
     } else {
       this.rScope = 'branch';
     }
@@ -922,8 +1015,8 @@ export class ComprasCalendarioComponent implements OnInit {
     this.reglaEditando = editando;
     this.rProv = prov;
     this.rScope = 'corporate';
-    this.rZona = null;
-    this.rSucursal = null;
+    this.rZonas = [];
+    this.rSucursales = [];
     this.rPatron = 'weekdays';
     this.rSemana = new Array(7).fill(false);
     this.rMes = new Array(31).fill(false);
@@ -932,10 +1025,85 @@ export class ComprasCalendarioComponent implements OnInit {
     this.rCorre = 'friday';
     this.rNota = '';
     this.rEvidencia = null;
+    this.rCadencia = 'semana';
+    this.rAncla = null;
+    this.rMesSemana = 1;
+    this.rResponsable = null;
+    this.cargarResponsables();
+  }
+
+  /** `[PQ.3.15]` La cadencia que trae una regla (o la propuesta del día fijo), al formulario. */
+  private ponerCadencia(p: Pick<PatronDeRegla, 'week_interval' | 'week_anchor' | 'month_week'>): void {
+    const c = cadenciaDeLaRegla(p);
+    this.rCadencia = c.cadencia;
+    this.rAncla = this.aFecha(c.ancla);
+    this.rMesSemana = c.mesSemana;
+  }
+
+  /** `[PQ.3.22]` Quién puede ser responsable: se pide una vez por pantalla. Si falla, se DICE (no se ofrece una lista vacía). */
+  private cargarResponsables(): void {
+    if (this.responsables() || !this.puedeCiclo()) return;
+    this.errorResponsables.set(null);
+    this.api.responsables().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.responsables.set(r.personas),
+      error: (e) => this.errorResponsables.set(`${motivoHttp(e, 'leer quién puede ser responsable')} La regla se puede guardar sin responsable.`),
+    });
+  }
+
+  /** `[PQ.3.21]` En «Corregir la regla» el lugar no cambia: se muestra, no se elige. */
+  corrigiendo(): boolean {
+    return this.reglaEditando !== null;
+  }
+  lugarFijo(): string {
+    return this.reglaEditando?.alcance_nombre ?? '';
   }
 
   cambiarAlcance(v: string): void {
     this.rScope = v === 'zone' ? 'zone' : v === 'branch' ? 'branch' : 'corporate';
+  }
+
+  /** `[PQ.3.15]` Al pedir «cada N semanas» sin fecha, se propone la siguiente del primer día elegido (se puede cambiar). */
+  cambiarCadencia(v: string): void {
+    this.rCadencia = (['semana', '2', '3', 'mes', '6'] as const).find((c) => c === v) ?? 'semana';
+    if ((this.rCadencia === '2' || this.rCadencia === '3' || this.rCadencia === '6') && !this.rAncla) {
+      const hoy = this.cal()?.hoy;
+      if (hoy) this.rAncla = this.aFecha(anclaPorOmision(hoy, this.patronDelFormulario().weekdays ?? []));
+    }
+  }
+
+  /** «una sí y otra no» · «una sí y dos no» · «una sí y cinco no». */
+  semanasQueNo(): string {
+    const n = Number(this.rCadencia) - 1;
+    return n === 1 ? 'otra' : n === 2 ? 'dos' : n === 5 ? 'cinco' : String(n);
+  }
+
+  /** `[PQ.3.21]` Los lugares de la captura (zonas o sucursales); vacío en la corporativa. */
+  private lugares(): string[] {
+    return this.rScope === 'zone' ? [...this.rZonas] : this.rScope === 'branch' ? [...this.rSucursales] : [];
+  }
+
+  /** `[PQ.3.22]` Las sucursales que cubre lo capturado: contra eso se mide quién puede ser responsable. */
+  private plazasDeLaCaptura(): string[] {
+    const c = this.cal();
+    return plazasDeLosLugares(this.rScope, this.lugares(), c?.zonas ?? [], c?.sucursales ?? []);
+  }
+
+  private cacheResp: { key: string; opciones: { label: string; value: string }[] } | null = null;
+  /** `[PQ.3.22]` Las personas que pueden ser responsables de LO QUE SE ESTÁ CAPTURANDO (y la ya elegida, aunque ya no aplique). */
+  opcionesResponsable(): { label: string; value: string }[] {
+    const ps = this.responsables() ?? [];
+    const plazas = this.plazasDeLaCaptura();
+    const key = `${ps.length}|${plazas.join(',')}|${this.rResponsable ?? ''}`;
+    if (this.cacheResp?.key === key) return this.cacheResp.opciones;
+    const opciones = ps
+      .filter((p) => puedeSerResponsable(p.sucursales, plazas) || p.user_id === this.rResponsable)
+      .map((p) => ({ label: `${p.nombre} · ${puestoLegible(p.puesto)}`, value: p.user_id }));
+    this.cacheResp = { key, opciones };
+    return opciones;
+  }
+
+  private responsableElegido(): ResponsablePosible | null {
+    return this.rResponsable ? (this.responsables() ?? []).find((p) => p.user_id === this.rResponsable) ?? null : null;
   }
   cambiarPatron(v: string): void {
     this.rPatron = v === 'month_days' ? 'month_days' : v === 'every_n_days' ? 'every_n_days' : 'weekdays';
@@ -945,24 +1113,31 @@ export class ComprasCalendarioComponent implements OnInit {
   }
 
   private patronDelFormulario(): PatronDeRegla {
+    const semana = this.rPatron === 'weekdays';
+    const cadencia = camposDeCadencia(this.rCadencia, this.rAncla ? this.iso(this.rAncla) : null, this.rMesSemana);
     return {
       pattern: this.rPatron,
-      weekdays: this.rPatron === 'weekdays' ? this.rSemana.map((on, i) => (on ? i + 1 : 0)).filter(Boolean) : null,
+      weekdays: semana ? this.rSemana.map((on, i) => (on ? i + 1 : 0)).filter(Boolean) : null,
       month_days: this.rPatron === 'month_days' ? this.rMes.map((on, i) => (on ? i + 1 : 0)).filter(Boolean) : null,
       month_last_day: this.rPatron === 'month_days' && this.rUltimo,
       every_n_days: this.rPatron === 'every_n_days' ? this.rCadaN : null,
       weekend_shift: this.rCorre,
+      // `[PQ.3.15]` La cadencia sólo viaja con «días de la semana».
+      week_interval: semana ? cadencia.week_interval : null,
+      week_anchor: semana ? cadencia.week_anchor : null,
+      month_week: semana ? cadencia.month_week : null,
     };
   }
 
-  /** La regla viva de este proveedor en el alcance elegido (la API la reemplazaría). */
-  private reglaDelAlcance(): ReglaCalendario | null {
+  /** `[PQ.3.21]` Las reglas vivas de este proveedor en los lugares elegidos (la API las reemplazaría), sin la que se corrige. */
+  private reglasVivasDeLaCaptura(): ReglaCalendario[] {
     const code = this.rProv?.code;
-    if (!code) return null;
-    const zona = this.rScope === 'zone' ? this.rZona : null;
-    const suc = this.rScope === 'branch' ? this.rSucursal : null;
-    return this.cal()?.reglas.find((r) => r.supplier_code === code && r.scope === this.rScope
-      && (r.zone_code ?? null) === zona && (r.branch_code ?? null) === suc) ?? null;
+    if (!code) return [];
+    const ed = this.reglaEditando?.id ?? null;
+    const lugares = this.lugares();
+    return (this.cal()?.reglas ?? []).filter((r) => r.supplier_code === code && r.scope === this.rScope && r.id !== ed
+      && (this.rScope === 'corporate'
+        || lugares.includes((this.rScope === 'zone' ? r.zone_code : r.branch_code) ?? '')));
   }
 
   private dtoRegla(): GuardarReglaDto {
@@ -970,24 +1145,33 @@ export class ComprasCalendarioComponent implements OnInit {
     return {
       supplier_code: this.rProv?.code ?? '',
       scope: this.rScope,
-      zone_code: this.rScope === 'zone' ? this.rZona : null,
-      branch_code: this.rScope === 'branch' ? this.rSucursal : null,
+      // `[PQ.3.21]` Una regla por lugar (DC28): la API las guarda todas o ninguna.
+      zone_codes: this.rScope === 'zone' ? [...this.rZonas] : null,
+      branch_codes: this.rScope === 'branch' ? [...this.rSucursales] : null,
       pattern: p.pattern,
-      ...(p.pattern === 'weekdays' ? { weekdays: p.weekdays } : {}),
+      ...(p.pattern === 'weekdays' ? { weekdays: p.weekdays, week_interval: p.week_interval, week_anchor: p.week_anchor, month_week: p.month_week } : {}),
       ...(p.pattern === 'month_days' ? { month_days: p.month_days, month_last_day: p.month_last_day } : {}),
       ...(p.pattern === 'every_n_days' ? { every_n_days: p.every_n_days } : {}),
       weekend_shift: p.weekend_shift,
-      // Quien revisa no se elige aquí todavía (§10.6): se CONSERVA el de la regla que se reemplaza.
-      reviewer_user_id: this.reglaDelAlcance()?.reviewer_user_id ?? null,
+      reviewer_user_id: this.rResponsable,
       note: this.rNota.trim() || null,
     };
   }
 
-  /** La MISMA validación de la API (contrato), con las zonas y sucursales que la API usa. */
+  /**
+   * La MISMA validación de la API (contrato), con las zonas y sucursales que la API usa. `[PQ.3.22]` Y que la persona
+   * responsable vea todos los lugares: se avisa antes de mandar, en vez de que la API lo rechace.
+   */
   problemaRegla(): string | null {
     if (!this.rProv) return 'Falta el proveedor.';
     const c = this.cal();
-    return validarRegla(this.dtoRegla(), (c?.zonas ?? []).map((z) => z.code), c?.sucursales ?? []);
+    const motivo = validarCaptura(this.dtoRegla(), (c?.zonas ?? []).map((z) => z.code), c?.sucursales ?? []);
+    if (motivo) return motivo;
+    const resp = this.responsableElegido();
+    if (resp && !puedeSerResponsable(resp.sucursales, this.plazasDeLaCaptura())) {
+      return `${resp.nombre} no ve todas las sucursales de esta regla: elige a otra persona o quítala.`;
+    }
+    return null;
   }
 
   vistaPrevia(): string {
@@ -998,35 +1182,37 @@ export class ComprasCalendarioComponent implements OnInit {
     return proximasRevisiones(p, hoy, 4, ancla).map((f) => diaCorto(f.fecha) + (f.corrida_de ? ` (era el ${diaCorto(f.corrida_de)})` : '')).join(' · ');
   }
 
+  /** Quién atiende lo capturado: la persona responsable, o el puesto del lugar (con varios lugares, el de cada uno). */
   revisaDelFormulario(): string {
-    const viva = this.reglaDelAlcance();
-    if (viva?.reviewer_user_id) return viva.revisa;
-    if (this.rScope === 'corporate') return 'Gerencia de compras';
+    const resp = this.responsableElegido();
+    if (resp) return `Responsable: ${resp.nombre}`;
+    const n = this.lugares().length;
+    if (this.rScope === 'corporate') return 'Revisa: Gerencia de compras';
     if (this.rScope === 'zone') {
-      const z = this.cal()?.zonas.find((x) => x.code === this.rZona);
-      return z ? `Gerencia de zona (${z.nombre})` : 'Gerencia de la zona';
+      if (n > 1) return 'Revisa: la gerencia de cada zona';
+      const z = this.cal()?.zonas.find((x) => x.code === this.rZonas[0]);
+      return z ? `Revisa: Gerencia de zona (${z.nombre})` : 'Revisa: Gerencia de la zona';
     }
-    return this.rSucursal ? `Encargado de ${warehouseName(this.rSucursal)}` : 'Encargado de la sucursal';
+    if (n > 1) return 'Revisa: el encargado de cada sucursal';
+    return this.rSucursales[0] ? `Revisa: Encargado de ${warehouseName(this.rSucursales[0])}` : 'Revisa: Encargado de la sucursal';
   }
 
-  /** Dónde aplica lo que se guarda, para el aviso: «todas las sucursales» · «zona Zamora» · «Yurécuaro». */
-  private alcanceDelFormulario(): string {
-    if (this.rScope === 'corporate') return 'todas las sucursales';
-    if (this.rScope === 'zone') return `zona ${this.cal()?.zonas.find((x) => x.code === this.rZona)?.nombre ?? this.rZona}`;
-    return this.rSucursal ? warehouseName(this.rSucursal) : 'la sucursal';
+  /** Cómo se nombra un lugar en el aviso: «todas las sucursales» · «zona Zamora» · «Yurécuaro». */
+  private nombreDelLugar(lugar: string | null): string {
+    if (this.rScope === 'corporate' || !lugar) return 'todas las sucursales';
+    if (this.rScope === 'zone') return `zona ${this.cal()?.zonas.find((x) => x.code === lugar)?.nombre ?? lugar}`;
+    return warehouseName(lugar);
   }
 
-  /** Dice qué va a pasar ANTES de guardar: reemplazar otra regla, o crear una nueva al cambiar de alcance. */
+  /** Dice qué va a pasar ANTES de guardar: si en alguno de los lugares ya hay una regla, se reemplaza. */
   avisoReemplazo(): string | null {
-    const viva = this.reglaDelAlcance();
-    const ed = this.reglaEditando;
-    if (viva && viva.id !== ed?.id) {
-      return `Ya hay una regla de este proveedor para ${viva.alcance_nombre} (${patronEnPalabras(viva)}): guardar la reemplaza y conserva sus marcas.`;
-    }
-    if (ed && !viva && this.problemaRegla() === null) {
-      return `Cambiaste el lugar: se crea una regla NUEVA y la de ${ed.alcance_nombre} sigue igual. Si ya no va, dala de baja.`;
-    }
-    return null;
+    const vivas = this.reglasVivasDeLaCaptura();
+    if (!vivas.length) return null;
+    const cuales = vivas.map((v) => `${v.alcance_nombre} (${patronEnPalabras(v)})`);
+    const lista = cuales.length === 1 ? cuales[0] : `${cuales.slice(0, -1).join(', ')} y ${cuales[cuales.length - 1]}`;
+    return vivas.length === 1
+      ? `Ya hay una regla de este proveedor para ${lista}: guardar la reemplaza y conserva sus marcas.`
+      : `Ya hay reglas de este proveedor para ${lista}: guardar las reemplaza y conserva sus marcas.`;
   }
 
   guardarRegla(): void {
@@ -1038,7 +1224,9 @@ export class ComprasCalendarioComponent implements OnInit {
       next: (r) => {
         this.ocupado.set(false);
         this.dlgRegla.set(false);
-        this.aviso.set(`${r.accion === 'creada' ? 'Regla creada' : 'Regla actualizada'}: ${this.rProv?.name ?? dto.supplier_code} en ${this.alcanceDelFormulario()}, ${patronEnPalabras(this.patronDelFormulario()).toLowerCase()}.`);
+        // Si la respuesta no trae el detalle por lugar, se arma con lo capturado (un lugar), en vez de nombrar «todas».
+        const reglas = r.reglas?.length ? r.reglas : [{ lugar: this.lugares()[0] ?? null, id: r.id, accion: r.accion }];
+        this.aviso.set(avisoDeGuardado({ reglas }, this.rProv?.name ?? dto.supplier_code, patronEnPalabras(this.patronDelFormulario()), (l) => this.nombreDelLugar(l)));
         // `[PQ.3.14]` En «Sin regla» se aceptan propuestas una tras otra: el detalle NO se abre encima de la lista (la
         // prueba visual: cada propuesta costaba un clic más para cerrarlo). Lo guardado sale del renglón y el aviso dice dónde quedó.
         if (this.vista() !== 'sin_regla') this.abiertaId.set(r.id);
