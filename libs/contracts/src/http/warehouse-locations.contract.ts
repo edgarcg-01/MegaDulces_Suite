@@ -108,6 +108,18 @@ export function parseLocationCode(raw: string | null | undefined): LocationCodeP
   return { ok: false, code, motivo: `El último dígito es el nivel, del 1 al ${LOCATION_LEVEL_MAX}.` };
 }
 
+/**
+ * `[UB.RF.15]` Un rack es el código de ubicación sin el nivel: zona + pasillo + 2 dígitos (`TA01`).
+ * La captura por rack lo usa para elegir el rack y para pedir lo que ya tiene asignado.
+ */
+export const LOCATION_RACK_RE = /^([TB])([A-Z])(0[1-9]|[1-9][0-9])$/;
+
+/** `[UB.RF.15]` El rack de un código de ubicación (`TA012` → `TA01`); `null` si no es un código válido. */
+export function rackOfLocationCode(raw: string | null | undefined): string | null {
+  const p = parseLocationCode(raw);
+  return p.ok ? p.code.slice(0, 4) : null;
+}
+
 /** Arma el código desde sus partes. Lanza si las partes no forman un código válido. */
 export function formatLocationCode(p: LocationCodeParts): string {
   const code = `${p.zona}${p.pasillo}${String(p.rack).padStart(2, '0')}${p.nivel}`;
@@ -249,9 +261,32 @@ export interface WaveCartsResponse {
   carretas: CartRow[];
 }
 
-/** Cómo se lee en voz alta: "Bodega · pasillo A · rack 05 · nivel 3". */
+/**
+ * `[UB.RF.18]` **Un pasillo es un corredor con DOS frentes enfrentados** (Edgar, 2026-11-25). El
+ * frente NO se escribe en el código: se **deriva** del número de rack, como las calles — los nones
+ * de un lado y los pares del otro.
+ *
+ * Por qué derivarlo y no guardarlo: un dato que alguien captura se puede capturar mal y nadie lo
+ * nota; uno que se deduce del número no. Y así `BA053` sigue siendo de 5 caracteres, con el mismo
+ * CHECK en la base, el mismo `normalizeBinCode` del escáner y el mismo ancho de CODE128 en la
+ * etiqueta (22.5 mm en 52 útiles) — el cambio no le cuesta nada al resto del sistema.
+ *
+ * Con los dos frentes parejos (confirmado por Edgar), el rack `n` queda **enfrente** del `n + 1`.
+ */
+export type RackFace = 'nones' | 'pares';
+
+export function rackFace(rack: number): RackFace {
+  return rack % 2 === 1 ? 'nones' : 'pares';
+}
+
+/** El rack que queda enfrente, del otro lado del corredor: 05 ↔ 06, 06 ↔ 05. */
+export function rackOpuesto(rack: number): number {
+  return rack % 2 === 1 ? rack + 1 : rack - 1;
+}
+
+/** Cómo se lee en voz alta: "Bodega · pasillo A · frente de nones · rack 05 · nivel 3". */
 export function describeLocationCode(p: LocationCodeParts): string {
-  return `${p.zona === 'T' ? 'Tienda' : 'Bodega'} · pasillo ${p.pasillo} · rack ${String(p.rack).padStart(2, '0')} · nivel ${p.nivel}`;
+  return `${p.zona === 'T' ? 'Tienda' : 'Bodega'} · pasillo ${p.pasillo} · frente de ${rackFace(p.rack)} · rack ${String(p.rack).padStart(2, '0')} · nivel ${p.nivel}`;
 }
 
 /** Posición del pasillo en el orden de recorrido (A = 1). */
@@ -259,13 +294,23 @@ export function aisleOrder(pasillo: string): number {
   return pasillo.toUpperCase().charCodeAt(0) - 64;
 }
 
+/** Tope de racks por pasillo. Entra en el orden de recorrido para que la vuelta no pise al pasillo siguiente. */
+const RACKS_POR_PASILLO = LOCATION_RACK_MAX + 1; // 100
+
 /**
- * Orden de recorrido por defecto (hoja de surtido): zona → pasillo → rack → nivel.
+ * `[UB.RF.18]` Orden de recorrido por defecto (hoja de surtido): zona → pasillo → **el pasillo
+ * completo, en serpentina** → nivel.
+ *
+ * Dentro del pasillo se **baja por el frente de los nones** (01, 03, 05…) y se **vuelve por el de
+ * los pares** (…, 06, 04, 02). Antes iba 01, 02, 03…, que con dos frentes enfrentados obliga a
+ * cruzar el corredor una vez por rack: en un pasillo de 25 racks son 24 cruces que no hacen falta.
+ *
  * Tienda antes que bodega, porque es lo que se ve primero al entrar. Se puede corregir por
  * ubicación con `pick_sequence` cuando el recorrido físico no sigue el alfabeto.
  */
 export function defaultPickSequence(p: LocationCodeParts): number {
-  return (p.zona === 'T' ? 0 : 1) * 1_000_000 + Math.round(aisleOrder(p.pasillo) * 2) * 10_000 + p.rack * 10 + p.nivel;
+  const enElPasillo = p.rack % 2 === 1 ? (p.rack + 1) / 2 : RACKS_POR_PASILLO - p.rack / 2;
+  return (p.zona === 'T' ? 0 : 1) * 1_000_000 + Math.round(aisleOrder(p.pasillo) * 2) * 10_000 + enElPasillo * 10 + p.nivel;
 }
 
 // ── Respuestas HTTP ────────────────────────────────────────────────────────────────────────────
@@ -287,6 +332,17 @@ export interface WarehouseLocationRow {
   pick_sequence: number | null;
   /** Renglones de `stock_lot_locations` con cantidad > 0 en esta ubicación (no suma unidades distintas). */
   renglones_con_cantidad: number;
+  /**
+   * `[UB.RF.17]` Renglones de `stock_lot_locations` en esta ubicación **sin mirar la cantidad**.
+   *
+   * Es el testigo de que el acomodo con escaneo alguna vez escribió acá. Sin él, `renglones_con_cantidad = 0`
+   * es indistinguible de «el acomodo nunca corrió en este almacén» — y eso es lo que pasaba: medido el
+   * 2026-11-25, `commercial.stock_lot_locations` tenía **una sola fila en todo prod** y el mapa publicaba
+   * «0 con mercancía» sobre 531 ubicaciones como si fuera un hecho de la operación (ADR-056).
+   */
+  renglones_totales: number;
+  /** `[UB.RF.17]` Productos con asignación viva (`bin_assignments`, sin `deleted_at`) en esta ubicación. */
+  productos_asignados: number;
   updated_at: string;
 }
 
@@ -300,12 +356,30 @@ export interface WarehouseLocationsSummary {
   /** Lo que existía antes de la Fase UB con código libre. */
   legado: number;
   con_contenido: number;
+  /**
+   * `[UB.RF.17]` Si el acomodo con escaneo **llegó a escribir** en este almacén. Cuando es `false`,
+   * `con_contenido` no es un cero de la operación sino un «todavía no medido», y así se publica
+   * (ADR-056: lo que no se midió se declara, nunca se dibuja como cero).
+   */
+  contenido_medido: boolean;
+  /** `[UB.RF.17]` Ubicaciones con al menos un producto asignado (`bin_assignments` viva). */
+  con_producto: number;
+  /** `[UB.RF.17]` Familias que el mapa no recorre (carreta, espera, contenedor, estiba): se declaran aparte. */
+  fuera_del_mapa: number;
 }
 
 export interface WarehouseLocationsAlcance {
   todas: boolean;
-  /** Almacenes visibles para quien consulta (ScopeService, proyecto Almacén). */
-  almacenes: Array<{ id: string; code: string; name: string }>;
+  /**
+   * Almacenes visibles para quien consulta (ScopeService, proyecto Almacén).
+   *
+   * `[UB.RF.19]` Cada uno trae **cuánto trabajo tiene**, para que la pantalla pueda decir «aquí no hay
+   * nada, pero en Padre Hidalgo hay 23». Sin esto, quien no tiene almacén en su ficha abre siempre en
+   * el primero por código —CEDIS, con 375 ubicaciones y 0 productos— y lee «no hay nada» sobre un
+   * almacén que no es el suyo. Medido el 2026-11-25: pasó, y terminó en cinco intentos de dar de alta
+   * una ubicación que ya existía.
+   */
+  almacenes: Array<{ id: string; code: string; name: string; ubicaciones: number; con_producto: number }>;
 }
 
 export interface WarehouseLocationsResponse {

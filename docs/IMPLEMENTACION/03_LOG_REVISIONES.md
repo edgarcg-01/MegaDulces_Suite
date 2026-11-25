@@ -422,7 +422,7 @@
 - Un renglón X es resto si un commit no-merge lo quitó y en el MISMO commit puso Y con la misma clave (el código del ítem; el título de la sección sin su paréntesis), y hoy están los dos. Queda Y. Del bloque de X sólo pasan a Y los renglones que Y no trae y que ese commit no quitó: en RE.63, RE.67 y CXC.44 el cuerpo había quedado bajo el título viejo.
 - En el CHANGELOG, además, se quita la copia de una sección cuyo cuerpo está contenido en otra con el mismo título (12 idénticas y 1 parcial).
 
-**Resultado:** tracker −32 filas viejas (códigos repetidos 64 → 33). CHANGELOG −8 versiones viejas y −13 copias (títulos repetidos 31 → 10). Control: ningún código ni título desaparece (2,023 códigos y 960 títulos antes y después). El índice del tracker, que estaba rancio en `main`, se regeneró.
+**Resultado:** tracker −32 filas viejas (códigos repetidos 64 → 33). CHANGELOG −8 versiones viejas y −13 copias (títulos repetidos 31 → 10). Control: ningún código ni título desaparece (2,026 códigos y 963 títulos antes y después). El índice del tracker, que estaba rancio en `main`, se regeneró.
 
 **Lo que NO se tocó, a propósito:**
 - 2 parejas del 26-ago cuyos cuerpos no se contienen (la réplica de pruebas y la rotación de `FEEDS_INGEST_KEY`): las decide quien las escribió.
