@@ -6,6 +6,8 @@ import type { AvanceDelEmbudo, CalendarioCompras, EmbudoLlenado, GuardarReglaRes
 import { ComprasCalendarioComponent } from './compras-calendario.component';
 import { CalendarioComprasService } from '../calendario-compras.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { AuthService } from '../../../core/services/auth.service';
+import type { ResponsablesCalendario } from '@megadulces/contracts';
 
 /**
  * `[PQ.3.14]` «Sin regla» con el día fijo por sucursal. El fixture copia DOS propuestas medidas en prod el
@@ -34,16 +36,27 @@ const avance = (o: Partial<AvanceDelEmbudo>): AvanceDelEmbudo => ({
 });
 const EMBUDO: EmbudoLlenado = { measured: true, note: null, total: avance({}), escalones: [avance({ escalon: 1, proveedores: 0, con_regla: 0, compra_pct: 0, compra_con_regla_pct: 0, ocs_pct: 0, ocs_con_regla_pct: 0 }), avance({ escalon: 2 }), avance({ escalon: 3, proveedores: 0, con_regla: 0, compra_pct: 0, compra_con_regla_pct: 0, ocs_pct: 0, ocs_con_regla_pct: 0 })] };
 
-function montar(prop: PropuestasCalendario, vista?: string) {
+/** `[PQ.3.22]` Quién puede ser responsable: uno de oficina (todas), el encargado de Yurécuaro y uno de La Piedad. */
+const RESPONSABLES: ResponsablesCalendario = {
+  personas: [
+    { user_id: 'U-GER', nombre: 'Gerencia Prueba', puesto: 'gerente_compras', sucursales: null },
+    { user_id: 'U-YUR', nombre: 'Encargado Yurécuaro', puesto: 'encargado_tienda', sucursales: ['04'] },
+    { user_id: 'U-LP', nombre: 'Compras La Piedad', puesto: 'compras', sucursales: ['01', '02', '03', '04'] },
+  ],
+};
+
+function montar(prop: PropuestasCalendario, vista?: string, calendario: CalendarioCompras = cal()) {
   const api = {
-    calendario: vi.fn(() => of(cal())), propuestas: vi.fn(() => of(prop)),
+    calendario: vi.fn(() => of(calendario)), propuestas: vi.fn(() => of(prop)),
     guardarRegla: vi.fn(() => of({ id: 'R-NUEVA', accion: 'creada' } as GuardarReglaRespuesta)),
+    responsables: vi.fn(() => of(RESPONSABLES)),
   };
   const perms = { has$: () => signal(true), has: () => true, isAdmin: () => false };
   TestBed.configureTestingModule({
     imports: [ComprasCalendarioComponent],
     providers: [
       provideRouter([]), { provide: CalendarioComprasService, useValue: api }, { provide: PermissionsService, useValue: perms },
+      { provide: AuthService, useValue: { user: signal({ sub: 'U-YO' }) } },
       ...(vista ? [{ provide: ActivatedRoute, useValue: { queryParamMap: of(convertToParamMap({ vista })) } }] : []),
     ],
   });
@@ -79,14 +92,15 @@ describe('[PQ.3.14] Sin regla: el día fijo por sucursal', () => {
     expect(c.respuesta()).toContain('2 proveedores con compra en Kepler no tienen regla');
   });
 
-  it('el clic abre el formulario LLENO: sucursal, «cada 14 días» desde la última de ESA sucursal, y la evidencia', () => {
+  it('el clic abre el formulario LLENO: sucursal, viernes cada 2 semanas desde la última de ESA sucursal, y la evidencia', () => {
     const { c, el, f } = montar(PROP);
     const btn = [...el.querySelectorAll<HTMLButtonElement>('button.cc-diafijo')].find((b) => b.textContent?.includes('Yurécuaro'));
     expect(btn?.getAttribute('aria-label')).toBe('Definir la regla de Yurécuaro: un viernes sí y otro no');
     btn?.click();
     f.detectChanges();
     expect(c.dlgRegla()).toBe(true);
-    expect([c.rScope, c.rSucursal, c.rPatron, c.rCadaN, c.rProv?.ancla]).toEqual(['branch', '04', 'every_n_days', 14, '2026-11-13']);
+    // `[PQ.3.15]` Antes «cada 14 días» (se movía con cada orden); ahora viernes cada 2 semanas anclado en ESA sucursal.
+    expect([c.rScope, c.rSucursales, c.rPatron, c.rCadencia, c.rAncla?.getDate(), c.rProv?.ancla]).toEqual(['branch', ['04'], 'weekdays', '2', 13, '2026-11-13']);
     expect(c.rEvidencia).toContain('13 de los 13 días con orden o entrada de los últimos 12 meses cayeron en viernes');
     expect(c.problemaRegla()).toBeNull();
     expect(c.vistaPrevia().startsWith('vie 27 nov')).toBe(true);
@@ -95,7 +109,7 @@ describe('[PQ.3.14] Sin regla: el día fijo por sucursal', () => {
   it('cada semana se arma como «días de la semana» con ese día marcado', () => {
     const { c } = montar(PROP);
     c.abrirReglaDeDiaFijo(PROP.dia_fijo_pendiente[0], PROP.dia_fijo_pendiente[0].dias_fijos[0]);
-    expect([c.rScope, c.rSucursal, c.rPatron, c.rSemana.map((x, i) => (x ? i + 1 : 0)).filter(Boolean)]).toEqual(['branch', '08', 'weekdays', [4]]);
+    expect([c.rScope, c.rSucursales, c.rPatron, c.rCadencia, c.rSemana.map((x, i) => (x ? i + 1 : 0)).filter(Boolean)]).toEqual(['branch', ['08'], 'weekdays', 'semana', [4]]);
   });
 
   it('NEGATIVA: abrir otra regla después limpia la evidencia (no se queda pegada a otro proveedor)', () => {
@@ -113,7 +127,7 @@ describe('[PQ.3.14] Sin regla: el día fijo por sucursal', () => {
     expect(api.guardarRegla).toHaveBeenCalledTimes(1);
     expect(c.dlgRegla()).toBe(false);
     expect(abiertaId(c)).toBeNull();
-    expect(c.aviso()).toBe('Regla creada: TOSTADAS DE PRUEBA en Yurécuaro, cada 14 días.');
+    expect(c.aviso()).toBe('Regla creada: TOSTADAS DE PRUEBA en Yurécuaro, cada 2 semanas, en viernes.');
   });
 
   it('NEGATIVA: desde «Reglas» guardar SÍ abre el detalle de la regla (el cambio es sólo de «Sin regla»)', () => {

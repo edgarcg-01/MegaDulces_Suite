@@ -2,10 +2,12 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import type { Knex } from 'knex';
 import type {
   CalendarioCompras, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta, MarcarRevisionDto, PropuestasCalendario,
+  ResponsablesCalendario,
 } from '@megadulces/contracts';
 import { ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
-  CalendarioError, darDeBaja, fueraDeCiclo, guardarRegla, leerCalendario, leerPropuestas, marcar, type Quien,
+  CalendarioError, darDeBaja, fueraDeCiclo, guardarRegla, leerCalendario, leerPosiblesResponsables, leerPropuestas, marcar, type Quien,
+  type ResponsableResuelto,
 } from './purchase-calendar.repo';
 
 /** El error del dominio, en el código HTTP que la pantalla sabe leer (con su mensaje en español). */
@@ -70,7 +72,41 @@ export class PurchaseCalendarService {
   async guardarRegla(sesion: Sesion, dto: GuardarReglaDto): Promise<GuardarReglaRespuesta> {
     const tenant = this.tenantCtx.requireTenantId();
     const quien = await this.conAlcance(sesion);
-    return this.tk.run((trx: Knex.Transaction) => guardarRegla(trx, tenant, quien, dto)).catch(traducir);
+    // `[PQ.3.22]` El alcance del responsable, fuera de la transacción (como el de quien escribe).
+    const responsable = dto?.reviewer_user_id ? await this.alcanceDe(tenant, dto.reviewer_user_id) : undefined;
+    return this.tk.run((trx: Knex.Transaction) => guardarRegla(trx, tenant, quien, dto, responsable)).catch(traducir);
+  }
+
+  /** `[PQ.3.22]` Dónde ESCRIBE una persona en Compras; si no se puede resolver, no se supone nada: se rechaza. */
+  private async alcanceDe(tenant: string, userId: string): Promise<ResponsableResuelto> {
+    try {
+      const s = await this.scope.forUser(tenant, userId, undefined, AREA);
+      return { userId, escribe: this.scope.intersectWrite(s, 'warehouse') };
+    } catch (e) {
+      this.logger.warn(`[PQ.3.22] alcance del responsable ${userId} NO RESUELTO: ${String((e as Error)?.message ?? e)}`);
+      throw new BadRequestException('No pudimos saber qué sucursales ve la persona responsable: elige a otra o vuelve a intentar.');
+    }
+  }
+
+  /**
+   * `[PQ.3.22]` `GET /compras/calendario/responsables` (DC30): quién puede ser responsable de una regla, con las
+   * sucursales donde escribe. La pantalla ofrece sólo a quien escribe en TODAS las sucursales de la regla, con la
+   * misma cuenta que la API usa al guardar (`puedeSerResponsable` / `reglaEnAlcance`). Quien no se pudo resolver no
+   * se ofrece y queda en el log (no se adivina su alcance).
+   */
+  async responsables(): Promise<ResponsablesCalendario> {
+    const tenant = this.tenantCtx.requireTenantId();
+    const filas = await this.tk.run((trx: Knex.Transaction) => leerPosiblesResponsables(trx, tenant));
+    const personas: ResponsablesCalendario['personas'][number][] = [];
+    for (const f of filas) {
+      try {
+        const s = await this.scope.forUser(tenant, f.user_id, f.role_name || undefined, AREA);
+        personas.push({ user_id: f.user_id, nombre: f.nombre, puesto: f.role_name, sucursales: this.scope.intersectWrite(s, 'warehouse') });
+      } catch (e) {
+        this.logger.warn(`[PQ.3.22] posible responsable ${f.user_id} sin alcance resuelto, no se ofrece: ${String((e as Error)?.message ?? e)}`);
+      }
+    }
+    return { personas };
   }
 
   async darDeBaja(sesion: Sesion, id: string): Promise<{ id: string }> {

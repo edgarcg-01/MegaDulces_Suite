@@ -349,6 +349,7 @@ export function armarCalendario(
       id: r.id, supplier_code: r.supplier_code, scope: r.scope, zone_code: r.zone_code, branch_code: r.branch_code,
       pattern: r.pattern, weekdays: r.weekdays, month_days: r.month_days, month_last_day: r.month_last_day,
       every_n_days: r.every_n_days, weekend_shift: r.weekend_shift, reviewer_user_id: r.reviewer_user_id,
+      week_interval: r.week_interval ?? null, week_anchor: r.week_anchor ?? null, month_week: r.month_week ?? null,
       out_of_cycle_until: r.out_of_cycle_until, out_of_cycle_reason: r.out_of_cycle_reason,
       supplier_name: r.supplier_name,
       alcance_nombre: nombreDelAlcance(r, sucursales),
