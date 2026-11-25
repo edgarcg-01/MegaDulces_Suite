@@ -39,7 +39,9 @@ const redondea = (n: number) => parseFloat((Number(n) || 0).toFixed(2));
  */
 const MAYOREO_MIN_DESC = 0.01;
 /**
- * `[TDA.2]` Tenant para leer `commercial.product_label_prices`, que tiene RLS **FORCE**.
+ * `[TDA.2]` Tenant para leer la ficha (`catalog.products`, `catalog.suppliers`), con RLS **FORCE**.
+ * `[VAC.D1]` El mayoreo ya no sale de `commercial.product_label_prices` sino de la vista viva
+ * `analytics.v_label_prices`; la ficha sigue necesitando el tenant.
  * Misma constante y mismo default que `StoreService`: estos endpoints son `@Public()`, así que no
  * hay interceptor de tenant del que sacarlo.
  */
@@ -166,7 +168,8 @@ export class KpService {
     ${NUMC_NULL('c19')} AS ieps_raw`;
 
   /**
-   * `[TDA.4]` — Convierte UNA fila de `product_label_prices` en sus escalones de mayoreo.
+   * `[TDA.4]` — Convierte UNA fila de etiqueta (hoy `analytics.v_label_prices`, `[VAC.D1]`) en sus
+   * escalones de mayoreo.
    *
    * Vive aparte porque lo usan los dos caminos —la consulta de un producto y el lote del snapshot
    * offline— y la regla del descuento mínimo no puede existir dos veces: el modo sin red
@@ -185,6 +188,29 @@ export class KpService {
    * de cantidad no se conoce fabrica una discusión en el mostrador"*. Medido en prod: **17
    * productos** tienen precio de mayoreo de paquete sin umbral; a esos no se les muestra mayoreo.
    */
+  /**
+   * `[VAC.PAQ.1]` Fuera el escalón de «paquete» de un producto que en Kepler NO tiene paquete.
+   *
+   * Reportado en el mostrador el 2026-11-25 con el `18016` (Cajeta envinada 1 kg): su ficha tiene
+   * pieza y caja, pero `kdpv_prod_util` trae escalones para una unidad `PAQ` que el producto no
+   * tiene, y el verificador publicaba «desde 3 paquetes, $136.12 c/u». Medido ese día en prod
+   * (sólo lectura): **620 productos** lo mostraban en las tiendas 01–08; en **606** Kepler nunca cobró
+   * ese precio en 60 días, y en **14** lo cobra pero a la PIEZA, con una regla que no se pudo derivar
+   * del ODS. Mostrar nada es mejor que mostrar una presentación que no existe.
+   *
+   * Se decide con las presentaciones de Kepler (`kdii`, ya armadas en `unidades`) y NO con la fila
+   * de etiqueta: ésta deja sin paquete al `PAQ` de factor 1 (`95684`, canela, tiene un PAQ real a
+   * $393.60), y quitarle su mayoreo sería una regresión. Sólo se quita el escalón «paquete» que se
+   * compara contra la base (`aplica_a: 'base'`) cuando la base NO es agrupada: con base PAQ/CJA ese
+   * escalón ES el de la base, y con paquete registrado viene como `aplica_a: 'paquete'`.
+   */
+  private sinPaqueteInexistente(mayoreo: MayoreoTier[], unidades: UnidadPrecio[]): MayoreoTier[] {
+    const base = String(unidades[0]?.u ?? '').toUpperCase();
+    if (base === 'PAQ' || base === 'CJA') return mayoreo;
+    if (unidades.some((x) => String(x.u).toUpperCase() === 'PAQ')) return mayoreo;
+    return mayoreo.filter((t) => !(t.etiqueta === 'paquete' && t.aplica_a === 'base'));
+  }
+
   private tiersDeFila(r: any): { mayoreo: MayoreoTier[]; contenido: string | null } {
     const tier = (o: {
       etiqueta: string;
@@ -311,19 +337,32 @@ export class KpService {
       await this.db.transaction(async (trx) => {
         await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
         const { rows } = await trx.raw(
+          // `[VAC.D1]` (2026-11-25) De la vista VIVA sobre el ODS, igual que el modo en línea
+          // (`datosDeEtiqueta`), y ya no de la tabla que recalcula un importer sin latido. Medido:
+          // la tienda entera tarda ~0.64 s contra 18 ms de la tabla, y el respaldo se baja una vez
+          // cada 12 h por kiosco. La llave es la clave SIN ceros, la misma con la que la busca
+          // `getPreciosTodos`. Sin plaza: una fila por clave, tienda antes que CEDIS.
           // `[TDA.7]` `pack_price`/`pack_size` NO son adorno: son la base contra la que se compara
           // el mayoreo de paquete cuando la base es pieza. Sin ellas `tiersDeFila` recibe
           // `undefined`, cae al camino viejo y el arreglo de unidad queda en no-op silencioso.
-          `SELECT btrim(p.sku) AS sku, l.piece_price, l.content, l.unit_base,
-                  l.wholesale_piece_price, l.wholesale_piece_min_qty,
-                  l.wholesale_pack_price,  l.wholesale_pack_min_qty,
-                  l.pack_price,            l.pack_size
-             FROM catalog.products p
-             JOIN ${suc ? 'commercial.product_label_prices' : 'commercial.v_product_label_prices'} l
-               ON l.product_id = p.id AND l.tenant_id = p.tenant_id
-            WHERE p.tenant_id = ? AND p.deleted_at IS NULL AND btrim(coalesce(p.sku,'')) <> ''
-              ${suc ? 'AND l.sucursal = ?' : ''}`,
-          suc ? [TENANT, suc] : [TENANT],
+          suc
+            ? `SELECT ltrim(v.sku, '0') AS sku, v.piece_price, v.content, v.unit_base,
+                      v.wholesale_piece_price, v.wholesale_piece_min_qty,
+                      v.wholesale_pack_price,  v.wholesale_pack_min_qty,
+                      v.pack_price,            v.pack_size
+                 FROM analytics.v_label_prices v
+                WHERE v.sucursal = ?
+                -- Claves que sólo difieren en ceros (01000/1000, 027112/27112): la de 5 va AL FINAL
+                -- para que sea la que se queda en el índice, que es la que busca getPreciosTodos.
+                ORDER BY (length(v.sku) = 5), v.sku`
+            : `SELECT DISTINCT ON (ltrim(v.sku, '0'))
+                      ltrim(v.sku, '0') AS sku, v.piece_price, v.content, v.unit_base,
+                      v.wholesale_piece_price, v.wholesale_piece_min_qty,
+                      v.wholesale_pack_price,  v.wholesale_pack_min_qty,
+                      v.pack_price,            v.pack_size
+                 FROM analytics.v_label_prices v
+                ORDER BY ltrim(v.sku, '0'), (length(v.sku) = 5) DESC, (v.sucursal = '00'), v.sucursal`,
+          suc ? [suc] : [],
         );
         for (const r of rows || []) {
           const t = this.tiersDeFila(r);
@@ -411,39 +450,49 @@ export class KpService {
     proveedor: string | null;
   }> {
     const vacio = { mayoreo: [] as MayoreoTier[], contenido: null, product_id: null, proveedor: null };
-    // `[NORM.3]` La plaza de la que salió el precio. La tabla ahora tiene grano por sucursal, así
-    // que el mayoreo se pide para ESA tienda: 1,164 grupos de mayoreo de paquete (6.3 %) tienen
-    // precio distinto entre plazas, y antes se publicaba el de la moda. Sin plaza conocida se lee
-    // la vista consolidada, que reproduce exactamente la fila que se publicaba hasta hoy.
+    // `[NORM.3]` La plaza de la que salió el precio: el mayoreo se pide para ESA tienda (1,164 grupos
+    // de mayoreo de paquete, 6.3 %, tienen precio distinto entre plazas). Sin plaza conocida se
+    // elige determinista, igual que `getPrecio`: tienda antes que CEDIS, luego la sucursal más baja.
     const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
+    // La clave tal como la guarda Kepler y sin ceros: 36 claves de `kdii` no miden 5 (medido
+    // 2026-11-25) y `codigo` viene rellenado a 5.
+    const clave = String(codigo).trim();
+    const claveSinCeros = clave.replace(/^0+/, '') || clave;
     try {
       return await this.db.transaction(async (trx) => {
         await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
         const { rows } = await trx.raw(
-          // `[TDA.7]` Mismas dos columnas que el lote del snapshot, por el mismo motivo: son la
-          // base del mayoreo de paquete. Los dos caminos tienen que ver lo mismo o el modo sin
-          // red contesta distinto que el modo en línea.
-          `SELECT l.piece_price, l.content, l.unit_base,
-                  l.wholesale_piece_price, l.wholesale_piece_min_qty,
-                  l.wholesale_pack_price,  l.wholesale_pack_min_qty,
-                  l.pack_price,            l.pack_size,
-                  -- [TDA.8] La llave del aviso en vivo. Ya estaba en el JOIN; lo unico que
-                  -- faltaba era publicarla.
+          // `[VAC.D1]` (2026-11-25) El mayoreo sale de `analytics.v_label_prices`, la vista VIVA
+          // sobre el ODS (`kdii` + `kdpv_prod_util`) que la etiquetera ya lee desde `[ETQ-ODS.1]`,
+          // y ya NO de `commercial.product_label_prices`, la tabla que recalcula un importer
+          // (`import-label-data.js`) sin dejar latido: si se detenía, el mayoreo se quedaba viejo
+          // en silencio mientras el precio seguía al día. Lo que Compras corrige en Kepler llega
+          // con el carril del ODS (~5 min), sin intermediario.
+          // `[TDA.7]` Las mismas columnas que el lote del snapshot: son la base del mayoreo de
+          // paquete, y los dos caminos tienen que ver lo mismo.
+          // La ficha (`catalog.products`) va con LEFT JOIN: da la llave del aviso y el proveedor,
+          // pero un producto que no está en el catálogo también tiene su mayoreo en Kepler.
+          `SELECT v.piece_price, v.content, v.unit_base,
+                  v.wholesale_piece_price, v.wholesale_piece_min_qty,
+                  v.wholesale_pack_price,  v.wholesale_pack_min_qty,
+                  v.pack_price,            v.pack_size,
+                  -- [TDA.8] La llave del aviso en vivo.
                   p.id AS product_id,
                   -- [MOS.1] El proveedor de la ficha: el mismo que ve Compras en su Catalogo.
                   s.name AS proveedor
-             FROM catalog.products p
-             JOIN ${suc ? 'commercial.product_label_prices' : 'commercial.v_product_label_prices'} l
-               ON l.product_id = p.id AND l.tenant_id = p.tenant_id
+             FROM analytics.v_label_prices v
+             LEFT JOIN catalog.products p
+               ON p.tenant_id = ? AND p.deleted_at IS NULL AND btrim(p.sku) = ?
              LEFT JOIN catalog.suppliers s ON s.id = p.supplier_id
-            WHERE p.tenant_id = ?
-              AND p.deleted_at IS NULL
-              AND btrim(p.sku) = ?
-              ${suc ? 'AND l.sucursal = ?' : ''}
+            WHERE v.sku IN (?, ?)
+              ${suc ? 'AND v.sucursal = ?' : ''}
+            ORDER BY (v.sku = ?) DESC, (v.sucursal = '00'), v.sucursal
             LIMIT 1`,
+          // La clave EXACTA gana: Kepler tiene claves que sólo difieren en ceros (`01000` y `1000`,
+          // CANCELADA; `027112` y `27112`, dos productos), medido 2026-11-25.
           suc
-            ? [TENANT, String(codigo).replace(/^0+/, ''), suc]
-            : [TENANT, String(codigo).replace(/^0+/, '')],
+            ? [TENANT, claveSinCeros, clave, claveSinCeros, suc, clave]
+            : [TENANT, claveSinCeros, clave, claveSinCeros, clave],
         );
         const r = rows?.[0];
         if (!r) return vacio;
@@ -608,7 +657,8 @@ export class KpService {
         // decía y el mostrador callaba: el 94 % de los productos tiene mayoreo real, así que
         // omitirlo no era una simplificación, era esconder el argumento de venta.
         // Llega vacío cuando no hay tier con umbral REAL — nunca con un umbral inventado.
-        mayoreo: etiqueta.mayoreo,
+        // `[VAC.PAQ.1]` Ni con un paquete que el producto no tiene en Kepler.
+        mayoreo: this.sinPaqueteInexistente(etiqueta.mayoreo, unidades),
         contenido: etiqueta.contenido,
         // `[TDA.8]` La llave del aviso en vivo (`label_prices_changed` viaja por product_id).
         // Puede llegar `null`: si el código no casó una fila de etiqueta, la pantalla NO puede
@@ -722,6 +772,7 @@ export class KpService {
         // con LPAD(5). Sin normalizar, el join en memoria fallaría para TODO el catálogo.
         const et = etiquetas.get(String(r.codigo).replace(/^0+/, ''));
         const gramaje = et?.contenido ?? null;
+        const mayoreoPublicable = this.sinPaqueteInexistente(et?.mayoreo ?? [], unidades);
 
         // `[MOS.1]` El proveedor viaja como índice en un diccionario: el mismo nombre se repite
         // en cientos de productos y el snapshot es una descarga por kiosco.
@@ -746,7 +797,9 @@ export class KpService {
           // `[TDA.4]` Mayoreo y gramaje, con la MISMA forma que la respuesta en vivo — una sola
           // definición para los dos modos. Se OMITEN cuando no hay nada que decir: un array vacío
           // por producto son ~9,000 arrays vacíos en la descarga del kiosco.
-          ...(et?.mayoreo.length ? { m: et.mayoreo.map(compactarTier) } : {}),
+          // `[VAC.PAQ.1]` El mismo filtro que la respuesta en vivo: sin paquete en Kepler, no hay
+          // escalón de paquete — o el modo sin red contestaría distinto que el modo en línea.
+          ...(mayoreoPublicable.length ? { m: mayoreoPublicable.map(compactarTier) } : {}),
           ...(gramaje ? { g: gramaje } : {}),
           ...(pv !== undefined ? { pv } : {}),
           // `[ETQ-PROMO.2]` Se OMITE cuando no es promoción: ~9,000 `pm: 0` serían peso muerto del kiosco.
