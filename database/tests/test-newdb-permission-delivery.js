@@ -363,8 +363,14 @@ function derivacionesRotas(mapaPorRol, pares) {
   // hacen falta: con [2] sola, "0 huerfanas" se lee como "todo alcanzable" y no es lo
   // mismo -- fue exactamente mi error al reportar prevencion de perdida.
   console.log('\n[2b] Alcance real -- un rol vacio no alcanza nada');
+  // El cero aqui SI es real (la clave entro a esta lista justamente porque ningun rol que la
+  // concede tiene gente), pero se imprime medido igual: un numero escrito a mano no se puede
+  // distinguir de uno que quedo viejo, que es como el de SIN_PERSONAS mintio durante dias.
   for (const k of r.sinNadieQueLaTenga) {
-    console.log(`      ${k}: solo por ${(porRol.get(k) || []).join(', ')} -- 0 personas activas`);
+    const roles = porRol.get(k) || [];
+    const detalle = roles.map((rol) => `${rol}:${personasPorRol.get(rol) || 0}`).join(', ');
+    const gente = roles.reduce((s, rol) => s + (personasPorRol.get(rol) || 0), 0);
+    console.log(`      ${k}: solo por ${detalle || '(nadie)'} -- ${gente} persona(s) activa(s)`);
   }
   ok(r.sinNadieQueLaTenga.length === 0,
     r.sinNadieQueLaTenga.length === 0
@@ -423,8 +429,20 @@ function derivacionesRotas(mapaPorRol, pares) {
     if (SIN_REPARTIR[k]) console.log(`        motivo: ${SIN_REPARTIR[k]}`);
     else if (!g) console.log('        sin escrituras gateadas: reservado, no bloquea nada hoy');
   }
+  // ⛔⛔ ESTE CERO ESTABA ESCRITO A MANO (corregido 2026-11-25). El renglon afirmaba "0 personas
+  //    activas" SIEMPRE, sin medirlo, mientras la compuerta [4] de dos lineas mas arriba ya
+  //    gritaba "sacar de SIN_PERSONAS: ya hay quien las tenga". El instrumento se contradecia
+  //    solo, y el cero ganaba por estar al lado del motivo. Medido en prod ese dia:
+  //    `recursos_humanos` tiene 2 personas (entraron el 20 y el 24 de noviembre), asi que las
+  //    nueve claves de RH que aqui salian en 0 SI le llegan a alguien -- y de eso depende que
+  //    la semana de asistencia se pueda cerrar. Ahora se cuenta de `personasPorRol`, que ya
+  //    estaba calculado y nadie usaba aqui.
   for (const k of Object.keys(SIN_PERSONAS)) {
-    console.log(`      · ${k} -- concedida por ${(porRol.get(k) || []).join(', ')}, 0 personas activas`);
+    const roles = porRol.get(k) || [];
+    const gente = roles.reduce((s, rol) => s + (personasPorRol.get(rol) || 0), 0);
+    const detalle = roles.map((rol) => `${rol}:${personasPorRol.get(rol) || 0}`).join(', ');
+    console.log(`      · ${k} -- concedida por ${detalle || '(nadie)'} -- ${gente} persona(s) activa(s)`);
+    if (gente > 0) console.log('        ⚠️ YA NO ESTA VACIA: el motivo de abajo quedo viejo y hay que revisarlo');
     console.log(`        motivo: ${SIN_PERSONAS[k]}`);
   }
 
