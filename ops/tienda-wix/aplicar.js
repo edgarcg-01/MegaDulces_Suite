@@ -12,19 +12,10 @@ const { Client } = require('pg');
 const D = __dirname + '/';
 const { repartir, accionDe } = require(D + 'resolver.js');
 
-// La llave vive en .env (ignorado por git; el repo es PUBLICO), o se pasa por entorno.
-const K = process.env.WIXK || process.env.WIX_API_KEY;
-const SITE = process.env.LIVE || process.env.WIX_SITE_ID;
+const K = process.env.WIXK, SITE = process.env.LIVE;
 const APLICAR = process.argv.includes('--aplicar');
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > -1 ? Number(process.argv[i + 1]) : d; };
 const LIMITE = arg('--limite', Infinity), TOPE = arg('--tope', 50);
-/** `--skus 95612,17064`: empuja solo esos. Vacio = toda la tienda, como siempre. */
-const SOLO_SKUS = (() => {
-  const i = process.argv.indexOf('--skus');
-  if (i < 0) return null;
-  const lista = String(process.argv[i + 1] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  return lista.length ? [...new Set(lista)] : null;
-})();
 const H = { Authorization: K, 'wix-site-id': SITE, 'Content-Type': 'application/json' };
 const r2 = n => Math.round(Number(n) * 100) / 100;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -59,31 +50,11 @@ async function planear() {
   console.log('1) leyendo la tienda viva...');
   const productos = await paginar('https://www.wixapis.com/stores/v3/products/search', 'products');
   const inv = await paginar('https://www.wixapis.com/stores/v3/inventory-items/search', 'inventoryItems');
-
-  // `--skus`: empujar SOLO lo que cambio. Es la forma que necesita el disparo por
-  // evento; releer los 637 productos para mover 3 renglones es el modo caro.
-  // El inventario SI se lee entero: es una sola consulta paginada y de ahi sale la
-  // presentacion de cada variante. Lo caro es el GET por producto, y eso es lo que
-  // se acota. Sin `--skus` se comporta igual que siempre.
-  let aLeer = productos;
-  if (SOLO_SKUS) {
-    const quiero = new Set(SOLO_SKUS);
-    const idsConEseSku = new Set(
-      inv.filter((x) => x.product && quiero.has(String(x.product.variantSku))).map((x) => x.productId),
-    );
-    aLeer = productos.filter((p) => idsConEseSku.has(p.id));
-    console.log(`   --skus: ${SOLO_SKUS.length} pedidos -> ${aLeer.length} productos de ${productos.length}`);
-    const sinUbicar = [...quiero].filter(
-      (s) => !inv.some((x) => x.product && String(x.product.variantSku) === s),
-    );
-    if (sinUbicar.length) console.log('   ⚠️ NO estan publicados en la tienda:', sinUbicar.join(', '));
-  }
-
   // la busqueda no devuelve variantsInfo completo: se relee cada producto
   const full = [];
   let i = 0;
   await Promise.all(Array.from({ length: 6 }, async () => {
-    while (i < aLeer.length) { const k = i++; full.push(await leerProducto(aLeer[k].id)); }
+    while (i < productos.length) { const k = i++; full.push(await leerProducto(productos[k].id)); }
   }));
   console.log('   productos:', full.length, '| items de inventario:', inv.length);
 
@@ -109,8 +80,7 @@ async function planear() {
     const nom = it && it.product ? it.product.variantName : null;
     const k = v.sku ? porSku.get(String(v.sku)) : null;
     filas.push({
-      productoId: p.id, producto: p.name, variantId: v.id, itemId: it && it.id,
-      itemRev: it && it.revision, sku: v.sku || null, nom,
+      productoId: p.id, producto: p.name, variantId: v.id, itemId: it && it.id, sku: v.sku || null, nom,
       visible: v.visible !== false,
       precioHoy: v.price && v.price.actualPrice && v.price.actualPrice.amount != null ? r2(v.price.actualPrice.amount) : null,
       qtyHoy: it ? Number(it.quantity || 0) : null,
@@ -137,13 +107,9 @@ async function planear() {
 (async () => {
   const { full, filas } = await planear();
   const sello = new Date().toISOString().replace(/[:.]/g, '-');
-  // ⛔ FUERA del repo: la foto previa lleva el catalogo entero con sus precios y
-  // el repo es PUBLICO. SALIDA lo puede mover; nunca por default a este directorio.
-  const SAL = process.env.SALIDA || require('path').join(require('os').tmpdir(), 'tienda-wix');
-  fs.mkdirSync(SAL, { recursive: true });
-  fs.writeFileSync(require('path').join(SAL, 'respaldo-' + sello + '.json'), JSON.stringify(full));
-  fs.writeFileSync(require('path').join(SAL, 'plan-' + sello + '.json'), JSON.stringify(filas, null, 1));
-  console.log('3) foto previa y plan guardados en', SAL, '| sello', sello);
+  fs.writeFileSync(D + 'respaldo-' + sello + '.json', JSON.stringify(full));
+  fs.writeFileSync(D + 'plan-' + sello + '.json', JSON.stringify(filas, null, 1));
+  console.log('3) foto previa y plan guardados con sello', sello);
 
   const qty = filas.filter(f => f.accion === 'SINCRONIZAR' && f.qtyHoy !== f.qtyNueva);
   const precio = filas.filter(f => f.accion === 'SINCRONIZAR' && f.precioHoy !== r2(f.precio));
@@ -162,7 +128,7 @@ async function planear() {
   if (can) {
     const r = await fetch('https://www.wixapis.com/stores/v3/bulk/inventory-items/update', {
       method: 'POST', headers: H,
-      body: JSON.stringify({ inventoryItems: [{ inventoryItem: { id: can.itemId, revision: String(can.itemRev), trackQuantity: true, quantity: can.qtyNueva } }] }),
+      body: JSON.stringify({ inventoryItems: [{ inventoryItem: { id: can.itemId, trackQuantity: true, quantity: can.qtyNueva } }] }),
     });
     if (!r.ok) throw new Error('canario: ' + r.status + ' ' + (await r.text()).slice(0, 300));
     await sleep(1500); // el search tarda en indexar
@@ -177,16 +143,13 @@ async function planear() {
   }
 
   // --- INVENTARIO, en lotes de 50 ---
-  // el canario ya se escribio y su revision cambio: no vuelve a ir en el lote
-  const pendientes = can ? qty.slice(1) : qty;
-  console.log('\n6) inventario:', pendientes.length, 'renglones (el canario ya quedo)');
+  console.log('\n6) inventario:', qty.length, 'renglones');
   let hechas = 0, fall = 0;
-  const tope = Math.min(pendientes.length, LIMITE);
-  for (let i = 0; i < tope; i += 50) {
-    const lote = pendientes.slice(i, Math.min(i + 50, tope));
+  for (let i = 0; i < Math.min(qty.length, LIMITE); i += 50) {
+    const lote = qty.slice(i, i + 50);
     const r = await fetch('https://www.wixapis.com/stores/v3/bulk/inventory-items/update', {
       method: 'POST', headers: H,
-      body: JSON.stringify({ inventoryItems: lote.map(f => ({ inventoryItem: { id: f.itemId, revision: String(f.itemRev), trackQuantity: true, quantity: f.qtyNueva } })) }),
+      body: JSON.stringify({ inventoryItems: lote.map(f => ({ inventoryItem: { id: f.itemId, trackQuantity: true, quantity: f.qtyNueva } })) }),
     });
     const j = await r.json();
     const malas = (j.results || []).filter(x => x.itemMetadata && x.itemMetadata.error).length;
@@ -209,16 +172,15 @@ async function planear() {
     if (++n > LIMITE) break;
     const vivo = await leerProducto(pid);
     const porVar = new Map(cambios.map(f => [f.variantId, f]));
-    // Se PARTE de la variante viva y solo se pisa lo que cambia. Reconstruirla de
-    // cero pierde campos que el servidor exige ([CV.29] destruyo un producto asi,
-    // y `physicalProperties.pricePerUnit` hace fallar el PATCH con 428).
     const variants = vivo.variantsInfo.variants.map(v => {
       const f = porVar.get(v.id);
-      const o = { ...v };
-      delete o.inventoryStatus; // lo calcula el servidor; no se manda
-      o.price = { actualPrice: { amount: String(v.price.actualPrice.amount) } };
+      const o = {
+        id: v.id, sku: v.sku, choices: v.choices, visible: v.visible,
+        price: { actualPrice: { amount: String(v.price.actualPrice.amount) } },
+      };
       if (f && f.accion === 'SINCRONIZAR') o.price = { actualPrice: { amount: String(r2(f.precio)) } };
       if (f && (f.accion === 'RETIRAR' || f.accion === 'OCULTAR')) o.visible = false;
+      if (v.media) o.media = v.media;
       return o;
     });
     const r = await fetch('https://www.wixapis.com/stores/v3/products/' + pid, {
