@@ -825,7 +825,23 @@ O se capturan con otra fecha, o son de gente que no usa reloj. Hay que entenderl
 Al cerrar `[NE.0.12c]` quedaron dos cosas dichas como **NO MEDIDO**. Las dos se contestaron, y una
 de ellas destapó un defecto de este mismo frente.
 
-#### A. Qué son esas `horas_extra` sin checada — **contestado**
+#### A. Qué son esas `horas_extra` sin checada — **contestado, y la primera respuesta era equivocada**
+
+> ⛔⛔ **Corrección del 2026-11-24 (`[NE.0.14]`), el mismo día.** Este apartado afirmaba que
+> `horas_extra` «carga dos cosas» y que las de ocho horas eran **un día trabajado mal etiquetado**.
+> **Es falso.** `horas_extra` no significa «ganó horas extra»: es **«Uso de horas extra»** (código
+> `HE`) — la persona **gasta** horas que tenía a favor en su banco
+> ([`incidencias.ts`](../../../libs/hr/src/lib/attendance/logic/incidencias.ts)). Lo que se **gana**
+> no sale de esta casilla: se **deduce del reloj**, quedándose después de la hora de salida, en
+> bloques de 30 min ([`banco-horas-extra.ts`](../../../libs/hr/src/lib/attendance/logic/banco-horas-extra.ts)).
+> Por eso `horasExtraGanadasMin` **nunca se alimentó de acá**, y la consecuencia que se escribió
+> —«no puede alimentar el recibo»— se cae junto con su premisa.
+>
+> ⭐ El código ya lo decía, y no se leyó: *«El uso sale de las incidencias, no de los días armados:
+> quien usó horas un día que no checó también las gastó.»*
+>
+> **Los hechos medidos no cambian; cambia lo que significan — y confirman el diseño en vez de
+> contradecirlo.** Las dos tablas de abajo quedan como se midieron.
 
 La pregunta era: `horas_extra` tenía 19 de 24 incidencias en días sin checada. Tres hipótesis se
 podían separar con datos, y se separaron (los 25 días del rango, con control negativo sobre **todos**
@@ -846,20 +862,35 @@ Nadie de estos 25 días es de alguien que no checa: **los 25 tienen checadas en 
 | minutos de la incidencia | días | checó ese día |
 |---|---:|---:|
 | **≥ 300 min** (5 h o más: una **jornada**) | 12 | **0 — ninguno** |
-| ≤ 180 min (horas extra de verdad) | 13 | 5 |
+| ≤ 180 min | 13 | 5 |
 
-Los valores que existen son 30 · 120 · 180 · 300 · 330 · 480 · 510. ⛔ **480 y 510 minutos no son
-horas extra: son un día completo de trabajo.** La captura llega 4 o 5 días después, ya con la
-nómina en curso.
+Los valores que existen son 30 · 120 · 180 · 300 · 330 · 480 · 510, todos múltiplos del bloque de
+30 min con que se acredita el banco.
 
-⛔ **Entonces `horas_extra` carga dos cosas distintas**, y la grande es la que no se llama como es:
-es **el día que se trabajó y el reloj no registró** —otra sede, un descanso trabajado, una checada
-que no entró— anotado como «horas extra» porque es la única casilla que termina en dinero.
+⭐ **Leído con la regla de dominio en la mano, el corte se explica solo y es el esperado: quien
+gasta una jornada entera de su saldo se toma el día —y por eso no checa—; quien gasta un rato llega
+tarde o se va temprano —y por eso sí checa—.** El corte en 300 minutos no es un defecto de captura:
+es la diferencia entre tomarse el día y tomarse un rato.
 
-⛔ **Consecuencia directa para el frente: `horasExtraGanadasMin` NO puede alimentar el recibo tal
-como está.** Sumado a las horas del reloj, 12 de 25 casos pagarían una jornada completa **como si
-fuera tiempo extra**. Antes de usarlo hay que partir el tipo en dos: *tiempo extra* y *día sin
-checada*, que no es lo mismo ni cuesta lo mismo.
+**Lo que sí quedó en pie, y es real** (medido en prod, sólo lectura, 2026-11-24):
+
+| hallazgo | medido |
+|---|---|
+| el universo | 25 usos de 12 personas, del 24-sep —el día en que arranca el banco— al 2-nov |
+| ⛔ **ninguno lleva motivo ni quién autorizó** | **0 de 25**. El formulario no los pedía para este tipo, mientras que `horario_distinto` y `visita_fuera` **sí exigen los dos**. Un movimiento que baja un saldo se capturaba sin decir por qué ni con permiso de quién. → **corregido en `[NE.0.15]`**: desde ahora los pide, con la pregunta que le cabe («Por qué usó sus horas extra») |
+| ⛔ **el pago de horas extra nunca se usó** | **0 registros** desde que existe el tipo (`[RH.6.7]`, 6-nov) |
+
+⚠️ **NO MEDIDO, y es la única pregunta que queda viva:** si alguien **gastó más de lo que tenía**.
+Es lo único que distingue un uso legítimo de usar la casilla para tapar un día. No hace falta
+arqueología: el banco ya se muestra por persona con su saldo en `/rh/asistencia` — **si alguno de
+esos 12 aparece en negativo, hay que mirarlo**. Es una pregunta para RH con instrumento, no un
+hallazgo.
+
+⭐⭐ **La lección vale más que el hallazgo: el nombre de una columna no es su significado.** La
+medición estaba bien —25 filas, con control negativo sobre todos los demás tipos—; lo que estaba mal
+fue **interpretarla antes de leer la regla de dominio**, que vivía a dos archivos de distancia. Una
+casilla con valores de dos órdenes de magnitud *puede* estar cargando dos conceptos, o puede ser
+exactamente lo que dice su etiqueta.
 
 #### B. Por qué el puente es un empate por nombre — **contestado, y es un defecto nuestro**
 
@@ -896,14 +927,185 @@ pasa a `user_id` y el FK va por **`(tenant_id, user_id)`** contra `identity.user
 compuesto existe, y así un alias no puede nombrar a alguien de otro tenant—. ⛔ `hr.employees`
 **no se borra** (regla 5): retirarla es una decisión aparte. Lo demás de la tabla queda intacto.
 
-⚠️ **NO MEDIDO: que Postgres acepte esa DDL.** El Docker local no levanta (el demonio no responde) y
-el ensayo con `ROLLBACK` contra prod quedó sin autorización. Probada **en seco**, con un `knex` que
-sólo anota el SQL: **5 de 5** —el `up`, el `up` corrido dos veces (idempotencia), el `down`, y las
-**dos negativas** de que `up` y `down` *paran* si la tabla trae filas—. Falta correrla contra una
-base de verdad antes de aplicarla.
+⭐ **Medida contra un Postgres de verdad** (2026-11-24): `database/tests/test-newdb-ne013-alias-user-id.js`,
+**28 ✔ · 0 ✖** en **PostgreSQL 18.4**; prod corre **18.6** (`system_identifier` verificado), misma
+versión mayor. El ensayo aplica primero la migración de ayer, después ésta, y comprueba:
+
+| qué | cómo |
+|---|---|
+| las posconditions | leídas **del catálogo** (`pg_constraint`, `pg_indexes`, `pg_policy`, `has_table_privilege`), no del texto de `pg_get_constraintdef` |
+| que lo demás **no** se tocó | los 4 CHECKs, el único por `(system, external_code)`, la RLS forzada, la política de tenant y los permisos de `app_runtime` |
+| ⭐ la negativa que el ensayo en seco **no podía dar** | un alias que nombra a una persona de **otro tenant** es rechazado (`23503`) |
+| las otras negativas | un empate por nombre sin nota es rechazado (`23514`); `up` y `down` **paran** si la tabla trae filas; el guardia de destino **se niega** si lo apuntan a algo que parece prod |
+
+⚠️ **Dos cosas que el rojo enseñó, y las dos eran el instrumento, no la migración:** la primera
+versión comparaba el **texto** del constraint, que omite el esquema cuando la tabla está en el
+`search_path` —habría dicho lo mismo apuntando a otra tabla llamada `users`—; la segunda comparaba
+un arreglo que Postgres devuelve como texto crudo. *Todo instrumento arranca con un control cuya
+respuesta ya se conoce*, y acá el control positivo fue el que avisó.
+
+⛔ **El `npm run dev:up` de esta máquina no sirve**: Docker no arranca porque WSL2 no puede
+(`HCS_E_HYPERV_NOT_INSTALLED` — la virtualización está apagada, y encenderla pide BIOS y reinicio).
+Y aunque arrancara, su Postgres pide el puerto **5432, ocupado por el PostgreSQL 18 instalado en la
+laptop**. El ensayo se hizo con un clúster desechable levantado con `initdb`/`pg_ctl` en otro
+puerto: receta en el encabezado del test, 20 segundos y sin Docker.
+
+⛔ **Una trampa de esa receta, pisada acá:** el scratchpad es por sesión, **el puerto no**. La
+primera corrida eligió un puerto que ya tenía el clúster desechable de **otra sesión de Claude en
+esta misma máquina**; `pg_ctl` falló *y* `psql` conectó igual, así que el ensayo corrió —verde— en
+una base ajena. Se repitió sobre un clúster propio, confirmando antes que
+`current_setting('data_directory')` cayera en esta sesión. **Si `pg_ctl` no arranca pero `psql`
+contesta en ese puerto, el que contesta es de otro.**
+
+**Falta** aplicarla en prod (una por una, `apply-one-migration-prod.js`), después de empujar.
 
 #### Lo que esto cambia en el frente
 
 El techo de 59.8 % **no se mueve con esta migración**: el puente sigue siendo por nombre, porque no
 hay llave dura que comprar. Lo que cambia es que ese empate **se va a poder registrar y auditar** en
 vez de vivir en un script de una sesión — que era el punto entero de `[NE.0.4]`.
+
+---
+
+### 11.15 `[NE.0.16]` Llenar la tabla de alias: por qué no se pudo desde acá, y la fuente que sí sirve
+
+Autorizado por Edgar el 2026-11-24. **No se escribió nada en producción**, y el motivo no es un
+permiso que falte: es que el camino estaba mal planteado.
+
+#### El puente medido de nuevo, y una corrección de instrumento
+
+Volvió a medirse el empate entre el padrón de nómina del `.mdb` y `identity.users`, con control
+negativo. ⛔ **La primera corrida dio 39 %** porque filtró el padrón de la Suite por `activo = true`.
+Eso está mal: de los 1,246 usuarios internos, **263 están `active`, 435 están `invited`** —cargados
+por `[RH.1.4]`, nunca entraron al sistema, y cobran igual— y 548 son bajas. **«Activo» dejaba fuera a
+dos tercios de la gente viva.** Con la población correcta:
+
+| nivel | criterio | de 259 que cobran |
+|---|---|---:|
+| 1 | nombre exacto, un solo vigente | 126 · 48.6 % |
+| 2 | mismos nombres en otro orden | 75 · 29.0 % |
+| **ligables** | **los dos son el MISMO nombre** | **201 · 77.6 %** |
+| 3 | apellidos + primer nombre | 2 — ⛔ **no se inserta: es un juicio, va a la cola humana** |
+| — | ambiguos (1:N no es empate) | 1 |
+| — | sin ningún candidato | 55 |
+
+Controles: la suma cierra el universo (259 ✔) y **60 nombres deformados a propósito empatan 0 veces**.
+
+⭐ **Y un candado encontró un defecto del padrón de nómina:** dos códigos distintos caen en la misma
+persona de la Suite. No es un error del empate — **el `.mdb` tiene a esa persona dada de alta dos
+veces**, con la misma CURP, el mismo RFC y el mismo número de seguro social (una de las dos filas
+trae además la CURP partida por un salto de línea). Dos códigos para una persona **sí** es lo que una
+tabla de alias debe registrar; lo que no puede pasar es unir a **dos personas distintas** bajo un
+usuario, y de eso hay **cero**. ⚠️ Si la nómina paga los dos códigos, es pregunta de dinero para RH.
+
+#### ⛔ Por qué no se escribió
+
+1. **El rol con el que se lee producción no puede escribir esa tabla** —y está bien que no pueda—:
+   `hr.person_aliases` concede `INSERT` sólo a `app_runtime` (medido con `has_table_privilege`).
+2. ⛔⛔ **El padrón de nómina vive en un archivo fuera de la base.** Meterlo a una migración sacaría
+   los nombres de ~259 personas reales a un **repositorio público**, y cargarlo por script sería un
+   importer (regla 1). **No hay forma correcta de llenar la tabla desde una laptop.**
+3. ⭐ Y la consecuencia de fondo: `hr.person_aliases` **sigue sin tener quién la escriba**. Arreglar
+   su FK (`[NE.0.13]`) la volvió *llenable*; no le dio un *llenador*. Ningún `.ts` de `libs/` ni de
+   `apps/` la toca todavía.
+
+#### ⭐ La fuente que sí sirve: ya está DENTRO de la base
+
+`contpaqi_ods.v_nomina_empleado` (1,736 empleados: `employee_code`, `full_name`, `status`,
+`hired_at`, `terminated_at`, `payment_form`, `rfc_hash`) y `contpaqi_ods.v_nomina_pago_periodo`
+(287,994 pagos) **las lee `app_runtime`**. Entonces el puente lo puede calcular **el servidor**, sin
+archivo, sin importer y sin sacar un solo nombre al repo.
+
+Medido hoy, con el universo tomado **de quién cobró** —no del campo `status`, que de 248 personas
+pagadas marca 32 como baja y 34 como «R» (`[NE.0.10]`: «activo» en un padrón no significa nada)—:
+
+| | |
+|---|---:|
+| universo: cobró en los últimos 90 días (último pago, 2026-11-20) | **248** |
+| nombre exacto | 83 · 33.5 % |
+| mismos nombres, otro orden | 117 · 47.2 % |
+| **ligables** | **200 · 80.6 %** |
+| ambiguos | 2 |
+| sólo coincide con una baja de la Suite | 10 |
+| sin candidato | 36 |
+
+Controles: la suma cierra (248 ✔), **cero** usuarios con más de un código, y **80 nombres deformados
+empatan 0 veces**.
+
+⭐ **Cubre mejor que el archivo (80.6 % contra 77.6 %), está fresca —el último pago es de hace cuatro
+días— y es la única de las dos que se puede construir bien.**
+
+#### Lo que hace falta decidir antes de construirlo
+
+| | decisión | de quién |
+|---|---|---|
+| **D6** | ¿El alias se registra contra **ContPAQi** (`system='contpaqi'`, lo único construible hoy) o contra el padrón del `.mdb` (`system='nomina'`, que es el que trae el **efectivo** y el sobre)? No son el mismo sistema, y el frente NE necesita el segundo para el billete | Edgar |
+| **D7** | Si hace falta el del `.mdb`: el archivo tiene que **entrar a la base** por una vía que no sea un importer ni el repo público. Es la misma pregunta que `[NE.0.7]` para la serie histórica | Edgar |
+
+⚠️ **NO MEDIDO:** cuántas de las 200 personas ligables por ContPAQi son las mismas 201 del `.mdb`
+(se puede cruzar, no se hizo); si los 36 sin candidato son gente que la Suite no tiene o nombres
+escritos distinto.
+
+---
+
+### 11.16 `[NE.0.17]` El empate deja de ser un script: un primitivo para las DOS fuentes
+
+Edgar contestó **D6: ambos** — el alias se registra contra ContPAQi **y** contra el padrón del
+`.mdb`. Son dos sistemas distintos, pero **el empate es el mismo**, así que no se escribe dos veces:
+vive en [`libs/hr/src/lib/nomina/puente-padrones.ts`](../../../libs/hr/src/lib/nomina/puente-padrones.ts)
+(ADR-056: un primitivo inventado en una fase vive en `libs/`, no en el script de una sesión).
+
+Lógica **pura** —no toca base ni red—, con las cuatro reglas que las mediciones obligaron, cada una
+con su cifra en el encabezado del archivo:
+
+| regla | por qué |
+|---|---|
+| **1 · «Activo» no es la población viva** | de 1,246 internos, 263 `active` y **435 `invited`** que nunca entraron y cobran igual. *Filtrar por «activo» hundió el empate de 77.6 % a 39 %, y el error no se veía: daba un número plausible* |
+| **2 · Un 1:N no es un empate** | salvo que **uno solo** esté vigente (los otros son registros viejos sin dar de baja). Dejó la ambigüedad en 1 de 259 |
+| **3 · El nivel 3 es un JUICIO, no un empate** | coincidir sólo en apellidos + primer nombre **no liga**: sale como rechazo para que lo resuelva una persona (`[NE.0.5]`) |
+| **4 · Dos códigos para UNA persona sí; dos PERSONAS bajo un usuario, nunca** | se distinguen por la llave dura (CURP · RFC · NSS), no por el nombre |
+
+⭐ Y una decisión que estaba implícita y ahora está escrita: **la `Ñ` se pliega a `N`**, igual que
+los acentos, porque los dos padrones escriben el mismo apellido de las dos formas. La prueba lo
+fija, para que nadie lo «corrija» y pierda empates reales.
+
+**Todo el universo queda clasificado**: `ligados + rechazados === universo`, y el resumen trae
+`cierra` para que se note si alguna vez deja de cumplirse (ADR-056: lo que no liga se declara con
+su motivo, no se pierde).
+
+#### Cómo se probó
+
+**11 pruebas** (`puente-padrones.spec.ts`), con las negativas que importan: ⭐ **nombres deformados
+a propósito no ligan con nadie** —el mismo control negativo que se corrió contra prod—; `invited`
+liga y una baja **no**, pero tampoco se confunde con «no existe»; dos tocayos sin llave común **no
+ligan ninguno**; y sin llave dura **no se presume** que dos filas sean la misma persona (si los
+rellenos `-`/vacío/`0` empataran, todos serían la misma persona).
+
+⭐⭐ **Y el cruce que de verdad lo valida: el primitivo contra los datos REALES de prod reproduce,
+exactamente, lo que había medido el script de sesión** — en las dos fuentes:
+
+| | universo | ligados | nivel 1 | nivel 2 | duplicados en el origen |
+|---|---:|---:|---:|---:|---:|
+| padrón del `.mdb` | 259 | **201** | 126 | 75 | 1 |
+| ContPAQi | 248 | **200** | 83 | 117 | 0 |
+
+Dos implementaciones, el mismo resultado. Toda la librería `hr` queda en **633 ✔** y el typecheck
+de la API en verde.
+
+#### Lo que falta para que haya filas en la tabla
+
+El primitivo decide; **todavía no hay quién escriba**. Falta la capa de arriba:
+
+1. **C2 · el servicio** que alimenta el primitivo desde `contpaqi_ods` y escribe `hr.person_aliases`
+   corriendo **como la aplicación** (`app_runtime` es el único con `INSERT`), con su permiso y su
+   prueba contra base real.
+2. **La fuente del `.mdb`** sigue sin camino: el archivo está fuera de la base y no puede entrar ni
+   por el repo (público) ni por un importer (regla 1). **D7 sigue abierta**, y es la misma pregunta
+   que `[NE.0.7]` para la serie histórica.
+3. Nada de esto llega a prod sin desplegar.
+
+> ⭐⭐ **El mapa estructural del frente entero vive en su propio anexo:**
+> [`FASE_RH_FRENTE_NE_ANEXO_ESTRUCTURA_2026-11-24.md`](FASE_RH_FRENTE_NE_ANEXO_ESTRUCTURA_2026-11-24.md).
+> Qué hay en cada capa, en qué orden se construye, y por qué **la mudanza del Access va al final**
+> (Edgar, 2026-11-24). Medido ese día: **6 primitivos de nómina y 0 llamadores**, 0 endpoints y
+> 3 tablas del frente en 0 filas.

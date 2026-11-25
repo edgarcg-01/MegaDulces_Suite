@@ -1,55 +1,56 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 418 KB, 6179 líneas, 43 secciones.
+> **Índice navegable** — 439 KB, 6549 líneas, 44 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 56 | 71 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
-| 72 | 88 | 1 | 0. Qué es este documento, y qué NO es |
-| 89 | 197 | 6 | 1. Las siete reglas |
-| 198 | 234 | 10 | 2. El estado, en una tabla |
-| 235 | 397 | 10 | 3. Existencia |
-| 398 | 622 | 12 | 4. Ventas y unidades |
-| 623 | 654 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
-| 655 | 731 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
-| 732 | 802 | 5 | 6. Las trampas que ya cobraron |
-| 803 | 860 | 30 | 7. Los huecos declarados, con nombre y monto |
-| 861 | 905 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
-| 906 | 1107 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
-| 1108 | 1213 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
-| 1214 | 1414 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
-| 1415 | 1731 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
-| 1732 | 1751 | 2 | 10. Cómo se verifica |
-| 1752 | 1774 | 1 | 11. Lo que este documento no cubre |
-| 1775 | 1850 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
-| 1851 | 2010 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
-| 2011 | 2425 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
-| 2426 | 2666 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
-| 2667 | 2859 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
-| 2860 | 2902 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
-| 2903 | 3001 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
-| 3002 | 3475 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
-| 3476 | 3583 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
-| 3584 | 3738 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
-| 3739 | 3890 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
-| 3891 | 4096 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
-| 4097 | 4186 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4187 | 4376 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4377 | 4445 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4446 | 4740 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
-| 4741 | 4958 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
-| 4959 | 5211 | 17 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
-| 5212 | 5257 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
-| 5258 | 5342 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
-| 5343 | 5439 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
-| 5440 | 5798 | 26 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
-| 5799 | 5863 | 5 | 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05) |
-| 5864 | 5968 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
-| 5969 | 6040 | 5 | 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026- |
-| 6041 | 6234 | 11 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
+| 57 | 72 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
+| 73 | 89 | 1 | 0. Qué es este documento, y qué NO es |
+| 90 | 198 | 6 | 1. Las siete reglas |
+| 199 | 235 | 10 | 2. El estado, en una tabla |
+| 236 | 398 | 10 | 3. Existencia |
+| 399 | 623 | 12 | 4. Ventas y unidades |
+| 624 | 655 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
+| 656 | 732 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
+| 733 | 803 | 5 | 6. Las trampas que ya cobraron |
+| 804 | 861 | 30 | 7. Los huecos declarados, con nombre y monto |
+| 862 | 906 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
+| 907 | 1108 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
+| 1109 | 1214 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
+| 1215 | 1415 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
+| 1416 | 1732 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
+| 1733 | 1752 | 2 | 10. Cómo se verifica |
+| 1753 | 1775 | 1 | 11. Lo que este documento no cubre |
+| 1776 | 1851 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
+| 1852 | 2011 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
+| 2012 | 2426 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2427 | 2667 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2668 | 2889 | 12 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2890 | 2932 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2933 | 3031 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 3032 | 3505 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3506 | 3613 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3614 | 3768 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3769 | 3920 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3921 | 4126 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4127 | 4216 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4217 | 4406 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4407 | 4475 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4476 | 4770 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4771 | 4988 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 4989 | 5241 | 17 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 5242 | 5287 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
+| 5288 | 5372 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
+| 5373 | 5469 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
+| 5470 | 5828 | 26 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
+| 5829 | 5893 | 5 | 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05) |
+| 5894 | 5998 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
+| 5999 | 6070 | 5 | 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026- |
+| 6071 | 6266 | 11 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
+| 6267 | 6605 | 20 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -2839,13 +2840,42 @@ ingreso contable del CEDIS es entre **79 % y 96 % la casa facturándose a sí mi
 fiscales no tienen traspasos porque venderse a uno mismo no es una venta. Restarlos sería inventar
 una sub-declaración que no existe.
 
-### ⛔ El límite duro: **no hay CFDI emitido**
+### ⛔ ~~El límite duro: no hay CFDI emitido~~ → **CADUCÓ: los emitidos YA ESTÁN (medido 2026-11-24)**
 
-`fiscal.cfdis` tiene **168,701 comprobantes y los 168,701 son RECIBIDOS** (`rol = 'recibidas'`): el
-ADD de ContPAQi que alimenta la Fase LC es el de **compras**. Sin CFDI emitido, el ingreso sólo se
-puede contrastar contra el **total mensual** de la balanza fiscal — **nunca factura por factura**.
-Es un límite de la fuente, no una falla, y el candado lo vigila: si algún día entran emitidos, se
-pone rojo para que se cablee en vez de quedarse en el total.
+> ⛔⛔ **Esta sección decía lo contrario de lo que hoy es cierto, y guiaba decisiones.** Se conserva
+> tachada porque el error importa: declaraba un **límite de la fuente** («el ingreso sólo se puede
+> contrastar contra el total mensual, nunca factura por factura») que **ya no existe**. Quien la
+> leyera hoy descartaría un cruce que sí se puede hacer.
+
+Lo que decía: *«`fiscal.cfdis` tiene 168,701 comprobantes y los 168,701 son RECIBIDOS
+(`rol = 'recibidas'`)… Sin CFDI emitido, el ingreso sólo se puede contrastar contra el total mensual
+de la balanza fiscal — nunca factura por factura. Es un límite de la fuente, no una falla, y el
+candado lo vigila: si algún día entran emitidos, se pone rojo.»*
+
+**Medido en `pg-prod` el 2026-11-24, sólo lectura:**
+
+| `rol` | comprobantes | desde | hasta |
+|---|---:|---|---|
+| **`emitidas`** | **285,301** | 2018-01-02 | **2026-11-24 (hoy)** |
+| `recibidas` | 174,201 | 2018-01-02 | 2026-11-23 |
+
+Por tipo, las emitidas: **217,891 ingreso (`I`)** · 47,410 egreso (`E`) · 10,144 nómina (`N`) ·
+**9,856 complementos de pago (`P`)**. Llegan al día.
+
+⭐ **Entonces el ingreso YA se puede cruzar factura por factura**, por serie y folio: la serie del
+CFDI emitido es `<sucursal>UD<tipo><serie>` (`06UD0801` = telemarketing de Canindo) y empata con
+`kepler_ods.kdm1` por folio. Eso es lo que hizo posible el §41.
+
+⛔ **Y el «candado lo vigila» era una intención, no un candado** (regla 12). Al 2026-11-24 **no
+encontré ninguna prueba que se ponga roja** porque hayan entrado emitidos;
+`database/tests/test-newdb-contpaqi-cierre.js` los **suma** por `rol`, pero medir no es frenar. Los
+emitidos entraron y nadie se enteró por un rojo: se enteró esta sesión, de casualidad, midiendo otra
+cosa. **Declarado, no construido.**
+
+⚠️ **Hay `rol = 'recibidas'` cableado en varios lugares** que se escribieron bajo la premisa vieja
+(el libro de compras, `fiscal_cfdis_aso_contabilidad`, el RFC del acreedor, las vistas de cierre).
+Ninguno está mal —compras sí es «recibidas»—, pero **ya no se puede suponer que ese filtro no
+excluye nada**: hoy excluye 285 mil comprobantes.
 
 ⭐ **Y una corrección a la Fase CP:** su conclusión fue *«contabilidad casi no segmenta por
 sucursal (~2 %)»*, medida sobre una columna `sucursal`. **La segmentación existe, pero en el nombre
@@ -6231,3 +6261,344 @@ Quedan dos, y necesitan una persona, no una consulta:
 
 ⚠️ **NO MEDIDO:** si esas dos se corrigieron en la semana siguiente (el sistema no guarda bitácora,
 patrón B3); por qué dos personas tienen una tarifa horaria distinta al resto.
+
+---
+
+## 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre (CC, 2026-11-24)
+
+> **De dónde salió.** Edgar mostró una ficha de depósito subida por una clienta: el dinero **entró
+> al banco** y Kepler **no tiene el cobro**. Preguntó qué se haría contablemente. La respuesta
+> contable resultó barata; la fiscal, no. Medido en `pg-prod` (sid `7688376744939610156`), sólo
+> lectura.
+>
+> ⛔ **Sin nombres ni RFC de clientes: el repo es público.** El caso se identifica por su folio.
+
+### 41.1 El asiento, leído de una póliza real (no supuesto)
+
+Un cobro `U-A-7` ya contabilizado genera en `kdc2AAMM` **una póliza de ingreso con dos renglones y
+nada más**:
+
+| | Cuenta | `c4` |
+|---|---|---|
+| **Cargo** | `102` Bancos | `C` |
+| **Abono** | `115` Clientes | `A` |
+
+Sin renglones de IVA: el IVA se reconoció en la factura. Decode de la póliza: `c3` = **cuenta**
+(no el tipo) · `c4` = cargo/abono · `c5` = importe · `c6` = nombre · `c7` = folio del documento ·
+`c8` = tipo (`I` ingreso, `D` diario, `E` egreso) · `c1` = número de póliza · `c10` = renglón.
+⭐ `115` es a clientes lo que `201` es a proveedores (§ERP_KEPLER, tabla de la póliza del pago).
+
+**La factura se carga a `115` por separado**, en una póliza de **diario** con referencia
+`EMBARCADO`. O sea que el ciclo son dos asientos: la venta carga clientes, el cobro los abona.
+
+### 41.2 ⭐⭐ El error que NO se ve porque se autocompensa
+
+Con la factura contabilizada y el cobro ausente:
+
+- **`115` clientes queda sobrestimado** por el importe cobrado;
+- **`102` bancos queda subestimado** por el mismo importe.
+
+**Iguales y de signo contrario: el balance cuadra.** Por eso esto no truena solo — los totales están
+bien y **dos cuentas mienten a la vez**. Lo único que lo delata es comparar contra el estado de
+cuenta del banco, o sea **la conciliación bancaria**. El caso medido: `06-1-0001446`, $15,539.63,
+dinero en el banco el 23-nov, **cero renglones de póliza** por ese importe en noviembre en las nueve
+sucursales.
+
+⭐ **Contablemente no hace falta nada nuevo: hace falta la captura.** La póliza la arma Kepler sola
+al nacer el documento. Si algún día la Suite escribe el cobro, **el asiento sale gratis** — a
+diferencia del Ajuste Abono `U-A-30`, que **no deja póliza** y por eso sí necesita su propio asiento
+([anexo RC](IMPLEMENTACION/FASES/FASE_GP_ANEXO_RESTOS_DE_COBRO.md), D-R2). Son casos opuestos y
+conviene no confundirlos.
+
+### 41.3 ⛔ Lo fiscal: la cadena es literal
+
+**Todas las facturas de telemarketing son PPD** (pago en parcialidades o diferido), así que el IVA
+se causa **al cobrarse** y cada pago exige su **complemento de pago** (CFDI tipo `P`).
+
+**El complemento se timbra DESDE el cobro, con su mismo folio.** Medido: serie
+`<sucursal>UA07<serie>`, folio = el folio del cobro. Los seis cobros capturados del cliente del caso
+tienen cada uno el suyo.
+
+> ⭐⭐ **La regla, en una línea: sin cobro capturado en Kepler no hay complemento de pago.** No es
+> una política ni un olvido: es que **no existe el documento del que se timbra**.
+
+**Quién puede timbrar, medido en `kdfe33folxdoc` (configuración de series):** de los abonos `U-A`,
+sólo los subtipos **7, 21, 26, 41 y 42** tienen serie de timbrado, en las 9 sucursales.
+⛔ **El `U-A-5` (Cobro simple) NO timbra.** *Control en los dos sentidos: aparecen los que sabemos
+que timbran (`U-A-7` Cobro CFDI, `U-A-21` Nota de crédito) y no aparece el que sabemos que no.*
+
+⭐ **Pero eso NO es un hueco**, y vale decirlo porque parecía serlo: los dos tipos de cobro sirven
+**poblaciones disjuntas**. `U-A-7` aplica **sólo** al tipo 8 (la factura de telemarketing, 7,248
+aplicaciones) y `U-A-5` **nunca** la toca (aplica a 13, 23, 12, 41, 5, 60). Y **no existe serie de
+CFDI `UD12`/`UD13`**: la venta a crédito de sucursal no se timbra con esa serie. *La hipótesis de
+«facturas PPD cobradas con el documento que no timbra» se midió y **no se sostiene**.*
+
+### 41.4 El tamaño real, por los dos lados
+
+**Lado capturado — cumple casi al 100 %** (cobros `U-A-7` sobre factura PPD, `rol='emitidas'`):
+
+| Mes | Cobros de PPD | Con complemento | Sin | Monto |
+|---|---:|---:|---:|---:|
+| ago-2026 | 16 | 16 | 0 | $157,459.88 |
+| sep-2026 | 570 | 565 | **5** | $9,037,152.28 |
+| oct-2026 | 881 | 867 | **14** | $11,798,644.56 |
+| nov-2026 | 768 | 731 | 37 | $11,674,514.29 |
+
+⚠️ **Los 37 de noviembre NO son incumplimiento: son rezago.** Revisados uno por uno, los más
+recientes son del **23 y 24 de noviembre** (ayer y hoy), ninguno cancelado (`c43 = 'N'`), y su plazo
+vence el **5 de diciembre**. Lo vencido de verdad son **19**: los 5 de septiembre y los 14 de
+octubre. ⬜ **NO MEDIDO**: los 14 de octubre traen **importe cero** en `kdue` — un cobro que no mueve
+dinero puede no requerir complemento; hay que mirarlos antes de contarlos como falta.
+
+Contexto: se emiten **786–1,042 complementos al mes** contra **978–1,380 facturas PPD al mes**
+($13.9M–$16.7M). La práctica está viva y funciona.
+
+**Lado NO capturado — aquí no hay número, y es a propósito.** Un pago que nunca se capturó **no
+puede** tener complemento, y **no se sabe de quién es**: ése es justamente el problema que la fase
+BFU intenta resolver. La pantalla publica **4,445 abonos «sin cobro (investigar)»** y **$119.43M sin
+conciliar**, pero ⛔ **eso NO es la exposición fiscal**: incluye cortes de terminal, efectivo y
+traspasos propios, no sólo cobranza a crédito. **Cuántos de esos son pagos de facturas PPD es
+NO MEDIDO**, y no se estima.
+
+### 41.5 ⭐ Lo que cambia la ficha del cliente
+
+Por eso el caso importa más que su monto: **la ficha que sube el cliente convierte un abono
+inatribuible en una obligación fiscal con dueño y con fecha.** Antes era uno de 4,445 sin nombre;
+con la ficha es el folio `06-1-0001446`, de un cliente identificado, con el complemento venciendo el
+**5 de diciembre**.
+
+⚠️ **Y «Marcar el abono como suyo» no cierra nada de esto**: escribe en el movimiento del banco de
+la Suite de quién es el dinero, para que quien capture en Kepler lo sepa. **No escribe en Kepler, no
+aplica a ninguna factura y no timbra.**
+
+### 41.6 El costo operativo, que ya está corriendo
+
+Mientras el cobro no se captura, **Kepler cree que el cliente debe de más**. El caso: límite de
+crédito **$5,000**, Kepler dice **$33,492.98**, debe **$17,953.35**. Y desde el 2026-11-24 autorizar
+pedidos desde la Suite está encendido en esa sucursal ([anexo EA](IMPLEMENTACION/FASES/FASE_GP_ANEXO_AUTORIZACION_PEDIDOS.md)),
+así que **su próximo pedido se detiene por dinero que ya pagó**, con la foto de su ficha en el
+sistema. *El pago no capturado dejó de ser sólo un tema contable el día que la regla de crédito
+empezó a leer ese saldo.*
+
+### 41.7 Lo que queda abierto
+
+| | Pregunta | De quién |
+|---|---|---|
+| **D-F1** | Los 19 complementos vencidos (5 de sep + 14 de oct): ¿se emiten extemporáneos o se declaran? Antes, revisar los 14 de importe cero | Contabilidad |
+| **D-F2** | ¿Cuántos de los 4,445 abonos sin cobro son pagos de factura PPD? Hoy **NO MEDIDO**; sin atribución no hay cifra | BFU + Contabilidad |
+| **D-F3** | ¿El cruce factura-por-factura del ingreso se cablea ahora que hay CFDI emitido? (§19 caducó) | Contabilidad + LC |
+| **D-F4** | ⛔ El candado que debía ponerse rojo al llegar los emitidos **no existe**. ¿Se construye? | Desarrollo |
+
+### 41.8 ⭐⭐ ¿Cómo se sabe si una factura es PPD o PUE? (Edgar, 2026-11-24)
+
+**El dato autoritativo es el CFDI**: `fiscal.cfdis.metodo_pago` (`rol = 'emitidas'`). No es una
+derivación nuestra — es lo que se timbró y se mandó al SAT. Para una factura concreta, ahí está la
+respuesta y no hay nada que inferir.
+
+**Lo que NO sirve para derivarlo:** la regla propia de la Suite (`[FE.8]`, en
+`commercial-orders.service.ts`: `payment_terms_days > 0 → PPD`) describe **lo que la Suite factura**,
+no lo que hace Kepler. Medido sobre la cartera desde septiembre: **619 facturas PPD a clientes con
+plazo CERO** (y 2,811 PPD con plazo, 19 PUE sin plazo, 0 PUE con plazo). *«Tiene crédito» no es el
+criterio.*
+
+**Lo que sí predice, y con qué fuerza** (CFDI emitidos, desde el 2026-09-01):
+
+| Serie | PPD | PUE | |
+|---|---:|---:|---|
+| `UD08` factura de telemarketing | **3,430** | 19 | 99.4 % PPD |
+| `UD05` factura de ticket / mostrador | 10 | **4,734** | 99.8 % PUE |
+| `UD06` | 0 | **693** | 100 % PUE |
+
+⚠️ **Es correlación, no regla.** Sirve para dimensionar; no para decidir sobre una factura.
+
+⭐ **La firma interna más confiable: PPD ⟺ `forma_pago = '99'`** («por definir»). Las 3,618 PPD del
+periodo llevan `99` y nada más; es coherente, porque en PPD la forma se define hasta el complemento.
+
+#### ⛔ Las 19 excepciones son, casi seguro, un timbrado MAL — y nadie lo vigila del lado emitido
+
+Las 19 facturas `UD08` marcadas **PUE** son **todas de Canindo**, todos sus clientes tienen plazo
+**cero**, y **18 de 19 llevan `forma_pago = '99'`**. Eso es contradictorio por definición: un PUE se
+pagó de una sola exhibición, así que su forma tiene que ser la real, **nunca «por definir»**.
+
+⭐ **El repo ya tiene esa regla, completa y bloqueante** — `expediente-verdict.ts`, control
+`F5_metodo_forma`: `pueMal = metodo === 'PUE' && forma === '99'`, con la nota *«PUE con forma 99: el
+SAT no lo permite»*, y su espejo `ppdMal`. ⛔ **Pero vive en el expediente de las facturas que
+RECIBIMOS de proveedores, y nadie la corre contra las que EMITIMOS.** Por eso 18 CFDIs propios
+salieron con una combinación que nuestra propia regla declara inválida y bloqueante, sin que nada se
+pusiera rojo. *El control existe; lo que falta es apuntarlo al otro lado.*
+
+⚠️ **Y eso contamina la medición de §41.4**, que filtró por `metodo_pago = 'PPD'`: si esas 18 son PPD
+mal timbradas, **también les falta complemento y el filtro no las iba a ver nunca**. La cifra de
+§41.4 es un **piso**, no un total.
+
+| | Pregunta | De quién |
+|---|---|---|
+| **D-F5** | Las 18 `UD08` PUE con forma `99`: ¿se re-timbran, se sustituyen, o eran PUE de verdad y lo que está mal es la forma? | Contabilidad |
+| **D-F6** | Correr `F5_metodo_forma` (y `F6_metodo`) **sobre los CFDI emitidos**, no sólo sobre los recibidos. El control ya está escrito | Desarrollo |
+
+### 41.9 ⭐⭐ Ingeniería inversa de la atribución: el cruce por importe tiene techo, y el canal que da certeza está sin usar (Edgar, 2026-11-24)
+
+**La idea.** El caso del §41.5 mostró un asidero: el depósito era **el importe exacto de una factura
+abierta**. Si no hay cobro, la factura que ese dinero paga **sigue abierta**. Entonces se puede ir al
+revés —banco → **factura**— en vez de banco → cobro, que es lo único que se cruzaba.
+
+⭐ **Lo de banco → cobro YA estaba reconstruido, y bien** (`[CC.8]`, `collection-deposits.service.ts`):
+quitar un filtro que miraba sólo el 30 % del dinero subió el cruce de **18.7 % a 78.0 %** con el ruido
+medido (2.2 % → 7.6 %), recuperó **13,772 abonos por $192.6M** y bajó los huérfanos de 14,359 a 3,890.
+**Los huérfanos de hoy son el residuo duro de ese trabajo, no material sin tocar.**
+
+**El cruce nuevo, medido con DOS placebos** (el mismo abono con el importe corrido +$7.13 y +$131.00;
+universo: 3,386 abonos sin conciliar de 180 días contra 8,244 cargos abiertos de 1,187 clientes):
+
+| | Real | Placebo +7.13 | Placebo +131 |
+|---|---:|---:|---:|
+| Abonos con alguna factura que cuadra | 121 | 19 | 25 |
+| **Con UNA sola candidata** | **89** | 18 | 19 |
+| Monto de los únicos | **$743,826.25** | $9,807.33 | $28,959.32 |
+
+⭐ **La señal es real** —89 contra un piso de 18–19, y el monto del placebo es una vigésima parte— así
+que **~70 abonos quedan con un solo dueño plausible**, por unos $715 mil. Cada uno es un cliente con
+nombre y un complemento con fecha.
+
+⛔ **Pero el techo es bajo: 70 de 3,386, el 2 %.** El cruce por importe **no resuelve la atribución**,
+y conviene decirlo antes de que alguien lo presente como la solución de los $106.8M. *Lo que hizo
+cierto el caso del §41.5 no fue el importe: fue que **la clienta subió su ficha declarándose dueña**.*
+
+#### ⭐⭐ Y ahí está lo que la ingeniería inversa de verdad encontró
+
+El mecanismo que produce **certeza** en vez de inferencia ya existe, ya está en producción
+(`[CC.20]`, desde el 2026-11-18: el cliente sube su ficha desde un enlace personal, sin usuario) y
+**está sin usar**:
+
+| | |
+|---|---:|
+| Fichas subidas por clientes, en total | **2** |
+| Clientes distintos que subieron alguna | **2** |
+| Fecha de las dos | **2026-11-24** (hoy) |
+| Clientes con saldo abierto a los que se les podría pedir | **1,187** ($69.9M) |
+
+⚠️ **NO MEDIDO:** si a esos 1,187 se les llegó a enviar su enlace (va por WhatsApp y por el QR del
+estado de cuenta). Sin eso, «2 de 1,187» mide el uso, **no la conversión**: puede que nadie lo haya
+pedido todavía.
+
+> ⭐ **La conclusión, que es de método.** La atribución no se va a cerrar midiendo mejor: el techo de
+> la inferencia está medido y es el 2 %. Se cierra **preguntándole al cliente**, que es lo único que
+> devuelve prueba —foto, monto, fecha y referencia— en vez de probabilidad. El canal está construido
+> y desplegado; lo que falta es **usarlo**. Y ahora hay con qué justificar la llamada: cada ficha que
+> entra convierte un abono anónimo en una obligación fiscal con dueño y con fecha (§41.3).
+
+### 41.10 ⛔⛔ La atribución NO se puede inferir: medido dos veces, la segunda contra verdad conocida (2026-11-24)
+
+> **El pedido, literal.** Edgar, después de que esta sesión presentara un techo del 2 % como si fuera
+> el techo del problema: *«necesitamos un 100 %, una verdad absoluta»*. **Tiene razón, y el 2 % estaba
+> mal planteado**: era el techo de UN instrumento, no del problema. Pero medir los otros instrumentos
+> no acercó el 100 % — lo alejó, y con evidencia.
+
+#### El hallazgo intermedio que parecía la solución (y no lo era)
+
+El concepto del depósito **sí trae nombres**: `VENTA TLMK CANINDO <NOMBRE>`, `VTA.TLMKT MORELIA
+<NOMBRE>`. Medido sobre los 3,386 abonos sin conciliar de 180 días: **1,264 mencionan TLMK/TELEMARK**
+($21.7M), y de ellos **1,120 traen un token de 6+ letras que existe en el padrón, contra 2 del
+placebo** (el mismo token escrito al revés). Señal fortísima.
+
+⚠️ **Pero «el nombre está» no es «sabemos quién es».** Exigiendo que **todos** los tokens de 5+ letras
+estén en el nombre del cliente, 748 de 1,044 resolvían a un solo código. ⛔ **Y el control por
+sucursal dio IDÉNTICO al real (748 contra 747)**: el padrón `kdud` se repite en las nueve ramas, así
+que «otra sucursal» no es un lugar donde el cliente no esté. *Ese control no medía nada y no se usó.*
+
+#### ⛔ La prueba con VERDAD CONOCIDA, que es la que decide
+
+Se corrió la misma regla sobre los depósitos **ya conciliados** con TLMK en el concepto, donde el
+cliente verdadero se conoce por su cobro (`finance.bank_recon_matches` → `analytics.erp_collections`).
+Universo: **7,989** abonos.
+
+| | |
+|---|---:|
+| Evaluables (su concepto da ≥2 tokens de 5+ letras) | 5,710 |
+| La regla propone algún cliente | 4,064 |
+| Propone **UNO solo** (máxima confianza) | 3,181 |
+| **Y acierta** | **1,021 — el 32.1 %** |
+| El cliente real está en cualquier parte de la propuesta | 1,199 de 4,064 (29.5 %) |
+
+> ⭐⭐ **Cuando la regla está más segura, se equivoca dos de cada tres veces.** Y el cliente verdadero
+> **ni siquiera aparece** entre las propuestas en el 70 % de los casos.
+
+**Por qué el placebo no lo vio venir:** el placebo probaba que el texto **contiene nombres reales**
+—y los contiene—, no que sean **el nombre de quien pagó**. Puede ser el vendedor, quien fue a la
+ventanilla, o el nombre comercial de un tercero. Sobre un padrón de miles, un fragmento siempre
+encuentra a alguien; encontrarlo **con seguridad** no es encontrarlo **bien**.
+*Es el caso canónico de [`feedback_amount_match_needs_placebo_control`]: un cruce puede tener un
+placebo limpio y aun así medir otra cosa.*
+
+#### ⭐⭐ Por qué el 100 % es el requisito CORRECTO, no una exigencia exagerada
+
+El producto de esta atribución **no es un reporte: es un CFDI que nombra a un contribuyente real**
+(§41.3). Un 32 % de acierto no es «avance parcial»: atribuir mal **no deja un hueco, deja un
+complemento de pago a nombre de quien no pagó**. ⛔ **En este proceso, equivocarse es peor que no
+saber**, y por eso cualquier automatismo por inferencia queda descartado aquí — no por prudencia,
+por aritmética.
+
+#### Las dos únicas vías que dan certeza
+
+| | Vía | Qué resuelve | Estado |
+|---|---|---|---|
+| **1** | ⭐⭐ **Que el identificador llegue ESTRUCTURADO** — referencia bancaria o CLABE por cliente: cada uno deposita a la suya y el dinero **llega ya atribuido**, sin texto ni criterio humano. Deja de ser inferencia y se vuelve una llave | **El 100 %, de aquí en adelante** | ⬜ **Decisión de Dirección y del banco, no de software** |
+| **2** | **Preguntarle al cliente** — la ficha devuelve prueba (foto, monto, fecha y referencia del banco), no probabilidad | Lo que **ya llegó** | ✅ Construido y en prod desde el 2026-11-18 (`[CC.20]`) · ⛔ **2 fichas de 1,187 clientes** |
+
+⛔ **Lo que NO se va a lograr:** cerrar esto midiendo mejor. Dos instrumentos independientes lo dicen
+—por importe, techo del 2 % (§41.9); por nombre, **32 % de acierto cuando está segura**—, y los dos
+fallan por la misma causa: **el identificador no viaja con el dinero.** No es falta de ingenio: el
+dato no está. *Si derivar es imposible, se cambia el proceso.*
+
+| | Pregunta | De quién |
+|---|---|---|
+| **D-F7** | ⭐⭐ ¿Se contrata referencia bancaria / CLABE por cliente? Es la única vía al 100 %. Tamaño de lo que hoy depende de un texto tecleado: **1,264 depósitos, $21.7M en 180 días** | **Dirección + banco** |
+| **D-F8** | ¿Se le envía a los 1,187 clientes con saldo su enlace de ficha? Hoy lo usaron 2 | Crédito y cobranza |
+
+### 41.11 La regla F5 apuntada a NUESTROS CFDI emitidos: 521 en 2026, y bajando fuerte (D-F6, 2026-11-24)
+
+Se aplicó sobre `fiscal.cfdis` (`rol='emitidas'`, tipo `I`) la regla que el repo ya tiene escrita y
+**bloqueante** para las facturas que RECIBIMOS (`expediente-verdict.ts`, control `F5_metodo_forma`):
+`pueMal = PUE && forma='99'` · `ppdMal = PPD && forma<>'99'`. Sólo lectura.
+
+| Año | CFDI de ingreso emitidos | **PUE con forma 99** | PPD sin forma 99 |
+|---|---:|---:|---:|
+| 2026 | 35,716 | **521** | 0 |
+| 2025 | 32,733 | 4,196 | 0 |
+| 2024 | 30,759 | 6,020 | 0 |
+| 2023 | 29,864 | 4,388 | 1 |
+| 2022 | 29,151 | 2,483 | 388 |
+| 2021 | 14,573 | 2,236 | 845 |
+
+⭐ **Lo primero que hay que decir es lo bueno: la tendencia baja fuerte** — de 6,020 (2024) a 4,196
+(2025) a **521** (2026), y el lado `PPD` está **limpio desde 2023**. Alguien ya corrigió la mayor
+parte; esto es deuda histórica que se está cerrando sola, no una falla que crezca.
+
+**Dónde se concentra lo de 2026** (series `A`, `B`, `BT`, `H`, `J` son del mismo emisor pero **fuera
+del patrón de Kepler** `<suc>UD<tipo><serie>`: vienen de otro sistema de facturación):
+
+| Serie | PUE con 99 | Peso dentro de su propia serie | Monto de las fallidas |
+|---|---:|---|---:|
+| `H` | 187 | 16 % de sus PUE | $12.7M |
+| `02UD0501` | 102 | — | $62.8k |
+| `B` | 94 | 3.6 % de sus PUE | $32.8M |
+| `06UD0801` | 38 | la del §41.8 | $413k |
+| `BT` | 38 | — | $179.8k |
+
+⭐⭐ **La pista que vale:** las fallidas de la serie `B` promedian **~$349k** contra **~$31k** de la
+serie entera — **once veces más grandes**. Eso apunta a una hipótesis concreta y comprobable: *son
+ventas grandes que al facturarse todavía no tenían forma de pago definida («99», que es correcto para
+PPD) y se timbraron **PUE por error**.* Si es así, **son PPD disfrazadas y a cada una le falta su
+complemento** — el mismo mecanismo del §41.8, pero en la serie donde está el dinero.
+
+⚠️ **NO MEDIDO, y hace falta antes de actuar:**
+- Si esas 521 se cobraron después en parcialidades (lo que confirmaría que eran PPD). Las series
+  `A/B/BT/H/J` **no están en la cartera de Kepler**, así que no se pueden cruzar por ahí.
+- Que el SAT rechace `PUE + 99` en todos los casos: aquí se aplicó **la regla del repo**, que lo
+  afirma (*«el SAT no lo permite»*) y lo marca bloqueante. Es el estándar propio, no un dictamen
+  fiscal.
+
+| | Pregunta | De quién |
+|---|---|---|
+| **D-F6** | Correr `F5_metodo_forma` sobre lo EMITIDO, no sólo sobre lo recibido. El control ya está escrito: es apuntarlo | Desarrollo |
+| **D-F9** | Las 521 de 2026, empezando por las 94 de la serie `B` ($32.8M, once veces más grandes que su promedio): ¿eran PPD mal timbradas? Si sí, les falta complemento | Contabilidad |
