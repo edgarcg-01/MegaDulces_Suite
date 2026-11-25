@@ -20,7 +20,7 @@ import type {
   PresaleSubstituteCandidate, PresaleSubstituteResponse,
 } from '@megadulces/contracts';
 import { folioDeLectura, topeEnUnidad } from '@megadulces/contracts';
-import { type DatosEtiquetaPedido, esFolioDeSuite, imprimirEtiquetaPedido } from '../pedido-etiqueta-impresion';
+import { type DatosEtiquetaPedido, esFolioDeSuite, imprimirTicketPedido } from '../pedido-etiqueta-impresion';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
@@ -766,12 +766,12 @@ function plural(n: number, uno: string, varios: string): string {
               <p class="sr-tip">Total: {{ dinero(r.total_before) }} → <strong>{{ dinero(r.total_after) }}</strong></p>
             }
           }
-          <!-- [MCP.32] La etiqueta del pedido (QR + barras) a la TSC: 3 iguales, para las bolsas y la hoja. -->
+          <!-- [MCP.32] La etiqueta del pedido (QR + barras) en la impresora de tickets, la misma de la cajera (D18). -->
           @if (etiquetaCerrado(); as et) {
             <button type="button" class="sr-btn sr-btn-etq" [disabled]="imprimiendoEtq()" (click)="imprimirEtiqueta(et)">
               <i class="pi pi-print" aria-hidden="true"></i><span>Imprimir etiqueta del pedido</span>
             </button>
-            <p class="sr-tip">Salen 3 etiquetas iguales de {{ et.folio }}: pégalas en las bolsas o cajas del pedido.</p>
+            <p class="sr-tip">Sale en la impresora de tickets la etiqueta de {{ et.folio }}. Si el pedido va en varias bolsas, imprime una por bolsa.</p>
           }
           @if (origen() === 'SUCURSAL') {
             <button type="button" class="sr-btn sr-btn-go" (click)="volverALista()">
@@ -1332,11 +1332,11 @@ export class AlmacenSurtirComponent implements OnInit {
     return { folio: p.code, cliente: p.customer_name, vendedor: p.seller_name, entrega: p.requested_delivery_date, productos: productos ?? p.lines };
   }
 
-  /** `[MCP.32]` 3 etiquetas iguales a la TSC. Un toque, una impresión. */
+  /** `[MCP.32]` La etiqueta del pedido en la impresora de tickets (David, 2026-11-24: la misma que la cajera). */
   imprimirEtiqueta(d: DatosEtiquetaPedido): void {
     if (this.imprimiendoEtq()) return;
     this.imprimiendoEtq.set(true);
-    imprimirEtiquetaPedido(d, () => this.imprimiendoEtq.set(false)).catch(() => {
+    imprimirTicketPedido(d, () => this.imprimiendoEtq.set(false)).catch(() => {
       this.imprimiendoEtq.set(false);
       this.avisar('error', 'No se pudo armar la etiqueta. Inténtalo otra vez.');
     });
