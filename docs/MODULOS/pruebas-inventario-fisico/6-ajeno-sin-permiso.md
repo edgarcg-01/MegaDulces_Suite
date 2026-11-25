@@ -39,6 +39,25 @@ probar los que la pantalla usa: un endpoint sin candado se alcanza con `curl`.
 | ID | Qué se hace | Tiene que pasar | Niv |
 |---|---|---|---|
 | `AJE-2a` | Llamar **los 29** endpoints de `inventory-count.controller.ts` con el token del ajeno | **403 en todos.** Se recorre el controlador y se arma la lista: no se escriben de memoria | 🔴 B |
+
+> ### ✅ `AJE-2a` · corrida del 2026-11-25 — **la mitad estática: PASA, 29 de 29**
+>
+> No hizo falta esperar a D-PW1 para la mitad que se puede medir en el fuente.
+> [`inventory-count.candado-rutas.spec.ts`](../../../libs/commercial/src/lib/commercial-inventory/inventory-count.candado-rutas.spec.ts)
+> enumera **todas** las rutas del controlador y exige que cada una lleve `@RequirePermissions`,
+> `@RequireAnyPermission` o `@UseGuards`. **55 casos, 55 en verde**, y corre en el CI.
+>
+> - **Ninguna ruta quedó abierta.** Las tres que a simple vista no mostraban candado
+>   (`GET :id/assignments`, `GET :id/progress`, `POST :id/cancel`) llevan `@RequireAnyPermission`,
+>   que el primer barrido no buscaba.
+> - **Prueba negativa incluida**: se le quita el decorador a `POST open` sobre una copia del
+>   fuente y se verifica que la comprobación se ponga roja. ⚠️ La primera versión de esa prueba
+>   salió roja de verdad —el fuente tiene finales de línea de Windows y el reemplazo no ocurría—,
+>   y lo destapó la aserción de control, no la suerte.
+> - Quedó congelado **quién abre cada puerta**, para que un cambio de reparto sea a propósito.
+>
+> ⛔ **Lo que esto NO prueba:** que Nest honre el decorador en runtime. Es nivel C. La mitad `[B]`
+> —403 de verdad, con un usuario sin permisos— sigue esperando a D-PW1.
 | `AJE-2b` | Llamar los endpoints **sin token** | 401 en todos | 🔴 B |
 | `AJE-2c` | Llamar con un token **caducado** | 401, no 500 | 🟠 B |
 | `AJE-2d` | Llamar con un token **de otro tenant** | 404 (no se confirma que el folio exista) | 🔴 B |
