@@ -1651,6 +1651,37 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // [BFU.4.5.13] Bancos › Ingresos y egresos: qué es «explicado» y de dónde sale cada grupo.
+  bancos_ingresos_egresos: {
+    title: 'Ingresos y egresos: de dónde viene y a dónde va cada peso',
+    intro: 'Cada renglón de la descarga del banco del mes, separado en lo que entró y lo que salió. Lo que entró se agrupa por su ORIGEN (el documento de Kepler con el que está casado); lo que salió, por el ÁREA que lo explica. La cifra grande es lo que todavía falta explicar.',
+    groups: [
+      {
+        heading: 'Qué cuenta como explicado',
+        entries: [
+          { term: 'Explicado', def: 'Tiene su documento de Kepler, su pago del Calendario, su cliente declarado o una categoría con evidencia. Un depósito que el motor llamó «cobranza» sólo por ser depósito NO está explicado.' },
+          { term: 'Falta explicar', def: 'Lo que no está explicado. Al abrirlo ves cada movimiento con su motivo.' },
+          { term: 'Tarde', def: 'Lleva más de 5 días hábiles sin ligar: Kepler ya tuvo tiempo de capturarlo.' },
+        ],
+      },
+      {
+        heading: 'De dónde vino lo que entró',
+        entries: [
+          { term: 'Venta de tienda', def: 'El depósito casado con el cobro de un corte de caja de la sucursal. Se abre por sucursal y cada una lleva a sus cortes de caja.' },
+          { term: 'Cobranza de facturas', def: 'El depósito casado con el cobro de una factura a un cliente.' },
+          { term: 'Traspasos entre tus cuentas', def: 'Dinero que vino de otra cuenta tuya. No es ingreso ni egreso: por eso «de fuera» y «a fuera» lo restan.' },
+          { term: 'Sin documento', def: 'Depósitos que no casan con ningún documento de Kepler. El grupo es lo que escribe el banco (tarjeta, efectivo, transferencia, préstamo): una pista para ligarlo, no una explicación.' },
+        ],
+      },
+      {
+        heading: 'Quién explica lo que salió',
+        entries: [
+          { term: 'De un área', def: 'El área dueña de la categoría del retiro (Compras, Tesorería, Recursos Humanos…).' },
+          { term: 'Todavía de nadie', def: '«En plazo de captura»: Kepler todavía puede capturarlo. «Por asignar»: Kepler no lo tiene y Tesorería decide de quién es.' },
+        ],
+      },
+    ],
+  },
   // ── Abouts enfocados por sección del tablero de bancos (CB.13.1) ──
   bancos_caja: {
     title: 'Cuadre de caja: cómo cerrarlo',

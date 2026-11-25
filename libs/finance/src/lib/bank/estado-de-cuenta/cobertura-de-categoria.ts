@@ -199,6 +199,12 @@ export interface CoberturaDeCategoria {
   entradas: CoberturaPorDireccion | null;
   /** `[BFU.4.5.12]` Lo que salió, por el área que lo explica. `null` como `entradas`. */
   salidas: CoberturaPorDireccion | null;
+  /**
+   * `[BFU.4.5.13]` Lo que se movió ENTRE TUS CUENTAS, de los mismos renglones: no es ingreso ni egreso, y sin apartarlo
+   * «entró» y «salió» lo cuentan dos veces. Entra = la entrada cuyo origen es `traspaso`; sale = el retiro casado con un
+   * traspaso de Kepler (`N-*-26`) o con la categoría `traspaso_entre_cuentas`. `null` como `entradas`.
+   */
+  entre_cuentas: { entra: { n: number; monto: number }; sale: { n: number; monto: number } } | null;
 }
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -264,6 +270,7 @@ export function coberturaDeCategoria(filas: readonly FilaDeCobertura[], hoy: str
   const grupos = new Map<string, PorResolver>();
   const areas = new Map<string, Acum>(), entradas = new Map<string, Acum>(), salidas = new Map<string, Acum>();
   let medidoTodo = filas.length > 0, conDireccion = filas.length > 0;
+  const entre = { entra: { n: 0, monto: 0 }, sale: { n: 0, monto: 0 } };
   const total = { n: 0, monto: 0, ligar_n: 0, ligar_monto: 0, atrasados: 0 };
   for (const f of filas) {
     const n = Number(f.n || 0), monto = Number(f.monto || 0);
@@ -288,9 +295,11 @@ export function coberturaDeCategoria(filas: readonly FilaDeCobertura[], hoy: str
       const k = claveDeEntrada(f);
       const e = entradas.get(k) ?? nuevoGrupo(k, null, k === 'venta_tienda');
       sumarAlGrupo(e, f, l, n, monto); entradas.set(k, e);
+      if (k === 'traspaso') { entre.entra.n += n; entre.entra.monto += monto; }
     } else if (f.entra === false) {
       const s = salidas.get(l.area) ?? nuevoGrupo(l.area, l.area in ATIENDE ? ATIENDE[l.area] : l.area);
       sumarAlGrupo(s, f, l, n, monto); salidas.set(l.area, s);
+      if (f.origen_doc === 'traspaso' || f.categoria === 'traspaso_entre_cuentas') { entre.sale.n += n; entre.sale.monto += monto; }
     } else conDireccion = false;
   }
   const por_resolver = Array.from(grupos.values()).map((g) => ({ ...g, monto: r2(g.monto) }))
@@ -311,6 +320,7 @@ export function coberturaDeCategoria(filas: readonly FilaDeCobertura[], hoy: str
     explicado: medidoTodo ? { n: total.n, monto: r2(total.monto), por_ligar: { n: total.ligar_n, monto: r2(total.ligar_monto) }, atrasados: total.atrasados } : null,
     entradas: conDireccion ? cerrarDireccion(Array.from(entradas.values()).map(cerrarGrupo).sort((a, b) => orden(a.area) - orden(b.area) || porMonto(a, b))) : null,
     salidas: conDireccion ? cerrarDireccion(Array.from(salidas.values()).map(cerrarGrupo).sort(porLigarPrimero)) : null,
+    entre_cuentas: conDireccion ? { entra: { n: entre.entra.n, monto: r2(entre.entra.monto) }, sale: { n: entre.sale.n, monto: r2(entre.sale.monto) } } : null,
   };
 }
 
