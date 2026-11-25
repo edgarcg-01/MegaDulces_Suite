@@ -97,6 +97,7 @@ fecha de muerte es exactamente el que la regla prohíbe.
 | **D7** | ¿Cómo entra el histórico? | ✅ **una mudanza de una pasada que mata el Access**, con las 3 condiciones de §4 — Edgar, 2026-11-24 |
 | **D8** | Al morir el Access, ¿la Suite **produce** la mitad en efectivo (el sobre), o sólo la guarda? | ⬜ **Edgar**. Recomendación: **producirla** — el primitivo `sobre.ts` ya existe y sin eso el apagado deja un hueco de dinero |
 | **D9** | ¿El recibo vive en una **tabla propia** o se deriva al vuelo? | ⬜ **Edgar**. Recomendación: **tabla propia** (`hr.payroll_receipts`): es dato propio, el histórico la necesita igual (§9.7) y derivar 159 mil recibos al vuelo no se sostiene |
+| **D10** | Un caso de la cola que **de verdad no liga** (cobra y no es nadie de la Suite), ¿se puede **descartar**, y dónde se guarda esa decisión? | ⬜ **Edgar**. Recomendación: **todavía no**. Hoy los casos reaparecen en cada carga, que es lo correcto: un `sin-candidato` se arregla **dando de alta a la persona**, no callándola. Si aparecen casos legítimamente irresolubles (un pago a alguien que nunca será usuario), eso es **dato propio** y pide su tabla — es un item C0, no un `boolean` colgado del alias |
 | **D1–D5** | puntualidad, asistencia, el cierre, la semana, el permiso | ⬜ siguen abiertas — **RH / Dirección** |
 
 ---
@@ -156,8 +157,13 @@ Timbrado y CFDI (**ContPAQi es el sistema de registro**, ADR-040) · la dispersi
 - ⬜ `[NE.2.4]` **El recibo de la semana viva**: arma el recibo de un periodo con lo que ya hay
   dentro de la base (ContPAQi + asistencia + el banco de horas) y lo guarda. **Prueba contra base
   real con el payload de la pantalla** (regla 13).
-- ⬜ `[NE.2.5]` **La cola de los que no ligaron** (`[NE.0.5]`): endpoint para resolver a mano los
-  48–58, escribiendo `matched_by = 'manual'` **con firma**.
+- 🧪 `[NE.2.5]` **La cola de los que no ligaron** (`[NE.0.5]`) — hecha y probada contra base real.
+  `GET /hr/nomina/cola` lista cada caso con el nombre que usa nómina, cuándo cobró y **los mismos
+  candidatos que el puente miró y descartó**; `POST /hr/nomina/cola/resolver` escribe
+  `matched_by = 'manual'` **con firma**. ⭐ La firma dejó de ser una costumbre: la migración
+  `ne25` la **exige en la base** (nota no vacía + autor), y el control negativo lo prueba —sin esa
+  migración los tres casos sin firma ENTRAN; con ella, los tres se rechazan—. ⛔ **No deja
+  descartar un caso**: ver **D10**.
 
 ### C3 · UI — **no se planea todavía**
 

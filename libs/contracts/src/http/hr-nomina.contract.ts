@@ -21,6 +21,11 @@ export interface HrRechazoPuenteDto {
   motivo: HrMotivoRechazoPuente;
   /** Qué habría que mirar para resolverlo, en palabras. Sin datos personales. */
   detalle: string;
+  /**
+   * `[NE.2.5]` A quiénes miró el puente y descartó, por id de usuario de la Suite. Vacío cuando no
+   * había ninguno. ⛔ Identificadores, nunca nombres.
+   */
+  candidatos: string[];
 }
 
 export interface HrResumenPuenteDto {
@@ -86,6 +91,70 @@ export interface HrPeriodosDto {
   /** ⚠️ Sin rango: se escribieron con `starts_on`/`ends_on` NULL, declarados, no inventados. */
   sinRango: number;
   omitidos: HrPeriodoOmitidoDto[];
+}
+
+// ── `[NE.2.5]` La cola de los que no ligaron ──────────────────────────────────────────────────
+
+/**
+ * ⚠️ **Acá SÍ viajan nombres de personas**, al revés que en el resto de este archivo, y es a
+ * propósito: **una identidad no se resuelve a ciegas**. Quien tiene que decidir si el código 1234
+ * de nómina es tal persona de la Suite necesita leer los dos nombres; pedirle que lo haga con
+ * identificadores sería pedirle que firme lo que no puede ver.
+ *
+ * Por eso toda esta superficie va detrás de `HR_NOMINA_GESTIONAR`, que está **sin repartir** hasta
+ * que exista la pantalla: un alias equivocado liga a una persona con el sueldo de otra.
+ */
+export interface HrCandidatoDeLaSuiteDto {
+  userId: string;
+  nombre: string;
+  /** Tal cual lo dice la Suite: `active`, `invited`, `terminated`… No se traduce ni se agrupa. */
+  status: string;
+  /** Si ya tiene algún código de nómina ligado: avisa antes de ligarle un segundo. */
+  codigosYaLigados: string[];
+}
+
+export interface HrCasoDeLaColaDto {
+  codigo: string;
+  motivo: HrMotivoRechazoPuente;
+  detalle: string;
+  /** El nombre tal como lo escribe el sistema de nómina, sin normalizar. */
+  nombreNomina: string;
+  /** Cuándo cobró por última vez y cuántas veces en la ventana: dice si el caso corre prisa. */
+  ultimoPago: string | null;
+  pagos: number;
+  /** Los que el puente miró y descartó, ya con su nombre. Vacío si no había ninguno. */
+  candidatos: HrCandidatoDeLaSuiteDto[];
+}
+
+export interface HrColaNominaDto {
+  resumen: HrResumenPuenteDto;
+  porMotivo: Record<HrMotivoRechazoPuente, number>;
+  casos: HrCasoDeLaColaDto[];
+}
+
+/** Lo que manda la pantalla para resolver UN caso. */
+export interface HrResuelveCasoDto {
+  /** El código del sistema de nómina que se va a ligar. */
+  codigo: string;
+  /** A quién. */
+  userId: string;
+  /** ⛔ Obligatoria y no en blanco: es la firma. La base también la exige. */
+  nota: string;
+  /**
+   * Sólo si el código YA tiene un alias y se quiere corregir: a quién apunta **hoy**, tal como lo
+   * vio quien resuelve. Si no coincide con lo que hay en la base, la operación se rechaza en vez
+   * de pisar algo que cambió mientras tanto.
+   */
+  reemplazaA?: string;
+}
+
+export interface HrResolucionDto {
+  codigo: string;
+  userId: string;
+  /** El alias que quedó vigente. */
+  aliasId: string;
+  /** El alias que se dio de baja, si hubo corrección. `null` si fue un alta limpia. */
+  reemplazado: string | null;
 }
 
 /** Lo que devuelve el registro. Idempotente: correrlo dos veces no inserta de nuevo. */

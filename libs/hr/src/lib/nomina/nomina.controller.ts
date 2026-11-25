@@ -1,7 +1,10 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
-import type { HrPeriodosDto, HrPuenteNominaDto, HrPuenteRegistroDto } from '@megadulces/contracts';
+import type {
+  HrColaNominaDto, HrPeriodosDto, HrPuenteNominaDto, HrPuenteRegistroDto, HrResolucionDto, HrResuelveCasoDto,
+} from '@megadulces/contracts';
+import { HrNominaColaService } from './nomina-cola.service';
 import { HrNominaPeriodosService } from './nomina-periodos.service';
 import { HrNominaPuenteService } from './nomina-puente.service';
 
@@ -23,6 +26,7 @@ export class HrNominaController {
   constructor(
     private readonly puente: HrNominaPuenteService,
     private readonly periodos: HrNominaPeriodosService,
+    private readonly colaSrv: HrNominaColaService,
   ) {}
 
   @Post('periodos/sincronizar')
@@ -50,5 +54,27 @@ export class HrNominaController {
   })
   registra(@Body() b?: { dias?: number }): Promise<HrPuenteRegistroDto> {
     return this.puente.registra(b?.dias);
+  }
+
+  // ── `[NE.2.5]` La cola de los que no ligaron ──────────────────────────────────────────────
+  // ⚠️ Estas dos rutas SÍ devuelven nombres de personas, al revés que las de arriba: una
+  //    identidad no se resuelve a ciegas. Por eso la clave sigue sin repartir.
+
+  @Get('cola')
+  @RequirePermissions(Permission.HR_NOMINA_GESTIONAR)
+  @ApiOperation({
+    summary: 'RH · nómina — lo que falta por ligar a mano, con el nombre de nómina, cuándo cobró y los candidatos que el puente miró y descartó. No escribe nada.',
+  })
+  cola(@Query('dias') dias?: string): Promise<HrColaNominaDto> {
+    return this.colaSrv.cola(dias === undefined || dias === '' ? undefined : Number(dias));
+  }
+
+  @Post('cola/resolver')
+  @RequirePermissions(Permission.HR_NOMINA_GESTIONAR)
+  @ApiOperation({
+    summary: 'RH · nómina — ligar un código a una persona a mano y FIRMADO (matched_by = manual). Idempotente; para corregir uno ya ligado hay que declarar a quién apunta hoy.',
+  })
+  resuelve(@Body() b: HrResuelveCasoDto): Promise<HrResolucionDto> {
+    return this.colaSrv.resuelve(b);
   }
 }
