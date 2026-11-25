@@ -5,12 +5,13 @@
  */
 import { Injectable } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { SD_IMPACTS, type SdCatalogResponse, type SdPriority } from '@megadulces/contracts';
+import { SD_IMPACTS, type SdCatalogResponse, type SdPriority, type SdTransferTargetsResponse } from '@megadulces/contracts';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { parseHHMM, type BusinessCalendar } from './domain/business-clock';
 import { politicaEfectiva, type PoliticaSla, type PoliticasPorPrioridad } from './domain/sla';
 import { esMiembroDeCola, type AccesoColas } from './domain/queue-access';
 import { colaSeOfrece } from './domain/presupuesto';
+import { destinosDeTraslado, type CategoriaParaTraslado, type ColaParaTraslado } from './domain/traslado';
 
 export interface SdSettings {
   calendar: BusinessCalendar;
@@ -139,6 +140,27 @@ export class ServiceDeskConfigService {
         categories: cats.filter((c: { queue_id: string }) => activas.has(c.queue_id)),
         impacts: SD_IMPACTS,
       };
+    });
+  }
+
+  /**
+   * `[MSP.5.0]` A dónde se puede trasladar: las colas ENCENDIDAS con categorías, sin el filtro de puestos de «Nueva solicitud» (D8:
+   * trasladar no es levantar). Lo usa el diálogo «Transferir a otra área»; «Nueva solicitud» sigue con `catalog()`. Ni siquiera se lee
+   * `requester_positions`: no hay forma de que la lista de puestos se cuele en la respuesta.
+   */
+  async transferTargets(): Promise<SdTransferTargetsResponse> {
+    return this.tk.run(async (trx) => {
+      const colas = (await trx('servicedesk.queues')
+        .where({ active: true })
+        .whereNull('deleted_at')
+        .orderBy([{ column: 'sort_order' }, { column: 'name' }])
+        .select('id', 'code', 'name', 'confidential')) as ColaParaTraslado[];
+      const cats = (await trx('servicedesk.categories')
+        .where({ active: true })
+        .whereNull('deleted_at')
+        .orderBy([{ column: 'sort_order' }, { column: 'name' }])
+        .select('id', 'queue_id', 'name')) as CategoriaParaTraslado[];
+      return destinosDeTraslado(colas, cats);
     });
   }
 }
