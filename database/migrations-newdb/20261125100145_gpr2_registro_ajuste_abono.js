@@ -33,13 +33,6 @@
  * **no deja póliza**: la cartera baja y los libros no se enteran) y D-R3 (¿Crédito y cobranza deja de usar los
  * «Cobros» de centavos?).
  *
- * ⛔⛔ **APLICADA EN PROD el 2026-11-25 18:09:26 UTC (batch 1251), por otra sesión desde el árbol compartido,
- * 42 minutos ANTES de que este archivo llegara a `origin/main`** — o sea que lo que corrió allá es la versión
- * previa: **sin `cfdi_insoluto`** y con el `CHECK` de `estado` sin `ya_estaba`. Las dos cosas las agrega
- * `20261125125330_gpr3_insoluto_sat_y_ya_estaba.js`, idempotente, para que prod y una base nueva lleguen al
- * mismo esquema por caminos distintos. **Esta migración ya no se toca** (Knex compara el ledger con el
- * filesystem).
- *
  * Idempotente.
  *
  * @param { import("knex").Knex } knex
@@ -91,10 +84,6 @@ exports.up = async function up(knex) {
       -- Lo que Kepler contestó, TAL CUAL (incluido el folio que dio y lo que el ensayo no pudo medir).
       kepler_folio     text,
       kepler_resultado jsonb,
-      -- ⛔ Lo que las facturas del ajuste SIGUEN debiendo ante el SAT (el ImpSaldoInsoluto de su último
-      -- complemento). NULL = NO MEDIDO, que no es cero: un Ajuste Abono no emite CFDI, así que cerrar el
-      -- resto en Kepler NO lo cierra ante el SAT (220 de los 260 restos vivos son facturas PPD).
-      cfdi_insoluto    numeric(14,2) CHECK (cfdi_insoluto IS NULL OR cfdi_insoluto >= 0),
       created_by       text,
       created_at       timestamptz NOT NULL DEFAULT now(),
       updated_by       text,
@@ -144,7 +133,7 @@ exports.up = async function up(knex) {
   await knex('commercial.kepler_push_switch')
     .insert(SUCURSALES.map((s) => ({
       tenant_id: TENANT, sucursal: s, tipo: TIPO, encendida: false, tope_dia: null,
-      nota: '[GP.R.2] Cerrar restos de centavos con el Ajuste Abono U-A-30 (kdm1 + kdue + kdm5): apagado hasta el adaptador (GP.R.3). Sin tope = sólo a mano; el automático corre cuando se le pone un tope del día. Tope del resto: $10 (D-R1). ⛔ No emite CFDI: la factura PPD queda con su insoluto ante el SAT (D-F10)',
+      nota: '[GP.R.2] Cerrar restos de centavos con el Ajuste Abono U-A-30 (kdm1 + kdue + kdm5): apagado hasta el adaptador (GP.R.3). Sin tope = sólo a mano; el automático corre cuando se le pone un tope del día. Tope del resto: $10 (D-R1)',
     })))
     .onConflict(['tenant_id', 'sucursal', 'tipo']).ignore();
   const { rows: [sw] } = await knex.raw(
