@@ -1,6 +1,6 @@
 // [CG.38.1] Sin `import ... from 'vitest'`: la config usa `globals: true`. Importarlo hace que el archivo NO CARGUE.
 import type { SdStatus } from '@megadulces/contracts';
-import { estadoTrasTraslado, terminaEspera, validarTraslado, type EntradaTraslado } from './traslado';
+import { destinosDeTraslado, estadoTrasTraslado, terminaEspera, validarTraslado, type EntradaTraslado } from './traslado';
 
 /**
  * `[MS.7.11]` Cuándo se puede trasladar un ticket y cómo queda. Lo que se defiende:
@@ -89,5 +89,46 @@ describe('MSH.2 · validarTraslado — la clase de la cola (R3)', () => {
   it('el motivo, el estado y la cola vacía se revisan ANTES que la clase (el mensaje que se ve primero es el que se puede arreglar)', () => {
     expect(validarTraslado(con({ motivo: '', origenConfidencial: true, destinoConfidencial: false }))?.http).toBe(400);
     expect(validarTraslado(con({ status: 'resuelto', origenConfidencial: true, destinoConfidencial: false }))?.http).toBe(409);
+  });
+});
+
+describe('[MSP.5.0] destinosDeTraslado — a dónde se puede trasladar', () => {
+  // La forma de prod (2026-11-24): Presupuestos restringe quién LEVANTA (3 puestos); TI y Mantenimiento no.
+  const COLAS = [
+    { id: 'q-ti', code: 'ti', name: 'TI', confidential: false, requester_positions: null },
+    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', confidential: false, requester_positions: null },
+    { id: 'q-pres', code: 'presupuestos', name: 'Presupuestos y Requerimientos', confidential: false, requester_positions: ['encargado_sucursal', 'auxiliar_encargado', 'jefe_zona'] },
+    { id: 'q-rh', code: 'rh', name: 'Recursos Humanos', confidential: true, requester_positions: null },
+    { id: 'q-vacia', code: 'vacia', name: 'Sin categorías', confidential: null, requester_positions: null },
+  ];
+  const CATS = [
+    { id: 'c-ti', queue_id: 'q-ti', name: 'Equipo de cómputo e impresoras' },
+    { id: 'c-mto', queue_id: 'q-mto', name: 'Plomería' },
+    { id: 'c-pres', queue_id: 'q-pres', name: 'Compra de activos' },
+    { id: 'c-rh', queue_id: 'q-rh', name: 'Nómina' },
+    { id: 'c-huerfana', queue_id: 'q-apagada', name: 'De una cola que no vino (apagada)' },
+  ];
+
+  it('⭐ Presupuestos SÍ aparece aunque restrinja quién levanta: trasladar no es levantar (D8)', () => {
+    const d = destinosDeTraslado(COLAS, CATS);
+    expect(d.queues.map((q) => q.code)).toContain('presupuestos');
+    expect(d.categories.filter((c) => c.queue_id === 'q-pres').map((c) => c.name)).toEqual(['Compra de activos']);
+  });
+  it('⛔ NEGATIVA — una cola sin categorías no se ofrece (no habría qué elegir), ni la categoría de una cola que no vino', () => {
+    const d = destinosDeTraslado(COLAS, CATS);
+    expect(d.queues.map((q) => q.id)).not.toContain('q-vacia');
+    expect(d.categories.map((c) => c.id)).not.toContain('c-huerfana');
+  });
+  it('⛔ la lista de puestos NO sale en la respuesta', () => {
+    expect(JSON.stringify(destinosDeTraslado(COLAS, CATS))).not.toContain('requester_positions');
+    expect(JSON.stringify(destinosDeTraslado(COLAS, CATS))).not.toContain('encargado_sucursal');
+  });
+  it('la marca de confidencial viaja como verdadero/falso (el servidor decide con ella; null = no)', () => {
+    const d = destinosDeTraslado(COLAS, CATS);
+    expect(d.queues.find((q) => q.id === 'q-rh')?.confidential).toBe(true);
+    expect(d.queues.find((q) => q.id === 'q-ti')?.confidential).toBe(false);
+  });
+  it('CONTROL: conserva el orden en que llegan las colas (el de la base: sort_order, nombre)', () => {
+    expect(destinosDeTraslado(COLAS, CATS).queues.map((q) => q.id)).toEqual(['q-ti', 'q-mto', 'q-pres', 'q-rh']);
   });
 });
