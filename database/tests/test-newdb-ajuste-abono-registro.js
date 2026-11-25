@@ -17,6 +17,9 @@
  *  7. **El interruptor** acepta `ajuste_abono` sembrado en 9 y **APAGADO**, sin tope, sin perder los tipos previos.
  *  8. **La llave** `FINANCE_RESTOS_CERRAR` quedó en `credito_cobranza` y en nadie más fuera de superadmin (regla 20).
  *  9. **RLS**: con otro tenant no se ve nada.
+ * 10. ⛔ **`cfdi_insoluto`**: lo que la factura SIGUE debiendo ante el SAT. Admite **NULL** (= NO MEDIDO, que no es
+ *     cero: un Ajuste Abono no emite CFDI) y rechaza un negativo. Medido el 2026-11-25: 220 de los 260 restos
+ *     vivos son facturas PPD con CFDI, así que cerrarlos en Kepler **no los cierra ante el SAT**.
  *
  * ⚠️ Sin la tabla (migración 20261125100145 sin aplicar) reporta NO MEDIDO, nunca ✔.
  * ⛔ No se corre contra producción: exige `assert-safe-target` como las demás.
@@ -132,6 +135,23 @@ async function meter(c, over = {}) {
       await c.query(`DELETE FROM ${TABLA} WHERE tenant_id = $1 AND cliente_code = 'C9200'`, [TENANT]);
       F('app_runtime PUDO borrar del registro');
     } catch { P('app_runtime no puede borrar del registro (regla 5)'); }
+
+    // 10 · ⛔ El insoluto del SAT: NULL es un valor LEGÍTIMO (no medido), y un negativo no.
+    const refI = `RC-${Math.random().toString(36).slice(2, 10)}`;
+    const nulo = await meter(c, { referencia: refI, cliente_code: 'C9300' });
+    if (!nulo) P('cfdi_insoluto nace NULL: lo que no se midió no se dibuja como cero');
+    else F(`la fila sin cfdi_insoluto fue rechazada: ${nulo.message}`);
+    const neg = await meter(c, { cfdi_insoluto: -1, cliente_code: 'C9301' });
+    const cero = await meter(c, { cfdi_insoluto: 0, cliente_code: 'C9302' });
+    const centavos = await meter(c, { cfdi_insoluto: 7.2, cliente_code: 'C9303' });
+    if (neg && !cero && !centavos) P('cfdi_insoluto: rechaza negativo, acepta 0 y acepta centavos (los controles)');
+    else F(`cfdi_insoluto: -1 → ${neg ? neg.code : 'OK'} · 0 → ${cero ? cero.code : 'OK'} · 7.20 → ${centavos ? centavos.code : 'OK'}`);
+    // Y se puede cerrar con el insoluto medido, como hace el servicio.
+    const uI = await c.query(
+      `UPDATE ${TABLA} SET estado = 'escrito', kepler_folio = '0000003', cfdi_insoluto = 7.20, updated_at = now()
+        WHERE tenant_id = $1 AND referencia = $2 AND estado = 'pendiente'`, [TENANT, refI]);
+    if (uI.rowCount === 1) P('el servicio cierra la fila con el insoluto que dejó ante el SAT');
+    else F(`cerrar con cfdi_insoluto tocó ${uI.rowCount} filas`);
 
     // 9 · RLS: con otro tenant no se ve nada.
     await c.query(`SELECT set_config('app.tenant_id', $1, true)`, [OTRO]);

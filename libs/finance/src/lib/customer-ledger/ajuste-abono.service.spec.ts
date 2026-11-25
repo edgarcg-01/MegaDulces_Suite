@@ -7,16 +7,12 @@ import { desenlace, referenciaDe, serieCfdiDe, tipoSerieDe, validarCierre } from
  * si alguien la quita, una de éstas se pone roja. Lo que toca Postgres o Kepler se prueba en
  * `database/tests/test-newdb-ajuste-abono-registro.js` y en el ensayo de `ops/prod/ensayo-ajuste-abono/`.
  */
-const base = { cliente: 'C2043', motivo: 'resto de centavos del cobro del 20-nov', facturas: [{ doc_code: 'UD0801', folio: '0000470' }] };
+const base = { cliente: 'C2043', motivo: 'resto de centavos del cobro del 20-nov', facturas: [{ tipo: 8, serie: 1, folio: '0000470' }] };
 
 describe('[GP.R.3] validarCierre', () => {
   it('acepta lo que manda la pantalla y normaliza', () => {
     const d = validarCierre('08', base);
-    // ⭐ La pantalla manda el doc_code que ya vio; el tipo y la serie los DERIVA el servidor.
-    expect(d).toEqual({
-      sucursal: '08', cliente: 'C2043', motivo: base.motivo,
-      facturas: [{ doc_code: 'UD0801', folio: '0000470', tipo: 8, serie: 1 }],
-    });
+    expect(d).toEqual({ sucursal: '08', cliente: 'C2043', motivo: base.motivo, facturas: [{ tipo: 8, serie: 1, folio: '0000470' }] });
   });
 
   it('negativo: sucursal que no es de dos dígitos', () => {
@@ -39,13 +35,11 @@ describe('[GP.R.3] validarCierre', () => {
     expect(() => validarCierre('08', { ...base, facturas: [base.facturas[0], base.facturas[0]] })).toThrow(/dos veces/);
   });
 
-  it('negativo: un doc_code que no es de Kepler, o un folio imposible', () => {
-    for (const doc_code of ['', 'UD08', 'XX0801', 'ud0801', 'UD08011']) {
-      expect(() => validarCierre('08', { ...base, facturas: [{ doc_code, folio: '1' }] })).toThrow(/documento inválido/);
-    }
-    expect(() => validarCierre('08', { ...base, facturas: [{ doc_code: 'UD0801', folio: '' }] })).toThrow(/folio/);
-    expect(() => validarCierre('08', { ...base, facturas: [{ doc_code: 'UD0801', folio: 'x'.repeat(21) }] })).toThrow(/folio/);
-    expect(validarCierre('08', { ...base, facturas: [{ doc_code: 'UD1301', folio: '7' }] }).facturas[0].tipo).toBe(13);  // el control
+  it('negativo: tipo, serie o folio inválidos', () => {
+    expect(() => validarCierre('08', { ...base, facturas: [{ tipo: 0, serie: 1, folio: '1' }] })).toThrow(/tipo de documento/);
+    expect(() => validarCierre('08', { ...base, facturas: [{ tipo: 8, serie: 0, folio: '1' }] })).toThrow(/serie/);
+    expect(() => validarCierre('08', { ...base, facturas: [{ tipo: 8, serie: 1, folio: '' }] })).toThrow(/folio/);
+    expect(() => validarCierre('08', { ...base, facturas: [{ tipo: 8, serie: 1, folio: 'x'.repeat(21) }] })).toThrow(/folio/);
   });
 });
 

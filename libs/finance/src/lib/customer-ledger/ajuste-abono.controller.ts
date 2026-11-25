@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
 import type { RequestConCabeceras } from '@megadulces/platform-core';
@@ -25,17 +25,6 @@ interface AuthedRequest extends RequestConCabeceras { user?: { username?: string
 @Controller('finance/ajuste-abono')
 export class AjusteAbonoController {
   constructor(private readonly svc: AjusteAbonoService) {}
-
-  /**
-   * `[GP.R.4]` Si en esta sucursal se puede cerrar un resto. La pantalla lo pregunta **antes** de ofrecer el acto:
-   * un botón que va a fallar es el error como primer recurso.
-   */
-  @Get(':sucursal')
-  @RequirePermissions(Permission.FINANCE_RESTOS_CERRAR)
-  @ApiOperation({ summary: '[GP.R.4] Dice si el cierre de restos está habilitado en esa sucursal (interruptor + bandera), y por qué no si está apagado.' })
-  habilitado(@Param('sucursal') sucursal: string): Promise<{ habilitado: boolean; motivo?: string }> {
-    return this.svc.habilitadoEn(sucursal);
-  }
 
   @Post(':sucursal')
   @RequirePermissions(Permission.FINANCE_RESTOS_CERRAR)
