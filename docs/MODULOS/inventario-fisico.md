@@ -457,27 +457,55 @@ Se asignaron dos contadores desde la pantalla y quedaron en el servidor (`GET :i
 devuelve). **Seleccionar es asignar**, sin paso de confirmación. ⚠️ El sistema **deja asignar a
 cuentas que nunca entraron** sin aviso (ver F15), y asignar no restringe a los demás (ver F16).
 
-### ⭐⭐ El hallazgo que explica todo lo demás
+### ⭐⭐ El hallazgo que explica todo lo demás: el catálogo duplicado rompe el conteo
 
-**El inventario físico tiene dos caminos para escribir y ninguno cierra el circuito.**
+> ⚠️ **Esta sección se reescribió el 2026-11-25 tras medir la base.** La primera versión decía que
+> «el conteo no se escribe en el artículo». **El efecto es ése, pero el mecanismo es otro, y el
+> mecanismo es lo que hay que arreglar.** Se deja dicho para que nadie persiga el defecto donde no
+> está.
 
-| El camino | Qué escribe | Qué NO escribe |
-|---|---|---|
-| **Contar** (pantalla del contador) | la sesión del contador: `items_counted`, `units_counted` | **el artículo del folio**: queda en `count_1: null`, `status: pending` |
-| **Resolver item** (pantalla del supervisor) | el `final_qty` del artículo | **no cuenta como conteo**: la cobertura siguió en 0 % |
+**El conteo SÍ se escribe — en un artículo NUEVO que él mismo crea, con teórico cero.**
 
-Y cerrar un folio exige **las dos cosas**. Por eso **el folio es incerrable por construcción**.
+El código actualiza el item correctamente (`patch.status = 'counted'` → `update` sobre
+`inventory_count_items`). Lo que falla es **a cuál item le pega**:
 
-Eso explica, sin ninguna otra hipótesis, lo que §2 ya había medido en base: **seis folios en toda la
-historia, los seis cancelados, siete conteos en total**. ⛔ **No es que la gente no use el módulo: es
-que contar no avanza el folio.**
+1. El folio se siembra con el producto que **sí tiene SKU** (`eeaf8d47…`, sku `00203`).
+2. El escáner resuelve el código con `GET /counts/resolve`, que devuelve **otra fila del catálogo
+   para el mismo producto** — la que **no tiene SKU** (`39c7d7c4…`, mismo nombre
+   `$330 NESTLE = GRATIS 1 LONCHERA`).
+3. Los `product_id` no coinciden, así que el servicio **no encuentra el artículo en el folio y crea
+   uno nuevo**, con `expected_qty = 0`.
+
+**Medido en prod sobre `INV-2026-00010`:** el folio pasó de 3,363 a **3,364** artículos; el nuevo
+tiene `count_1 = 3`, `expected_qty = 0`, `status = counted`; y el original `00203` quedó en
+`count_1: null`, `status: pending`.
+
+**Las cuatro consecuencias, en cadena:**
+
+- El artículo original **nunca se cuenta** → el folio **no puede cerrarse jamás**.
+- El total **crece con cada escaneo** → el 100 % se aleja a cada paso (ver **F2**).
+- El renglón nuevo tiene **teórico 0**, así que todo lo contado es **sobrante puro**.
+- Si llegara a reconciliarse, **sumaría existencia que no corresponde**.
+
+⛔⛔ **Y la causa raíz NO es del módulo de inventario: es el catálogo.** Medido en prod el
+2026-11-25 sobre `public.products` (14,986 filas): **1,162 filas sin SKU**, **887 SKUs que aparecen
+en más de una fila** y **1,017 nombres con más de un `product_id`**. Mientras un producto tenga dos
+identidades, **ningún conteo físico puede cuadrar**, se arregle lo que se arregle en esta pantalla.
+
+Eso explica lo que §2 ya había medido: **seis folios en toda la historia, los seis cancelados, siete
+conteos en total**. ⛔ **No es que la gente no use el módulo: es que contar no avanza el folio, y
+nadie había llegado a contar lo suficiente para verlo.**
+
+> ⭐ El segundo camino de escritura falla aparte: **«Resolver item» sí fija el `final_qty` del
+> artículo correcto, pero no cuenta como conteo** — la cobertura siguió en 0 %. Cerrar exige las dos
+> cosas, así que tampoco por ahí se llega (ver **F3**).
 
 ### Los defectos, por severidad
 
 | # | Sev. | Defecto | Cómo se midió |
 |---|:---:|---|---|
-| **F1** | 🔴 | **Un conteo registrado NO se escribe en el artículo del folio.** El contador ve «1er conteo» y la sesión registra el escaneo, pero el artículo sigue en `count_1: null, status: pending`. Al reconciliar no tiene valor final, así que **el conteo se pierde**. | Se contó el SKU `00203` con 3 unidades. Verificado **tres veces**: al registrar, a los 8 s, y tras cerrar la pasada con «Terminar» (sesión `finished`, `items_counted: 1`, `units_counted: 3`). El artículo nunca cambió. |
-| **F2** | 🔴 | **El progreso suma dos libros, así que el total crece con cada conteo.** `count-progress` devuelve `total = pendientes + escaneos`. **El 100 % es inalcanzable**: contando los 3,363 el total terminaría en 6,726, y la barra se aleja a cada paso. | Antes de contar: `total: 3363`. Después de **un** conteo: `total: 3364, counted: 1, remaining: 3363`. |
+| **F1** | 🔴🔴 | **El conteo crea un artículo NUEVO con teórico 0 en vez de llenar el que existe** — porque el catálogo tiene el producto **dos veces** y el `resolve` del código de barras devuelve la fila **sin SKU**, mientras el folio se sembró con la que **sí lo tiene**. El artículo original queda `pending` para siempre → **el folio no puede cerrarse jamás**, y lo contado entra como **sobrante puro** (teórico 0). ⛔ **La causa raíz es del CATÁLOGO, no del inventario.** Ver la sección de arriba. | Base de prod: el item contado es `39c7d7c4…` (`expected_qty 0`, `count_1 3`, `counted`); el original `00203` es `eeaf8d47…` (`pending`). Los dos se llaman `$330 NESTLE = GRATIS 1 LONCHERA`. En `public.products` (14,986 filas): **1,162 sin SKU**, **887 SKUs repetidos**, **1,017 nombres con más de un `product_id`**. |
+| **F2** | 🔴 | **El total del folio crece con cada escaneo** — consecuencia directa de **F1**: cada conteo agrega un renglón. **El 100 % es inalcanzable**: contando los 3,363 el folio terminaría con 6,726 y la barra se aleja a cada paso. | Antes de contar: `total: 3363`. Después de **un** conteo: `total: 3364, counted: 1, remaining: 3363`. Confirmado en la base: `count(*) = 3364`, de los cuales **1** tiene `count_1`. |
 | **F3** | 🔴 | **«Resolver item» fija la cantidad final sin que exista ningún conteo, y no suma a la cobertura.** Tras resolver un artículo, la pantalla siguió diciendo «0 contados · 0.0 % · 0 discrepancias»; sólo bajó el renglón «sin valor final» (3363 → 3362). Quedan **dos verdades paralelas** sobre el mismo folio. | Se resolvió el SKU `00135` con cantidad 4 contra un teórico de 5. |
 | **F4** | 🔴 | **«Resolver item» está disponible desde el minuto cero y muestra el teórico.** En un folio con **doble conteo ciego activado**, el diálogo imprime `Teórico: 5.000` justo encima del campo de captura. El control que define al módulo tiene al lado una puerta que lo anula, y encima le sopla la respuesta a quien la usa. Debería aparecer sólo para artículos en discrepancia, después de C1 y C2. ⛔ **No es teórico: la puerta la tienen 21 personas y sólo 17 pueden cerrar el inventario** — hay más gente capaz de anular el control que de terminar el proceso. | Visible en el diálogo con 0 conteos registrados. `POST :id/items/:itemId/resolve` exige `COMMERCIAL_INVENTORY_SUPERVISAR`; medido en prod el 2026-11-25: SUPERVISAR 21 personas, RECONCILIAR 17. |
 | **F5** | 🟠 | **`GET /counts/:id/items` se topa en 2,000 y no lo declara.** Devuelve un **array pelado**, sin `total` ni `has_more`: el front no podría avisar del tope ni queriendo. Con 3,363 artículos, **el supervisor no puede ver ni resolver 1,363**. Como la lista va ordenada por nombre, el corte cae en la letra **O**. | Medido sobre la respuesta real: 2,000 elementos exactos; iniciales presentes `$ * 1 2 3 4 5 6 7 A B C D E F G H I J K L M N O`; primero `$330 NESTLE…`, último `OBLEA FIGURA TIRA…`. |
