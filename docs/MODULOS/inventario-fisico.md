@@ -385,6 +385,11 @@ Eso es exactamente **D-EX8**, y por eso el módulo no debe encenderse antes.
 
 ## 10. Cómo se prueba
 
+> ⭐ **La lista de verificación para probar con Playwright —95 pruebas, una sección por tipo de
+> usuario, con errores humanos, de causalidad, de diseño y las negativas— vive en
+> [`inventario-fisico-PRUEBAS.md`](inventario-fisico-PRUEBAS.md).** Su §0 trae la decisión
+> pendiente (**D-PW1**): hoy ningún Playwright del repo apunta a la aplicación corriendo.
+
 - **Pruebas de unidad y candados** (vitest, `libs/commercial`): `inventory-count.asignar.spec.ts`,
   `.cancelar.spec.ts`, `.ciclico.spec.ts`, `contar-o-asignado.guard.spec.ts` (24 casos, incluye el candado que
   verifica qué rutas llevan el guard y cuáles NO), `existencia-ods-lectores.spec.ts`.
