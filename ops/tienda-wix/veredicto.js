@@ -2,9 +2,7 @@
 // Reimplementa la regla a mano, que es el punto: dos implementaciones, un resultado.
 require('dotenv').config({ quiet: true });
 const { Client } = require('pg');
-// La llave vive en .env (ignorado por git; el repo es PUBLICO), o se pasa por entorno.
-const K = process.env.WIXK || process.env.WIX_API_KEY;
-const SITE = process.env.LIVE || process.env.WIX_SITE_ID;
+const K = process.env.WIXK, SITE = process.env.LIVE;
 const H = { Authorization: K, 'wix-site-id': SITE, 'Content-Type': 'application/json' };
 const r2 = n => Math.round(Number(n) * 100) / 100;
 

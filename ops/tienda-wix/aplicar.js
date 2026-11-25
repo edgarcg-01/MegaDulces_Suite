@@ -80,7 +80,8 @@ async function planear() {
     const nom = it && it.product ? it.product.variantName : null;
     const k = v.sku ? porSku.get(String(v.sku)) : null;
     filas.push({
-      productoId: p.id, producto: p.name, variantId: v.id, itemId: it && it.id, sku: v.sku || null, nom,
+      productoId: p.id, producto: p.name, variantId: v.id, itemId: it && it.id,
+      itemRev: it && it.revision, sku: v.sku || null, nom,
       visible: v.visible !== false,
       precioHoy: v.price && v.price.actualPrice && v.price.actualPrice.amount != null ? r2(v.price.actualPrice.amount) : null,
       qtyHoy: it ? Number(it.quantity || 0) : null,
@@ -107,9 +108,13 @@ async function planear() {
 (async () => {
   const { full, filas } = await planear();
   const sello = new Date().toISOString().replace(/[:.]/g, '-');
-  fs.writeFileSync(D + 'respaldo-' + sello + '.json', JSON.stringify(full));
-  fs.writeFileSync(D + 'plan-' + sello + '.json', JSON.stringify(filas, null, 1));
-  console.log('3) foto previa y plan guardados con sello', sello);
+  // ⛔ FUERA del repo: la foto previa lleva el catalogo entero con sus precios y
+  // el repo es PUBLICO. SALIDA lo puede mover; nunca por default a este directorio.
+  const SAL = process.env.SALIDA || require('path').join(require('os').tmpdir(), 'tienda-wix');
+  fs.mkdirSync(SAL, { recursive: true });
+  fs.writeFileSync(require('path').join(SAL, 'respaldo-' + sello + '.json'), JSON.stringify(full));
+  fs.writeFileSync(require('path').join(SAL, 'plan-' + sello + '.json'), JSON.stringify(filas, null, 1));
+  console.log('3) foto previa y plan guardados en', SAL, '| sello', sello);
 
   const qty = filas.filter(f => f.accion === 'SINCRONIZAR' && f.qtyHoy !== f.qtyNueva);
   const precio = filas.filter(f => f.accion === 'SINCRONIZAR' && f.precioHoy !== r2(f.precio));
@@ -128,7 +133,7 @@ async function planear() {
   if (can) {
     const r = await fetch('https://www.wixapis.com/stores/v3/bulk/inventory-items/update', {
       method: 'POST', headers: H,
-      body: JSON.stringify({ inventoryItems: [{ inventoryItem: { id: can.itemId, trackQuantity: true, quantity: can.qtyNueva } }] }),
+      body: JSON.stringify({ inventoryItems: [{ inventoryItem: { id: can.itemId, revision: String(can.itemRev), trackQuantity: true, quantity: can.qtyNueva } }] }),
     });
     if (!r.ok) throw new Error('canario: ' + r.status + ' ' + (await r.text()).slice(0, 300));
     await sleep(1500); // el search tarda en indexar
@@ -143,13 +148,16 @@ async function planear() {
   }
 
   // --- INVENTARIO, en lotes de 50 ---
-  console.log('\n6) inventario:', qty.length, 'renglones');
+  // el canario ya se escribio y su revision cambio: no vuelve a ir en el lote
+  const pendientes = can ? qty.slice(1) : qty;
+  console.log('\n6) inventario:', pendientes.length, 'renglones (el canario ya quedo)');
   let hechas = 0, fall = 0;
-  for (let i = 0; i < Math.min(qty.length, LIMITE); i += 50) {
-    const lote = qty.slice(i, i + 50);
+  const tope = Math.min(pendientes.length, LIMITE);
+  for (let i = 0; i < tope; i += 50) {
+    const lote = pendientes.slice(i, Math.min(i + 50, tope));
     const r = await fetch('https://www.wixapis.com/stores/v3/bulk/inventory-items/update', {
       method: 'POST', headers: H,
-      body: JSON.stringify({ inventoryItems: lote.map(f => ({ inventoryItem: { id: f.itemId, trackQuantity: true, quantity: f.qtyNueva } })) }),
+      body: JSON.stringify({ inventoryItems: lote.map(f => ({ inventoryItem: { id: f.itemId, revision: String(f.itemRev), trackQuantity: true, quantity: f.qtyNueva } })) }),
     });
     const j = await r.json();
     const malas = (j.results || []).filter(x => x.itemMetadata && x.itemMetadata.error).length;
@@ -172,15 +180,16 @@ async function planear() {
     if (++n > LIMITE) break;
     const vivo = await leerProducto(pid);
     const porVar = new Map(cambios.map(f => [f.variantId, f]));
+    // Se PARTE de la variante viva y solo se pisa lo que cambia. Reconstruirla de
+    // cero pierde campos que el servidor exige ([CV.29] destruyo un producto asi,
+    // y `physicalProperties.pricePerUnit` hace fallar el PATCH con 428).
     const variants = vivo.variantsInfo.variants.map(v => {
       const f = porVar.get(v.id);
-      const o = {
-        id: v.id, sku: v.sku, choices: v.choices, visible: v.visible,
-        price: { actualPrice: { amount: String(v.price.actualPrice.amount) } },
-      };
+      const o = { ...v };
+      delete o.inventoryStatus; // lo calcula el servidor; no se manda
+      o.price = { actualPrice: { amount: String(v.price.actualPrice.amount) } };
       if (f && f.accion === 'SINCRONIZAR') o.price = { actualPrice: { amount: String(r2(f.precio)) } };
       if (f && (f.accion === 'RETIRAR' || f.accion === 'OCULTAR')) o.visible = false;
-      if (v.media) o.media = v.media;
       return o;
     });
     const r = await fetch('https://www.wixapis.com/stores/v3/products/' + pid, {
