@@ -1662,6 +1662,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Explicado', def: 'Tiene su documento de Kepler, su pago del Calendario, su cliente declarado o una categoría con evidencia. Un depósito que el motor llamó «cobranza» sólo por ser depósito NO está explicado.' },
           { term: 'Falta explicar', def: 'Lo que no está explicado. Arriba se dice en pesos; en las tablas, en movimientos («Movs. por explicar»; «todos» cuando no hay ninguno explicado). Al abrirlo ves cada movimiento con su motivo.' },
           { term: 'Tarde', def: 'Lleva más de 5 días hábiles sin ligar: Kepler ya tuvo tiempo de capturarlo.' },
+          { term: 'Los colores', def: 'Verde con palomita: explicado. Ámbar: falta explicar y todavía está a tiempo. Rojo: tarde. La barra de cada tabla reparte sus movimientos (sin lo de entre tus cuentas) en esos tres estados.' },
           { term: 'Sin clasificar', def: 'Movimientos del libro (banco y caja) que todavía no tienen categoría contable. Es otra lista: un movimiento puede estar explicado y sin categoría, o al revés.' },
         ],
       },

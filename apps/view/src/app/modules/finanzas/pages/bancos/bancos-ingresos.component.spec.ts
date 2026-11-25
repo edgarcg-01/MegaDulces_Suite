@@ -4,7 +4,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { By } from '@angular/platform-browser';
 import { MetricStripComponent } from '../../../../shared/components/metric-strip/metric-strip.component';
-import { BancosIngresosComponent, renglonesDeEgresos, renglonesDeIngresos, totalDeFuera } from './bancos-ingresos.component';
+import { BancosIngresosComponent, barraDeEstado, renglonesDeEgresos, renglonesDeIngresos, totalDeFuera } from './bancos-ingresos.component';
 import { BalanceRow, Balances, CoberturaCategoria, CoberturaPorArea, Diagnostico } from '../../bank.service';
 
 /**
@@ -113,7 +113,36 @@ describe('[BFU.4.5.14] totalDeFuera — el total sin lo de entre tus cuentas', (
   });
 });
 
+describe('[BFU.4.5.15] barraDeEstado — los movimientos de cada tabla en tres estados, con color', () => {
+  it('⛔ explicados + a tiempo + tarde = el total de la tabla (sin lo de entre tus cuentas)', () => {
+    const d = cob().entradas!, b = barraDeEstado('Ingresos', d, totalDeFuera(d))!;
+    expect(b.items.map((x) => [x.label, x.value, x.tone])).toEqual([['Explicados', 10, 'ok'], ['Por explicar, a tiempo', 3, 'warn'], ['Tarde', 3, 'bad']]);
+    expect(b.items.reduce((t, x) => t + Number(x.value), 0)).toBe(totalDeFuera(d)!.n);
+    expect(b.aria).toBe('Ingresos, 16 movimientos: 10 explicados, 3 por explicar a tiempo y 3 tarde');
+  });
+  it('⛔ [negativa] sin medir no hay barra: un estado no medido no se pinta como «todo explicado»', () => {
+    const d = cob().salidas!;
+    expect(barraDeEstado('Egresos', { ...d, atrasados: null }, totalDeFuera(d))).toBeNull();
+    expect(barraDeEstado('Egresos', d, { ...totalDeFuera(d)!, por_ligar: null })).toBeNull();
+    expect(barraDeEstado('Egresos', null, null)).toBeNull();
+  });
+});
+
 describe('[BFU.4.5.13] Bancos › Ingresos y egresos', () => {
+  it('[BFU.4.5.15] cada tabla abre con su barra; explicado es palomita verde, lo pendiente ámbar y lo tarde rojo, cada uno con su palabra', () => {
+    const fx = montar(cob());
+    const el = fx.nativeElement as HTMLElement;
+    const barras = fx.debugElement.queryAll(By.directive(MetricStripComponent)).filter((d) => d.componentInstance.mode() === 'composition');
+    expect(barras.length).toBe(2);
+    expect(barras.every((d) => d.componentInstance.instant())).toBe(true);
+    const fila = (t: string) => Array.from(el.querySelectorAll('tr.fb-row-click')).find((r) => r.querySelector('th')?.textContent?.includes(t))!;
+    expect(fila('Cobranza de facturas').querySelector('i.pi-check.fb-ok')).not.toBeNull();
+    expect(celdas(fila('Cobranza de facturas')).at(-1)).toBe('explicado');
+    expect(fila('Venta con tarjeta').querySelector('.fb-pend')?.textContent?.trim()).toBe('todos');
+    expect(fila('Venta con tarjeta').querySelector('.fb-tarde')?.textContent).toContain('tarde');
+    // [negativa] lo explicado nunca lleva el tono de pendiente ni el de tarde.
+    expect(fila('Cobranza de facturas').querySelector('.fb-pend, .fb-tarde')).toBeNull();
+  });
   it('primero lo que falta explicar, luego Ingresos y Egresos lado a lado, cada uno con su total', () => {
     const el = montar(cob()).nativeElement as HTMLElement;
     const txt = el.textContent ?? '';

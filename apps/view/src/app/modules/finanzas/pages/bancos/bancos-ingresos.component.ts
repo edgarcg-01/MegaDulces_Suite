@@ -61,6 +61,9 @@ const QUE_ES: Readonly<Record<string, string>> = {
  * escondía dentro de un área); «falta explicar» era pesos arriba y movimientos abajo; el rojo caía sobre lo que cierra.
  * Ahora lo que va entre tus cuentas es un renglón propio en LAS DOS tablas, debajo de su total y fuera de él.
  *
+ * [BFU.4.5.15] «Un poco de color» (2026-11-25), con significado y nunca solo: verde = explicado (palomita), ámbar = falta
+ * explicar a tiempo (su número), rojo = tarde (la palabra). Cada tabla abre con una barra de esos tres estados.
+ *
  * Primario = lo que falta explicar (la cifra de --fs-display, la única) y su botón, el único de acción · secundario =
  * ingresos, egresos y saldos (tira sin animación) y las dos tablas · terciario = qué dice el banco, por qué falta y
  * cuántos van tarde. Cada renglón abre sus movimientos con la MISMA regla del servidor que su cifra (grupoDeLaFila).
@@ -108,6 +111,9 @@ const QUE_ES: Readonly<Record<string, string>> = {
                   <i class="pi pi-arrow-down-left" aria-hidden="true"></i>
                   <h4 id="fb-ie-ent">Ingresos <span class="fb-ie-t-sub">· de dónde vino</span></h4>
                 </div>
+                @if (barraIngresos(); as b) {
+                  <app-metric-strip class="fb-ie-comp" mode="composition" [items]="b.items" [instant]="true" [ariaLabel]="b.aria" />
+                }
                 <div class="fb-ie-caja" role="region" aria-labelledby="fb-ie-ent" tabindex="0">
                   <ng-container *ngTemplateOutlet="tabla; context: { $implicit: ingresos(), tot: totIngresos(), col: 'De dónde vino',
                     totLabel: 'Total ingresos', entreSub: 'vino de otra cuenta tuya: no es ingreso' }"></ng-container>
@@ -120,6 +126,9 @@ const QUE_ES: Readonly<Record<string, string>> = {
                   <i class="pi pi-arrow-up-right" aria-hidden="true"></i>
                   <h4 id="fb-ie-sal">Egresos <span class="fb-ie-t-sub">· quién lo explica</span></h4>
                 </div>
+                @if (barraEgresos(); as b) {
+                  <app-metric-strip class="fb-ie-comp" mode="composition" [items]="b.items" [instant]="true" [ariaLabel]="b.aria" />
+                }
                 <div class="fb-ie-caja" role="region" aria-labelledby="fb-ie-sal" tabindex="0">
                   <ng-container *ngTemplateOutlet="tabla; context: { $implicit: egresos(), tot: totEgresos(), col: 'Quién lo explica',
                     totLabel: 'Total egresos', entreSub: 'fue a otra cuenta tuya: no es egreso' }"></ng-container>
@@ -131,15 +140,16 @@ const QUE_ES: Readonly<Record<string, string>> = {
       </app-load-state>
     </section>
 
-    <!-- La celda «Movs. por explicar» de un grupo: no medido, «todos», el número, o una raya. -->
+    <!-- La celda «Movs. por explicar» de un grupo: no medido, «todos», el número (ámbar; lo tarde, rojo) o la palomita
+         verde de «explicado». [BFU.4.5.15] El color dice el estado y nunca va solo: lo acompaña la palabra o el icono. -->
     <ng-template #falta let-g>
       @if (g.por_ligar === null) { <span class="muted">no medido</span> }
       @else if (g.por_ligar.n > 0) {
         <button type="button" class="fb-ligar" (click)="$event.stopPropagation(); abrir(g, true)"
                 [attr.aria-label]="'Ver los ' + g.por_ligar.n + ' movimientos por explicar de ' + (g.nombre || g.area)">
-          @if (g.n > 1 && g.por_ligar.n === g.n) { <b>todos</b> } @else { <b class="mono">{{ g.por_ligar.n | number }}</b> }
+          @if (g.n > 1 && g.por_ligar.n === g.n) { <b class="fb-pend">todos</b> } @else { <b class="mono fb-pend">{{ g.por_ligar.n | number }}</b> }
           @if (g.atrasados) { <span class="fb-tarde">&nbsp;· <span class="mono">{{ g.atrasados | number }}</span> tarde</span> }</button>
-      } @else { <span class="muted">—</span> }
+      } @else { <i class="pi pi-check fb-ok" aria-hidden="true"></i><span class="sr-only">explicado</span> }
     </ng-template>
 
     <ng-template #tabla let-filas let-tot="tot" let-col="col" let-totLabel="totLabel" let-entreSub="entreSub">
@@ -202,7 +212,9 @@ const QUE_ES: Readonly<Record<string, string>> = {
               <th scope="row">{{ totLabel }}</th>
               <td class="ta-r mono fb-c-num">{{ tot.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
               <td class="ta-r mono fb-c-num fb-opt">{{ tot.n | number }}</td>
-              <td class="ta-r mono fb-c-num">@if (tot.por_ligar !== null) { {{ tot.por_ligar | number }} } @else { <span class="muted">no medido</span> }</td>
+              <td class="ta-r mono fb-c-num">@if (tot.por_ligar === null) { <span class="muted">no medido</span> }
+                @else if (tot.por_ligar > 0) { <span class="fb-pend">{{ tot.por_ligar | number }}</span> }
+                @else { <i class="pi pi-check fb-ok" aria-hidden="true"></i><span class="sr-only">todo explicado</span> }</td>
             </tr>
             <!-- [BFU.4.5.14] Debajo del total y fuera de él: no es ingreso ni egreso. -->
             @if (tot.entre; as g) {
@@ -241,7 +253,12 @@ const QUE_ES: Readonly<Record<string, string>> = {
     .fb-ie-falta .p-button { margin-top: var(--sp-2); }
     .fb-ie-nm { font-size: var(--fs-sm); color: var(--text-muted); }
     .fb-ie-tira { flex: 1 1 28rem; min-width: 0; border-left: 1px solid var(--border-color); padding-left: var(--sp-6); }
-    .fb-tarde { color: var(--warn-soft-fg); font-weight: var(--fw-bold); }
+    /* [BFU.4.5.15] Tres estados, tres tonos, y ninguno solo: explicado (verde, con palomita), falta explicar a tiempo
+       (ámbar, con su número) y tarde (rojo, con la palabra «tarde»). Los -soft-fg son los que pasan como texto. */
+    .fb-ok { color: var(--ok-soft-fg); font-size: var(--fs-xs); }
+    .fb-pend { color: var(--warn-soft-fg); font-weight: var(--fw-bold); }
+    .fb-tarde { color: var(--bad-soft-fg); font-weight: var(--fw-bold); }
+    .fb-ie-comp { display: block; padding: 0 var(--sp-4) var(--sp-3); }
 
     .fb-ie-dos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 34rem), 1fr)); gap: var(--sp-4); align-items: start; }
     .fb-ie-panel { min-width: 0; border: 1px solid var(--border-color); border-radius: var(--r-md); container-type: inline-size; }
@@ -317,6 +334,9 @@ export class BancosIngresosComponent {
   readonly egresos = computed<RenglonDeDireccion[]>(() => renglonesDeEgresos(this.cobertura(), (c) => this.nombreDe(c)));
   readonly totIngresos = computed(() => totalDeFuera(this.cobertura()?.entradas ?? null));
   readonly totEgresos = computed(() => totalDeFuera(this.cobertura()?.salidas ?? null));
+  /** [BFU.4.5.15] La barra de cada tabla: cuántos de sus movimientos (sin lo de entre tus cuentas) están en cada estado. */
+  readonly barraIngresos = computed(() => barraDeEstado('Ingresos', this.cobertura()?.entradas ?? null, this.totIngresos()));
+  readonly barraEgresos = computed(() => barraDeEstado('Egresos', this.cobertura()?.salidas ?? null, this.totEgresos()));
 
   readonly cifras = computed<MetricStripItem[]>(() => {
     const ti = this.totIngresos(), te = this.totEgresos();
@@ -458,6 +478,24 @@ export function totalDeFuera(dir: CoberturaPorDireccion | null): TotalDeFuera | 
   const entre = dir.grupos.find((g) => g.area === ENTRE) ?? null;
   const porLigar = dir.por_ligar === null ? null : dir.por_ligar.n - (entre?.por_ligar?.n ?? 0);
   return { n: dir.n - (entre?.n ?? 0), monto: Math.round((Number(dir.monto) - Number(entre?.monto ?? 0)) * 100) / 100, por_ligar: porLigar, entre };
+}
+
+/**
+ * [BFU.4.5.15] Los movimientos de una tabla (sin lo de entre tus cuentas) por estado: explicados (verde), por explicar a
+ * tiempo (ámbar) y tarde (rojo). Las tres partes suman el total de la tabla. `null` si no se midió: la barra no se pinta
+ * (un estado no medido no se dibuja como «todo explicado»). Exportada para probarla sin montar la pantalla.
+ */
+export function barraDeEstado(titulo: string, dir: CoberturaPorDireccion | null, tot: TotalDeFuera | null):
+  { items: MetricStripItem[]; aria: string } | null {
+  if (!dir || !tot || tot.por_ligar === null || dir.atrasados === null || !tot.n) return null;
+  const tarde = dir.atrasados - (tot.entre?.atrasados ?? 0);
+  const aTiempo = tot.por_ligar - tarde, explicados = tot.n - tot.por_ligar;
+  const items: MetricStripItem[] = [
+    { label: 'Explicados', value: explicados, format: 'number', tone: 'ok' },
+    { label: 'Por explicar, a tiempo', value: aTiempo, format: 'number', tone: 'warn' },
+    { label: 'Tarde', value: tarde, format: 'number', tone: 'bad' },
+  ];
+  return { items, aria: `${titulo}, ${num(tot.n)} movimientos: ${num(explicados)} explicados, ${num(aTiempo)} por explicar a tiempo y ${num(tarde)} tarde` };
 }
 
 const num = (v: number) => new Intl.NumberFormat('es-MX').format(Number(v || 0));
