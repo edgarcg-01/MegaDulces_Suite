@@ -40,6 +40,53 @@ usan el mismo prefijo `PD-` en su folio.
 
 ---
 
+## 2b. ⛔⛔ CORRECCIÓN del 2026-11-25: el camino ya existe y NO pasa por escribir en Kepler
+
+Lo medido después de escribir §2 tira la mitad del plan, para bien.
+
+**Los 1,078 documentos de `ONLINE` NO son de Wix.** El cruce por fecha e importe contra los 176
+pedidos pagados de la tienda dio **0 empates — y su control negativo también dio 0**, o sea que el
+cruce no falló: simplemente no se tocan. La razón apareció en el comentario del documento:
+
+> `0004359` · $136.36 · **«dianitamulato COLOR PISTACHE PEDIDO TIK TOK»** · marca `COT-2026-00828`
+
+⭐⭐ **El canal en línea vivo es TikTok, no la tienda.** Son ~8 pedidos por día; noviembre lleva 69
+documentos y $19,721. La tienda Wix, en cambio, lleva **16 pedidos pagados desde el 7 de julio**.
+
+⭐⭐ **Y el camino a Kepler ya está completo y se usa todos los días.** Cada uno de esos pedidos lo
+captura **Cinthia Valle** (`vendedor_telemarketing`) como **cotización de la Suite** con cliente
+`ONLINE` y sucursal `01`; al aceptarla, COT.7 escribe el `U-D-40 TELEMARK` **solo**. Son 45
+cotizaciones desde el 12 de noviembre, **45 con folio de Kepler**. Antes de esa fecha se capturaban
+directo en Kepler; por eso los 322 documentos de `ONLINE` superan a las 45 cotizaciones.
+
+### Lo que esto cambia
+
+⛔ **El productor NO escribe en Kepler.** Escribe una **cotización aceptada** y deja que la puerta
+que ya existe haga el resto. Eso borra de un plumazo el riesgo de §8, el tope, el canario contra el
+ERP y la mitad de las decisiones: nada nuevo toca el ERP.
+
+**El trabajo es:** pedido pagado de Wix → cotización `origin='telemarketing'`, `erp_customer_code='ONLINE'`,
+`source_branch='01'`, renglones del pedido, `order_notes` con el comprador y «PEDIDO PAGINA WEB» →
+aceptar. Lo demás ya corre.
+
+**Lo que le quita a una persona:** la captura manual de los pedidos de la tienda. Hoy son pocos
+(~16 en cuatro meses y medio). ⚠️ **El volumen de verdad es TikTok**, y TikTok no tiene API acá:
+si se quiere automatizar el canal que sí mueve, esa es otra conversación.
+
+### Y una corrección de lectura, anotada
+
+`U-D-40` **no** es «el Pedido a secas» como decía §2: es **las dos cosas**, y lo que las separa es
+`c27` — medido: **`TELEMARK` 8,966 documentos** (pedido de cliente, 724 clientes reales) contra
+**`SUCURSAL` 5,861** (traspaso entre sucursales, con pseudo-cliente `TI###`). `ONLINE` es el
+**cliente número 1** de los TELEMARK con cliente real: 322 documentos, todos en la sucursal `01`
+— lo que ratifica **D1** con evidencia en vez de con criterio.
+
+⚠️ **`ERP_KEPLER.md` se contradice:** la línea 113 dice que `kdm1.c10` es «forma de pago», pero ahí
+viven `ONLINE`, `TI###` y `C1021`, y tanto §3.y.3 como el código de COT.7 en producción lo tratan
+como **cliente**. Gana la evidencia; hay que corregir la línea 113.
+
+---
+
 ## 3. Origen A — la tienda Wix
 
 **Universo medido el 2026-11-25** sobre los 848 pedidos históricos de la tienda:
