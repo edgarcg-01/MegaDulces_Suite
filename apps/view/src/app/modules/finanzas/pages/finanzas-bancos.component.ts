@@ -32,6 +32,7 @@ import {
 import { BancosConcentradoComponent } from './bancos/bancos-concentrado.component';
 import { BancosConciliacionComponent } from './bancos/bancos-conciliacion.component';
 import { BancosCuentasComponent } from './bancos/bancos-cuentas.component';
+import { BancosIngresosComponent } from './bancos/bancos-ingresos.component';
 import { BancosEstadoBancoComponent } from './bancos/bancos-estado-banco.component';
 import { BancosDescargasAvisoComponent } from '../components/bancos-descargas-aviso.component';
 import { BancosCierreComponent } from './bancos/bancos-cierre.component';
@@ -96,7 +97,7 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, MenuModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosFactorajeComponent, BancosThreeWayComponent, BancosComisionesComponent, PageTabsComponent, SidePeekComponent, DecimalPipe, ConfirmDialogModule],
+  imports: [DatePipe, FormsModule, ButtonModule, MenuModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosIngresosComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosFactorajeComponent, BancosThreeWayComponent, BancosComisionesComponent, PageTabsComponent, SidePeekComponent, DecimalPipe, ConfirmDialogModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
@@ -240,6 +241,14 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
         <!-- [BFU.5.1] El libro CUENTAS ya no se carga (Edgar, 2026-11-19): sus botones (subir y sincronizar) se fueron; el servidor lo niega. -->
       }
 
+      <!-- [BFU.4.5.13] Ingresos y egresos: de dónde viene y a dónde va cada peso (antes, arriba de Cuentas). -->
+      @if (view() === 'ingresos') {
+        <bancos-ingresos [diagnostico]="diagnostico()" [balances]="balances()" [period]="period()"
+          [cargando]="diagCargando()" [error]="diagError()" (reintentar)="setPeriod(period())"
+          (openGrupo)="abrirMovimientos($event)" (verTodos)="abrirMovimientos({})" (verSinClasificar)="abrirMovimientos({ uncat: true })"
+          (irACuentas)="goView('cuentas')" />
+      }
+
       @if (view() === 'cuentas') {
         <!-- [CB.64] Los movimientos se abren en una ventana: de una cuenta (clic en su fila), de todas, o los sin clasificar. -->
         <div class="fb-cuentas-acc">
@@ -256,7 +265,7 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
         } @else {
           <bancos-cuentas [balances]="balances()" [statements]="statements()" [diagnostico]="diagnostico()"
             [period]="period()" (openAccount)="verCuentaMovs($event)" (irAEstados)="goView('estados')"
-            (openGrupo)="abrirMovimientos($event)" />
+            (irAIngresos)="goView('ingresos')" />
         }
       }
 
@@ -389,6 +398,8 @@ export class FinanzasBancosComponent implements OnInit {
       // [CB.77] Sin diagnóstico (cargando o falló) y sin corrida en esta sesión, la pestaña no dice «sin correr».
       conciliacionMedida: !!this.diagnostico(),
       comisionesListas: com?.medido ? com.resumen.listos : null,
+      // [BFU.4.5.13] Ingresos y egresos: lo que falta explicar (sin medir, la pestaña no lleva número).
+      porLigar: (() => { const e = this.diagnostico()?.cobertura_categoria?.explicado; return e ? { n: e.por_ligar.n, atrasados: e.atrasados } : null; })(),
     });
   }
 

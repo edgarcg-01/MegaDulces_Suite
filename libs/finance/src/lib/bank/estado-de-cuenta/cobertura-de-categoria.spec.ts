@@ -40,7 +40,7 @@ describe('[BFU.7.6] coberturaDeCategoria — con categoría + por qué y de qui�
   });
   it('sin renglones: ceros, no inventa nada', () => {
     expect(coberturaDeCategoria([], HOY, 0)).toEqual({ evaluados: 0, con_categoria: { n: 0, monto: 0 }, por_resolver: [],
-      sin_motivo: { n: 0, monto: 0 }, suma_cuadra: true, vencidos_al_leer: 0, por_area: [], explicado: null, entradas: null, salidas: null });
+      sin_motivo: { n: 0, monto: 0 }, suma_cuadra: true, vencidos_al_leer: 0, por_area: [], explicado: null, entradas: null, salidas: null, entre_cuentas: null });
   });
 });
 
@@ -195,11 +195,35 @@ describe('[BFU.4.5.12] coberturaDeCategoria — lo que entró por su origen, lo 
     const d = coberturaDeCategoria([...filas, h({ entra: null })], HOY);
     expect(d.entradas).toBeNull();
     expect(d.salidas).toBeNull();
+    expect(d.entre_cuentas).toBeNull();
     expect(grupoDeLaFila(h({ entra: null }), HOY).direccion).toBeNull();
   });
   it('⛔ [negativa] un grupo con un renglón sin hechos no se mide: su dirección tampoco (null, nunca cero)', () => {
     const d = coberturaDeCategoria([h({ origen_doc: 'cobranza' }), h({ origen_doc: 'cobranza', documento: undefined })], HOY);
     expect(d.entradas!.grupos[0]).toMatchObject({ area: 'cobranza', n: 2, explicado: null, por_ligar: null });
     expect(d.entradas).toMatchObject({ n: 2, explicado: null, por_ligar: null, atrasados: null });
+  });
+});
+
+describe('[BFU.4.5.13] coberturaDeCategoria — lo que se movió entre tus cuentas, aparte', () => {
+  const h = (o: Partial<FilaDeCobertura>): FilaDeCobertura => f({ con_categoria: true, area: 'tesoreria', entra: true, categoria: 'traspaso_entre_cuentas',
+    classified_by: 'documento', fuente: 'documento', documento: true, pago: false, cliente: false, ...o });
+  it('entra = la entrada de origen traspaso; sale = el retiro con traspaso de Kepler o con la categoría de traspaso', () => {
+    const c = coberturaDeCategoria([
+      h({ origen_doc: 'traspaso', n: 2, monto: 1000 }),
+      h({ origen_doc: null, documento: false, n: 1, monto: 50 }),                                   // categoría sola, sin documento
+      h({ entra: false, origen_doc: 'traspaso', categoria: 'pago_credito', n: 1, monto: 300 }),     // el documento dice traspaso
+      h({ entra: false, origen_doc: null, n: 3, monto: 700 }),                                      // la categoría dice traspaso
+      h({ entra: false, origen_doc: 'otro_documento', categoria: 'compra_mercancia', area: 'compras', n: 4, monto: 900 }),
+      h({ origen_doc: 'venta_tienda', categoria: 'cobranza', area: 'credito_cobranza', sucursal_doc: '05', n: 5, monto: 400 }),
+    ], HOY);
+    expect(c.entre_cuentas).toEqual({ entra: { n: 3, monto: 1050 }, sale: { n: 4, monto: 1000 } });
+  });
+  it('⛔ [negativa] una compra o una venta de tienda NUNCA cuentan como movimiento entre tus cuentas', () => {
+    const c = coberturaDeCategoria([
+      h({ entra: false, origen_doc: 'otro_documento', categoria: 'compra_mercancia', area: 'compras', n: 4, monto: 900 }),
+      h({ origen_doc: 'venta_tienda', categoria: 'cobranza', area: 'credito_cobranza', n: 5, monto: 400 }),
+    ], HOY);
+    expect(c.entre_cuentas).toEqual({ entra: { n: 0, monto: 0 }, sale: { n: 0, monto: 0 } });
   });
 });

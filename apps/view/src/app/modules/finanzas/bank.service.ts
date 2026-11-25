@@ -229,6 +229,8 @@ export interface CoberturaCategoria {
   /** `[BFU.4.5.12]` `null` = algún renglón sin dirección: no se reparte. Ausente = API anterior. */
   entradas?: CoberturaPorDireccion | null;
   salidas?: CoberturaPorDireccion | null;
+  /** `[BFU.4.5.13]` Lo que se movió entre tus cuentas (no es ingreso ni egreso). `null` como `entradas`. */
+  entre_cuentas?: { entra: { n: number; monto: number }; sale: { n: number; monto: number } } | null;
 }
 
 /** CB.15.2 — Flujo de un movimiento (de dónde viene). */
