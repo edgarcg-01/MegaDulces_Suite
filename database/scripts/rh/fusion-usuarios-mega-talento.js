@@ -133,8 +133,86 @@ async function fusionar(trx, pares, fkcols, etiqueta, log) {
   return { pares: pares.length, borrados, tally };
 }
 
+/**
+ * `[RH.21]` H4 — MODO PARES CONFIRMADOS: `--pares=<sin_acceso>:<con_acceso>,…` (UUIDs, nunca nombres: el repo es público).
+ *
+ * A y B sólo fusionan lo que es SEGURO por regla (mismo almacén, mismo nombre exacto). Se escaparon 12 personas con dos
+ * identidades —una cuenta con acceso que inicia sesión y otra `sin_acceso` que es la que checa— porque la cuenta con
+ * acceso no tenía almacén o el nombre variaba (medido el 2026-11-25). Esas las confirmó Edgar una por una, y aquí se
+ * fusionan SÓLO esas. Gana la cuenta CON acceso.
+ *
+ * Distinto de A/B en una cosa: la bitácora (`identity.user_events`, ON DELETE CASCADE) de la que se funde NO se pierde:
+ * se re-apunta al ganador, y el ganador recibe el asiento `identidad_fusionada`. Todo par se valida ANTES de mover
+ * nada; uno que no cumple frena la corrida entera.
+ */
+function leerPares(argv) {
+  const a = argv.find((x) => x.startsWith('--pares='));
+  if (!a) return null;
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const pares = a.slice('--pares='.length).split(',').filter(Boolean).map((s) => {
+    const [loser, winner] = s.split(':');
+    if (!uuid.test(loser || '') || !uuid.test(winner || '') || loser === winner) throw new Error(`par inválido: «${s}» (va <sin_acceso>:<con_acceso>)`);
+    return { loser, winner };
+  });
+  if (!pares.length) throw new Error('--pares vacío');
+  const vistos = new Set();
+  for (const p of pares) {
+    if (vistos.has(p.loser)) throw new Error(`la misma identidad sin acceso aparece dos veces: ${p.loser}`);
+    vistos.add(p.loser);
+  }
+  return pares;
+}
+
+async function validarPares(trx, pares) {
+  const ids = [...new Set(pares.flatMap((p) => [p.loser, p.winner]))];
+  // `whereIn`, no `= ANY(?)`: knex expande un arreglo dentro de un `?` y el SQL no compila.
+  const rows = await trx('identity.users').where({ tenant_id: TENANT }).whereIn('id', ids)
+    .select(trx.raw('id::text AS id'), 'role_name', 'status', 'nombre', 'deleted_at');
+  const u = new Map(rows.map((r) => [r.id, r]));
+  const errores = [];
+  for (const p of pares) {
+    const l = u.get(p.loser); const w = u.get(p.winner);
+    if (!l || l.deleted_at) errores.push(`${p.loser}: no existe o ya está borrada`);
+    else if (l.role_name !== 'sin_acceso') errores.push(`${p.loser}: tiene acceso (${l.role_name}); sólo se funde la sin_acceso`);
+    if (!w || w.deleted_at) errores.push(`${p.winner}: no existe o está borrada`);
+    else if (w.role_name === 'sin_acceso') errores.push(`${p.winner}: es sin_acceso; el ganador es la cuenta CON acceso`);
+  }
+  if (errores.length) throw new Error(`pares que no cumplen — no se mueve nada:\n  ${errores.join('\n  ')}`);
+  return u;
+}
+
+async function fusionarPares(trx, pares, fkcols, log) {
+  const u = await validarPares(trx, pares);
+  const tally = {};
+  let borrados = 0;
+  for (const p of pares) {
+    await reasignar(trx, fkcols, p.loser, p.winner, tally);
+    const ev = await trx.raw(`UPDATE identity.user_events SET user_id = ? WHERE user_id = ?`, [p.winner, p.loser]);
+    if (ev.rowCount) tally['identity.user_events.user_id (bitácora)'] = (tally['identity.user_events.user_id (bitácora)'] || 0) + ev.rowCount;
+    await trx('identity.user_events').insert({
+      tenant_id: TENANT, user_id: p.winner, event: 'identidad_fusionada',
+      detalle: JSON.stringify({ fusionada: p.loser, nombre_fusionado: u.get(p.loser).nombre, motivo: '[RH.21] H4: misma persona con dos identidades, confirmada por Edgar' }),
+      actor_username: 'fusion-usuarios-mega-talento.js --pares',
+    });
+    const d = await trx.raw(`DELETE FROM identity.users WHERE id = ? AND tenant_id = ?::uuid`, [p.loser, TENANT]);
+    borrados += d.rowCount || 0;
+  }
+  log(`\nPARES CONFIRMADOS: ${pares.length} fusión(es), ${borrados} identidad(es) sin acceso borrada(s).`);
+  for (const [k, v] of Object.entries(tally).sort()) log(`  reasignado  ${k.padEnd(44)} ${v}`);
+  // Testigo: ninguna referencia de hr apunta ya a una identidad fundida.
+  const losers = pares.map((p) => p.loser);
+  const q = {
+    enrol: Number((await trx('hr.device_enrollments').whereIn('user_id', losers).count({ n: '*' }))[0].n),
+    quedan: Number((await trx('identity.users').whereIn('id', losers).count({ n: '*' }))[0].n),
+  };
+  log(`  testigo: enrolamientos que aún apuntan a una fundida = ${q.enrol} · identidades fundidas que quedan = ${q.quedan}`);
+  if (q.enrol || q.quedan) throw new Error('el testigo no dio cero: se deshace todo');
+  return { pares: pares.length, borrados, tally };
+}
+
 async function main() {
   const aplicar = process.argv.includes('--aplicar');
+  const paresConfirmados = leerPares(process.argv);
   try { require('dotenv').config({ path: process.env.DOTENV_PATH || path.resolve(__dirname, '../../../.env') }); } catch { /* en el pod no hay .env */ }
   const url = process.env.CARGA_URL;
   if (!url) throw new Error('Falta CARGA_URL (dentro del pod: CARGA_URL="$DATABASE_URL_NEW"). Ver RH_CORTE_ASISTENCIA.md §1.');
@@ -155,6 +233,13 @@ async function main() {
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
       const fkcols = await columnasFk(trx);
       console.log(`\n${fkcols.length} columnas FK (ON DELETE ≠ CASCADE, sin tenant_id) a recorrer por usuario.`);
+
+      // `[RH.21]` Con --pares, SÓLO esos pares (A y B no corren).
+      if (paresConfirmados) {
+        await fusionarPares(trx, paresConfirmados, fkcols, console.log);
+        if (!aplicar) throw DESHACER;
+        return;
+      }
 
       // A primero (borra sus mt); B se recalcula sobre los mt que quedan.
       const a = (await trx.raw(SQL_A)).rows;
@@ -182,4 +267,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('ERROR:', e.message); process.exit(1); });
 }
 
-module.exports = { SQL_A, SQL_B, columnasFk, reasignar, fusionar, TENANT, PROD_CLUSTER_ID };
+module.exports = { SQL_A, SQL_B, columnasFk, reasignar, fusionar, leerPares, validarPares, fusionarPares, TENANT, PROD_CLUSTER_ID };

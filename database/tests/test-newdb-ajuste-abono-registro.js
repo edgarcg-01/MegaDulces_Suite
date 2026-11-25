@@ -117,6 +117,9 @@ async function meter(c, over = {}) {
       ['facturas vacío', { facturas: '[]', cliente_code: 'C9103' }],
       ['facturas que no es arreglo', { facturas: JSON.stringify({ a: 1 }), cliente_code: 'C9104' }],
       ['estado inventado', { estado: 'inventado', cliente_code: 'C9105' }],
+      // ⛔ El control que FALTABA: el servicio devuelve 'ya_estaba' en el reintento idempotente, y el CHECK
+      //    nació sin ese estado -- el camino idempotente habría reventado al cerrar la fila (migración
+      //    20261125125330). Acá va como CONTROL POSITIVO: tiene que ENTRAR, con su folio de Kepler.
       ['folio de Kepler sin estar escrito', { kepler_folio: '0000003', cliente_code: 'C9106' }],
       ['sucursal que no es de dos dígitos', { sucursal: '8', cliente_code: 'C9107' }],
     ];
@@ -125,6 +128,14 @@ async function meter(c, over = {}) {
       if (e) P(`rechaza: ${que}`);
       else F(`ACEPTÓ lo que no debía: ${que}`);
     }
+    // El control de 'ya_estaba': entra, y CON folio (cca_folio_ck lo exige para escrito y ya_estaba).
+    const ya = await meter(c, { estado: 'ya_estaba', kepler_folio: '0000007', cliente_code: 'C9150' });
+    if (!ya) P("el estado «ya_estaba» entra (el reintento idempotente del servicio)");
+    else F(`«ya_estaba» fue rechazado -- falta la migración 20261125125330: ${ya.message}`);
+    const yaSinFolio = await meter(c, { estado: 'ya_estaba', cliente_code: 'C9151' });
+    if (yaSinFolio) P('y «ya_estaba» SIN folio de Kepler no entra (su prueba negativa)');
+    else F('«ya_estaba» sin folio fue aceptado: cca_folio_ck no cubre el caso');
+
     // El control de la negativa: la automática SIN persona sí entra.
     const auto = await meter(c, { automatica: true, created_by: null, motivo: null, cliente_code: 'C9200' });
     if (!auto) P('control: la automática sin persona SÍ entra');
