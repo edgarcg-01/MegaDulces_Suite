@@ -357,3 +357,168 @@ abajo verificada.**
 | D2 | Los 21 sin unidad: ¿se pide la ficha a Compras desde aquí, o sólo se listan? | Edgar |
 | — | `on_hand` en `branch` (`[AB.NI.6]`) | equipo |
 | — | Los rótulos de línea llegan sucios del ERP (`CANEL?S S.A. DE C.V.`, truncados a 30 caracteres). Se muestran **tal cual**: corregirlos aquí sería inventar un catálogo | equipo |
+
+---
+
+## 10. El pedido manual: una pantalla, dos salidas (2026-11-25)
+
+> **Pedido de Edgar, 2026-11-25:** «se deben poder hacer ambos desde la misma, con un pedido
+> manual; hoy llegan a las sucursales y ellas se surten, entonces tienen que hacer una requisición
+> manual y pasarla a Compras.» Y, el mismo día: **«debemos eliminar por completo los import».**
+
+### 10.1 La requisición a mano no es una costumbre: es la única salida que el sistema deja
+
+El renglón cuyo producto no tiene ruta configurada **no se puede mandar a ningún lado**.
+`motivoNoEnviable()` ([`autoabasto-pedido.contract.ts`](../../../libs/contracts/src/http/autoabasto-pedido.contract.ts))
+devuelve *«No tiene a quién pedírselo (sin ruta configurada)»* y ahí se acaba el camino: ni pedido
+de sucursal ni requisición de compra. **Ese es el momento exacto en que la sucursal agarra papel.**
+
+Y no es un caso de borde. Medido en prod el **2026-11-25**, sólo lectura, cruzando los **375
+proveedores activos con producto** contra `commercial.replenishment_channel`:
+
+| Sucursal | Proveedores activos | **Sin ruta** | % |
+|---|---:|---:|---:|
+| 05 Zamora Centro | 375 | **183** | 48.8 % |
+| 07 Morelia Madero | 375 | **183** | 48.8 % |
+| 04 Yurécuaro | 375 | **151** | 40.3 % |
+| 06 Canindo | 375 | 140 | 37.3 % |
+| 08 Morelia Abastos | 375 | 124 | 33.1 % |
+| 03 8 Esquinas | 375 | 123 | 32.8 % |
+| 02 La Piedad Abastos | 375 | 121 | 32.3 % |
+| 00 Cedis Oficinas | 375 | 103 | 27.5 % |
+| 01 Padre Hidalgo | 375 | 101 | 26.9 % |
+
+**Entre un cuarto y la mitad de los proveedores activos no tienen ruta en cada sucursal.**
+
+### 10.2 Por qué no la tienen: la ruta la inventa un importer de madrugada
+
+`commercial.replenishment_channel (warehouse_id, supplier_id) → via` la llena
+[`database/importers/kepler/import-replenishment-cadence.js`](../../../database/importers/kepler/import-replenishment-cadence.js),
+que **deriva el canal del histórico de entregas** (`analytics.stock_movements`, 180 días) y corre
+dentro de `run-prod-feeds.js`. Medido: **2,390 filas, recalculadas el 2026-11-25 a las 03:23.**
+
+⛔ **Consecuencia estructural: un proveedor que apenas empezó a llegar a la sucursal no tiene
+historia, así que nunca tiene ruta.** El sistema sólo reconoce lo que ya venía pasando — y lo que
+Edgar describe («hoy llegan a las sucursales y ellas se surten») es, por definición, lo nuevo.
+
+⭐⭐ **La tabla ya tiene el candado, y nunca se usó.** La columna `cadence_source
+('derived'|'manual')` existe desde la migración del 2026-07-20 y el `ON CONFLICT` del importer
+respeta `WHERE cadence_source='derived'`: una fila `manual` está protegida. Medido: **2,390 filas,
+las 2,390 `derived`, cero `manual`, cero con `updated_by`.** ⛔ **Ninguna línea de TypeScript en el
+monorepo nombra `cadence_source`** — no hay pantalla ni endpoint que pueda escribirlo. *El candado
+se construyó hace cuatro meses y jamás se le puso llave. Una bandera sin camino de escritura es
+decoración.*
+
+⚠️ **Y la ruta entre sucursales ya está declarada — dentro del script.** El mismo importer arranca
+con una constante `TOPOLOGY = { '02':'01', '03':'01', '04':'01', '05':'06' }` y la escribe en
+`commercial.warehouses.source_warehouse_id`. Medido en prod: **04 Yurécuaro ← 01 Padre Hidalgo**,
+fijado el 2026-10-06 — exactamente lo que Edgar dijo de viva voz. *La decisión de negocio existe:
+vive como literal en un script de importación, sin dueño, sin fecha y sin motivo.*
+
+### 10.3 Lo que ya existe y lo que falta
+
+| | Hoy |
+|---|---|
+| Elegir **de qué sucursal** me surto | ✅ existe (`origen_code` en el envío) |
+| El carril de proveedor de punta a punta | ✅ funciona: **177 de 190** llegaron a Kepler en 14 días |
+| Elegir **«al proveedor» en vez de «a la matriz»** | ⛔ no existe: lo decide `replenishment_channel` |
+| **Declarar** una ruta a mano | ⛔ no existe ningún camino de escritura |
+| Un renglón sin ruta | ⛔ **bloqueado duro**, no es ni una cosa ni la otra |
+| **Agregar un producto a mano** | ⛔ no existe (§5.4 lo diseña; sin ruta no serviría) |
+
+### 10.4 El diseño: no son dos pantallas, es una pantalla con una decisión
+
+La sucursal no vive dos procesos. Vive uno: **«necesito esto, ¿a quién se lo pido?»**. Lo que
+cambia es el destino, no la pantalla. El §5.4 «Agregar algo a mano» ya estaba bien pensado — lo que
+le faltaba era **a dónde va lo que agregás**.
+
+**El acto que se automatiza es el que ya hacen** (*automatizar el acto, no el papel*). Hoy la
+sucursal propone y Compras confirma, con papel de por medio. Entonces:
+
+1. La sucursal **declara** «este proveedor me surte directo» (o «me lo manda tal sucursal») desde
+   el renglón mismo, sin salir de la pantalla.
+2. El pedido nace en **«esperando que Compras confirme la ruta»** y aparece en la cola de Compras.
+   ⛔ **La propuesta NO escribe en Kepler por sí sola**: un `X-A-30` a un proveedor equivocado es
+   un acto hacia afuera y no se dispara con la palabra de una sola persona.
+3. Compras confirma → la ruta queda escrita **para siempre** y el pedido sale.
+4. **La segunda vez que ese proveedor llega, sale sin preguntar.** Ahí está el ahorro: la pregunta
+   se hace **una vez por par** (sucursal × proveedor), no una vez por pedido.
+
+### 10.5 ⛔⛔ El importer no se parchea: se elimina (Edgar, 2026-11-25)
+
+La salida fácil era agregarle a la tabla una bandera `via_source` y enseñarle al importer a no
+pisarla. **Eso deja el importer vivo y contradice la regla 1.** Lo que se hace es partir la tabla
+por lo que de verdad es cada cosa:
+
+| Qué | Qué es | Dónde vive |
+|---|---|---|
+| **La ruta** (`via`, `source_warehouse_id`) | Una **decisión**, no una medición. Cambia cuando cambia una relación comercial: pocas veces, y siempre porque **alguien lo decidió** | Tabla propia, **HITL**, escrita **por evento** (la persona declara / Compras confirma). Se **siembra una sola vez** con la derivación de hoy, que es la mejor evidencia disponible |
+| **La cadencia** (`cadence_days`, `avg/min/max_gap`, `n_deliveries`, `last_delivery_date`, `next_due_date`, `health_band`) | Una **medición** del histórico de entregas | **VISTA** `derive-no-copy` sobre `analytics.stock_movements`. Sin tabla, sin importer, sin madrugada |
+| `commercial.replenishment_channel` | El nombre que ya leen **17 archivos** | **VISTA** que junta las dos. Ningún consumidor cambia |
+
+➡️ **`import-replenishment-cadence.js` se borra**, y con él su renglón en `run-prod-feeds.js`.
+
+**Por qué la ruta se declara y no se recalcula:** medido el 2026-11-25, la derivación **como
+consulta viva tarda 1,276 ms** — *no pasa la regla de 500 ms*. El plan dice por qué: el índice
+`ix_stockmov_date` lee **799,943 filas y tira 691,020** (86 % de desperdicio) sobre una tabla de
+**3,904,518 filas / 1,379 MB**. Pero el arreglo correcto **no es optimizar esa consulta**: es notar
+que *una ruta no es algo que se mida cada noche*. Recalcularla a diario fue siempre trabajo
+inventado — y encima no servía para lo único que hacía falta, que es el proveedor nuevo.
+
+⚠️ **La cadencia sí sigue derivándose**, y 1,276 ms **es aceptable donde se usa**: el escáner de
+reabasto, que es trabajo de fondo, no una pantalla. ⛔ Si algún día una pantalla muestra cadencia,
+ese tramo necesita su índice parcial **medido aparte** (regla 15: optimizar va separado de cambiar
+alcance de negocio).
+
+⚠️ **La siembra se declara:** la derivación de hoy produce **2,079 pares** (1,300 de matriz, 779 de
+compra) contra las **2,390 filas** que tiene la tabla. Las **311 de diferencia** son filas que el
+importer dejó y hoy ya no reproduce: entran a la siembra **marcadas como heredadas**, no como
+decididas por alguien.
+
+### 10.6 Capas y entregables
+
+| Item | Capa | Qué entrega |
+|---|---|---|
+| `[AB.NI.9]` | C0 | La ruta pasa a ser dato propio: tabla HITL + vista de cadencia + `replenishment_channel` como vista. **`import-replenishment-cadence.js` borrado** y fuera de `run-prod-feeds.js`. La topología sale de la constante `TOPOLOGY` y queda como dato con dueño y fecha |
+| `[AB.NI.10]` | C1 | `surteDe()` honra la declaración sobre la observación; `motivoNoEnviable()` deja de bloquear duro el `sin_ruta` y lo vuelve **resoluble** |
+| `[AB.NI.11]` | C2 | Declarar la ruta (sucursal) y confirmarla (Compras); el envío acepta el renglón cuya ruta se acaba de confirmar |
+| `[AB.NI.12]` | C3 | La decisión en la pantalla: destino por orden, «agregar a mano» llegando a productos sin ruta, y el estado «ruta por confirmar» |
+
+### 10.7 Criterios de aceptación verificables
+
+1. **El importer ya no existe** y `grep -rn 'import-replenishment-cadence' database/` no devuelve
+   nada. **Prueba negativa:** si `run-prod-feeds.js` todavía lo nombra, el item no está cerrado.
+2. `commercial.replenishment_channel` devuelve, para cada uno de los **2,390 pares de hoy**, el
+   mismo `via` y el mismo `source_warehouse_id` que tenía como tabla. ⛔ **Se compara fila por
+   fila contra un volcado previo**, no por conteos: dos conjuntos del mismo tamaño pueden diferir
+   en cada fila.
+3. Una ruta **declarada** gana sobre la derivada cuando están en conflicto.
+   **Prueba negativa:** devolver la derivada es un fallo.
+4. `motivoNoEnviable()` sobre un renglón sin ruta devuelve un motivo **resoluble** (la pantalla
+   puede ofrecer la acción), distinto del de «no le falta», que no lo es.
+   **Prueba negativa:** si los dos devuelven el mismo tipo de motivo, la pantalla no puede
+   distinguirlos y el renglón vuelve a quedar sin salida.
+5. Declarar una ruta **no escribe nada en Kepler**: tras declarar sin confirmar, el conteo de
+   documentos del servidor es **idéntico**. ⛔ Esta se mide **contra base real con el payload de la
+   pantalla** (regla 13), no con un doble.
+6. Con la ruta confirmada, el **mismo** renglón que antes decía «no tiene a quién pedírselo» sale,
+   y sale por el carril que se declaró (`U-D-40` si matriz, `X-A-30` si proveedor).
+7. En Yurécuaro, los **151 proveedores sin ruta** aparecen como **resolubles**, no como
+   bloqueados. Hoy son cero.
+8. La vista responde **por debajo de 500 ms** en el camino que usa la pantalla (la pantalla lee
+   ruta, no cadencia). **Prueba negativa:** si el plan de la pantalla toca
+   `analytics.stock_movements`, la partición no quedó bien hecha.
+
+### 10.8 Lo que se declara
+
+- ⚠️ **Quién declara la ruta es decisión de Edgar.** Se construye con el default *«la sucursal
+  propone, Compras confirma»*, que es lo que ya hacen a mano. Si decide que la sucursal la escriba
+  directo, se quita el paso 3 — el modelo lo soporta y cambian los criterios 5 y 6.
+- ⛔⛔ **«Eliminar por completo los import» es un programa, no este item.** Medido el 2026-11-25:
+  **69 scripts** en `database/importers/kepler/`, de los cuales **`run-prod-feeds.js` nombra 56**.
+  Este anexo retira **uno** — el de la ruta — y lo retira *entero*, no a medias. ⛔ El de abajo es
+  más grande: `analytics.stock_movements` es una **tabla de 1,379 MB y 3,904,518 filas** alimentada
+  por `import-stock-movements.js`, y es de quien depende la cadencia. Mientras esa siga siendo una
+  copia, la vista de cadencia lee una copia: **se declara, no se disimula.**
+- ⚠️ **222 pares** de la tabla tienen un `warehouse_id` que no está en
+  `analytics.v_erp_branch_catalog`: no se sabe de qué sucursal son. **NO MEDIDO**, queda abierto.
