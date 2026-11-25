@@ -10129,7 +10129,7 @@ más) — PR aparte para no volver ilegible el diff.
     precio y existencia hoy**, y **0 tienen imagen** — subir una ficha sin foto es publicar un
     renglón vacío. Eso depende de D3, no de la API.
 
-- [ ] **[COT.7.50]** ⬜ **El pedido llega a Kepler solo, venga de donde venga — dos productores para una puerta que ya existe**
+- [ ] **[COT.7.50]** 🔨 **El pedido llega a Kepler solo, venga de donde venga — dos productores para una puerta que ya existe**
   (Edgar, 2026-11-25: *«cuando se genere un pedido se vaya automáticamente a pedido de tlmk»*; al
   preguntarle qué pedido: **«los dos»**. Plan:
   [`FASE_COT7_ANEXO_DOS_ORIGENES_2026-11-25.md`](FASES/FASE_COT7_ANEXO_DOS_ORIGENES_2026-11-25.md))
@@ -10159,6 +10159,36 @@ más) — PR aparte para no volver ilegible el diff.
     **sin recuperar históricos** · disparo **por evento**, nunca cron ni importer.
   - ⛔ **El riesgo es el volumen:** el carril pasa de ~1 documento por cotización a potencialmente
     1,671 al mes. Entra por canario, con tope, y se verifica **releyendo el ERP**, no el acuse.
+  - ⛔⛔ **CORREGIDO el 2026-11-25, y achica el trabajo:** los documentos de `ONLINE` **no son de
+    Wix, son de TIKTOK**. El cruce contra los 176 pedidos pagados de la tienda dio **0 empates, y
+    su control negativo también 0** — no se tocan. El comentario del documento lo dice: *«PEDIDO
+    TIK TOK»*. TikTok son ~8 pedidos por día (69 en noviembre, $19,721); la tienda Wix lleva **16
+    pagados desde el 7 de julio**.
+    ⭐⭐ **Y el camino a Kepler ya está completo:** Cinthia Valle (`vendedor_telemarketing`) captura
+    cada pedido en línea como **cotización de la Suite** con cliente `ONLINE` y sucursal `01`, y al
+    aceptarla COT.7 escribe el `U-D-40 TELEMARK` solo — **45 de 45 con folio** desde el 12-nov.
+    **Entonces el productor NO escribe en Kepler: escribe una cotización.** Se cae el riesgo del
+    ERP, el tope y el canario.
+  - ⚠️ **`U-D-40` no es «el Pedido a secas»** como decía mi primera lectura: es las dos cosas, y
+    las separa `c27` — **`TELEMARK` 8,966** (pedido de cliente, 724 clientes) contra **`SUCURSAL`
+    5,861** (traspaso, pseudo-cliente `TI###`). `ONLINE` es el cliente **#1** de los TELEMARK con
+    cliente real: 322 documentos, **los 322 en la sucursal `01`** — D1 queda ratificada con
+    evidencia, no con criterio. ⚠️ `ERP_KEPLER.md` línea 113 dice que `kdm1.c10` es «forma de
+    pago»: es el **cliente** (§3.y.3 y el código de COT.7 en prod lo tratan así). Corregir.
+  - 🔨 **C1 construido el 2026-11-25** — `libs/commercial/src/lib/commercial-quotes/pedido-tienda-a-cotizacion.ts`,
+    puro, sin HTTP ni base, con 20 pruebas.
+    - La unidad sale de **tres reglas en orden**: rótulo conocido · **código de unidad guardado como
+      rótulo** (la tienda lo hizo: `500`, `Cub`) · **SKU de unidad única**. Lo que ninguna resuelve
+      **no se adivina**: rechaza y dice por qué.
+    - **Falla cerrada:** un renglón malo tira el pedido entero con su SKU.
+    - ⛔ **El precio de la tienda NO se copia:** se cotiza al de HOY (igual que `[MCP.34]`); el de la
+      tienda viaja sólo para poder **declarar** la diferencia.
+    - **Prueba negativa hecha:** al dejar pasar los no pagados y al adivinar la unidad caen las tres
+      pruebas correctas; al restaurar, verde. `nx test commercial`: **3,375 pasan**, +20 exactas.
+    - ⚠️ `abandono.spec.ts` sale roja y es **ajena**: archivo **sin versionar** de otra sesión que
+      importa de `vitest` teniendo `globals: true`, con lo que ni carga. No llega al CI.
+  - **Falta:** C2, el disparo — el webhook de Wix (firmado) y el servicio que crea la cotización y
+    la acepta; y C3, ver el folio y ver el que no pudo armarse, con su porqué.
   - ⚠️ **Contra el cupo:** 10 fases 🔨 contra un tope de 4. Por eso esto entra como **item de COT.7**,
     no como fase nueva.
 
