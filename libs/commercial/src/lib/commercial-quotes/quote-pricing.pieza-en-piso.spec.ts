@@ -72,6 +72,8 @@ describe('[COT.58] la pieza de un pieza · paquete · caja no se cotiza', () => 
 });
 
 describe('[COT.58] quién pide la validación', () => {
+  /** Un método privado del servicio, llamado sobre el motor espiado (no `Function`: lint lo prohíbe). */
+  type Metodo = (this: unknown, ...args: unknown[]) => Promise<unknown>;
   /** Motor con `priceLine` espiado: guarda lo que recibe y corta ahí. */
   function espiado() {
     const s = motor() as unknown as Record<string, unknown>;
@@ -86,19 +88,19 @@ describe('[COT.58] quién pide la validación', () => {
 
   it('agregar un renglón: sí', async () => {
     const { s, vistos } = espiado();
-    await expect((s['addLineTrx'] as Function).call(s, borrador, 'q1', { sku: '06001', quantity: 1, rung: 'base' }, 'u1')).rejects.toThrow('alto');
+    await expect((s['addLineTrx'] as Metodo).call(s, borrador, 'q1', { sku: '06001', quantity: 1, rung: 'base' }, 'u1')).rejects.toThrow('alto');
     expect(vistos[0].check_sellable_unit).toBe(true);
   });
 
   it('cambiar el renglón a otra unidad: sí', async () => {
     const { s, vistos } = espiado();
-    await expect((s['retarificarRenglonTrx'] as Function).call(s, borrador, 'q1', '08', linea, 1, 'base', 'u1')).rejects.toThrow('alto');
+    await expect((s['retarificarRenglonTrx'] as Metodo).call(s, borrador, 'q1', '08', linea, 1, 'base', 'u1')).rejects.toThrow('alto');
     expect(vistos[0].check_sellable_unit).toBe(true);
   });
 
   it('cambiar sólo la cantidad o re-cotizar (sin unidad nueva): no', async () => {
     const { s, vistos } = espiado();
-    await expect((s['retarificarRenglonTrx'] as Function).call(s, borrador, 'q1', '08', linea, 3, undefined, 'u1')).rejects.toThrow('alto');
+    await expect((s['retarificarRenglonTrx'] as Metodo).call(s, borrador, 'q1', '08', linea, 3, undefined, 'u1')).rejects.toThrow('alto');
     expect(vistos[0].check_sellable_unit).toBe(false);
   });
 });
