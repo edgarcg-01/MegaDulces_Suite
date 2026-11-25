@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — Verificador de precios: el mayoreo sale directo del ODS (VAC.D1, 2026-11-25 · en código, sin soltar)
+- El mayoreo del verificador (y del checador del vendedor y el respaldo del kiosco) se lee de la vista viva sobre el ODS, igual que la etiqueta del anaquel, y ya no de una tabla que recalculaba un importer. Lo que Compras corrige en Kepler llega con el ODS (~5 min). En la tienda 01, 457 productos más muestran su mayoreo (los que Kepler tiene y la tabla no).
+### Fixed — Verificador de precios: ya no muestra un «paquete» que el producto no tiene (VAC.PAQ.1, 2026-11-25 · en código, sin soltar)
+- 620 productos mostraban «desde N paquetes» con un precio de una unidad PAQ que su ficha en Kepler no tiene (p. ej. 18016, cajeta 1 kg: pieza y caja). Ahora ese escalón no se publica, ni en línea ni en el respaldo del kiosco. Los paquetes reales (incluido el de 1 pieza) se quedan.
 ### Fixed — Almacén › Ubicaciones: lo que acabas de ubicar ya no desaparece (UB.RF.19 · 2026-11-25 · en código, sin soltar)
 - Reporte: «los productos no se están almacenando ni mostrando». **Sí se estaban guardando** — dos asignaciones ese mismo día en TA011 de Padre Hidalgo, sin un solo error. Lo que no había era dónde verlos: al guardar, el producto salía de la lista (el filtro de entrada es «Por ubicar» y ya había dejado de estarlo) y la única señal era un aviso que se va.
 - Ahora **«Acabas de ubicar (N)»** queda a la vista en la lista, con el código donde quedó cada producto y su «Quitar». Antes esa bandeja sólo se llenaba si trabajabas parado en una ubicación.

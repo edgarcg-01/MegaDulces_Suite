@@ -384,3 +384,37 @@ Hallazgos aparte: **14 SKUs** con la presentación más cara por unidad que la u
 **Protocolo:** las observaciones del PM de este ciclo entraron a `ONBOARDING.md` §8.0b, puntos 109–113.
 
 **NO MEDIDO:** el arranque de la API con el import nuevo de `@megadulces/commercial` (no cambia ningún constructor ni decorador; `tsc --noEmit` de la API sin errores nuevos); la pantalla viva con estos cambios; D5 sigue ⏸️ hasta `[VAC.VISUAL]`.
+
+---
+
+## 15. `[VAC.PAQ.1]` Un «paquete» que el producto no tiene (2026-11-25)
+
+**Reporte del mostrador:** el `18016` (Cajeta envinada 1 kg) mostraba «desde 3 paquetes, $136.12 c/u», y en Kepler sólo tiene pieza ($142.87) y caja de 12 ($1,522.48).
+
+**Causa, medida** (prod, sólo lectura): la ficha (`kdii`) no tiene `PAQ`, pero `kdpv_prod_util` trae tres escalones con `c2 = 'PAQ'` (3–5 $136.12 · 6–9 $125.89 · 10+ $123.51, iguales en las 9 plazas). `tiersDeFila` los publicaba como escalón de «paquete» comparado contra la pieza: es la clase que el propio código ya declaraba dudosa («base pieza SIN paquete registrado»). En 600 renglones de venta del 18016 (desde junio) Kepler cobró la lista, su escalón de pieza ($128.01 desde 3) o la caja prorrateada; nunca $136.12 ni $125.89 (los $123.50 de junio–septiembre son la caja de entonces, no el escalón de $123.51).
+
+**Alcance:** Medido el 2026-11-25 (prod, sólo lectura): **859 productos** tienen esos escalones huérfanos; **620** los mostraban en el verificador (tiendas 01–08, 4,905 pares producto × tienda); en **606** Kepler nunca cobró ese precio en 60 días (351,086 renglones de venta revisados) y en **14** lo cobra pero a la PIEZA, con una regla que no se pudo derivar del ODS. Hipótesis probada y **refutada**: «Kepler aplica el escalón PAQ a la pieza cuando la pieza no tiene escalón propio» (21 de los 23 donde se cobró sí lo tienen). El precio de esos escalones es del tamaño de una pieza (mediana 0.89 del precio suelto), no de un paquete.
+
+**Arreglo:** sin `PAQ` en las presentaciones de Kepler y con base no agrupada, el escalón «paquete» que se compara contra la base no se publica (en vivo y en el respaldo del kiosco). Se decide con `kdii` y no con la fila de etiqueta: ésta deja sin paquete al `PAQ` de factor 1, y el `95684` (canela, PAQ real a $393.60) habría perdido un mayoreo verdadero — era el único caso de regresión de la regla ingenua. En los 14 donde Kepler sí cobra ese precio a la pieza, sale de pantalla hasta saber la regla: mostrar nada es mejor que mostrar una presentación falsa.
+
+**Pruebas:** 5 nuevas en `kp.service.spec.ts` (sin PAQ se quita; PAQ de factor 1 se queda; base PAQ y base CJA se quedan; el respaldo filtra igual). Tres mutaciones, cada una en rojo: sin el filtro, ignorando el PAQ de Kepler y sin la guarda de base agrupada.
+
+**Pendiente:** `[VAC.PAQ.2]` limpiar en Kepler los escalones huérfanos (Compras/Precios). **NO MEDIDO:** el después en prod (se mide al desplegar: 0 productos con «paquete» sin PAQ); el checador del vendedor en pantalla (lee el mismo endpoint); un respaldo de kiosco ya descargado sigue con el escalón hasta su re-descarga (12 h o al pulsar «Actualizar respaldo»).
+
+---
+
+## 16. `[VAC.D1]` El mayoreo, directo del ODS (2026-11-25)
+
+**Pedido (0Sistemas):** «confirma que la fuente de información sea la ODS para que al momento de actualizar Compras no tengamos problemas».
+
+**Lo que se encontró, por dato:** precios y presentaciones salían del ODS en vivo (`kdii`, carril caliente, segundos); el mayoreo salía de `commercial.product_label_prices`, una tabla que recalcula `import-label-data.js` a partir del ODS (`kdpv_prod_util` viaja en el carril espejo, ~5 min). Medido el 2026-11-25 (prod, sólo lectura): la tabla `commercial.product_label_prices` la recalcula `database/importers/kepler/import-label-data.js` **sin latido** en `analytics.cron_runs`; ese día iba al día (70,398 de 70,440 pares producto × tienda iguales a la vista viva) y reflejó la limpieza del 18016 que hizo Compras, pero sólo porque el importer corrió. **Testigo vivo:** Compras limpió ese día los escalones `PAQ` del 18016 en Kepler; el ODS ya no los tenía, la tabla se recalculó a las 14:23 y el verificador en prod mostró sólo «pieza desde 3, $128.01» sin desplegar nada.
+
+**Cambio (`VAC.D1` del §3):** `datosDeEtiqueta` y `mayoreoDeTodos` leen `analytics.v_label_prices`. La ficha del catálogo va con LEFT JOIN (da la llave del aviso y el proveedor, pero un producto sin ficha también tiene su mayoreo). La búsqueda usa la clave tal cual y sin ceros (36 claves de `kdii` no miden 5) y gana la exacta; en el lote, ante claves que sólo difieren en ceros, se queda la de 5 dígitos, que es la que busca el respaldo.
+
+**Medido contra prod con el SQL exacto del cambio** (extraído del archivo, sólo lectura): un producto 9–26 ms; respaldo de la tienda 01 ~1 s (la tabla daba 18 ms; el endpoint completo pasa de ~0.7 s a ~1.3 s, una vez cada 12 h por kiosco); **8,903 → 9,345** productos con fila y **8,556 → 9,013** con mayoreo. `app_runtime` tiene SELECT sobre la vista (dueño `postgres`, sin `security_invoker`).
+
+**Pruebas:** 3 nuevas en `kp.service.spec` (las dos lecturas van a la vista y no a la tabla, con la plaza y las dos formas de la clave; un producto sin ficha conserva su mayoreo); volver a la tabla las pone rojas. El candado de `verificador-procedencia.spec` que cuenta las columnas del paquete ahora exige las TRES lecturas; quitar una lo pone rojo.
+
+**Error mío en el camino:** al cerrar `[VAC.PAQ.1]` corrí sólo las pruebas del backend, y un candado de la pantalla que lee `kp.service.ts` como texto (`et.mayoreo.map(compactarTier)`) quedó rojo en el commit local. Se corrigió aquí (§8.0b 133).
+
+**Pendiente:** `[VAC.D1.1]` (los demás lectores de la tabla y el importer sin latido; la clave de 6 dígitos). **NO MEDIDO:** el arranque de la API (sin cambios de constructor ni decoradores); el endpoint desplegado.
