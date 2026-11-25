@@ -417,9 +417,21 @@ Eso es exactamente **D-EX8**, y por eso el módulo no debe encenderse antes.
 > contador— no trae existencia. No hay camino desde su cuenta hasta el teórico. Ésa es la mejor
 > noticia del módulo.
 >
-> **Sigue sin medirse**: `encargado_tienda`, `prevencion`, `supervisor` y `marketing` en vivo —y por
-> tanto si F4/F11 (botón visible) son reales o artefacto de superadmin—. Las cifras de acceso de F4
-> se midieron contra prod en sólo lectura; falta ejercer el click.
+**También se midió en vivo `encargado_tienda`** (`monica_mejia`, suc 01 · `VER`+`AJUSTAR`+`ASIGNAR`):
+
+| Endpoint | encargado | Correcto |
+|---|---|:---:|
+| `GET /counts` · `/progress` · `/assignments` · `assignable-users` | **200** | ✅ |
+| `GET /counts/:id/items` (**el teórico**) | **403** | ✅ |
+| `GET /catalog` · `/count-progress` (del contador) | **403** | ✅ |
+| `GET /kepler-export` · `/interruptions` · `/sessions` | **403** | ✅ |
+
+> ⭐ **La API acierta en los dos perfiles medidos.** Lo que falla es la **interfaz**, que muestra
+> botones que el servidor rechaza (**F11**) y pinta el 403 como lista vacía (**F17**).
+>
+> **Sigue sin medirse en vivo**: `prevencion` (sólo `VER`), `supervisor` y `marketing`. Y F4 —si
+> «Resolver item» aparece a quien no tiene `SUPERVISAR`— no se pudo comprobar con el encargado
+> porque su tabla de artículos llega vacía por el 403.
 >
 > ⛔⛔ **HALLAZGO DE SEGURIDAD DE PLATAFORMA, NO DEL MÓDULO — a Dirección, no a este doc.** Al probar
 > permisos se confirmó que al menos una cuenta sin estrenar entra con una contraseña por defecto
@@ -463,7 +475,8 @@ que contar no avanza el folio.**
 | **F8** | 🟠 | **Enfocar el campo de cantidad no selecciona lo que hay: corregir CONCATENA.** Quien quiera cambiar 75 por 3 termina con **753**. | Medido por instrumento: al enfocar, `selectionStart` y `selectionEnd` valen ambos la posición final. Se tecleó `3` sobre `75` → `753`. |
 | **F9** | 🟠 | **Las flechas del teclado cambian la cantidad.** Quien se mueva por la lista con el teclado modifica el conteo en vez de bajar de fila, en silencio. | `5` + `ArrowDown` → `4`. |
 | **F10** | 🟡 | **Tope mudo de 6 dígitos en la cantidad.** El campo es `type=text` con `min=0` y **`max` vacío**; a partir de `999,999` deja de aceptar teclas **sin decir nada**. | Se teclearon nueve dígitos (`999999999`) y quedó `999,999`. |
-| **F11** | 🟡 | **«Reconciliar» está habilitado con cero conteos.** El botón que mueve existencia se puede apretar sin haber contado nada, mientras el aviso de arriba dice que falta todo. Debería ser imposible, no advertido. | Visible en el folio recién abierto, 0 de 3,363. ⚠️ **No se ejerció** (ver abajo). |
+| **F11** | 🔴 | **La interfaz NO refleja los permisos: muestra a todos los botones de todos.** Un `encargado_tienda` (sólo `VER` + `AJUSTAR` + `ASIGNAR`) ve **«Reconciliar»** en verde y habilitado y **«Cancelar folio»**, sin tener `RECONCILIAR` ni `CANCELAR_CONTEO`. El servidor sí los rechaza (defensa de fondo correcta), así que el daño no es de seguridad: es que la persona cree que puede cerrar el inventario o destrabar el almacén, aprieta, y recibe «No tienes los permisos dinámicos necesarios» —jerga que no dice qué falta ni a quién pedírselo—. Además **«Reconciliar» está habilitado con cero conteos**, lo que debería ser imposible, no advertido. | Medido en vivo el 2026-11-25 entrando como `monica_mejia` (`encargado_tienda`, suc 01). Los cuatro botones visibles; la API le devuelve 403 en `items`, `catalog`, `sessions`, `kepler-export`. |
+| **F17** | 🔴 | **Un 403 de permisos se pinta como «Sin items para este filtro».** Al encargado, que recibe 403 en `GET :id/items`, la tabla de artículos le muestra el texto de lista vacía — mientras el encabezado de la MISMA pantalla le dice «SIN CONTAR 3,363». Dos afirmaciones contradictorias a la vez, y la causa real (no tiene permiso) no aparece. Quien lo vea concluye que el folio está vacío o que se perdieron los datos. Es el mismo defecto que §9b ya tenía para la lista de folios, agravado: acá es por permisos y en el detalle. ⚠️ El encabezado de la tabla además anuncia la columna **«Teórico»**, que su permiso le niega. | Captura en vivo con `monica_mejia`: `items` → 403, y la tabla pinta «Sin items para este filtro». |
 | **F12** | 🟡 | **El teórico del mismo almacén saltó de 2,094 a 3,363 artículos** entre junio y hoy (+61 %). Puede ser crecimiento real o un cambio de fuente: **no está medido**. Toca directo a **D-EX8**. | `INV-2026-00009` y `00007` (Padre Hidalgo, junio): 2,094 y 2,093. `INV-2026-00010` (Padre Hidalgo, hoy): 3,363. |
 | **F13** | 🟡 | **`GET /counts/resolve` devuelve `product_id: null` y un `brand_name` que vale `"341"`**, y la pantalla del contador pinta ese «341» junto al SKU como si fuera un dato del producto. Es el nombre de la marca en el catálogo. | Respuesta real: `{"product_id":null,"sku":"00203","barcode":"00203","brand_name":"341","location":null,…}`. |
 | **F14** | 🟡 | **Dos formatos numéricos para el mismo dato en la misma pantalla**: el teórico se lee `5.000` (punto) y el campo de captura escribe `999,999` (coma). Quien vea `5.000` arriba y teclee `5,000` abajo mete mil veces más. | Observado en el diálogo «Resolver item». |
