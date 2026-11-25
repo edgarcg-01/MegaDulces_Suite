@@ -188,6 +188,13 @@ resumen de merma, sobrante y neto. Quien lo captura en el ERP confirma con
 | `COMMERCIAL_INVENTORY_RECONCILIAR` | cerrar y exportar | 4 | 17 |
 | `COMMERCIAL_INVENTORY_CANCELAR_CONTEO` | abandonar un folio | 6 | 31 |
 
+⚠️ **A quién le tocó SUPERVISAR no se parece a quién hace un inventario** (rol por rol, prod, 2026-11-25). Lo
+tienen `superadmin`, `supervisor`, `compras`, `gerente_compras` y **`marketing`**; **no** lo tienen `prevencion`
+ni `prevencion_auxiliar`, que son el área cuyo oficio es justamente el descuadre de inventario, ni
+`encargado_tienda`, que sí puede ASIGNAR pero no abrir. `almacenista` cuenta pero no asigna. Que Marketing pueda
+abrir y congelar un almacén y Prevención no pueda ni mirar el teórico es un reparto que nadie decidió así: es
+herencia de cuando el permiso se agrupaba por módulo. **Revisarlo es trabajo de `MATRIZ_ACCESOS.md`, no de código.**
+
 ⭐ **`[IC.27]` — la asignación es la llave.** Las 8 rutas del contador (`mine`, `resolve`, `:id/count`,
 `count-progress`, `catalog`, `session/start`, `session/finish`, `interruption`) no piden la clave con
 `@RequirePermissions`: llevan `@UseGuards(ContarOAsignadoGuard)`, que deja pasar a quien **trae la clave** o a quien
@@ -234,8 +241,14 @@ reorden, y el recompute **se aborta si la fuente viene vacía** en vez de public
 `commercial.stock` y en `inventory.warehouse_stock`. La primera quedó congelada al retirar su importer
 (`[CANON.7.5]`); la segunda lleva congelada desde el 15 de junio. **Si hoy alguien cerrara un folio, el ajuste no se
 vería en ninguna pantalla.** La decisión ya está firmada (**D-EX8**, Edgar 2026-11-25): el conteo se repunta al ODS
-—teórico y ajuste— y el ajuste sale como archivo para Kepler. Hasta que eso se construya, **el módulo no debe
-encenderse**.
+y el ajuste sale como archivo para Kepler. Hasta que eso se construya, **el módulo no debe encenderse**.
+
+⭐ **Lo que D-EX8 NO tiene que construir, medido el 2026-11-25: el teórico ya sale del ODS.** `openCount()` elige
+fuente en este orden —ERP → `inventory` → `commercial`— y con cualquier almacén que tenga existencia en
+`analytics.v_erp_stock_on_hand` gana la primera, que es el ODS; de ahí salen la cantidad **y** la unidad
+(`display_box_factor`, `unit_source`) en la misma fila. Las otras dos ramas existen pero hoy ningún almacén las
+alcanza. Así que D-EX8 es más chico de lo que parecía: **el ajuste, el guard de congelación y el retiro de esas dos
+ramas muertas** — no el teórico.
 
 **El avance del listado miente en el segundo pase.** La lista de folios calcula el progreso con `count_1`, mientras
 el detalle usa el pase activo. En un doble conteo ciego, la lista muestra 100 % cuando el segundo pase apenas empieza.
@@ -243,10 +256,18 @@ el detalle usa el pase activo. En un doble conteo ciego, la lista muestra 100 % 
 **Sin alcance por sucursal.** El aislamiento es por tenant (RLS); nada impide que un supervisor de una plaza abra o
 mire el folio de otra. Con la lista universal de `[IC.27]` esto importa más que antes.
 
-**El selector de almacén ofrece 18 bodegas de ruta y duplicados**, no sólo las 9 sucursales reales.
+**El selector de almacén ofrece 28 opciones y sólo 10 son lugares donde se puede contar** (prod, 2026-11-25):
+CEDIS más las 9 sucursales. Las otras 18 son bodegas de camioneta, y **cinco rutas están dos veces** con códigos
+distintos (`01-002`…`01-006` y `RUTA-22`…`RUTA-28`); además sigue vivo `MD-32`, que el propio código llama
+«un almacén borrado». Quien abre un folio elige a ciegas entre 28 renglones de los que 18 no tienen anaquel.
 
-**Dos fuentes para el mismo permiso** en la pantalla de folios: lee `auth.user()?.permissions` en un lado y
-`PermissionsService` en otro. Una degradación de permisos puede tardar en surtir efecto en una de las dos.
+**⛔ El guard de congelación quedó CIEGO (medido el 2026-11-25).** El *freeze integrity guard* de `reconcile()`
+—el que impide que un set absoluto borre las ventas ocurridas durante el conteo— pregunta por movimientos a
+`commercial.stock_movements`. Esa tabla tiene **102 filas en toda su historia y la última es del 2026-11-17**:
+nada la escribe. Los movimientos reales viven en el ODS (`kepler_ods.kdil`). O sea que el guard **no puede
+dispararse nunca**: pasa siempre, y pasaría también el día en que hubiera movimientos de verdad. Es una compuerta
+que mide una tabla muerta, no una intención — es peor, porque se lee como verde. Entra al alcance de **D-EX8**: si
+el teórico sale del ODS, el testigo de "se movió" también tiene que salir del ODS.
 
 **La lista no filtra los cancelados**, así que hoy muestra seis folios muertos y nada más.
 
