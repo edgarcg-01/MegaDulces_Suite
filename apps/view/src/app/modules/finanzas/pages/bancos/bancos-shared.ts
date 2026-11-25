@@ -155,3 +155,27 @@ export function amtPct(mr: { matched_amount: number; bank_amount: number }): num
 // Formato de dato: vive en finanzas-format (lo comparten Bancos y Caja). Se reexporta
 // para no tocar los 11 componentes del tablero de bancos que ya lo importan de acá.
 export { money, dmShort, dmy } from '../finanzas-format';
+
+/**
+ * `[BFU.4.5.6]` Por qué falta ligar un movimiento del banco, en palabras (la clave la pone `leerFila` en la API:
+ * el motivo del motor de categoría o, si tiene categoría sin evidencia, de dónde salió). Una clave que no esté
+ * aquí se muestra tal cual: no se inventa un nombre.
+ */
+export const MOTIVO_POR_LIGAR: Readonly<Record<string, string>> = {
+  deposito_sin_documento: 'Depósitos sin documento de Kepler',
+  cobranza_sin_cliente: 'Cobranza sin cliente',
+  categoria_sin_evidencia: 'Categoría sin evidencia',
+  kepler_aun_no_lo_tiene: 'Kepler todavía no lo tiene',
+  kepler_no_lo_tiene: 'Kepler no lo tiene',
+  kepler_en_otra_cuenta: 'Kepler lo tiene en otra cuenta',
+  pareo_debil: 'Casó con un documento dudoso',
+  pareo_pendiente: 'Falta correr la conciliación',
+  cuenta_sin_categoria: 'Su cuenta contable no tiene categoría',
+  documento_sin_cuenta: 'El documento no dice su cuenta contable',
+  documento_sin_aplicacion: 'El documento no dice qué paga',
+  deposito_que_no_es_venta: 'Préstamo o devolución que entró como depósito',
+  categoria_contra_direccion: 'La categoría va contra la dirección del dinero',
+  sin_ods: 'Sin datos de Kepler en este entorno',
+  sin_motivo: 'Sin motivo del motor',
+};
+export const motivoPorLigar = (k: string): string => MOTIVO_POR_LIGAR[k] ?? k;
