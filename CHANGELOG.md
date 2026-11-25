@@ -24,7 +24,6 @@
 - En el encabezado, junto a «cargado ahora», el botón «Manual» abre el manual en otra pestaña. La Parte 1 es para quien revisa y la Parte 2 para la gerencia, que define y mantiene las reglas. Trae casos, dos autoevaluaciones y una guía para quien capacita.
 - El manual sigue el tema elegido en la Suite y se lee en el celular.
 - Internal: `app-manual-link` es el botón compartido para la siguiente pantalla con manual (`assets/manuales/<pantalla>.html`). `calendario-compras-manual.spec.ts` falla si la pantalla cambia un rótulo y el manual no.
-### Changed — Finanzas › Cartera: la ficha del cliente, igual que su estado de cuenta (CXC.51 · 2026-11-23 · en código, sin soltar)
 ### Changed — Finanzas › Cartera › Resumen: todo sigue un periodo, y la venta de cada vendedor (CXC.52 · CXC.53 · 2026-11-24 · en producción)
 - Un selector en el Resumen gerencial: últimos 30 días, últimos 90 (el de siempre), este mes, mes anterior o un rango. La venta a crédito, el DSO, la mediana real de pago, los pagos a más de 30 días, la venta por vendedor y la tendencia siguen ese periodo.
 - Lo que es foto de hoy (vencido, concentración, proyección de cobranza, saldo por vendedor y por zona) lo dice en su rótulo: el saldo de una fecha pasada no se puede reconstruir exacto.
@@ -197,7 +196,6 @@
 - La pestaña «Catálogo de Kepler» lista los productos con factor de caja en 0 o sin código de caja, para que Compras los corrija.
 - Cada impresión queda en una bitácora: quién, cuándo y qué consecutivos.
 - La pantalla está disponible para almacenistas, encargados de tienda y de bodega, y supervisores (21 personas). Quien tenga la sesión abierta tiene que volver a entrar para verla.
-### Fixed — Los saldos de cartera llegan completos de Kepler (CXC.45 · 2026-11-19 · en código, sin soltar)
 ### Fixed — Etiquetas: se vuelve a imprimir, y con la tipografía de la etiqueta (ETQ-FUENTE.3 · 2026-11-12)
 - Desde la espera de tipografías del 11-nov, ninguna tienda podía imprimir: «la hoja de impresión no alcanzó a cargar Anton, Bebas Neue, Baloo 2». La hoja de impresión buscaba los estilos en la dirección equivocada y nunca los encontraba. Corregido en el hotfix #536, el mismo 12-nov.
 - Ese mismo defecto hacía que, antes, las etiquetas se imprimieran con la tipografía de respaldo. De ahí salía el último dígito del código cortado (NUTELLA 42089). Ahora salen con la tipografía de la etiqueta.
@@ -233,9 +231,6 @@
 - (PGP.155.1) Al preparar ese pago por transferencia, de nuestras cuentas de banco sólo se ofrecen las de ese mismo banco (6 BBVA de 18) y la pantalla dice por qué; el servidor rechaza otro banco. Si no tenemos cuenta de ese banco, la pantalla dice que así no se puede transferir.
 - (PGP.154) El buscador de proveedores de «Cuentas de pago» ya no repite fichas: sólo los que existen en Kepler, con su clave y su último movimiento («chompys» daba 3 renglones; ahora 1).
 - (PGP.155.2) Lo que encontró el recorrido en pantalla: «Programar anticipo» a un clic junto a «Por etapa / Por día»; el buscador del anticipo distingue a los gemelos (CD004 con movimiento, CV10 sin ninguno); la ayuda ya no promete «la cuenta de la cotización»; y en «Preparar» la cuenta destino va antes que el origen.
-### Changed — Bancos: el libro CUENTAS de Tesorería ya no se carga (BFU.5.1 · 2026-11-19 · en código, sin soltar)
-- Subir el libro y sincronizarlo desde Google Sheets ya no se puede: la suite dice que la fuente de los bancos es la descarga del banco y que se sube en Estados de cuenta.
-- El pendiente del Cierre de una cuenta sin movimientos lleva a Estados de cuenta.
 ### Changed — Tablero de pedidos: abre más rápido con todas las sucursales (GP.RF.43 · 2026-11-19 · en código, sin soltar)
 - La lista lee los renglones de cada pedido con una búsqueda en vez de cinco: con todas las sucursales, la consulta baja de 241 a 184 ms y lee la mitad de los datos. Muestra exactamente los mismos pedidos.
 
@@ -354,57 +349,8 @@
 ### Fixed — El enlace para subir depósitos abre desde el celular del cliente (CC.20.1 · 2026-11-18)
 - El enlace del mensaje de WhatsApp, de la ficha de Cartera y del código QR del PDF salía con la dirección interna de la oficina y no abría desde fuera. Ahora usa megadulcessuite.com.
 - El mensaje ya no dice «le avisamos cuando quede aplicado»: dice que en ese mismo enlace verá cuando quede aplicado.
-### Fixed — Bancos: el % de ContPAQi con póliza, la lista de cheques y un movimiento perdido (CB.86 · 2026-11-18 · en código, sin soltar)
-- El % del dinero del banco que ya tiene póliza en ContPAQi se mide contra el mismo banco y con el mismo criterio que el cuadre.
-- La lista de cheques en tránsito ya no se corta en 50 sin avisar.
-- Una cuenta con descarga del banco podía perder un movimiento cuando el libro tenía otro del mismo importe días antes; ya no.
-
-### Fixed — Toda la Suite en el celular: las tablas apiladas ya muestran todos sus campos (GP.RF.12 · GP.RF.18 · GP.RF.19 · 2026-11-18 · en código, sin soltar)
-- En el teléfono, las tablas que se apilan por renglón ya no esconden columnas ni achican la letra (el Tablero escondía Cliente, Renglones y Etapa).
-- La letra más chica de Almacén sube de 10 a 11 px; el aviso de «cargado hace…» se lee mejor y el lector de pantalla ya no lo repite cada 15 segundos.
-- La lista de pedidos atorados del Tablero abre en menos de un quinto de segundo (antes, dos).
-
-### Fixed — Bancos: el Cuadre 3 vías compara contra el banco de verdad (CB.85 · 2026-11-18 · en código, sin soltar)
-- La columna «Banco» toma la descarga del banco en las cuentas cuyo estado de cuenta cuadra por saldos; las demás siguen con el libro de Tesorería y la fila dice por qué.
-- Mientras el banco no cubre el mes, ContPAQi entra sólo con lo que casa con el banco cargado; lo que no casa se muestra aparte («sin pareja en el banco cargado»). Reemplaza la regla anterior, que contaba de más los depósitos.
-
-### Added — Almacén: el Tablero avisa lo que nadie va a surtir y la preventa está a un toque (GP.RF.16 · GP.RF.21 · GP.RF.23 · 2026-11-18 · en código, sin soltar)
-- El Tablero dice arriba cuántos pedidos siguen autorizados en Kepler desde hace más de una semana (hoy, 396 en 8 sucursales) y con «Velos» los lista para cerrarlos.
-- «Preventa» con su número junto a las etapas: un toque y la lista muestra sólo la preventa.
-- Cuando Surtir rechaza el cierre de un surtido, el motivo queda registrado para encontrar la causa.
-
-### Changed — Almacén: cada pantalla abre en el almacén de quien la usa y lo nombra (GP.RF.11 · GP.RF.17 · UB.RF.7 · 2026-11-18 · en código, sin soltar)
-- Checar, el Tablero y Ubicaciones nombran el almacén por su nombre, sin el número.
-- El Tablero abre en el almacén de la persona, no en el primero de la lista; Mapa, Asignación y Contenido de Ubicaciones recuerdan el almacén que elegiste en cualquiera de las tres.
-
-### Fixed — Toda la Suite: los botones sin relleno se leen (GP.RF.13 · GP.RF.18 · UB.RF.8–9 · 2026-11-18 · en código, sin soltar)
-- Los botones de texto y de contorno («Salir», «Cancelar surtido», los de estado) tenían texto demasiado claro para leerse a pleno sol; ahora pasan el mínimo de contraste en modo claro.
-- Las cifras verdes y ámbar de los resúmenes, más oscuras para que se lean; la captura de ubicaciones dice «Se crean 180».
-
-### Fixed — Toda la Suite: la página ya no brinca cuando llega la letra (GP.RF.40–41 · 2026-11-18 · en código, sin soltar)
-- Mientras baja la letra de la Suite (Hanken Grotesk y la de cifras, Geist Mono), Windows pinta con una letra de respaldo que ya mide lo mismo: al llegar, los renglones no se re-parten. En Surtir, en el celular, la lista dejaba de brincar.
-- Surtir: el selector de almacén y el de origen dicen qué son («Almacén», «Pedidos de»), sin perder el renglón.
-
-### Changed — Almacén: Surtir re-auditado con Modern Web Guidance (GP.RF.38–40 · 2026-11-18 · en código, sin soltar)
-- Con un pedido abierto, el «atrás» del celular regresa a la lista de pedidos en vez de salir de Surtir.
-- Al abrir un pedido el foco va a su encabezado, y al volver, a su tarjeta; la pantalla tiene encabezados en orden.
-- Los renglones que se deslizan (vendedores, días atrasados) avisan que hay más y no cortan el anillo de foco.
-- En toda la Suite, las flechas del teclado vuelven a elegir en los selectores de una opción (estaban sin efecto).
-
-### Changed — Almacén: Surtir reestructurado para el celular (GP.RF.35–37, GP.RF.29 · 2026-11-17 · en código, sin soltar)
-- La lista de pedidos cabe en la primera pantalla del celular: almacén y origen en un renglón, los días atrasados en un renglón que se desliza, y cada pedido es una tarjeta que se toca entera.
-- Con un pedido abierto, «← Pedidos» regresa a la lista sin cerrarlo; el escáner queda fijo arriba y cada producto empieza por su ubicación.
-- El aviso de clientes nuevos va al final y dice «Más de 500» cuando la lista se topó.
-- La lista ya no salta al cargar «Rutas de hoy», y los textos en ámbar y verde se leen (contraste AA).
-
 ### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en prod desde el 2026-11-18)
-### Fixed — Bancos: el Cuadre 3 vías compara los mismos días en las tres fuentes (CB.82 · 2026-11-17 · en código, sin soltar)
-- Cuando el estado de cuenta del banco va atrasado, cada cuenta se compara sólo hasta su último día cargado; lo que Kepler y ContPAQi registran después se muestra aparte y ya no se pinta como descuadre (nov-2026: −$2.17 M «vs ContPAQi» en BBVA 6721 eran pagos que el banco todavía no cargaba).
-- El atraso del banco cuenta como atraso, «sin comparar» dice su motivo, el texto de estado se lee (contraste AA), las cuentas se abren con teclado y los encabezados hablan en llano.
-
-### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en código, sin soltar)
 - En la ficha del cliente, «Enviar estado de cuenta» reemplaza a los cuatro botones (teléfono, PDF, WhatsApp y copiar enlace): descarga el PDF, abre el chat del cliente con el mensaje y su enlace para depósitos, y deja registrado el contacto. Sin teléfono, WhatsApp abre para elegir a quién.
-
 ### Changed — Fichas de clientes: se actualiza sola al llegar el banco (CC.21.1 · 2026-11-17 · en prod desde el 2026-11-18)
 - Cuando se carga el estado de cuenta, la vista **Cobranza › Fichas de clientes** vuelve a revisar el banco sola, y otra vez cuando la conciliación termina de ligar los abonos a sus cobros.
 - Si la foto se lee con la cuenta equivocada, el depósito se sigue encontrando: la cuenta sólo sirve para elegir entre dos depósitos iguales.
@@ -428,10 +374,6 @@
 - «Abierto» y «Guía» dejan su columna: van debajo de la fecha y de la etapa. Lo que se explicaba en la cabecera está en el botón «?».
 - Arreglo: el volumen de un pedido ya no se encima sobre su etapa.
 
-### Changed — Crédito de clientes: la cartera se recalcula al llegar el cambio, no en cada consulta (CXC.21b · 2026-11-17 · en código, sin aplicar)
-- La lista de cartera y la ficha del cliente leerán una cartera ya calculada que se actualiza sola, cuenta por cuenta, cuando Kepler registra una factura, un cobro, una cancelación o un cambio del cliente. En la base de prueba la lista bajó de ~0.9 s a ~0.07 s y la ficha de ~1–2 s a ~0.1 s, con la misma respuesta.
-- La zona, el grupo y el teléfono del cliente ya no cambian entre una consulta y otra (antes se elegían al azar entre las copias de las sucursales).
-- Requiere aplicar su migración fuera de horario y prender el interruptor; hasta entonces todo funciona como hoy.
 ### Changed — Crédito de clientes: la cartera se recalcula al llegar el cambio, no en cada consulta (CXC.21b · 2026-11-17 · en prod desde el 2026-11-18)
 - La lista de cartera y la ficha del cliente leerán una cartera ya calculada que se actualiza sola, cuenta por cuenta, cuando Kepler registra una factura, un cobro, una cancelación o un cambio del cliente. En la base de prueba la lista bajó de ~0.9 s a ~0.07 s y la ficha de ~1–2 s a ~0.1 s, con la misma respuesta.
 - La zona, el grupo y el teléfono del cliente ya no cambian entre una consulta y otra (antes se elegían al azar entre las copias de las sucursales).
@@ -448,13 +390,6 @@
 - En la ficha del cliente, **Siguiente cliente** y **Anterior**: la siguiente ya viene cargada.
 - Llamar, enviar por WhatsApp o abrir el estado de cuenta deja constancia del contacto; la lista muestra «hoy 10:32» o «hace 3 días». Necesita aplicar su migración al soltar; mientras no esté, la pantalla avisa que el registro no está activo.
 
-### Changed — Crédito de clientes: buscar y ordenar al instante, «Siguiente cliente» y «contactado hoy» (CXC.42 · CXC.43 · 2026-11-17 · en código, sin soltar)
-- La búsqueda encuentra mientras escribes (sin Enter, sin acentos, por varias palabras) y el orden cambia al instante: ya no se recarga la cartera.
-- La pantalla ya no brinca al cargar, y mientras se aplica un filtro dice «Actualizando…».
-- En la ficha del cliente, **Siguiente cliente** y **Anterior**: la siguiente ya viene cargada.
-- Llamar, enviar por WhatsApp o abrir el estado de cuenta deja constancia del contacto; la lista muestra «hoy 10:32» o «hace 3 días». Necesita aplicar su migración al soltar; mientras no esté, la pantalla avisa que el registro no está activo.
-
-### Fixed — Crédito de clientes: abre en lo que cobranza trabaja y deja de esconder filas (CXC.41 · 2026-11-17 · en código, sin soltar)
 ### Fixed — Crédito de clientes: abre en lo que cobranza trabaja y deja de esconder filas (CXC.41 · 2026-11-17 · en prod desde el 2026-11-18)
 - `/finanzas/cartera` abre en **Cliente, ordenada por más vencido**. La tira por tipo sigue mostrando el total completo, con las cuentas internas y las rutas a un clic.
 - Cambiar dos filtros seguidos ya no puede dejar en pantalla los datos del primero: la carga anterior se cancela.
@@ -562,7 +497,6 @@
 ### Internal — El apareo de recepciones duplicadas corre cuando llega una entrada, no cada 5 minutos (RE.69 · 2026-11-10 · en código, sin soltar)
 - Se retiran dos relojes de 5 minutos y el barrido diario de las 04:30.
 ### Fixed — Costo por proveedor: el descuento por nota de crédito sale de Kepler y la compra de sucursal se cuenta una vez (RE.67 · 2026-11-10 · en prod)
-### Fixed — Costo por proveedor: el descuento por nota de crédito sale de Kepler y la compra de sucursal se cuenta una vez (RE.67 · 2026-11-10 · en código, sin soltar)
 - El porcentaje de descuento de cada proveedor estaba mal: contaba sólo las notas del CEDIS y sumaba dos veces las compras de sucursal que el CEDIS vuelve a capturar. Desde agosto, la tasa general pasa de 3.6 % a 4.2 %; Dulces Las Delicias, de 2.2 % a 6.6 %.
 - Una nota de crédito sin motivo ya no se da por descuento (antes se suponía: 300 notas, $4.0 M en el año). Se muestra debajo del descuento de su proveedor como «sin clasificar» y no se resta del costo.
 - Lo mismo en Descuentos › Reconciliación, para que las dos pantallas digan lo mismo del mismo proveedor.
@@ -583,17 +517,15 @@
 - La bajada ya no dice que «Costo por proveedor» es la misma cifra: allá se suman todas las notas del proveedor.
 
 ### Added — Revisión de facturas: la nota de crédito dice si está en el CFDI, en Kepler, en los dos o en ninguno (RE.63 · 2026-11-10 · en prod)
+- En el expediente de cada compra, un bloque nuevo dice dónde está la rebaja: la nota que Kepler aplicó a la entrada, la que el proveedor timbró (CFDI) para su factura, las dos o ninguna, con sus folios y montos.
+- Y la consecuencia en lo que se paga: si lo que Kepler pagará cuadra con lo que el proveedor factura neto, o cuánto difiere y qué hacer (pedirle el CFDI al proveedor, o aplicar la nota en Kepler). Cuando Kepler ya capturó la entrada con el descuento, avisa que aplicar la nota la descontaría dos veces.
+- Dos filtros nuevos en Hallazgo: «Nota sólo en el CFDI (Kepler no la aplicó)» y «Nota sólo en Kepler (falta su CFDI)», con su conteo. Sin factura ligada no se afirma nada del lado del SAT.
+- Informativo: no cambia qué facturas pasan solas. Sin migraciones.
 ### Added — Mercadotecnia: el ranking de promociones y los incentivos salen de Kepler, sin Excel (MKT.9–MKT.14 · 2026-11-11 · en código, sin soltar)
 - **Ranking** (`/mkt/ranking`): quién cumplió las promociones de la semana, por canal (Sucursales · Vecinal · Rutas · Televenta), con la venta de Kepler. Cubrimiento con tope de 100 % por promoción; sin objetivo se cuenta aparte, no como cero. PDF semanal.
 - **Objetivos** (`/mkt/ranking/promociones`): alta de la promoción con su código de Kepler y vigencia; objetivo sugerido (promedio de 4 semanas) y editable. Dar de baja termina la promo ayer: el pasado no cambia.
 - **Incentivos** (`/mkt/incentivos`): por caja (con el factor de la ficha de Kepler), por unidad, por cada $X, por cliente distinto o por exhibidor capturado. PDF de pago con firmas. Calcula, no paga.
 - Migración `20261111131929_mkt_ranking_promociones` (4 tablas, aditiva). Sin permisos nuevos.
-### Added — Revisión de facturas: la nota de crédito dice si está en el CFDI, en Kepler, en los dos o en ninguno (RE.63 · 2026-11-10 · en código, sin soltar)
-- En el expediente de cada compra, un bloque nuevo dice dónde está la rebaja: la nota que Kepler aplicó a la entrada, la que el proveedor timbró (CFDI) para su factura, las dos o ninguna, con sus folios y montos.
-- Y la consecuencia en lo que se paga: si lo que Kepler pagará cuadra con lo que el proveedor factura neto, o cuánto difiere y qué hacer (pedirle el CFDI al proveedor, o aplicar la nota en Kepler). Cuando Kepler ya capturó la entrada con el descuento, avisa que aplicar la nota la descontaría dos veces.
-- Dos filtros nuevos en Hallazgo: «Nota sólo en el CFDI (Kepler no la aplicó)» y «Nota sólo en Kepler (falta su CFDI)», con su conteo. Sin factura ligada no se afirma nada del lado del SAT.
-- Informativo: no cambia qué facturas pasan solas. Sin migraciones.
-
 ### Fixed — Revisión de facturas: la nota de crédito se aplica por su relación en el CFDI, no por importe (RE.62 · 2026-11-10 · en prod)
 - Una factura mayor que la entrada sólo «cuadra con nota de crédito» si la nota, en su propio CFDI, **relaciona esa factura**. Antes bastaba con que una nota del mismo proveedor tuviera el monto parecido: de 42 marcadas «nota ya aplicada», 36 usaban la nota de otra factura y 23 «pasaban solas» así.
 - Una nota que relaciona varias facturas se muestra pero no se descuenta (el CFDI no dice cuánto le toca a cada una). La que sólo coincide por importe aparece como «posible nota, confírmala» y **nunca deja pasar sola** una factura.
@@ -6489,15 +6421,6 @@ Salió de rastrear **un usuario llamado `hacker`** en el padrón de producción.
 - Verificado: `tsc` api limpio · `nx build` **verde en view, vendor y portal** · cero `.can(` en los 3 frontends · cero referencias a `@casl` en el repo · los 3 `permissions.service.ts` idénticos (md5).
 - Queda abierto de la misma revisión de `/admin/users`: el padrón se acota por permisos de **reportes** y no de usuarios (un rol de RH con `USUARIOS_GESTIONAR` y sin reportes vería sólo su propia fila), y `authz-tree` declara `view: USUARIOS_VER` mientras la ruta y el sidebar exigen `USUARIOS_GESTIONAR` para *ver*.
 
-### Fixed — Ventas por ruta · **el incentivo pagaba sobre una cantidad que mezclaba piezas, paquetes y cajas** (RR-PROMO.1, 2026-09-02)
-- **Qué estaba mal:** el panel "Incentivo por enunciado (AI)" de `/comercial/ventas-por-ruta` sumaba `qty` a ciegas. La venta de ruta registra cada línea en el peldaño en que se vendió (pieza / paquete / caja) y **el rótulo no distingue**: el mismo `'PZA'` del SKU `70031` trae 361 líneas a $6.12 (pieza) **y 45 líneas a $90.96 (paquete de 16)**. Es la cantidad con la que se le paga a la gente.
-- **Tamaño medido en prod (ago-2026, venta de ruta):** la suma cruda **subcontaba 9.1%** (223,394 contra 243,626 reales) y en **140 SKUs que son $1,110,809 = 19.0% de la venta de ruta** el error pasaba de 5% — `97245` al 42%, `97244` al 43%, `88045` al **84%**.
-- **Cómo se arregla:** nueva vista `analytics.v_product_unit_ladder` (mig `20260902180000`) — la escalera de unidades por SKU (`kdii` `c11`/`c80`+`c81`/`c83`+`c84` + precios `c90`/`c91`/`c92`). El motor identifica el peldaño de cada línea por el **precio realmente cobrado**, no por la etiqueta: funciona porque los peldaños distan ≥ el factor (≥2×), mucho más que cualquier descuento. Cobertura **100.0% de la venta de ruta** (19 SKUs / $1,877 sin SKU en el maestro).
-- **Lo que no se puede resolver se declara, no se inventa:** fuera de la banda 0.5×–2× la línea queda sin peldaño y **no se suma** (medido: 0.17% de las líneas / 0.11% del importe). La pantalla, el XLSX y el PDF traen la nota de unidad; los clientes que no califican por líneas sin resolver se reportan aparte como *indeterminados* en vez de contarse como que no compraron.
-- **La cantidad ya no se llama "Piezas".** Viaja con su rótulo real (`PAQ`, `PZA`, `CJA`…), porque para buena parte del catálogo la unidad base **es el paquete**: en `97192` la base es `PAQ` y `c84=24` son *paquetes* por caja, no piezas. Granel marcado: en producto de peso la cuenta por unidades no se publica.
-- **Cumple la regla principal del proyecto** (cero importers · del ODS · una tabla principal · documentada y verificada): la vista es `derive-no-copy` **sólo sobre `kepler_ods.kdii`** — no toca `catalog.products`, ni la etiquetera, ni `analytics.product_box_factor` (que es tabla alimentada por importer). Candado en el smoke que verifica justamente eso.
-- La misma normalización se aplicó a `evaluateIncentive` (la tool `thot_incentivo`), que tenía una copia del SQL: si las dos rutas de código dieran cantidades distintas para la misma promo, no serviría ninguna.
-
 ### Internal
 - Nuevo smoke `test-newdb-route-promo-units.js` (21 aserciones, en la regresión): la vista es VISTA y sólo depende de `kepler_ods`, la basura del campo unidad (`'500'`, `'250'`, `'2KG'`) nunca se publica como unidad, un factor de 1 no es peldaño, el peldaño elegido es el más cercano en precio (blinda el `ORDER BY`), lo no resuelto no se suma, granel marcado. Los 4 candados de cantidad se ejercieron contra prod (59,055 líneas, corrección +7.6%); en local se saltan porque no hay venta de ruta.
 - Detectado de paso: hay líneas de ruta con **fecha futura** en la fuente (`max(business_date)` = 2026-12-05 con el reloj en septiembre). El motor ya las corta con `business_date <= CURRENT_DATE`; el smoke ancla su ventana igual.
@@ -6933,8 +6856,6 @@ Salió de rastrear **un usuario llamado `hacker`** en el padrón de producción.
 - **Parámetros de negocio fuera del código:** `RECEPTION_START` y la tolerancia del cuadre eran constantes de módulo (mover la fecha de arranque exigía redeploy). Ahora `finance.receipt_settings` por tenant (RLS forzado, seed idempotente, fallback a defaults si falta la fila) con `reception_start`, `match_tolerance`, `sla_capture_days`, `sla_review_days`, `bulk_max_files`.
 - `'06' = Canindo` faltaba en `KEPLER_BRANCH_NAMES` (sucursal Kepler propia desde el 2026-08-15): la nueva se mostraba como `06` crudo.
 
-### Fixed — 🔴 el `nightly` de prod no corría desde el 25-ago (2026-08-26)
-- Una entrada de `STEPS` en `run-prod-feeds.js` puede ser `[ruta, ...flags]`; el archivo ya tenía `pathOf(entry)` para eso, pero `sweepStaleOrphans` llamaba `path.basename(s)` sobre la entrada **cruda** → `ERR_INVALID_ARG_TYPE` **antes del primer paso**, o sea el modo entero muere al arrancar. El primer step-array entró el 24-ago (`repoint-catalog-prices --gap-fill-only`) y desde ahí el nightly no corrió: log de prod con ~840 líneas del 20 al 24-ago y **21 y 22 líneas el 25 y el 26**. Dos noches sin `sales_daily`, `import-margin`, `sales_monthly`, `inventory-health`, `reorder-policy` ni DRP. Fix de una línea. Nadie se enteró porque **nada mira el resultado del nightly** (el runner sí sale con código ≠ 0).
 ### Fixed — 🔴 el ODS no era espejo fiel: pólizas duplicadas y embarques fantasma (2026-08-27)
 - **Los embarques bajaron 188,661 unidades y NO es un bug del tablero: dejó de sobre-reportar.** `analytics.erp_shipments` (vista sobre `kepler_ods.kdpord`, que consumen la pantalla de analytics y la tool de Thot "cuánto se embarcó / % embarcado") pasó de **76,499 → 72,269 filas · 69,732 → 65,780 folios · 3,347,950 → 3,159,289 unidades**. Los 3,952 folios que se fueron **ya no existían en Kepler**: el ODS los conservaba porque el poll es UPSERT-only y no puede ver un `DELETE`, y el WAL sólo trae cambios posteriores a su slot (los 2 días congelados del 24-ago dejaron su hueco). Verificado por muestreo antes de borrar: de 400 llaves de `kdpord`/sucursal 06, **63 (15.8 %) ausentes** en la réplica, consistente con el 18.72 % medido por conteo.
 - **1,120 pólizas del mes abierto estaban DUPLICADAS en la balanza.** `replicate-ods-live` (poll) escribía los `timestamp without time zone` **+6 h** —los valores pasaban por un `Date` de JS que los interpreta como hora local MX y los reescribe como UTC— mientras `ods-cdc-wal` no (pgoutput entrega texto). Como el timestamp está **en la PK**, la misma fila lógica entraba dos veces (`00:00` y `06:00`) y el UPSERT no podía colapsarlas. En `kdc22608`: 1,120 filas extra en 6 sucursales (el CEDIS, 0). El mes cerrado `kdc22607` cuadraba exacto. Tras el dedup, los conteos origen-vs-ODS **cuadran en las 7 sucursales** (30,161 = 30,161).
