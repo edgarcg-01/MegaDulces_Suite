@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 3310 KB, 15687 líneas, 78 secciones.
+> **Índice navegable** — 3315 KB, 15725 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -49,42 +49,42 @@
 | 9314 | 9384 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
 | 9385 | 9433 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
 | 9434 | 9466 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 9467 | 10023 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 10024 | 10155 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 10156 | 10209 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 10210 | 10249 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 10250 | 10302 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 10303 | 10369 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 10370 | 10532 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 10533 | 10816 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 10817 | 10984 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 10985 | 13415 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 13416 | 13424 | 1 | Fase RR — Ventas por ruta |
-| 13425 | 13744 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 13745 | 13755 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 13756 | 13776 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 13777 | 13787 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 13788 | 13799 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 13800 | 13859 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 13860 | 14287 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 14288 | 14302 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 14303 | 14344 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14345 | 14516 | 86 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14517 | 14548 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14549 | 14848 | 78 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14849 | 14923 | 105 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14924 | 14932 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14933 | 14993 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 15000 | 15009 | 1 | 📝 Convenciones |
-| 15010 | 15047 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 15048 | 15066 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 15067 | 15119 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 15120 | 15532 | 122 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15533 | 15563 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15564 | 15585 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15586 | 15619 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15620 | 15670 | 56 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15671 | 15777 | 94 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 9467 | 10060 | 72 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 10061 | 10192 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 10193 | 10246 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 10247 | 10286 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 10287 | 10339 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 10340 | 10406 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 10407 | 10569 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 10570 | 10853 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 10854 | 11021 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 11022 | 13452 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 13453 | 13461 | 1 | Fase RR — Ventas por ruta |
+| 13462 | 13781 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 13782 | 13792 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 13793 | 13813 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 13814 | 13824 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 13825 | 13836 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 13837 | 13896 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 13897 | 14324 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 14325 | 14339 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 14340 | 14381 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 14382 | 14553 | 86 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14554 | 14585 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14586 | 14885 | 78 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14886 | 14960 | 105 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14961 | 14969 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14970 | 15030 | 15 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 15037 | 15046 | 1 | 📝 Convenciones |
+| 15047 | 15084 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 15085 | 15103 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 15104 | 15156 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 15157 | 15569 | 122 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15570 | 15600 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15601 | 15622 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15623 | 15656 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15657 | 15707 | 56 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15708 | 15815 | 96 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -9914,6 +9914,43 @@ más) — PR aparte para no volver ilegible el diff.
     apuntarlo también a `platform_test` con `dev_sistemas` (no bypasea RLS de verdad, pero
     destraba local). Sigue pendiente que Edgar confirme con su propia cuenta y sucursal real.
 
+- [ ] **[CV.26]** ⬜ **La tienda de marca se refresca a mano y publica agotado lo que sí hay**
+  (medido 2026-11-25) — la llave de API de la tienda resultó tener **escritura completa**, no sólo
+  lectura: productos, inventario, alta, borrado y los dos endpoints de lote. Eso invalida la
+  conclusión de `[CV.16]` (*"no expone una API de importación masiva accesible para esto"*), que se
+  escribió cuando la tienda corría Catálogo V1.
+  - ⭐⭐ **El defecto que cuesta dinero no es el precio, es el agotado.** De 1,642 variantes, **503
+    están en `OUT_OF_STOCK` y 491 de ellas siguen visibles**. De sus 258 SKU, **159 sí tienen
+    existencia** en el resolvedor arbitrado (`analytics.v_erp_stock_on_hand`); **108 la tienen en 5
+    almacenes o más**, que es la cifra que aguanta sin saber qué plaza surte la tienda. **178 de
+    634 productos tienen TODAS sus presentaciones agotadas: el 28 % del anaquel no se puede
+    comprar.** Casos reales: un chicle con 64,321 unidades en 8 almacenes, publicado como agotado;
+    un chocolate con 55,309.
+  - ⭐ **El mecanismo: la tienda se escribe de golpe y queda congelada.** 632 de 637 productos
+    tienen su última escritura dentro de **dos minutos del 2026-11-06 (22:13–22:14)** — la
+    reimportación manual del CSV. Después, 4 toques en 19 días.
+  - **Precio: 701 de 1,158 variantes comparables difieren del mostrador de Kepler.** No es política
+    de precio: **588 están por debajo contra 99 por arriba (6 a 1)**, y una política sería simétrica
+    o de razón constante. Mediana 4.4 % por debajo, peor caso 37.8 %. El mapeo de presentación se
+    DERIVÓ de los datos, no se supuso: Caja→`CJA`, Paquete→`PAQ`, Pieza→`PZA`, Kilo→`KG`,
+    Bulto→`BTO`.
+  - ⛔ **337 "Pieza" de la tienda no existen como unidad en Kepler**: su precio sale de dividir el
+    paquete por el conteo del nombre del empaque (el "forzar Pieza" de `[CV.16]`), no del POS. Es un
+    precio que la caja no honra — Ley 0 del estándar de interfaces. Se decide si se publica o se
+    retira; hoy se publica sin decirlo.
+  - ⛔ **El sitio gratis de la cuenta NO sirve de banco de pruebas**: corre Catálogo **V1** y la
+    tienda viva corre **V3** (`428 CATALOG_V1_SITE_CALLING_CATALOG_V3_API`). Cualquier validación
+    de escritura es contra la tienda viva, con canario reversible.
+  - ⛔ **`POST /ecom/v1/orders/search` no devuelve cursor y corta en 100** sin avisar: la primera
+    serie mensual que armé estaba incompleta y la delató un pedido anterior al "primero". Se cuenta
+    por ventanas de mes. Volumen real: chico y plano (detalle en el Tablero PM — el repo es
+    público); **75 % de los pedidos históricos nunca se pagaron** (`NOT_PAID` + cancelado).
+  - **Qué NO incluye:** reconstruir `GET /api/kp/productos` (no se portó a `apps/api`; la deuda
+    está declarada en `catalogo-interno.module.ts`), ni la pantalla de MKT, ni tocar precios.
+  - **Bloqueado por decisión de Edgar:** cambiar **D28 (c)** de `FASE_NP7_ANEXO_FICHA_COMO_CODIGO`
+    (*"alimentar la tienda Wix: ahora no"*), y fijar qué existencia se publica — la tienda **no está
+    atada a una sucursal** (una sola ubicación genérica, envíos a Michoacán, Coahuila y Jalisco).
+
 - [x] **[TDA.7]** 🧪 **El mayoreo sigue al código leído, y su base estaba equivocada** (2026-09-10)
   — 0Sistemas: *"se critico con tu trabajo"*, sobre TDA.5/TDA.6 (mayoreo en pantalla, centrado,
   resorte escalonado, count-up en el ahorro), que yo había cerrado reportando *"15 suites / 185
@@ -15744,6 +15781,7 @@ Plan: [FASE_ALC_ALTA_DE_CLIENTES.md](FASES/FASE_ALC_ALTA_DE_CLIENTES.md) · nace
 - [ ] 🧪 `[NE.2.3]` **El servicio del puente: la aplicación es quien escribe el alias, no un script** (2026-11-24). Alimenta `tiendePuente` (`[NE.0.17]`) desde `contpaqi_ods` —que ya está **dentro de la base** y la lee `app_runtime`: sin archivo y sin importer— y escribe `hr.person_aliases`. ⭐ El universo se toma de **quién cobró**, no del campo `status` del padrón. **Tres reglas de escritura:** (1) **idempotente**; (2) ⛔ **no pisa** — si un código ya tiene alias apuntando a OTRA persona **no se toca y se reporta como conflicto**, porque reescribirlo en silencio cambiaría a quién se le paga; (3) ⭐ **los rechazos no se guardan, se derivan** — son función pura de los dos padrones de hoy, así que materializarlos sería una copia que envejece (regla 2); la cola de `[NE.2.5]` los vuelve a pedir. **Superficie:** `GET /hr/nomina/puente` (calcula sin escribir) y `POST /hr/nomina/puente/registrar`, ambos con la clave nueva **`HR_NOMINA_GESTIONAR`** — ⚠️ **declarada en `SIN_REPARTIR` con su razón**: un alias equivocado liga a una persona con el sueldo de otra, así que **no se concede hasta que exista la pantalla donde revisarlo** (`[NE.2.5]`), igual que hicieron las claves de asistencia. ⛔ **Ninguna respuesta lleva nombres de personas**: códigos, identificadores y conteos. **MEDIDO contra Postgres real** (`nomina-puente.service.db.spec.ts`, clúster desechable, todo en una transacción que se deshace): la `invited` **sí liga** —es el defecto que hundía el puente a 39 %—, la baja sale `solo-baja` y el inexistente `sin-candidato`; **la segunda corrida inserta 0 y reporta 2 «ya estaban»**; y ⭐ al apuntar un alias a otra persona, la tercera corrida **lo reporta como conflicto y NO lo pisa** (verificado leyendo la fila). Librería `hr` **633 ✔**, contracts **1,800 ✔**, typecheck de la API en verde. ⚠️ **NO MEDIDO: el arranque de Nest.** Agregué un controlador y un provider, y eso ya tiró la API en prod con el CI en verde (#414 / `[VL.19]`); la compuerta `check-boot` **exige compilar la API, que está prohibido en local** — la corre el CI. Atenuante, no medición: inyecta **exactamente los dos mismos servicios** que `HrAttendanceEnrollmentsService` ya recibe en este mismo módulo. **Falta:** desplegar, y repartir la clave con la pantalla.
 - [x] 🧪 `[NE.0.18]` **ContPAQi guarda cada pago TRES veces — y dejó de hacerlo el 2026-10-30** (2026-11-25). Salió al preparar `[NE.2.4]`: antes de derivar un recibo había que probar que los números de ContPAQi cierran solos. ⭐⭐ **Medido en prod (sólo lectura):** `contpaqi_ods.v_nomina_pago_periodo` trae **3.000 filas por `(persona, fecha de pago)`** de 2019 a 2024, y **las copias son idénticas columna por columna** (8,986 pares de 2026 comprobados: ninguno difiere en rango, periodicidad, departamento, puesto, días ni neto). No son pagos distintos ni correcciones: **es la misma fila repetida, y ya viene así de origen** — la vista no la inventa. ⭐ **Se corta en una fecha exacta y sin aviso:** hasta el 2026-10-23 cada semana trae 2.00 filas por persona; desde el **2026-10-30**, 1.00 (414 filas/207 personas → 207/207). **Lo que cuesta:** sumar el neto de 2026 tal cual da **$35.1 M**; deduplicado, **$18.2 M**. Es el gemelo de `VERDAD_ABSOLUTA.md` §40.2 (el ERP ya contaba cada peso tres veces) en otro sistema. → **§40.8**, con la regla de uso: un pago es una **fecha**, no una fila. ⛔ **Y un límite declarado NO MEDIDO:** `net_paid` de esa vista **no es columna medida**, es `COALESCE(totalpagado, percepciones + otros − deducciones)`, así que «la identidad del recibo cierra» es **parcialmente circular**; deshacerlo exige leer `contpaqi_nom.add_nomina`, cuyo ACL es sólo `postgres` (medido: `permission denied` como `edgar`), o cruzar contra el banco. Cota inferior afirmable: **173 filas** con neto medido que **no** cierran, todas de 2017-2019. ✔ **Lo que sí se afirma:** tratando el NULL como cero la identidad cierra en **274,340 de 274,513**, y **desde 2020 no falla ni una** (192,751 filas) — y que el NULL es cero está probado **con control negativo** (39,266 de 39,334 cierran como cero; **0** cierran con cualquier otro valor).
 - [x] 🧪 `[NE.2.5x]` **Corrección: la cola reportaba 18 pagos donde había 11** (2026-11-25). Consecuencia directa de `[NE.0.18]`, en código que yo mismo había commiteado horas antes: `datosDeNomina` contaba `count(*)`, que con la triplicación infla. **Medido:** promedio reportado **18.26** contra **10.83** reales; peor caso **22 contra 13**. Arreglado con `count(DISTINCT p.paid_on)` — un pago es una fecha, no una fila. **Con prueba negativa:** la prueba contra base real ahora mete el mismo pago **tres veces** y exige que cuente **uno**; devolviendo la versión vieja, se pone en rojo con `expected 4 to be 2` (verificado). ⭐ **Revisé los otros dos tramos ya entregados y NO se caen:** `[NE.2.2]` re-medido deduplicado da **517** fechas, **516** viernes y cobertura **98.2 %** / **90.4 %** —idénticas, porque la duplicación es uniforme y las razones sobreviven— y el universo de `[NE.2.3]` da **248 = 248**. Lo que se rompe con esto son los **totales**, no las proporciones.
+- [x] 🧪 `[NE.0.19]` **El banco NO puede arbitrar la nómina todavía — medido y descartado** (2026-11-25). D11 ofrecía dos caminos para salir de la circularidad de `[NE.0.18]`: abrir una columna de ContPAQi, o usar el banco. **Fui por el banco porque no depende de nadie más** (regla de Edgar, 2026-11-20: si lo podemos hacer nosotros, lo hacemos) **y no alcanza.** `finance.bank_movements` tiene 65,702 movimientos de 2026 en 20 cuentas, y 1,653 salidas con concepto `Nomina NN` por $14.9 M — ⛔ **pero no son la dispersión semanal**: caen en cualquier día (no sólo viernes), se reparten en **4 cuentas**, y por semana no se parecen al neto de ContPAQi. ⭐⭐ **Y lo que lo vuelve afirmable es el control negativo:** error medio contra la **semana correcta $161,070**, contra la **anterior $151,971**, contra la **siguiente $166,687** — **cruzar con la semana equivocada sale igual de bien**; 0 de 42 semanas cuadran al peso. *Sin ese control habría cantado como empate la semana del 25-sep ($436,482 contra $417,120, «sólo» $19 k de diferencia).* Además, la cuenta que concentra esas partidas **no tiene estados de cuenta después del 2026-10-09**. → **D11 deja de tener dos opciones: la única salida es abrir `contpaqi_nom.add_nomina.totalpagado` a `app_runtime`.** El banco vuelve a ser candidato cuando su ingesta cubra la cuenta de nómina al día. → `VERDAD_ABSOLUTA.md` §40.6 (addendum). ⭐ **De paso, una duda despejada:** la fila única posterior al 2026-10-30 **no es una carga incompleta** — el neto **por persona** no tiene escalón ($1,904 antes, $1,839 después), así que lo que cambió fue la duplicación, no el dato.
 - [ ] ⚠️ `[NE.2.4]` **El recibo de la semana viva** — C2. Arma el recibo de un periodo **sin el Access**, con lo que ya está dentro de la base (ContPAQi + asistencia + el banco de horas) y lo guarda. ⛔ **No cierra hasta que una prueba lo ejerza contra base real con el payload de la pantalla** (regla 13). ⚠️ **BLOQUEADA el 2026-11-25, y no por falta de ganas: el dato todavía no tiene árbitro.** (a) `net_paid` es **derivado** (`[NE.0.18]`), así que la identidad del recibo no se puede verificar contra sí misma — hace falta **un testigo independiente**: leer `contpaqi_nom.add_nomina` (ACL sólo `postgres`: alguien tiene que abrir la columna `totalpagado`) o cruzar contra el **banco**, que es el camino que `VERDAD_ABSOLUTA.md` §40.6 ya dejó medio abierto. (b) Qué pasa con **la mitad en efectivo** es **D8**, de Edgar. (c) Si el recibo se guarda o se deriva al vuelo es **D9** — y de eso ya hay una cifra: derivar la semana viva de ContPAQi tarda **~130 ms** (217 personas, tres corridas: 136/126/131 ms), así que *para la semana viva* derivar alcanza; lo que no está medido es derivar el histórico. ⭐ **Lo bueno:** la semana viva (2026-11-20) **cierra 217 de 217 y sin un solo NULL** — el problema no es la semana, es poder demostrarlo. → [anexo](FASES/FASE_RH_FRENTE_NE_ANEXO_ESTRUCTURA_2026-11-24.md) §9
 - [ ] 🧪 `[NE.2.5]` **La cola de los que no ligaron, y la firma que la base EXIGE** (2026-11-25) — C2. Endpoint para resolver a mano los **48–58** que el puente declara (ambiguos, juicios, bajas y sin candidato), escribiendo `matched_by = 'manual'` **con firma**. El empate por nombre es provisional por definición; esto es lo que lo vuelve reemplazable. **Superficie:** `GET /hr/nomina/cola` (cada caso con el nombre que usa nómina, cuándo cobró y cuántas veces) y `POST /hr/nomina/cola/resolver`, con la clave `HR_NOMINA_GESTIONAR` — que sigue **sin repartir** (regla 20) hasta que exista la pantalla. ⚠️ **Estas dos rutas SÍ devuelven nombres de personas**, al revés que el resto del frente, y es deliberado: **una identidad no se resuelve a ciegas**; pedirle a alguien que firme mirando identificadores es pedirle que firme lo que no puede ver. ⭐ **No se inventó un segundo emparejador:** los candidatos que muestra la cola son **exactamente** los que `tiendePuente` miró y descartó — el primitivo ahora los publica (`candidatos`), en vez de que la cola los recalcule con otra heurística parecida (ADR-056). ⭐⭐ **La firma dejó de ser una costumbre:** el comentario de la columna decía desde `[NE.0.4]` que un alias manual «se firma en `matched_note`», pero **nadie lo exigía** — el CHECK de nota cubre sólo `'nombre'`. La migración `20261125083440_ne25` lo vuelve regla: nota no vacía **y** autor. **CONTROL NEGATIVO medido:** sin esa migración los tres casos sin firma (sin nota, nota en blanco, sin autor) **ENTRAN**; con ella, los tres se rechazan con **23514** — y una fila con firma sí entra, para que el rojo no pueda venir de otra cosa. La migración es idempotente, el `down` la quita y el `up` **se niega con el número** si dejaría filas inválidas. **MEDIDO contra Postgres real** (`nomina-cola.service.db.spec.ts`, clúster desechable verificado por su `data_directory`, todo en transacción que se deshace): la cola trae nombre, 2 pagos y los 2 candidatos con su estado; el `sin-candidato` trae la lista **vacía** (no se rellena con el parecido más cercano); resolver escribe `manual` + nota + autor; **la segunda resolución devuelve el mismo alias** (idempotente, 1 activo); ligarlo a otra persona **sin declarar a quién apunta hoy** se rechaza, declarándolo **mal** también, y la fila **no se mueve**; declarándolo bien, el viejo queda **desactivado, no borrado**. Más tres negativas de entrada: nota de relleno, código que nadie cobra, persona inexistente. ⛔ **No deja descartar un caso** (D10, abierta): un `sin-candidato` se arregla **dando de alta a la persona**, no callándola. ⚠️ **NO MEDIDO: el arranque de Nest** (`check-boot` exige compilar la API, prohibido en local; la corre el CI) — el controlador pasó a inyectar **tres** servicios. **Falta:** aplicar la migración en prod, desplegar y repartir la clave con la pantalla. → [anexo](FASES/FASE_RH_FRENTE_NE_ANEXO_ESTRUCTURA_2026-11-24.md) §9
 

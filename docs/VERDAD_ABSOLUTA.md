@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 443 KB, 6613 líneas, 44 secciones.
+> **Índice navegable** — 444 KB, 6632 líneas, 44 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -49,8 +49,8 @@
 | 5829 | 5893 | 5 | 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05) |
 | 5894 | 5998 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
 | 5999 | 6070 | 5 | 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026- |
-| 6071 | 6330 | 15 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
-| 6331 | 6669 | 20 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
+| 6071 | 6349 | 16 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
+| 6350 | 6688 | 20 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -6172,6 +6172,25 @@ Semana del 7 al 13 de noviembre, nómina ordinaria, 208 personas:
 **$105,109.71** sobre 201 personas. **Las deducciones la explican completa** ($105,777.41 sobre 208).
 ⛔ **No falta dinero y nadie cobra de menos**: son retenciones, que por definición las paga el
 trabajador.
+
+⚠️ **Addendum (2026-11-25): eso se midió contra el ARCHIVO de dispersión, no contra la base — y la
+dispersión NO está hoy en `finance.bank_movements`.** Se intentó usar el banco como árbitro
+independiente del recibo (D11 del frente NE) y **no alcanza**:
+
+- Las salidas con concepto `Nomina NN` (1,653 en 2026, $14.9 M) **no son la dispersión semanal**:
+  caen en cualquier día —no sólo viernes—, están repartidas en **4 cuentas**, y sumadas por semana
+  no se parecen al neto de ContPAQi.
+- ⛔ **Y el control negativo lo prueba, que es lo único que lo vuelve afirmable:** el error medio
+  contra la **semana correcta** es **$161,070**, contra la **anterior** $151,971 y contra la
+  **siguiente** $166,687 — **cruzar con la semana equivocada sale igual de bien**. Cero semanas de
+  42 cuadran al peso. Sin ese control, la semana del 25-sep ($436,482 contra $417,120) se habría
+  cantado como empate.
+- La cuenta que concentra esas partidas **no tiene estados de cuenta cargados después del
+  2026-10-09**.
+
+→ **Para arbitrar la nómina desde dentro de la Suite hace falta abrir
+`contpaqi_nom.add_nomina.totalpagado`** (hoy ACL sólo `postgres`), no el banco. El banco vuelve a
+ser candidato cuando su ingesta cubra la cuenta de nómina al día.
 
 **Lo que sí es un defecto — el nombre.** El campo se llama *«sueldo a recibir»* y **no es lo que se
 recibe**: comparando lo que la persona recibe en mano (neto del banco + efectivo del sobre) contra
