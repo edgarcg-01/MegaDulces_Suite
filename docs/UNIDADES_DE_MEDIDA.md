@@ -1,31 +1,32 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 61 KB, 1052 líneas, 19 secciones.
+> **Índice navegable** — 63 KB, 1079 líneas, 20 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/UNIDADES_DE_MEDIDA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 32 | 43 | 1 | Unidades de medida — investigación |
-| 44 | 66 | 1 | 1. El tamaño del problema |
-| 67 | 99 | 1 | 2. El catálogo y el ERP no se ponen de acuerdo — 73.6% |
-| 100 | 110 | 1 | 3. El vocabulario está sucio en las dos puntas |
-| 111 | 163 | 2 | 4. ⭐ El resolvedor canónico devuelve dos unidades en la misma columna |
-| 164 | 196 | 2 | 5. El 40% de la venta resuelve su caja sin ancla |
-| 197 | 219 | 1 | 6. La prueba del dinero: en qué unidad está el fact |
-| 220 | 242 | 5 | 7. Reglas que salen de esto |
-| 243 | 277 | 2 | 8. Defectos concretos, accionables |
-| 278 | 329 | 3 | 8bis. El rótulo esconde la mezcla *dentro de sí mismo* (RR-PROMO.1, 2026-09-02) |
-| 330 | 380 | 3 | 8ter. Wincaja contra Kepler: la unidad no se hereda entre capas (ADR-055, 2026-09-03) |
-| 381 | 437 | 3 | 8quater. ¿En qué peldaño está `cost_with_tax`? (U.0, 2026-09-03) |
-| 438 | 478 | 2 | 8quinquies. Por qué la VENTA sí se convierte a cajas y la EXISTENCIA no (U.2b, 2026-09-03) |
-| 479 | 634 | 10 | 8sexies. El resolvedor con VEREDICTO y MÉTODO (U.4–U.7, 2026-09-07 · ADR-057) |
-| 635 | 830 | 10 | 8septies. El peldaño COBRADO como testigo del factor — en una sola dirección (KX, 2026-09-09) |
-| 831 | 958 | 6 | 8octies. ⭐⭐ LA MEDIDA QUE KEPLER HACE — reproducir en vez de arbitrar (VK.1, 2026-09-12 · ADR-063) |
-| 959 | 1061 | 6 | 8nonies. ⭐ La unidad es de la CELDA, no de la fila (SO.U / EC.U, 2026-09-12) |
-| 1062 | 1076 | 2 | 9. Lo que NO se investigó |
-| 1077 | 1083 | 1 | Referencias |
+| 33 | 44 | 1 | Unidades de medida — investigación |
+| 45 | 67 | 1 | 1. El tamaño del problema |
+| 68 | 100 | 1 | 2. El catálogo y el ERP no se ponen de acuerdo — 73.6% |
+| 101 | 111 | 1 | 3. El vocabulario está sucio en las dos puntas |
+| 112 | 164 | 2 | 4. ⭐ El resolvedor canónico devuelve dos unidades en la misma columna |
+| 165 | 197 | 2 | 5. El 40% de la venta resuelve su caja sin ancla |
+| 198 | 220 | 1 | 6. La prueba del dinero: en qué unidad está el fact |
+| 221 | 243 | 5 | 7. Reglas que salen de esto |
+| 244 | 278 | 2 | 8. Defectos concretos, accionables |
+| 279 | 330 | 3 | 8bis. El rótulo esconde la mezcla *dentro de sí mismo* (RR-PROMO.1, 2026-09-02) |
+| 331 | 381 | 3 | 8ter. Wincaja contra Kepler: la unidad no se hereda entre capas (ADR-055, 2026-09-03) |
+| 382 | 438 | 3 | 8quater. ¿En qué peldaño está `cost_with_tax`? (U.0, 2026-09-03) |
+| 439 | 479 | 2 | 8quinquies. Por qué la VENTA sí se convierte a cajas y la EXISTENCIA no (U.2b, 2026-09-03) |
+| 480 | 635 | 10 | 8sexies. El resolvedor con VEREDICTO y MÉTODO (U.4–U.7, 2026-09-07 · ADR-057) |
+| 636 | 831 | 10 | 8septies. El peldaño COBRADO como testigo del factor — en una sola dirección (KX, 2026-09-09) |
+| 832 | 959 | 6 | 8octies. ⭐⭐ LA MEDIDA QUE KEPLER HACE — reproducir en vez de arbitrar (VK.1, 2026-09-12 · ADR-063) |
+| 960 | 1062 | 6 | 8nonies. ⭐ La unidad es de la CELDA, no de la fila (SO.U / EC.U, 2026-09-12) |
+| 1063 | 1089 | 2 | 8decies. ⭐⭐ La RECEPCIÓN no convierte: el kardex suma lo que dice el renglón (`[PQ.112.2]`, 2026-11-24) |
+| 1090 | 1104 | 2 | 9. Lo que NO se investigó |
+| 1105 | 1111 | 1 | Referencias |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -1056,6 +1057,33 @@ Candado: `database/tests/test-newdb-unit-display.js` (**6 OK / 0 FAIL** contra p
 pruebas negativas que importan: que haya **más de un** rótulo, que la **ausencia** siga siendo
 ausencia, y que la rama de **mezcla** se ejerza de verdad. ⛔ No mide que la pantalla muestre lo que
 el backend manda: eso es validación visual y queda **pendiente**.
+
+---
+
+## 8decies. ⭐⭐ La RECEPCIÓN no convierte: el kardex suma lo que dice el renglón (`[PQ.112.2]`, 2026-11-24)
+
+**La regla, medida en prod** (órdenes de entrada `X-A-40` vivas de 30 días, 5,900 renglones, 9 sucursales):
+
+1. **Kepler no convierte la unidad en ningún paso.** El vale copia la unidad de la OC, la orden de entrada
+   la del vale, y el kardex (`kdij.c11`/`c12`) guarda la cantidad y el rótulo del renglón **tal cual**:
+   5,897 de 5,897; de los 4,384 renglones con `c58 > 1`, ninguno convertido.
+2. **La existencia (`kdil`) es la suma cruda** de esas cantidades: en los SKUs con entradas en un peldaño
+   mayor, 869 de 1,279 cuadran crudo y **4** convertido (el resto no cuadra con ninguna por los cortes de
+   periodo de `kdil`). Confirma §3.x de [`ERP_KEPLER.md`](ERP_KEPLER.md) para la compra.
+3. **Cobertura:** 80 % de los renglones viene en la unidad base de la ficha (`kdii.c11`); 19.1 % en un
+   peldaño mayor; 49 renglones (0.8 %) con un rótulo que no está en la escalera de su ficha (casi todos
+   `CJA` de productos KG/BTO sin caja). `500`, `250`, `400`, `CUB` y `SER` son la **unidad base** de su
+   producto (gramaje, cubeta, servicio): legítimos.
+4. ⛔ **Quién mete el peldaño mayor: la Suite.** 1,109 de los 1,128 renglones en `CJA` (siendo la base
+   otra) nacen de OC escritas por la Suite (`[KR.6]` escribe cajas enteras como `CJA`); las OC capturadas
+   a mano van en base en el 99.5 %. Quien recibe convierte **a mano** la cantidad (cajas × factor de la
+   ficha, 954 de 1,143) y deja el rótulo «CJA»: el kardex dice cajas y son paquetes. En 22 no convirtió.
+
+**Qué significa para quien escriba en Kepler:** escribir un documento que mueve inventario **en la unidad
+base de la ficha de esa sucursal**, con la conversión hecha en el servidor y contrastada (el factor que usa
+la gente es el de la ficha, `kdii.c81`/`c84`, en el 83.5 %), y rechazar el renglón cuyo rótulo no está en la
+escalera. Una cantidad en otro peldaño no truena: se suma como si fuera base. Decisiones abiertas: DR5 y
+DR6 del [anexo R](IMPLEMENTACION/FASES/FASE_PQ_ANEXO_RECEPCION_EN_KEPLER.md).
 
 ---
 
