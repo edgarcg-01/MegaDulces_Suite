@@ -69,12 +69,28 @@ const SIN_REPARTIR = {
   // la mig `20261008094815` segun el flujo que Mega Talento documenta (servicios al personal califica
   // y cierra = `recursos_humanos`; contabilidad audita). Ver SIN_PERSONAS.
   HR_NOMINA_GESTIONAR:
-    'Frente NE, `[NE.2.3]`. Gatea la API que liga el codigo del sistema de nomina con la persona ' +
-    'de la Suite. El empate es POR NOMBRE (no hay llave dura: el numero del reloj acierta por ' +
-    'DEBAJO del azar, y la Suite no guarda CURP), asi que un alias equivocado liga a una persona ' +
-    'con el sueldo de otra. Se reparte con la pantalla que permite revisarlo y corregirlo ' +
-    '(`[NE.2.5]`), a los mismos dos roles que ya tienen todas las claves de RH ' +
-    '(`recursos_humanos` y `reclutamiento_asistencia`). Pendiente: que exista esa pantalla.',
+    'Frente NE, `[NE.2.3]`. Gatea el puente y la cola: ligar el codigo con que un sistema de ' +
+    'nomina nombra a una persona con la persona de la Suite. El empate es POR NOMBRE (no hay ' +
+    'llave dura: el numero del reloj acierta por DEBAJO del azar, y la Suite no guarda CURP), ' +
+    'asi que un alias equivocado liga a una persona con el sueldo de otra. Se reparte con la ' +
+    'pantalla que permite revisarlo y corregirlo (`[NE.2.5]`). Pendiente: que exista esa ' +
+    'pantalla. ' +
+    '⚠️ DESTINO CORREGIDO el 2026-11-25: este motivo decia «a los mismos dos roles que ya tienen ' +
+    'todas las claves de RH (`recursos_humanos` y `reclutamiento_asistencia`)», pero ' +
+    '`reclutamiento_asistencia` tiene CERO personas en prod -- repartir ahi es no repartir (es la ' +
+    'leccion que SIN_PERSONAS documenta aqui mismo). Las vivas estan en `recursos_humanos` (2).',
+  // `[NE.2.6]` / D12 -- partida de la de arriba el 2026-11-25, DESPUES de medir que el frente
+  // entero quedo desplegado en prod sin poder producir una fila (tres tablas en 0) porque los
+  // cinco verbos compartian una clave que espera a una pantalla que espera a la API.
+  HR_NOMINA_CALENDARIO:
+    'Frente NE, `[NE.2.6]`. Gatea UN solo verbo, `POST /hr/nomina/periodos/sincronizar`, que ' +
+    'puebla el calendario de semanas de nomina derivandolo de ContPAQi. NO toca personas: no ' +
+    'muestra nombres, no escribe identidad y no pide firma, es idempotente y reporta lo que no ' +
+    'cae en viernes. ' +
+    '⭐ Por eso, al reves que su hermana, NO necesita pantalla para repartirse con seguridad -- ' +
+    'esta aca porque repartir un permiso en prod es decision del PM, no mia. Partir la clave es ' +
+    'decision tecnica (ADR-054: el permiso es una CLAVE, no una tupla) y ya se hizo; lo que falta ' +
+    'es la firma. Destino propuesto: `recursos_humanos` (2 personas vivas). Pendiente: Edgar (D12).',
 };
 
 /**
