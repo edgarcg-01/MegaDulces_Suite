@@ -127,6 +127,17 @@ export enum Permission {
   // (mientras, `SIN_REPARTIR` del candado de reparto): un alias equivocado liga a una persona con
   // el sueldo de otra, así que no se concede antes de que haya dónde revisarlo.
   HR_NOMINA_GESTIONAR = 'HR_NOMINA_GESTIONAR',
+  // Módulo: RH / Nómina — frente NE, `[NE.2.6]` / **D12**. Partida de la de arriba el 2026-11-25,
+  // y la razón se midió: con UNA sola clave para los cinco verbos, el frente entero quedó
+  // desplegado en prod y **sin poder producir una fila** —las tres tablas en 0— porque la clave
+  // espera a una pantalla que a su vez espera a que la API esté probada. Un círculo.
+  // ⭐ Esta clave gatea SÓLO el verbo que **no toca personas**: poblar el calendario de semanas
+  // de nómina derivándolo de ContPAQi (idempotente; omite y reporta lo que no cae en viernes).
+  // No muestra nombres, no escribe identidad y no pide firma, así que **no necesita pantalla
+  // para repartirse con seguridad** — lo que sí necesita es que el PM lo autorice (D12).
+  // ⛔ Lo que NO entra acá y se queda en `HR_NOMINA_GESTIONAR`: el puente (escribe identidad por
+  // empate de NOMBRE) y la cola (muestra nombres y pide firma). Ésos sí esperan la pantalla.
+  HR_NOMINA_CALENDARIO = 'HR_NOMINA_CALENDARIO',
   // Módulo: RH / Reclutamiento — `[RH.2.2]`, lo que antes vivía en el portal de Mega Talento.
   // VER lee candidatos y vacantes; GESTIONAR mueve de etapa, registra eventos, marca (no
   // recontratable, spam), fusiona duplicados, manda a la papelera y publica vacantes. La pantalla es
