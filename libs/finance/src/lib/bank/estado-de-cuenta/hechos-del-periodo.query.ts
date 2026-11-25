@@ -14,8 +14,10 @@
  * (`kdm5` → `U-D-23`) es venta de tienda, con la sucursal del corte; otro cobro, cobranza; `N-*-26`, traspaso.
  * ⛔ El cobro se busca en `kdm5` por su llave de ABONO (`ix_kdm5_abono`) y el cargo se compara DESPUÉS, concatenado: con
  * `c8/c9/c10` sueltos en el WHERE el planner elige `ix_kdm5_aplicacion_factura` (todas las aplicaciones a cortes de la
- * sucursal) y la consulta tarda 1.1 s; así, ~50 ms (prod, noviembre de 2026, 1,480 cobros casados, mediana de 3).
- * Se lee `kdm5` y no la vista de aplicaciones vigentes: un cobro cancelado sigue diciendo a QUÉ se aplicó.
+ * sucursal) y la consulta tarda 1.1 s; así, ~78 ms (prod, noviembre de 2026, 1,480 cobros casados, mediana de 3).
+ * Las aplicaciones se leen VIGENTES (`analytics.kepler_kdm5_vigente`, `[CSU.11]`, compuerta `check:kdm5-vigente`): un
+ * depósito casado con un cobro cancelado en Kepler no es venta de tienda por ese cobro. La vista se aplana y el filtro
+ * sigue entrando a `ix_kdm5_abono` (medido: el mismo plan, +25 ms por el anti-join con `kdm1`).
  */
 import type { Knex } from 'knex';
 import type { FilaDeCobertura } from './cobertura-de-categoria';
@@ -37,7 +39,7 @@ m AS MATERIALIZED (
 venta AS MATERIALIZED (
   SELECT m.bank_movement_id, min(m.suc) AS suc
     FROM m
-    JOIN kepler_ods.kdm5 k
+    JOIN analytics.kepler_kdm5_vigente k
       ON k.c2 = 'U' AND btrim(k.c1) = m.suc AND btrim(k.c3) = 'A' AND btrim(k.c4::text) = split_part(m.tipo, '-', 3)
      AND btrim(k.c5::text) = '1' AND btrim(k.c6) = m.folio
    WHERE m.tipo LIKE 'U-A-%' AND k.sucursal = m.suc
