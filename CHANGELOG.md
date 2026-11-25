@@ -9,21 +9,21 @@
 ---
 
 ## [Unreleased]
-### Fixed — Almacén › Ubicaciones: lo que acabas de ubicar ya no desaparece (UB.RF.19 · 2026-11-25 · en código, sin soltar)
+### Fixed — Almacén › Ubicaciones: lo que acabas de ubicar ya no desaparece (UB.RF.19 · 2026-11-25 · **en producción**)
 - Reporte: «los productos no se están almacenando ni mostrando». **Sí se estaban guardando** — dos asignaciones ese mismo día en TA011 de Padre Hidalgo, sin un solo error. Lo que no había era dónde verlos: al guardar, el producto salía de la lista (el filtro de entrada es «Por ubicar» y ya había dejado de estarlo) y la única señal era un aviso que se va.
 - Ahora **«Acabas de ubicar (N)»** queda a la vista en la lista, con el código donde quedó cada producto y su «Quitar». Antes esa bandeja sólo se llenaba si trabajabas parado en una ubicación.
 - Si el almacén que estás viendo no tiene ningún producto ubicado y otro sí, **se dice con su nombre y su cifra**: «CEDIS todavía no tiene productos ubicados. Padre Hidalgo tiene 23», con el botón para cambiarte. Quien no tiene almacén en su ficha abría siempre en CEDIS —375 ubicaciones, 0 productos— y leía «no hay nada» sobre el almacén equivocado.
 - El almacén va **en el título** de la pantalla, no en gris chico al lado.
 - Internal: `ubicaciones` y `con_producto` por almacén en `alcance` (consulta agregada, 8 ms). ⚠️ Su primera versión usaba `count(*)` sobre un `LEFT JOIN` que multiplica la ubicación por cada producto y daba 185 en vez de 156: lo cazó el control de la consulta, no una prueba. Va con `count(DISTINCT b.id)`.
 
-### Changed — Almacén › Ubicaciones: cada pasillo es un corredor con sus dos frentes (UB.RF.18 · 2026-11-25 · en código, sin soltar)
+### Changed — Almacén › Ubicaciones: cada pasillo es un corredor con sus dos frentes (UB.RF.18 · 2026-11-25 · **en producción**)
 - Un pasillo tiene racks de los dos lados. Ahora el mapa lo dibuja así: los **nones** de un lado del corredor y los **pares** del otro, cada frente con su regleta de números pegada a su fila, y el rack 05 exactamente enfrente del 06.
 - El frente **no se escribe en el código**: se deduce del número, como en las calles. `BA053` sigue siendo el mismo código, con el mismo escáner y las mismas etiquetas.
 - **El recorrido de surtido baja por los nones y vuelve por los pares.** Antes iba 01, 02, 03…, que obliga a cruzar el corredor una vez por rack: 24 cruces en un pasillo de 25.
 - El detalle de un rack dice de qué frente es y qué tiene enfrente.
 - Internal: `rackFace` / `rackOpuesto` en contracts, `defaultPickSequence` en serpentina, migración `20261125131938` que recalcula el recorrido de las 531 ubicaciones existentes (531 de 531 tenían la fórmula vieja: 0 editadas a mano). ⚠️ Sólo hace UPDATE: **aplicar antes de mergear**.
 
-### Changed — Almacén › Ubicaciones: el mapa dice lo que varía, y lo que no se midió se declara (UB.RF.17 · 2026-11-25 · en código, sin soltar)
+### Changed — Almacén › Ubicaciones: el mapa dice lo que varía, y lo que no se midió se declara (UB.RF.17 · 2026-11-25 · **en producción**)
 - Cada cuadro del mapa muestra ahora **cuántos productos tienen su lugar en ese rack**, que es lo único que cambia de un rack a otro. Antes mostraba cuántos niveles tiene, que es el mismo número en todo el almacén: los 75 racks de CEDIS se veían idénticos, y los 2 racks de Padre Hidalgo que ya tienen producto se veían igual que los otros 37.
 - Al tocar un rack, **«Ver sus N productos»** abre Asignación con ese rack ya filtrado, y la lista avisa que está recortada con «Ver todo el almacén» al lado.
 - Las cifras de arriba cuentan **lo que la pantalla muestra**, no el almacén entero. Zamora Centro decía «3 activas» con el mapa vacío porque sus tres son carretas: ahora dice que están fuera del mapa y ofrece verlas.
@@ -36,6 +36,12 @@
 - En los productos que se venden en pieza, paquete y caja (362, como los chocolates de 6), la pieza es para el piso de ventas: al cotizar sólo aparecen Paquete y Caja, con el paquete elegido, y una nota dice «Pieza: sólo en piso de ventas». Escanear el código de la pieza deja elegido el paquete.
 - Los productos a granel por peso (medio kilo, kilo, bulto) y los que tienen otras unidades siguen igual.
 - Las cotizaciones ya guardadas que traían pieza se conservan: se puede cambiar la cantidad y volver a cotizarlas. Lo que ya no se puede es agregar un renglón nuevo en pieza, ni cambiar uno a pieza.
+### Added — Finanzas › Cartera: ya se pueden cerrar los centavos desde la ficha del cliente (GP.R.4 · 2026-11-25)
+- En la ficha de un cliente, arriba de sus facturas, aparece cuántas tienen centavos sueltos y cuánto suman, con el botón para cerrarlos de una vez. Las facturas que forman ese monto están ahí mismo, marcadas «Redondeo».
+- Pide confirmar antes de escribir, y el botón se apaga en el primer clic: el doble clic del apuro no cobra dos veces.
+- Donde todavía está apagado no aparece el botón, y se dice por qué en vez de dejar que falle.
+- La explicación de qué son los centavos sueltos y cómo se cierran dejó de vivir en un globo de ayuda que sólo veía quien usa mouse: ahora está en la ayuda de la pantalla, y dice también **lo que el cierre no arregla** (la factura sigue con esos centavos ante el SAT).
+- Internal: `POST /api/finance/ajuste-abono/:sucursal` + `GET` del mismo para saber si está habilitado; el contrato recibe `doc_code` y el servidor deriva tipo y serie (una sola implementación, en `contracts`). Tema `restos_cliente` del diccionario de ayuda. 9 pruebas nuevas del componente.
 
 ### Added — Finanzas › Cartera: cerrar el resto de centavos con el documento correcto (GP.R.2 · GP.R.3 · 2026-11-25 · APAGADO, sin soltar)
 - Cuando un cliente paga su factura y quedan centavos sueltos, Crédito y cobranza podrá cerrarlos con el **Ajuste Abono** que el ERP ya trae, en vez de capturar un cobro de centavos que dice que entró dinero y no entró (74 de ésos en 60 días).
