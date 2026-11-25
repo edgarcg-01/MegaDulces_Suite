@@ -487,6 +487,8 @@ que contar no avanza el folio.**
 | **F9** | 🟠 | **Las flechas del teclado cambian la cantidad.** Quien se mueva por la lista con el teclado modifica el conteo en vez de bajar de fila, en silencio. | `5` + `ArrowDown` → `4`. |
 | **F10** | 🟡 | **Tope mudo de 6 dígitos en la cantidad.** El campo es `type=text` con `min=0` y **`max` vacío**; a partir de `999,999` deja de aceptar teclas **sin decir nada**. | Se teclearon nueve dígitos (`999999999`) y quedó `999,999`. |
 | **F11** | 🔴 | **La interfaz NO refleja los permisos: muestra a todos los botones de todos.** Un `encargado_tienda` (sólo `VER` + `AJUSTAR` + `ASIGNAR`) ve **«Reconciliar»** en verde y habilitado y **«Cancelar folio»**, sin tener `RECONCILIAR` ni `CANCELAR_CONTEO`. El servidor sí los rechaza (defensa de fondo correcta), así que el daño no es de seguridad: es que la persona cree que puede cerrar el inventario o destrabar el almacén, aprieta, y recibe «No tienes los permisos dinámicos necesarios» —jerga que no dice qué falta ni a quién pedírselo—. Además **«Reconciliar» está habilitado con cero conteos**, lo que debería ser imposible, no advertido. | Medido en vivo el 2026-11-25 entrando como `monica_mejia` (`encargado_tienda`, suc 01). Los cuatro botones visibles; la API le devuelve 403 en `items`, `catalog`, `sessions`, `kepler-export`. |
+| **F19** | 🔴🔴 | **El rechazo de una acción IRREVERSIBLE es mudo.** Quien sólo tiene `VER` aprieta «Reconciliar», recibe un diálogo que le advierte «**No se puede deshacer**», confirma… y **no pasa nada visible**: ni error, ni aviso, ni toast. El servidor respondió **403** y la interfaz no lo dijo. ⛔ Encadenado con **F18**, el resultado es que la pantalla le sigue mostrando **ceros** —que se leen como «contado y cuadrado»—, así que **la persona puede concluir que reconcilió bien**. Un fallo silencioso sobre la única acción del módulo que mueve existencia. | Medido en vivo con `camila_verdines`: `POST :id/reconcile` → **403**; el folio quedó en `counting`, `closed_at: null` (**no escribió nada** ✅) y la pantalla no mostró mensaje alguno. |
+| **F20** | 🟠 | **`reconcile()` trata el no-contado como CERO; lo salva un solo guard.** En el bucle que aplica los ajustes: `const finalQty = Number(it.final_qty)` — y `Number(null)` es **0**, así que un artículo sin contar da `delta = −expected`, **no** entra en el `if (delta === 0) continue` y **se aplica**, dejando la existencia en cero. Hoy no ocurre porque `bloqueosParaReconciliar` frena antes por `count_1 == null` y `final_qty == null` (bien hecho, y es lo que cumple la promesa «un no-contado NO se trata como cero»). Pero es **protección de capa única**: un camino nuevo, un «reconciliar parcial» o un filtro distinto entre guard y bucle pondría el almacén en cero. **Falta la defensa barata**: `if (it.final_qty == null) continue;` dentro del bucle. | Leído en `inventory-count.service.ts` (bucle de aplicación y `bloqueosParaReconciliar`). ⚠️ El guard se verificó por código, **no se ejerció el 409**: hace falta una cuenta con `RECONCILIAR`. |
 | **F18** | 🔴🔴 | **Un 403 se convierte en CEROS: la pantalla dibuja un inventario impecable.** A quien sólo tiene `VER`, el detalle del folio le muestra «COBERTURA **0.0 %** · CONTADOS **0/0** · SIN CONTAR **0** · DISCREPANCIAS **0** · VALOR EN RIESGO **$0**» — sobre un folio con **3,363 artículos sin contar**. No dice «sin permiso» ni «no disponible»: dice **cero**, que se lee como *contado y cuadrado*. El bloque «Falta para poder cerrar este folio» tampoco aparece, así que no queda ni una pista. ⛔ Y le toca justo a **prevención**, cuyo oficio ES el descuadre. Además el título pierde el folio: dice **«Folio»** a secas, porque el número venía de `progress` (403). **Viola la regla 11 del proyecto de frente** (lo no medido se declara, nunca se dibuja como cero). | Medido en vivo el 2026-11-25 con `camila_verdines` (`prevencion_auxiliar`, **un solo rol**, única llave `COMMERCIAL_INVENTORY_VER`). |
 | **F17** | 🔴 | **Un 403 de permisos se pinta como «Sin items para este filtro».** Al encargado, que recibe 403 en `GET :id/items`, la tabla de artículos le muestra el texto de lista vacía — mientras el encabezado de la MISMA pantalla le dice «SIN CONTAR 3,363». Dos afirmaciones contradictorias a la vez, y la causa real (no tiene permiso) no aparece. Quien lo vea concluye que el folio está vacío o que se perdieron los datos. Es el mismo defecto que §9b ya tenía para la lista de folios, agravado: acá es por permisos y en el detalle. ⚠️ El encabezado de la tabla además anuncia la columna **«Teórico»**, que su permiso le niega. | Captura en vivo con `monica_mejia`: `items` → 403, y la tabla pinta «Sin items para este filtro». |
 | **F12** | 🟡 | **El teórico del mismo almacén saltó de 2,094 a 3,363 artículos** entre junio y hoy (+61 %). Puede ser crecimiento real o un cambio de fuente: **no está medido**. Toca directo a **D-EX8**. | `INV-2026-00009` y `00007` (Padre Hidalgo, junio): 2,094 y 2,093. `INV-2026-00010` (Padre Hidalgo, hoy): 3,363. |
@@ -508,18 +510,33 @@ que contar no avanza el folio.**
 - **Tras registrar un conteo**, la pantalla limpia los dos campos y devuelve el foco al código.
 - **«Guardar» nace deshabilitado** con el campo vacío, y **los negativos se descartan**.
 - ⭐ **El aviso de cierre dice la regla de la casa en palabras**: «un no-contado **NO** se trata como
-  cero».
+  cero». Y el guard que la cumple (`bloqueosParaReconciliar`) está bien hecho — ver **F20** para su
+  única debilidad.
+- **Reconciliar pide confirmación y advierte que es irreversible**: «Esto ajusta el stock teórico al
+  físico contado y genera los movimientos. **No se puede deshacer.** ¿Continuar?». El diálogo existe
+  y dice lo que corresponde; el problema es a quién se le ofrece (**F11**) y que su rechazo sea mudo
+  (**F19**).
+- ⭐⭐ **El servidor nunca escribió de más en toda la prueba.** Se ejerció `reconcile` desde una
+  cuenta sin permiso: **403**, y el folio quedó intacto (`counting`, `closed_at: null`).
 
 ### Lo que queda SIN MEDIR
 
 ⛔ Nada de esto se ejerció, y **no se declara como funcionando**:
 
-- **`POST /counts/:id/reconcile`** — el final del proceso. Mueve existencia real; no se aprieta a
-  ciegas con 3,362 artículos sin valor. **Primero hay que leer qué hace `reconcile()` con los nulos.**
+- **`POST /counts/:id/reconcile` con permiso.** Ya se ejerció **sin** permiso (403, nada escrito) y
+  ya se leyó el código (**F20**: el guard frena por los nulos). Falta el **409 real** desde una
+  cuenta con `RECONCILIAR`, y el camino feliz, que exige un folio contado al 100 % — hoy imposible
+  por **F1** y **F2**.
 - **«Calcular discrepancias»** — por eso **«Discrepancias 0» probablemente sea «no calculado», no
   «cero medido»**; no se afirma ninguna de las dos cosas sin correrlo.
-- **«Cancelar folio»**, **asignar contadores**, **equipos por pasillo**.
+- **«Cancelar folio»** y **equipos por pasillo**. (Asignar contadores ✅ ya se ejerció.)
 - **El camino sin conexión** (cola de Dexie, reintento, 409) y el **doble envío**.
+- Los perfiles **`supervisor`** y **`marketing`** en vivo; **F4** depende de ellos.
+
+> ⚠️ **Fuera del módulo, visto al elegir cuentas de prueba:** una persona tiene **35 roles**
+> asignados a la vez, y aparece simultáneamente como `almacenista`, `encargado_tienda`, `prevencion`
+> y `supervisor`. Para esa cuenta cualquier matriz de permisos es decorativa, y **no sirve como
+> caso puro de ningún perfil** al probar. Es de `identity`, no de inventario; se deja apuntado.
 
 ### ⚠️ Dos afirmaciones anteriores que se corrigen acá
 
