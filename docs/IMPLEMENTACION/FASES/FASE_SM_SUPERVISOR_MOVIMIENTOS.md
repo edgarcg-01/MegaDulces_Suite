@@ -836,6 +836,41 @@ en 2 semanas la diferencia neta por sucursal y el % de turnos explicados al día
 | 2026-11-24 | Versión simple «Retiros por revisar» (meta: emparejar Suite ↔ Kepler): spec 24 ✓, base real 40 ✓, pantalla 8 ✓, check:pantalla 0 fallas. PR abierto. NO MEDIDO: 403 HTTP, visual, arranque en CI | David + Claude |
 
 
+## SM.56 — Corregir un arqueo tecleado: cierre de la caja 4 del 24-nov (🧪 local 2026-11-25)
+
+**Qué pasó.** La cajera capturó 59 billetes de $1,000 donde había 29. El arqueo quedó en $59,521.00; el corte
+de Kepler de ese turno dice $29,591.23 de efectivo, y el motor levantó solo el hallazgo «sobran $29,929.77».
+
+**Qué se decidió (David, 2026-11-25).** Corregir solo ese arqueo, sin pantallas nuevas, igualándolo al corte.
+$29,591.23 no se puede formar con billetes y monedas (la más chica es 50¢), así que queda en **$29,591.50**.
+Los **$70.50** que faltan para llegar ($50 + $20 + 50¢) **no se contaron**: la nota del arqueo lo dice.
+
+**Cómo.** Una migración de datos, igual que `[CGS.5]`: no existe otra forma de corregir un arqueo de un día
+anterior (la pantalla captura solo HOY, a propósito, y la cajera ve solo los suyos de hoy, SM.33).
+
+| Capa | Qué | Estado |
+|---|---|---|
+| C0 | `20261125091516_sm56_corrige_arqueo_tecleado_caja4_24nov.js`: desglose, total, nota y firma del cierre + el hallazgo a `corregido` / `error_captura` | 🧪 12 ✓ en base local; rota → roja |
+| C1–C3 | sin cambio | — |
+| C4 | se aplica en prod **antes** de mergear (solo UPDATE → la compuerta del despliegue frena si queda pendiente) | ⬜ Edgar / PM |
+
+**Guardas.** Exactamente un cierre de la caja 4 del 24-nov con $59,521.00 (0 = no hace nada; 2 o más = aborta) y
+el desglose del ticket pieza por pieza. El `down` deshace solo lo suyo (busca la marca `[SM.56]` en la nota).
+
+**NO MEDIDO.** La fila real en prod (no se leyó prod; la guarda la exige al aplicarla) y si ese día hubo retiros
+en la caja 4 (si los hubo, el esperado del cierre en la Suite es menor que el efectivo del corte).
+
+**Si se repite.** Corregir un arqueo por migración no escala. Si vuelve a pasar, la salida es que la encargada
+pueda explicar o corregir un cierre desde «Por cajera» conservando el conteo original (maqueta: artboard 8 de la
+maqueta de Revisión de turnos). Necesita ticket y visto bueno del PM.
+
+### Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-11-25 | Migración escrita y probada en base local (12 ✓; rota a propósito → roja). PR abierto. Falta aplicarla en prod. | David + Claude |
+
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.
