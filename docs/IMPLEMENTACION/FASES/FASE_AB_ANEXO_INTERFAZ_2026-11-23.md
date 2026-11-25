@@ -444,42 +444,73 @@ sucursal propone y Compras confirma, con papel de por medio. Entonces:
 4. **La segunda vez que ese proveedor llega, sale sin preguntar.** Ahí está el ahorro: la pregunta
    se hace **una vez por par** (sucursal × proveedor), no una vez por pedido.
 
-### 10.5 ⛔⛔ El importer no se parchea: se elimina (Edgar, 2026-11-25)
+### 10.5 ⭐⭐ La ruta derivada es una moneda al aire — medido el 2026-11-25
 
-La salida fácil era agregarle a la tabla una bandera `via_source` y enseñarle al importer a no
-pisarla. **Eso deja el importer vivo y contradice la regla 1.** Lo que se hace es partir la tabla
-por lo que de verdad es cada cosa:
+Antes de escribir una línea, se corrió **la misma derivación del importer** contra prod y se comparó
+**fila por fila** con la tabla que ese importer dejó a las **03:23 del mismo día**. Sobre los
+**2,076 pares** que están en las dos:
+
+| Qué | Cuánto |
+|---|---:|
+| Pares con **otra `via`** que hace siete horas | **145** |
+| …de «de matriz» a «compra directa» | **141** |
+| Entradas ingestadas hoy, **todas después de las 03:23** (última 10:15) | **284** |
+
+Y el voto que decide la `via` **no decide casi nada**:
+
+| Margen del voto | Pares | De esos, **ya cambiaron** |
+|---|---:|---:|
+| **Empate** | 70 | **61** (87 %) |
+| Gana por **un** día | 109 | 41 (38 %) |
+| Gana por 2–3 días | 163 | 24 |
+| Gana cómodo (4+) | 455 | 16 |
+| Un solo canal | 1,279 | **3** |
+
+⛔⛔ **En los 70 empates, el desempate lo da `ORDER BY ..., channel` — o sea el orden alfabético:
+`purchase` le gana a `transfer` porque empieza con p.** Para unos **180 pares**, *dónde se pide la
+mercancía* lo decide una entrega de más.
+
+➡️ **Derivar la ruta no era sólo caro: era incorrecto.** Una relación de abasto no cambia porque
+hoy llegó un camión; cambia cuando **alguien lo decide**. Por eso la ruta pasa a ser dato propio
+(HITL) escrito **por evento**, y el importer se borra.
+
+### 10.5b ⛔ La cadencia NO se vuelve vista: la medición lo refutó
+
+El primer diseño de este anexo decía «la cadencia es una medición → vista `derive-no-copy`». **Se
+midió y no se sostiene**, así que se corrige acá:
+
+- El cuerpo de la derivación corrido **como vista tarda 58.9 s** (su tramo de clasificación solo,
+  **1,276 ms**). `ix_stockmov_date` lee **799,943 filas y tira 691,020** sobre una tabla de
+  **3,904,518 filas / 1,379 MB**.
+- Y sus columnas **las consumen pantallas**, no sólo el escáner: **45 usos** en
+  `commercial-replenishment.service.ts`, **13** en `compras.service.ts`, **8** en
+  `compras-pedido-real.component.ts`.
+
+*Materializar por costo es legítimo; lo que no es legítimo es refrescarlo con un importer de
+madrugada.* La cadencia **se queda materializada** y su refresco pasa a ser **por evento** — item
+aparte, fuera de estos cuatro.
+
+### 10.5c Cómo queda partido
 
 | Qué | Qué es | Dónde vive |
 |---|---|---|
-| **La ruta** (`via`, `source_warehouse_id`) | Una **decisión**, no una medición. Cambia cuando cambia una relación comercial: pocas veces, y siempre porque **alguien lo decidió** | Tabla propia, **HITL**, escrita **por evento** (la persona declara / Compras confirma). Se **siembra una sola vez** con la derivación de hoy, que es la mejor evidencia disponible |
-| **La cadencia** (`cadence_days`, `avg/min/max_gap`, `n_deliveries`, `last_delivery_date`, `next_due_date`, `health_band`) | Una **medición** del histórico de entregas | **VISTA** `derive-no-copy` sobre `analytics.stock_movements`. Sin tabla, sin importer, sin madrugada |
-| `commercial.replenishment_channel` | El nombre que ya leen **17 archivos** | **VISTA** que junta las dos. Ningún consumidor cambia |
+| **La ruta** (`via`, `source_warehouse_id`) | Una **decisión** | `commercial.replenishment_route` — tabla propia (HITL), escrita por evento, **sembrada una sola vez** desde la tabla de hoy y marcada `origen='inherited'` |
+| **La cadencia** | Una **medición** | Se queda materializada; su refresco pasa a ser por evento (item aparte) |
+| `commercial.v_replenishment_route` | El camino de pantalla | VISTA que **no toca `analytics.stock_movements`** |
 
-➡️ **`import-replenishment-cadence.js` se borra**, y con él su renglón en `run-prod-feeds.js`.
+⛔ **La siembra NO cambia el comportamiento de hoy:** una ruta `inherited` **sigue siendo enviable**
+(cero regresión). Lo que cambia es que ahora se puede **distinguir** una ruta que alguien decidió de
+una que salió de un promedio — y corregirla sin culpa.
 
-**Por qué la ruta se declara y no se recalcula:** medido el 2026-11-25, la derivación **como
-consulta viva tarda 1,276 ms** — *no pasa la regla de 500 ms*. El plan dice por qué: el índice
-`ix_stockmov_date` lee **799,943 filas y tira 691,020** (86 % de desperdicio) sobre una tabla de
-**3,904,518 filas / 1,379 MB**. Pero el arreglo correcto **no es optimizar esa consulta**: es notar
-que *una ruta no es algo que se mida cada noche*. Recalcularla a diario fue siempre trabajo
-inventado — y encima no servía para lo único que hacía falta, que es el proveedor nuevo.
-
-⚠️ **La cadencia sí sigue derivándose**, y 1,276 ms **es aceptable donde se usa**: el escáner de
-reabasto, que es trabajo de fondo, no una pantalla. ⛔ Si algún día una pantalla muestra cadencia,
-ese tramo necesita su índice parcial **medido aparte** (regla 15: optimizar va separado de cambiar
-alcance de negocio).
-
-⚠️ **La siembra se declara:** la derivación de hoy produce **2,079 pares** (1,300 de matriz, 779 de
-compra) contra las **2,390 filas** que tiene la tabla. Las **311 de diferencia** son filas que el
-importer dejó y hoy ya no reproduce: entran a la siembra **marcadas como heredadas**, no como
-decididas por alguien.
+⚠️ **Las rutas frágiles se marcan, no se bloquean.** Los 70 empates y los 109 que ganan por un día
+llevan `ruta_fragil = true` para que Compras las revise. **Bloquearlas rompería lo que hoy
+funciona**, y eso sería cambiar un problema de verdad por uno de disponibilidad.
 
 ### 10.6 Capas y entregables
 
 | Item | Capa | Qué entrega |
 |---|---|---|
-| `[AB.NI.9]` | C0 | La ruta pasa a ser dato propio: tabla HITL + vista de cadencia + `replenishment_channel` como vista. **`import-replenishment-cadence.js` borrado** y fuera de `run-prod-feeds.js`. La topología sale de la constante `TOPOLOGY` y queda como dato con dueño y fecha |
+| `[AB.NI.9]` | C0 | `commercial.replenishment_route` (HITL) + `v_replenishment_route` + la siembra marcada `inherited`, con las frágiles marcadas. **`import-replenishment-cadence.js` borrado** y fuera de `run-prod-feeds.js`. La topología sale de la constante `TOPOLOGY` y queda como dato con dueño y fecha. ⛔ **NO toca la cadencia** (§10.5b) ni borra `replenishment_channel` (regla 5) |
 | `[AB.NI.10]` | C1 | `surteDe()` honra la declaración sobre la observación; `motivoNoEnviable()` deja de bloquear duro el `sin_ruta` y lo vuelve **resoluble** |
 | `[AB.NI.11]` | C2 | Declarar la ruta (sucursal) y confirmarla (Compras); el envío acepta el renglón cuya ruta se acaba de confirmar |
 | `[AB.NI.12]` | C3 | La decisión en la pantalla: destino por orden, «agregar a mano» llegando a productos sin ruta, y el estado «ruta por confirmar» |
@@ -488,12 +519,22 @@ decididas por alguien.
 
 1. **El importer ya no existe** y `grep -rn 'import-replenishment-cadence' database/` no devuelve
    nada. **Prueba negativa:** si `run-prod-feeds.js` todavía lo nombra, el item no está cerrado.
-2. `commercial.replenishment_channel` devuelve, para cada uno de los **2,390 pares de hoy**, el
-   mismo `via` y el mismo `source_warehouse_id` que tenía como tabla. ⛔ **Se compara fila por
-   fila contra un volcado previo**, no por conteos: dos conjuntos del mismo tamaño pueden diferir
-   en cada fila.
+2. **La siembra no pierde ni inventa una ruta:** `commercial.replenishment_route` trae, para cada
+   par de `replenishment_channel`, el mismo `via` y el mismo `source_warehouse_id`. ⛔ **Se
+   compara fila por fila**, no por conteos: dos conjuntos del mismo tamaño pueden diferir en cada
+   fila. ⚠️ Las únicas que pueden faltar son los **traspasos sin origen conocido** —ni en la fila ni
+   en la topología del almacén—, y faltan **a propósito**: una ruta que no sabe quién surte no es
+   una ruta. Su cuenta **se declara al aplicar**.
+   **Probado el 2026-11-25** en clúster desechable con las tres formas (traspaso con origen ·
+   traspaso que hereda el origen del almacén · traspaso sin origen posible): **3 de 4 sembradas, la
+   cuarta excluida**, y las 3 quedaron **enviables** (cero regresión).
 3. Una ruta **declarada** gana sobre la derivada cuando están en conflicto.
    **Prueba negativa:** devolver la derivada es un fallo.
+   ⭐ **Las guardas de la tabla, probadas el 2026-11-25 (7 rojos vistos caer):** un traspaso sin
+   origen · `declared` sin confirmante · quitarle el confirmante a una declarada · una `via`
+   inventada · un `origen` inventado · dos rutas para el mismo par (UNIQUE) · `app_runtime`
+   escribiendo una fila de otro tenant (RLS `WITH CHECK`). Y la RLS en los dos sentidos: con otro
+   tenant en el contexto se ven **0 filas**, con el propio **4**.
 4. `motivoNoEnviable()` sobre un renglón sin ruta devuelve un motivo **resoluble** (la pantalla
    puede ofrecer la acción), distinto del de «no le falta», que no lo es.
    **Prueba negativa:** si los dos devuelven el mismo tipo de motivo, la pantalla no puede
