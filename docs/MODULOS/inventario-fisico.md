@@ -397,15 +397,42 @@ Eso es exactamente **D-EX8**, y por eso el módulo no debe encenderse antes.
 > ⚠️ **Alcance: sólo funcionalidad.** Lo de diseño, accesibilidad y carga visual queda fuera de esta
 > sección por decisión de Edgar; vive en §9b.
 >
-> ⛔⛔ **CON QUÉ USUARIO — leer antes de citar cualquier cosa de acá.** Todo se ejerció con
-> **`superoot`, rol `superadmin`, 239 permisos y las 7 llaves de inventario**. O sea: **ninguna de
-> las seis personas del plan de pruebas se probó en vivo.**
+> ⛔⛔ **CON QUÉ USUARIO.** Los defectos de lógica y captura (F1-F14) se ejercieron con **`superoot`,
+> rol `superadmin`**. No dependen del permiso: un conteo que no se guarda no se guarda para nadie.
 >
-> - **No lo invalida**, porque no dependen del permiso: F1, F2, F3, F5, F6, F7, F8, F9, F10, F13,
->   F14, y el conteo ciego —que medido así vale **más**: ni al superadmin le mandaron el teórico—.
-> - **Sí queda sin medir**: que el botón esté *visible* en F4 y F11 puede ser efecto de esta cuenta.
->   Lo que gobierna el acceso se midió aparte, contra prod (las cifras de F4), pero **nadie ejerció
->   un 403 real**. Hasta que alguien lo haga, la capa de permisos de este módulo es **NO MEDIDA**.
+> **La capa de permisos SÍ se midió en vivo** (2026-11-25), entrando como una cuenta de rol
+> **`almacenista`** asignada al folio. Resultado:
+
+| Endpoint | almacenista | Correcto |
+|---|---|:---:|
+| `GET /counts` (lista) | **200** (7 filas) | ✅ |
+| `GET /counts/:id/items` (**el teórico**) | **403** | ✅ |
+| `GET /counts/:id/progress` (avance supervisor) | **403** | ✅ |
+| `GET /counts/:id/catalog` (contador) | **200** (sin teórico) | ✅ |
+| `GET /counts/:id/count-progress` | **200** | ✅ |
+| `GET /counts/:id/assignments` · `assignable-users` · `kepler-export` · `interruptions` | **403** | ✅ |
+
+> ⭐⭐ **El conteo ciego se sostiene en el SERVIDOR, no en la interfaz.** El almacenista recibe un
+> **403** al pedir los items (que llevan el teórico) y su único acceso con datos —el catálogo del
+> contador— no trae existencia. No hay camino desde su cuenta hasta el teórico. Ésa es la mejor
+> noticia del módulo.
+>
+> **Sigue sin medirse**: `encargado_tienda`, `prevencion`, `supervisor` y `marketing` en vivo —y por
+> tanto si F4/F11 (botón visible) son reales o artefacto de superadmin—. Las cifras de acceso de F4
+> se midieron contra prod en sólo lectura; falta ejercer el click.
+>
+> ⛔⛔ **HALLAZGO DE SEGURIDAD DE PLATAFORMA, NO DEL MÓDULO — a Dirección, no a este doc.** Al probar
+> permisos se confirmó que al menos una cuenta sin estrenar entra con una contraseña por defecto
+> trivial, sobre un dominio público. No es universal (una cuenta de cliente la rechazó), pero
+> **mientras exista, arreglar los permisos del conteo no protege nada**. El detalle (qué cuenta, qué
+> contraseña) **no se escribe acá: el repo es público.** Se trató verbalmente con Edgar el
+> 2026-11-25.
+
+### ✅ Asignar contadores: funciona
+
+Se asignaron dos contadores desde la pantalla y quedaron en el servidor (`GET :id/assignments` los
+devuelve). **Seleccionar es asignar**, sin paso de confirmación. ⚠️ El sistema **deja asignar a
+cuentas que nunca entraron** sin aviso (ver F15), y asignar no restringe a los demás (ver F16).
 
 ### ⭐⭐ El hallazgo que explica todo lo demás
 
@@ -440,6 +467,8 @@ que contar no avanza el folio.**
 | **F12** | 🟡 | **El teórico del mismo almacén saltó de 2,094 a 3,363 artículos** entre junio y hoy (+61 %). Puede ser crecimiento real o un cambio de fuente: **no está medido**. Toca directo a **D-EX8**. | `INV-2026-00009` y `00007` (Padre Hidalgo, junio): 2,094 y 2,093. `INV-2026-00010` (Padre Hidalgo, hoy): 3,363. |
 | **F13** | 🟡 | **`GET /counts/resolve` devuelve `product_id: null` y un `brand_name` que vale `"341"`**, y la pantalla del contador pinta ese «341» junto al SKU como si fuera un dato del producto. Es el nombre de la marca en el catálogo. | Respuesta real: `{"product_id":null,"sku":"00203","barcode":"00203","brand_name":"341","location":null,…}`. |
 | **F14** | 🟡 | **Dos formatos numéricos para el mismo dato en la misma pantalla**: el teórico se lee `5.000` (punto) y el campo de captura escribe `999,999` (coma). Quien vea `5.000` arriba y teclee `5,000` abajo mete mil veces más. | Observado en el diálogo «Resolver item». |
+| **F15** | 🟠 | **La lista de contadores asignables no dice sucursal ni rol.** `assignable-users` devuelve sólo `id, username, nombre, role_name`; el desplegable pinta **sólo el nombre**. Quien arma el equipo de un conteo en Padre Hidalgo ve 24 nombres y **no puede distinguir al único almacenista de esa tienda** de los de Zamora, La Piedad o Canindo, ni ve a los que nunca entraron. | Respuesta real de `assignable-users?role=counter`: 24 personas, campos `id, username, nombre, role_name`, **sin sucursal**. En prod sólo `luis_espino` es almacenista de PH; 4 de los 11 nunca entraron. |
+| **F16** | 🟠 | **Asignar NO restringe: el guard es `CONTAR` OR asignado.** La pantalla dice «si no asignas ninguno, cualquiera con permiso de contar puede contar este folio», dando a entender que asignar acota. No acota: `ContarOAsignadoGuard` deja pasar a cualquiera con la clave `CONTAR` **aunque el equipo asignado sean dos**. **Quién hace C1 y quién hace C2 no se puede garantizar**, que es justo lo que el doble conteo ciego necesita. | Leído en `contar-o-asignado.guard.ts`: `if (permissions[CONTAR] === true) return true;` antes de mirar la asignación. 31 personas tienen `CONTAR`. |
 
 ### ✅ Lo que está BIEN, y hay que decirlo
 
