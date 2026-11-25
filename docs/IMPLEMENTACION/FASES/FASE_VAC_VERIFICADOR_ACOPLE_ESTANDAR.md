@@ -417,4 +417,6 @@ Hallazgos aparte: **14 SKUs** con la presentación más cara por unidad que la u
 
 **Error mío en el camino:** al cerrar `[VAC.PAQ.1]` corrí sólo las pruebas del backend, y un candado de la pantalla que lee `kp.service.ts` como texto (`et.mayoreo.map(compactarTier)`) quedó rojo en el commit local. Se corrigió aquí (§8.0b 133).
 
+**Protocolo:** observaciones del PM al protocolo previo al PR, `ONBOARDING.md` §8.0b 131–135 (134–135 salieron del cierre de #627: el PR seguía abierto cuando se dio por fusionado, y quedó `DIRTY` dos veces antes de fusionarse).
+
 **Pendiente:** `[VAC.D1.1]` (los demás lectores de la tabla y el importer sin latido; la clave de 6 dígitos). **NO MEDIDO:** el arranque de la API (sin cambios de constructor ni decoradores); el endpoint desplegado.
