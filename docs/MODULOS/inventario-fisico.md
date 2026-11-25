@@ -276,6 +276,64 @@ usaron. Esa rama debe retirarse con el resto de `[CANON.7.4d]`.
 
 ---
 
+## 9b. Auditoría de `/almacen/inventory/sessions` (2026-11-25)
+
+**Nivel de evidencia: B** (prod, sólo lectura) **y C** (fuente: el componente de 802 líneas y
+`inventory-count.service.ts`). **Sin pantalla viva**: nada visual se afirma como medido. Quedan
+**NO MEDIDOS** el recorrido con teclado, el foco al abrir y cerrar los diálogos, los objetivos
+táctiles con `pointer: coarse`, `forced-colors` y el reflujo a 320 px.
+
+### Lo que la pantalla hace bien, medido
+
+- **Contraste: pasa entero, en claro y en oscuro.** Los diez colores de texto del componente se
+  calcularon con un instrumento que arranca con su control (negro/blanco = 21.00, `#777` sobre
+  blanco = 4.48). El más bajo es la barra de avance, 4.40 sobre el suelo de 3:1 para elementos
+  no textuales. ⭐ Usa las variantes `-soft-fg` de cada tono, que es justo donde falla el resto
+  del repo: `--warn-fg` como color de texto da **2.15** y aparece en 336 lugares; acá no está.
+- **Declara su tope.** Si la lista llega a 200 avisa «tope de la lista, puede haber más». De 35
+  servicios del repo con `limit`, sólo 2 traen señal de tope en el contrato; éste la suple a mano.
+  No figura en `check-cifra-recorrible.deuda.json`: el Cruce 1 lo pasa limpio.
+- **Dos ausencias distintas, no una** (ADR-056): «Sin conteos» (nadie escaneó nunca → lo arregla
+  quien asigna) contra «Sin avanzar» (se frenó → lo arregla quien supervisa). Y `last_count_at`
+  llega NULL y se pinta vacío: nunca se rellena con `started_at`, que inventaría actividad.
+  Un folio sin renglones dice «Sin snapshot», no «0 %».
+- **Doble clic cerrado**: los dos botones que escriben se apagan de forma síncrona en el primer
+  clic. **Lote parcial honesto**: «Folio abierto, pero falló la asignación», no una falla total.
+- **Fail-closed en el diálogo de asignar**: si no pudo leer lo ya asignado, cierra — porque
+  `setAssignments` **reemplaza** la lista y un Guardar en blanco borraría al equipo.
+- **Teclado**: la fila es operable con Enter y Espacio y hace **lo mismo** que el clic, a
+  propósito, para no mandar a un 403 a quien sólo asigna. No figura en
+  `check-keyboard-nav.deuda.json`.
+- **La consulta**: 58 ms en frío, 5–8 ms en caliente, con el `LIMIT` dentro del CTE (sin eso, el
+  LATERAL agregaba los ítems de todos los folios antes de recortar).
+
+### Lo que hay que mejorar
+
+⛔ **Las tres primeras ya están selladas como deuda declarada** en
+`scripts/check-pantalla.deuda.json` desde el 2026-10-19 (`Q.1`, `§2`, `§9`). No son hallazgos
+nuevos: son deuda que nadie pagó, y la compuerta las deja pasar por eso.
+
+| Sev | Qué está mal | Qué cuesta | Regla |
+|---|---|---|---|
+| 🔴 | **Un error de lectura se pinta como «No hay folios».** `load()` falla → aviso efímero y la tabla muestra el vacío: *«No hay folios. Abre uno para empezar a contar.»* | Si había un folio congelando un almacén, desapareció de la vista y nadie sabe que hay que reintentar | `§2` matriz de estados (sellada) · VALORES §1 |
+| 🔴 | **«Avance» mide sólo el primer pase.** `items_counted = COUNT(count_1 IS NOT NULL)`, y el doble conteo ciego viene **encendido por default** | La barra llega a 100 % con el segundo pase sin empezar; el detalle calcula otra cosa, así que la misma pregunta da dos respuestas (Cruce 5) | VALORES §1 rótulo ≠ celda |
+| 🔴 | **Los dos diálogos descartan lo capturado con un clic afuera** (`dismissableMask`), sin preguntar | En el de asignar se pierden hasta 20 personas elegidas de una lista de 263 | VALORES §9 cambios sin guardar |
+| 🟠 | **Quien ve la alarma no tiene el remedio.** La fila avisa «Sin conteos · Congelado»; cancelar existe (`POST :id/cancel`, 31 personas) y **sólo se ofrece en el detalle**, que pide SUPERVISAR | El encargado que sólo asigna ve el almacén congelado y no puede destrabarlo | VALORES §11 endpoints sin botón |
+| 🟠 | **No dice de cuándo es lo que se ve.** Hay «Recargar» y ninguna edad del dato | Un folio que avanzó hace diez minutos se lee igual que uno de ayer | `§9` frescura (sellada) |
+| 🟠 | **No abre con la respuesta**: la vista empieza por la rejilla, sin tira de indicadores | Lo primero que se ve son los seis folios cancelados | `Q.1` answer-first (sellada) |
+| 🟠 | **La lista no filtra ni ordena**, aunque `listCounts` acepta `warehouse_id` y la pantalla nunca lo manda; los cancelados van mezclados con los vivos | Hoy inofensivo (6 folios, los 6 cancelados); el tope es 200 | VALORES §8 |
+| 🟡 | **Las definiciones viven en un `title`**: qué significa «Congelado» y el detalle de cada alerta sólo existen con mouse. Y **«Sin snapshot» es jerga publicada como valor de celda** | Sin mouse, la fila más informativa es la menos legible | VALORES §2 ayuda de términos |
+| 🟡 | **Cuatro blancos interactivos por renglón** (la fila, el enlace del folio, «Asignar», «Abrir»), y tres llevan al mismo lugar | Presupuesto: ≤ 3 compitiendo | VALORES §11 |
+| 🟡 | **Cinco `font-size` literales** (`.7` a `.8rem`), ninguno de la escala `--fs-*`, todos por debajo del piso de 13 px de Operations | — | VALORES §4 |
+| 🟡 | **Un color de respaldo escrito a mano** (`var(--text-muted, #78716c)`) en dos reglas, contra el comentario del propio archivo que lo prohíbe; en oscuro daría **3.69** | Sólo dispara si el token falta | VALORES §2 |
+
+**Veredicto por capa:** 🔴 **Veracidad** (el error que se lee como vacío; el avance del primer
+pase) · 🔴 **Formularios** (pierde trabajo capturado) · 🟠 Alcance y comprensión · 🟡 Jerarquía y
+color. ⛔ Las tres 🔴 **bloquean** encender el módulo, y se suman a la razón de fondo de §9: el
+ajuste todavía cae en una tabla congelada.
+
+---
+
 ## 10. Cómo se prueba
 
 - **Pruebas de unidad y candados** (vitest, `libs/commercial`): `inventory-count.asignar.spec.ts`,
