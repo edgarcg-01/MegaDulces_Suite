@@ -25,6 +25,10 @@ import { HrAttendanceFirmaDigitalService } from './attendance/attendance-firma-d
 import { HrAttendanceFirmaDigitalController } from './attendance/attendance-firma-digital.controller';
 import { HrAttendanceFirmaPublicaController } from './attendance/attendance-firma-publica.controller';
 import { HrAttendanceSchedulesService } from './attendance/attendance-schedules.service';
+// `[NE.2.3]` El puente entre el padrón de nómina y el de la Suite: quien escribe
+// `hr.person_aliases` es la APLICACIÓN (la única con `INSERT`), no un script.
+import { HrNominaController } from './nomina/nomina.controller';
+import { HrNominaPuenteService } from './nomina/nomina-puente.service';
 import { HrTalentController } from './talent/talent.controller';
 import { HrTalentCandidatesService } from './talent/talent-candidates.service';
 import { HrTalentJobsService } from './talent/talent-jobs.service';
@@ -63,7 +67,7 @@ import { HrDocumentRequestService } from './talent/bot/pedir-documentos.service'
       verifyOptions: jwtVerifyOptions,
     }),
   ],
-  controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceSignoffsController, HrAttendanceRegistroController, HrAttendanceCumplimientoController, HrAttendanceFirmaDigitalController, HrAttendanceFirmaPublicaController, HrAttendanceDevicesController, HrAttendanceEnrollmentsController, HrTalentController, HrTalentPublicController],
+  controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceSignoffsController, HrAttendanceRegistroController, HrAttendanceCumplimientoController, HrAttendanceFirmaDigitalController, HrAttendanceFirmaPublicaController, HrAttendanceDevicesController, HrAttendanceEnrollmentsController, HrTalentController, HrTalentPublicController, HrNominaController],
   providers: [
     HrAttendanceIngestService, HrIngestGuard,
     // `[RH.1.3]` Los avisos al lector de relojes (SSE). `PgListenService` NO es global (cada módulo que escucha lo pone
@@ -81,6 +85,9 @@ import { HrDocumentRequestService } from './talent/bot/pedir-documentos.service'
     HrCvValidatorService,
     HrDocumentClassifierService,
     HrDocumentRequestService,
+    // `[NE.2.3]` puente de padrones de nómina · `[NE.2.2]` el periodo, derivado de ContPAQi.
+    // ⚠️ Los dos van acá: `HrNominaController` inyecta AMBOS. Sin uno, Nest no arranca (#414).
+    HrNominaPuenteService,
   ],
   // `[RH.3.1]` HrRecruitmentBotService se exporta para el binding de RECRUITMENT_BOT_PORT (composition root).
   exports: [HrAttendanceIngestService, HrAttendanceReportService, HrRecruitmentBotService],

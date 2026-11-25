@@ -48,10 +48,22 @@ describe('captura', () => {
     expect(validarCaptura({ ...base, incident_type: 'vacaciones', date_to: '2026-07-01' }).ok).toBe(false);
     expect(validarCaptura({ ...base, incident_type: 'vacaciones', date_to: '2062-07-07' }).ok).toBe(false);
   });
-  it('horas extra exige minutos entre 1 y 720', () => {
-    expect(validarCaptura({ ...base, incident_type: 'horas_extra', minutes: 0 }).ok).toBe(false);
-    const r = validarCaptura({ ...base, incident_type: 'horas_extra', minutes: 90, note: 'x' });
+  it('horas extra exige minutos entre 1 y 720, y `[NE.0.15]` motivo y quién autorizó', () => {
+    const he = { ...base, incident_type: 'horas_extra', reason: 'tomó la tarde', authorized_by_name: 'Jefe' };
+    expect(validarCaptura({ ...he, minutes: 0 }).ok).toBe(false);
+    expect(validarCaptura({ ...he, minutes: 721 }).ok).toBe(false);
+    // `[NE.0.15]` NEGATIVAS: un retiro del banco sin motivo o sin autorizante no se puede auditar.
+    expect(validarCaptura({ ...he, minutes: 90, reason: '' }).ok).toBe(false);
+    expect(validarCaptura({ ...he, minutes: 90, reason: '   ' }).ok).toBe(false);
+    expect(validarCaptura({ ...he, minutes: 90, authorized_by_name: '' }).ok).toBe(false);
+    const r = validarCaptura({ ...he, minutes: 90, note: 'x' });
     expect(r.ok && r.valor.minutes).toBe(90);
+    // El motivo encabeza la nota, igual que en `horario_distinto`.
+    expect(r.ok && r.valor.note).toBe('tomó la tarde — x');
+    expect(r.ok && r.valor.authorized_by_name).toBe('Jefe');
+    // Sin nota propia, la nota ES el motivo (no queda vacía).
+    const s = validarCaptura({ ...he, minutes: 90 });
+    expect(s.ok && s.valor.note).toBe('tomó la tarde');
   });
   it('horario distinto: un solo día, hora, motivo y quién autorizó; el motivo encabeza la nota', () => {
     const sinMotivo = { ...base, incident_type: 'horario_distinto', minutes: 600, authorized_by_name: 'Jefe' };

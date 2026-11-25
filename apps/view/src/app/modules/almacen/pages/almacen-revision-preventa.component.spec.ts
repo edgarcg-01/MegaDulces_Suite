@@ -430,18 +430,46 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     expect(texto()).toContain('«999» no está en este pedido ni en los otros por revisar');
     expect(texto()).toContain('Producto 2 de 3');
 
-    // El mazapán (3 paquetes, faltó 1): el PRIMER escaneo sólo lo señala (en el carrito vienen los 2 que sí hubo).
+    // El mazapán (3 paquetes, faltó 1) NO está en grande (la cajera tocó la salsa): el primer escaneo sólo lo
+    // señala y lo trae al frente.
+    clic('SALSA MAGA');
+    expect(enGrande()).toContain('SALSA MAGA');
     escanear('7502000000050');
     expect(enGrande()).toContain('MAZAPAN GIGANTE 50 G');
     expect(enGrande()).toContain('faltan 1 paquete');
     expect(enGrande()).toContain('Cuando te lo traiga, escanéalo');
     expect(texto()).toContain('Ya revisados · 1');
-    // Cuando el surtidor trae el que faltó, escanearlo lo completa.
+    // Con su tarjeta abierta, cuando el surtidor trae el que faltó, UN escaneo lo completa.
     escanear('7502000000050');
     expect(texto()).toContain('MAZAPAN GIGANTE 50 G · completo (3 paquetes)');
     expect(texto()).toContain('Ya revisados · 2');
     // La salsa no tiene código: ahí sí aparece el botón a mano.
     expect(enGrande()).toContain('SALSA MAGA');
+  });
+
+  it('[MCP.31] el faltante que ya está en grande se completa con UN escaneo (su tarjeta dice «escanéalo»)', async () => {
+    await montar(() => {
+      const d = DETALLE();
+      d.lines[0].codes = [{ code: '7501000044340', factor: 1 }];
+      d.lines[1].codes = [{ code: '7502000000050', factor: 20 }];
+      d.lines[2].codes = [];
+      return d;
+    });
+    await abrir();
+    const campo = el().querySelector('#rv-scan-in') as HTMLInputElement;
+    const escanear = (codigo: string): void => {
+      campo.value = codigo;
+      campo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      fix.detectChanges();
+    };
+    const enGrande = (): string => (el().querySelector('.rv-actual')?.textContent ?? '').replace(/\s+/g, ' ');
+    escanear('7501000044340');
+    // Después de la paleta, en grande queda el mazapán que faltó, pidiendo que lo escaneen.
+    expect(enGrande()).toContain('MAZAPAN GIGANTE 50 G');
+    expect(enGrande()).toContain('Cuando te lo traiga, escanéalo');
+    escanear('7502000000050');
+    expect(texto()).toContain('MAZAPAN GIGANTE 50 G · completo (3 paquetes)');
+    expect(texto()).toContain('Ya revisados · 2');
   });
 
   it('[MCP.33] la etiqueta de un pedido (QR o barras) lo abre desde la lista; lo que no está se dice', async () => {

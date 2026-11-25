@@ -183,6 +183,7 @@ export * from './http/hr-talent.contract';
 export * from './http/hr-talent-hoy.contract';
 export * from './http/hr-liderazgo.contract';
 export * from './http/hr-aptitudes.contract';
+export * from './http/hr-nomina.contract';
 // [EMB.12] «Nuevo embarque» desde Kepler: la hoja del viaje, la lista y la toma. Sólo tipos.
 export * from './http/nuevo-embarque.contract';
 export * from './http/viaticos-guia.contract';

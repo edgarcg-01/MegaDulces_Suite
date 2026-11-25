@@ -68,6 +68,13 @@ const SIN_REPARTIR = {
   // `[RH.1.7]` Las claves de asistencia salieron de esta lista: con las pantallas `/rh/*` las reparte
   // la mig `20261008094815` segun el flujo que Mega Talento documenta (servicios al personal califica
   // y cierra = `recursos_humanos`; contabilidad audita). Ver SIN_PERSONAS.
+  HR_NOMINA_GESTIONAR:
+    'Frente NE, `[NE.2.3]`. Gatea la API que liga el codigo del sistema de nomina con la persona ' +
+    'de la Suite. El empate es POR NOMBRE (no hay llave dura: el numero del reloj acierta por ' +
+    'DEBAJO del azar, y la Suite no guarda CURP), asi que un alias equivocado liga a una persona ' +
+    'con el sueldo de otra. Se reparte con la pantalla que permite revisarlo y corregirlo ' +
+    '(`[NE.2.5]`), a los mismos dos roles que ya tienen todas las claves de RH ' +
+    '(`recursos_humanos` y `reclutamiento_asistencia`). Pendiente: que exista esa pantalla.',
 };
 
 /**

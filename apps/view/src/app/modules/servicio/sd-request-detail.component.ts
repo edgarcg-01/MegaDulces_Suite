@@ -9,7 +9,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
 import { TagModule } from 'primeng/tag';
 import type { Observable } from 'rxjs';
-import type { SdAgentDto, SdAnyPauseReason, SdAttachmentInput, SdCatalogResponse, SdDecision, SdPauseReason, SdPriority, SdRequestDetail, SdStatus, SdTransferResult } from '@megadulces/contracts';
+import type { SdAgentDto, SdAnyPauseReason, SdAttachmentInput, SdCatalogResponse, SdDecision, SdPauseReason, SdPriority, SdRequestDetail, SdStatus, SdTransferResult, SdTransferTargetsResponse } from '@megadulces/contracts';
 import { SD_PRIORITIES } from '@megadulces/contracts';
 import { PAUSE_REASONS, PAUSE_REASON_LABEL, PRIORITY_LABEL, STATUS_LABEL, IMPACT_LABEL, ServiceDeskService, sdError } from './service-desk.service';
 import { TEXTO_VISTA_LIMITADA, TITULO_VISTA_LIMITADA, esVistaLimitada, etiquetaPrioridad, plazoDeFila } from './confidencial';
@@ -760,17 +760,24 @@ export class SdRequestDetailComponent {
   readonly nota_obligatoria = computed(() => this.modo() === 'reabrir' || this.modo() === 'resolver' || this.modo() === 'transferir');
 
   // ── `[MS.7.11]` trasladar a otra área ──
+  /** El catálogo de «Nueva solicitud»: aquí sólo lo usan las órdenes de servicio (`areasOrden`). */
   private readonly catalogoTraslado = signal<SdCatalogResponse | null>(null);
+  /**
+   * `[MSP.5.0]` A dónde se puede trasladar: su PROPIA lista (`GET transfer-targets`), no el catálogo de «Nueva solicitud». Ese catálogo
+   * esconde un área que restringe quién levanta (Presupuestos) a quien no está en sus puestos, y trasladar no es levantar (D8): con él, la
+   * coordinación de TI no podía mandarle a Presupuestos una reposición que el servidor sí aceptaba.
+   */
+  private readonly destinosTraslado = signal<SdTransferTargetsResponse | null>(null);
   readonly destinoArea = signal<string | null>(null);
   readonly destinoCategoria = signal<string | null>(null);
   /** Las áreas a las que se puede trasladar: las que ofrecen categorías, menos en la que ya está. */
   readonly areasDestino = computed(() => {
-    const c = this.catalogoTraslado();
+    const c = this.destinosTraslado();
     const actual = this.r()?.queue_id;
     return c ? c.queues.filter((q) => q.id !== actual && c.categories.some((k) => k.queue_id === q.id)).map((q) => ({ id: q.id, name: q.name })) : [];
   });
   readonly categoriasDestino = computed(() => {
-    const c = this.catalogoTraslado();
+    const c = this.destinosTraslado();
     const q = this.destinoArea();
     return c && q ? c.categories.filter((k) => k.queue_id === q) : [];
   });
@@ -778,7 +785,7 @@ export class SdRequestDetailComponent {
   readonly puedeTransferir = computed(() => this.coord() && ['nuevo', 'asignado', 'en_proceso', 'en_espera'].includes(this.r()?.status ?? ''));
   pedirTraslado(): void {
     this.modo.set('transferir');
-    if (!this.catalogoTraslado()) this.api.catalog().subscribe({ next: (c) => this.catalogoTraslado.set(c), error: (e) => this.error.set(sdError(e, 'No se pudo cargar el catálogo de áreas.')) });
+    if (!this.destinosTraslado()) this.api.transferTargets().subscribe({ next: (c) => this.destinosTraslado.set(c), error: (e) => this.error.set(sdError(e, 'No se pudo cargar la lista de áreas.')) });
   }
   elegirDestino(id: string): void {
     if (id === this.destinoArea()) return;

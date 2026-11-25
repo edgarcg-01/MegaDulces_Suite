@@ -34,11 +34,16 @@
  * que un empate por nombre lleve nota, el único por `(system, external_code)`— queda intacto: eso
  * estaba bien y es lo que impide que un empate por nombre se vuelva verdad en silencio.
  *
- * ⚠️ **NO MEDIDO**: que Postgres acepte esta DDL. El Docker local no levanta (el demonio no
- *    responde) y el ensayo con ROLLBACK contra prod quedó sin autorización. Probado **en seco**
- *    con un `knex` que sólo anota el SQL: 5 de 5 —el `up`, el `up` corrido dos veces, el `down`,
- *    y las dos negativas de que `up` y `down` **paran** si la tabla trae filas—. Antes de
- *    aplicarla en prod, corre contra una base de verdad.
+ * ⭐ **MEDIDA contra un Postgres de verdad** el 2026-11-24: `database/tests/test-newdb-ne013-alias-
+ *    user-id.js`, **28 ✔ · 0 ✖** sobre PostgreSQL **18.4**; prod corre **18.6** (`system_identifier`
+ *    verificado), misma versión mayor. El ensayo corre la migración de ayer, después ésta, y lee
+ *    las posconditions **del catálogo** —no del texto de `pg_get_constraintdef`, que omite el
+ *    esquema cuando la tabla está en el `search_path` y diría lo mismo apuntando a otra `users`—.
+ *    Incluye las **negativas funcionales** que un ensayo en seco no puede dar: un alias que nombra
+ *    a una persona de **otro tenant** es rechazado (23503), un empate por nombre sin nota es
+ *    rechazado (23514), y `up`/`down` **paran** si la tabla trae filas. Docker no sirvió en esta
+ *    máquina (WSL2 no arranca: la virtualización está apagada), así que el clúster se levantó con
+ *    `initdb`/`pg_ctl` en un puerto aparte — receta en el encabezado del test.
  *
  * ⛔ `hr.employees` NO se borra (regla 5). Queda como estaba, con sus dos FKs de compatibilidad
  *    desde `hr.device_enrollments` y `hr.attendance_logs`. Retirarla es una decisión aparte.

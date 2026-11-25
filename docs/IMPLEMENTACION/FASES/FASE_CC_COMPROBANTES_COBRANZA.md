@@ -188,3 +188,51 @@ destino, folio.
 
 **Lo que esta revisión no cubre:** la exactitud del OCR por campo (el plan no la mide), el texto
 definitivo de los avisos (se valida con Crédito y Cobranza) y la pantalla viva.
+
+---
+
+## CC.22 — ⭐⭐ Lo que una ficha sin cobro cuesta contable y FISCALMENTE (2026-11-24, a pedido de Edgar)
+
+> El primer caso real de «Fichas de clientes → entró al banco, sin cobro en Kepler». Edgar preguntó
+> *«¿este abono se generaría como completo de pago?»* y *«analiza qué se haría contablemente»*.
+> El detalle íntegro, con el decode de la póliza, vive en **[`VERDAD_ABSOLUTA.md` §41](../../VERDAD_ABSOLUTA.md)**;
+> acá queda lo que le toca a esta fase. Medido en `pg-prod`, sólo lectura.
+> ⛔ **Sin nombres de clientes: el repo es público.** El caso es el folio `06-1-0001446`.
+
+**El caso:** ficha subida por la clienta, $15,539.63 del 23-nov, OCR que cuadra en monto y fecha,
+abono presente en Banorte. **Kepler no tiene el cobro** — verificado aparte del tablero: no hay
+ningún cobro por ese importe entre el 20 y el 25 de noviembre, en ninguna sucursal, de nadie.
+
+**¿Sería pago completo? Sí, de UNA factura.** El importe es **exactamente** el de su factura
+`0001446`. No deja resto de centavos. ⚠️ **Pero sólo si se aplica a ESA factura**: la clienta debe
+tres por $33,492.98, y aplicado a la más vieja primero no cerraría ninguna completa — dejaría
+$2,413.72 colgando en la de octubre. **A qué factura se aplica es una decisión, no un detalle.**
+
+**Contablemente:** la factura ya está cargada a `115` clientes (póliza de diario, referencia
+`EMBARCADO`); el depósito **no existe en ninguna póliza**. Clientes queda inflado y bancos corto
+**por el mismo importe**, así que el balance cuadra y nada truena: lo delata sólo la conciliación
+bancaria. ⭐ **No hace falta trabajo contable nuevo — hace falta la captura:** la póliza (cargo `102`
+bancos / abono `115` clientes, dos renglones, sin IVA) la arma Kepler sola al nacer el documento.
+
+**⛔ Fiscalmente, que es lo caro:** las facturas de telemarketing son **PPD**, el IVA se causa al
+cobro y cada pago exige **complemento de pago**, que **se timbra desde el cobro y lleva su mismo
+folio**. Por lo tanto: **sin cobro capturado no hay complemento.** El dinero entró el 23-nov → el
+complemento vence el **5 de diciembre**. El lado ya capturado cumple casi al 100 % (731 de 768 en
+noviembre, y los que faltan son de ayer y hoy: rezago, no falta); lo vencido de verdad son **19**
+(5 de septiembre, 14 de octubre, estos últimos con importe cero y **sin revisar**).
+
+⭐ **Por eso esta fase vale más de lo que parecía:** la ficha que sube el cliente **convierte un
+abono inatribuible en una obligación fiscal con dueño y con fecha**. De los 4,445 abonos sin cobro,
+éste es el primero con nombre — y lo puso el cliente, no nosotros.
+
+### Lo que le falta a la pantalla (C3), medido
+
+| | Hallazgo | Severidad |
+|---|---|---|
+| **CC.22.a** | La fila dice «Entró al banco, sin cobro en Kepler» pero **no dice qué factura cuadra**, aunque el importe coincide al centavo con una. El dato existe y la pantalla no lo muestra: quien captura en Kepler tiene que buscarlo a mano | 🔴 |
+| **CC.22.b** | **No se declara la obligación fiscal**: ni que la factura es PPD, ni que falta el complemento, ni para cuándo. Es el dato más caro de la fila y no está | 🔴 |
+| **CC.22.c** | «Marcar el abono como suyo» **no dice qué hace y qué no hace**. No escribe en Kepler, no aplica a ninguna factura y no timbra; el rótulo sugiere que cierra el caso | 🟠 |
+| **CC.22.d** | El aviso del cruce por importe está bien puesto (*«~1 de cada 13 coincide por azar»*), pero **no distingue** el cruce débil (sólo importe) del fuerte que hay aquí: **el cliente se declaró dueño**, con foto, monto, fecha y referencia del banco | 🟡 |
+
+**Lo que esta nota NO midió:** cuántos de los 4,445 abonos sin cobro son pagos de factura PPD —sin
+atribución no hay cifra, y no se estima—; y los 14 complementos de octubre con importe cero.
