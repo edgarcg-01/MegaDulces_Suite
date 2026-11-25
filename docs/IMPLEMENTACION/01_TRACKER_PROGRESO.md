@@ -10016,6 +10016,50 @@ más) — PR aparte para no volver ilegible el diff.
     catálogo de la tienda viva, y lee facturación y padrón de clientes de los dos sitios. Hay que
     **rotarla** y emitir una **de sitio** con permiso sólo de Catálogo e Inventario.
 
+- [ ] **[CV.30]** ⬜ **Toda la tienda contra nuestra verdad — y la frontera de qué NO es nuestro**
+  (pedido de Edgar el 2026-11-25: *"nosotros somos la fuente de la verdad, debemos actualizar todo
+  nuestro catálogo de Wix"*. Continúa `[CV.29]`, que dejó 1,158 de 1,642 renglones sincronizados.)
+  - ⛔⛔ **La premisa es cierta a medias, y la mitad falsa decide el alcance.** Somos la fuente de
+    razón del **SKU, el nombre del ERP, el precio de mostrador, la existencia, la unidad y su
+    factor, el código de barras y los impuestos**. **No lo somos de la ficha de tienda:**
+    `catalog.products.description` **no es una descripción** —7,287 de 7,963 son el nombre copiado,
+    32 caracteres de media— y las **cuatro** columnas de imagen (`image_url`, `image_storage_key`,
+    `image_source`, `image_updated_at`) están **vacías en los 14,982 productos**, cero auditado en
+    las cuatro. Las fotos que hoy vende la tienda las subió una persona a Wix. Mientras eso siga
+    así, **Wix es el dueño de la foto y del copy**, y nosotros del dato comercial.
+  - **Los 1,642 renglones, en grupos excluyentes** (medido 2026-11-25):
+
+    | Grupo | Renglones | Qué corresponde |
+    |---|---:|---|
+    | Comparado y correcto contra Kepler | 1,158 | mantener |
+    | "Pieza" de precio inventado | 337 | ya ocultas (`[CV.29]`) |
+    | **SKU muerto** | **127** | **retirar** |
+    | **Presentación rota en Wix** | **17** | **resolubles** |
+    | SKU vivo sin esa unidad | 3 | uno por uno |
+
+  - **Los 127 muertos son muertos de verdad:** 47 de sus 64 SKU **no existen en `catalog.products`**,
+    y los 28 que sí están tienen **0 existencia y 0 venta en 90 días**. No hay precio que buscarles.
+  - ⭐ **Los 17 rotos son de los que más venden y se resuelven solos:** su SKU tiene **una sola
+    unidad** en Kepler (`KG`, `BTO`, `CUB`, `500`), y Wix guardó como "presentación" el nombre del
+    producto. `ALTOS ROLLO ALTA 20X30 1KG` vendió **10,417 unidades en 90 días** y está publicado sin
+    precio verificable. Regla: **SKU de unidad única → esa unidad**, sin adivinar el nombre.
+  - ⛔ **Arreglar la cantidad, que hoy ofrece de más** (defecto de `[CV.29]`): repartir en cascada de
+    mayor a menor factor descontando lo ya ofrecido —`caja = floor(S/f_caja)`, `S -= caja*f_caja`, y
+    así— en vez de calcular cada presentación contra el total. Cierra por construcción:
+    `Σ qty_i × f_i ≤ existencia`. Alcanza a 146 SKU, 56 de ellos escritos el 2026-11-25.
+  - **Decisiones que firma Edgar:**
+    - **D1** — los 127 renglones muertos: **ocultar** (reversible) o borrar. *Recomiendo ocultar*:
+      `[CV.29]` ya probó que el borrado en Catálogo V3 se lleva por delante los items de inventario.
+    - **D2** — la tienda **no está atada a una sucursal** y el tope de 50 por presentación fue mío.
+      ¿Se mantiene el consolidado de las 8 con tope, o la tienda declara una plaza que la surte?
+    - **D3** — foto y copy: ¿se quedan en Wix (hoy), o se abre el campo en nuestro catálogo para que
+      la tienda deje de ser su dueño? Lo segundo es trabajo de captura, no de código.
+  - ⚠️ **Bloqueado hasta que se rote la llave** (`[CV.29]`): los tres frentes son escrituras a la
+    tienda viva. Sin llave nueva no arranca.
+  - **Lo que este item NO es:** publicar el catálogo completo. De 9,053 activos, **5,487 tienen
+    precio y existencia hoy**, y **0 tienen imagen** — subir una ficha sin foto es publicar un
+    renglón vacío. Eso depende de D3, no de la API.
+
 - [x] **[TDA.7]** 🧪 **El mayoreo sigue al código leído, y su base estaba equivocada** (2026-09-10)
   — 0Sistemas: *"se critico con tu trabajo"*, sobre TDA.5/TDA.6 (mayoreo en pantalla, centrado,
   resorte escalonado, count-up en el ahorro), que yo había cerrado reportando *"15 suites / 185
