@@ -588,14 +588,63 @@ cargo sin pago tiene un pago de Finanzas a ≤ 5 ¢, y las secciones siguen suma
 (sin tolerancia; una sola pasada, que le daba el pago de $55.29 al cargo de $55.30 — el primer intento de esa prueba
 no activaba el mutante y se reescribió).
 
+### 9.5 `[CB.62.4]` El escritor NO se inventa: se compone de los tres que ya existen (2026-11-26)
+
+**Pedido de Edgar (2026-11-26): «activemos la escritura en Kepler».** Antes de escribir una línea del escritor se
+midió contra prod lo que haría, y lo que se encontró cambió el diseño.
+
+⛔ **El plan propio de CB.62 estaba incompleto, y el error no se veía leyéndolo.** `armarComisionesKepler` arma a
+mano `kdm1`, `kdxe`, `kdxf` y las dos pólizas del pago y del gasto. **Medido en el ODS el 2026-11-26: los 2,194 de
+2,194 pagos `X-D-26` a un banco (`GB…`) de octubre y noviembre llevan su renglón `kdm5`, y ese plan no lo pone.**
+Un escritor hecho con él habría parido pagos mancos, uno por cargo del banco, sin que ninguna compuerta lo viera.
+Es la deuda que el tracker ya tenía con nombre (`[PGP.123]` G.3: «⚠️ CB.62 aún no lo consume»), cobrada.
+
+⭐ **Los tres documentos que CB.62 necesita YA tienen escritor medido contra el Kepler vivo.** El escritor de
+comisiones no escribe en Kepler: encadena los de PGP y les pasa lo que el armador de CB.62 sí sabe y nadie más —qué
+días van, con qué cargos, de qué sucursal y de qué día de venta—.
+
+| Paso | Escritor que lo hace | Lo que ese escritor ya cerró con una captura real |
+|---|---|---|
+| Solicitud `X-A-15` | `KeplerSolicitudGastoSinkAdapter` (`[PGP.122]`, encendida en las 9) | `kdm1`, `kdm6`, contador `KFXA1501.NN` |
+| Gasto `X-A-10` | `KeplerGastoSinkAdapter` (`[PGP.123]`) | + `kdxe`, póliza D, `kdc126`, `kdcn26`, `kdxg`, `KFXA1001.NN`, y deja la solicitud en `F` con saldo 0 |
+| Un pago `X-D-26` por cargo | `KeplerPagoSinkAdapter` (`[PGP.106]`) | + **`kdm5`**, póliza E, `kdxf`, `kdxg`, `kdc126`, y baja el saldo de la CxP |
+
+✅ **Por eso CB.62.3 queda cerrada sin una foto nueva**: la lista de tablas la cierran esas tres capturas, no una
+cuarta. El seguro de [`cb62_comisiones_terminal.sql`](../../../ops/prod/kepler-grants/cb62_comisiones_terminal.sql)
+se quitó y el archivo se reescribió como la **unión exacta** de los tres permisos de PGP: verificado comparando los
+conjuntos de tablas, **16 y 16, idénticos**, sin una tabla de más. Lo que ganó contra el borrador: `md.kdm5`,
+`md.sqliov` (los contadores), `UPDATE (c20)` sobre `kdxe` y `UPDATE (c42, c43)` sobre `kdm1`.
+
+**La forma real de la solicitud de comisión, medida (ODS, oct–nov, 442 vivas):**
+- ⚠️ **nace en `A`, no en `F`.** La línea de `solicitud-kepler.armador.ts` que decía «`F` = aplicada (así nacen las
+  de comisiones, CB.62)» era una premisa escrita, no medida: **16 están hoy en `A` con su saldo entero** y 412 en
+  `F` (385 con saldo 0). La `F` es donde las DEJA su gasto. Corregida en el código;
+- `kdm6`: 1,247 renglones `611-003` con concepto `199`, lado `C`. El concepto `199` resuelve a `611-003` en las
+  **9 sucursales** (`kdco`), así que la cuenta **no se escribe**: la pone el catálogo del servidor;
+- `c7` «PESOS» (442 de 442) · `c30` «FINANZAS» (390) · `c25` vacío (439: la comisión no trae comprobante) ·
+  `c12` vacío (442) · `c90` vacío (402).
+
+**Hecho (C1):** [`comisiones-kepler.escritor.ts`](../../../libs/finance/src/lib/bank/comisiones-kepler/comisiones-kepler.escritor.ts)
+traduce un día `lista` a las tres entregas, fail-closed, con la marca determinista del día (`c26`, con la forma que
+ya exige el armador de la solicitud: el mismo día pide siempre la misma marca y el escritor la busca en el Kepler
+vivo antes de escribir). **14 pruebas, tres mutantes muertos:** la solicitud naciendo en `F`, el IVA haciendo
+renglón y el candado del pago ya capturado ignorado.
+
+**Lo que esto produciría HOY, medido en prod (2026-11-26, ventana de 14 días, 700 cargos):** 18 cargos listos por
+**$521.53**, en 7 días de venta de las sucursales **04, 05 y 06**, todas BBVA (`GB004`) — contra 237 cargos con su
+pago ya capturado por Finanzas, 163 en días que Finanzas dejó a medias, 262 esperando el `U-A-5` de la sucursal y
+20 por revisar. ⭐ **Lo que dice ese $521.53**: mientras Finanzas siga capturando en paralelo, la Suite sólo alcanza
+las migajas. El valor llega con D3 (una cuenta pasa a la Suite y Finanzas deja de capturarla), no con encender el
+botón.
+
 ### 9.3 Lo que falta
 
 | # | Capa | Qué | Criterio |
 |---|---|---|---|
 | CB.62.1 | C0 | Sombra con un **mes completo**: subir la descarga de **octubre** de BBVA 4885 y Banorte 7744 (hoy sólo hay 4 días) | Día de venta y sucursal ≥ 95 % de lo asignado; cada diferencia, explicada |
 | CB.62.2 | C1 | ✅ **Firmado por Edgar (2026-11-10): cada pago es idéntico al cargo del banco, al centavo.** No se imita el ajuste de Finanzas (IVA del gasto = 16 % de la base y un pago un centavo distinto). El armador ya lo hace así | — |
-| CB.62.3 | C2 | Cerrar la lista de tablas del **alta** con una captura real: póliza, `kdxe` y `kdxf` ya están medidos (§9.2); faltan los acumulados (`kdxg`, `kdc126`, `kdcn26`) y lo que el ODS no replica. **Acordado con Edgar (2026-11-10).** Herramienta lista: `ops/prod/ensayo-pago-kepler/foto-contadores.js` (genérica). Protocolo: (1) elegir un día que Finanzas aún no toque (la propuesta lo dice: estado `lista`) en una sucursal y una hora tranquila (las fotos cuentan TODO lo que escribe esa base); (2) foto; (3) Finanzas captura la solicitud, el gasto y sus pagos de ese día, nada más; (4) foto; (5) comparar y cruzar con los documentos nuevos de `kdm1` del lapso. Luego quitar el seguro de `cb62_comisiones_terminal.sql` y ajustar sus líneas | La lista de tablas cerrada con una captura real |
-| CB.62.4 | C2 | Escritor apagado (interruptor como PGP), `GRANT` en **01–08** (archivo listo, con seguro), ensayo desde `md`, y los **tres candados** de `candadosDelDia` (pago, renglón de gasto, el día) | Ensayo verde en una sucursal; prueba negativa de cada candado |
+| CB.62.3 | C2 | ✅ **Cerrada el 2026-11-26 sin foto nueva (§9.5):** la lista de tablas la cierran las capturas reales de `[PGP.122]`, `[PGP.123]` y `[PGP.106]`, porque CB.62 usa esos tres escritores y no uno propio. `cb62_comisiones_terminal.sql` quedó sin seguro y como la unión exacta de sus permisos (16 tablas contra 16, verificado) | La lista de tablas cerrada con una captura real |
+| CB.62.4 | C2 | 🔨 **C1 hecho (§9.5):** `comisiones-kepler.escritor.ts` traduce el día a las tres entregas (14 pruebas, 3 mutantes muertos) y el `GRANT` está listo. **Falta:** el servicio C2 que encadena los tres escritores con su reclamo atómico y su bitácora · el interruptor `KEPLER_COMISIONES_TERMINAL` + el renglón `comisiones_terminal` de `kepler_push_switch` · el `GRANT` aplicado en 01–08 · `ops/prod/ensayo-comisiones-kepler/` (adaptadores reales + `ROLLBACK`, desde `md`) · los tres candados de `candadosDelDia` releídos sobre lo VIVO dentro de la transacción | Ensayo verde en una sucursal; prueba negativa de cada candado |
 | CB.62.5 | C3 | 🧪 **Construida de sólo lectura (2026-11-10, §9.4):** vista «Comisiones» en Contra Kepler, con el botón apagado. Falta: la línea «esta descarga trae N comisiones → Comisiones» en Estados de cuenta, encender el botón cuando exista CB.62.4, y verla en prod | `diseno` + `check:pantalla` ✅; validación visual en prod |
 | CB.62.6 | — | Póliza de ContPAQi: ya existe (`[CP.8.91]`, banco × mes); falta la firma de contabilidad de `comision_bancaria` → 5200650000 | Firma de contabilidad |
 
