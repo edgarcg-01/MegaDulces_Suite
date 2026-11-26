@@ -8,6 +8,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { Popover, PopoverModule } from 'primeng/popover';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
+import { esDeptoDePromotoria } from '@megadulces/contracts';
 import type { HrCatalogosFichaDto, HrFichaPersonaDto, HrIncidenciaDto, HrPersonaAsistencia, HrSinPlazasDto, HrTipoIncidenciaDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -29,7 +30,7 @@ import { RhAsistenciaEstado } from '../rh-asistencia.estado';
 import { RhService, fechaCorta, rhError, sumarDias } from '../rh.service';
 import {
   GRUPOS_INCIDENCIA, type Irregularidad, columnasDelRango, cuentaIrregular, departamentoDe, diaLargo, diasPorFecha, difHorario, etiquetaParcial, firmaHoras,
-  hora12, horarioDe, horasTexto, irregularidadesDe, porDepartamento, SIN_DEPARTAMENTO,
+  hora12, horarioDe, horasTexto, irregularidadesDe, plazaEnLaSeccion as plazaDeSeccion, porDepartamento, SIN_DEPARTAMENTO,
 } from '../reporte-formato';
 import { cubiertas, haySeleccion, personaUnica } from '../personas-seleccion';
 import { type ContextoExport, exportarPdfPersona, exportarPdfPlaza } from '../rh-exportar';
@@ -248,8 +249,16 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
               <p class="ra-form-nota" role="note">Todavía no está en la Suite: al guardar su ficha se da de alta, sin acceso.</p>
             }
             <div class="ra-tira">
-                <p>Sección <b [class.ra-falta]="depto(p) === sinDepartamento">{{ depto(p) === sinDepartamento ? 'sin sección' : depto(p) }}</b>
-                  · {{ est.soloPromotoras() ? 'promotora' : 'planta' }}
+                <!-- [RH.21] H7/H6: la sección y «promotora» salen de SU ficha, no del filtro de la vista ni del departamento
+                     disfrazado de sección. Sin sección se dice, y con qué se agrupa mientras tanto. -->
+                <p>@if (fichaDet(); as fd0) {
+                    Sección <b [class.ra-falta]="!fd0.seccion">{{ fd0.seccion || 'sin sección' }}</b>
+                    @if (!fd0.seccion && depto(p) !== sinDepartamento) { <small class="ra-nota-sec">(se agrupa en «{{ depto(p) }}», su departamento)</small> }
+                    · {{ esPromotoraFicha(fd0) ? 'promotora' : 'planta' }}
+                  } @else {
+                    Sección <b [class.ra-falta]="depto(p) === sinDepartamento">{{ depto(p) === sinDepartamento ? 'sin sección' : depto(p) }}</b>
+                    · {{ est.soloPromotoras() ? 'promotora' : 'planta' }}
+                  }
                   @if (fichaDet(); as fd) {
                     <br />{{ nombreDe(catalogos()?.departamentos, fd.departamento_code, 'sin departamento') }} · {{ nombreDe(catalogos()?.puestos, fd.puesto_code, 'sin puesto') }}
                     · {{ nombreDe(catalogos()?.sucursales, fd.sucursal_code, 'sin sucursal') }}@if (fd.zona_nombre) { ({{ fd.zona_nombre }}) }
@@ -283,7 +292,25 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
                       <p-select [options]="seccionesConocidas()" [editable]="true" name="fsec" [(ngModel)]="ff.seccion" appendTo="body"
                                 placeholder="Elige o escribe" ariaLabel="Sección del reporte de RH" />
                     </label>
+                    <!-- [RH.21] H1/H5: la sección sólo agrupa; la plaza la decide el reloj. Se dice SIEMPRE, y fuerte si la
+                         sección nombra otra plaza (antes elegir «PH» parecía mandarla a Sucursal PH y la dejaba aquí). -->
+                    @if (plazaEnLaSeccion(ff.seccion); as otra) {
+                      <p class="ra-form-nota ra-ancho ra-aviso-sec" role="alert">
+                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        «{{ ff.seccion }}» es el nombre de otra plaza ({{ otra }}). Guardarla no la mueve: seguirá en {{ est.nombreSitio() }}.
+                        Para que trabaje en {{ otra }}, tiene que checar en el reloj de {{ otra }}.
+                      </p>
+                    } @else {
+                      <p class="ra-form-nota ra-ancho">La sección sólo agrupa el reporte de {{ est.nombreSitio() }}. La plaza la decide el reloj donde checa.</p>
+                    }
                     <label class="ra-check"><input type="checkbox" name="fpro" [(ngModel)]="ff.promotora" /> Es promotora de marca</label>
+                    <!-- [RH.21] H6: una sección de promotoría la hace promotora aunque la casilla esté apagada (misma regla que el servidor). -->
+                    @if (!ff.promotora && seccionHacePromotora(ff.seccion)) {
+                      <p class="ra-form-nota ra-ancho ra-aviso-sec" role="alert">
+                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        La sección «{{ ff.seccion }}» es de promotoría: seguirá en Promotoras aunque la casilla esté apagada. Cambia la sección.
+                      </p>
+                    }
                     <!-- [RH.14.5] Lo de la persona (no de la plaza), sólo sin acceso: la zona sale de la sucursal. -->
                     @if (fichaDet() && !fichaDet()!.con_acceso) {
                       @if (catalogos(); as cat) {
@@ -491,6 +518,8 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
     .ra-form input[type='number'] { width: 6rem; }
     .ra-form .ra-check { flex-direction: row; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
     .ra-form-nota { flex: 1 1 100%; margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .ra-aviso-sec { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); }
+    .ra-nota-sec { color: var(--text-muted); font-size: var(--fs-xs); }
     .ra-form-btns { display: flex; gap: var(--sp-2); }
     .ra-turno { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; border: 0; margin: 0; padding: 0; }
     .ra-turno legend { flex: 1 1 100%; padding: 0; font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); }
@@ -558,8 +587,17 @@ export class RhAsistenciaComponent {
   readonly bajaDe = signal<string | null>(null);
   readonly motivoBaja = signal('');
   /** Las secciones que ya existen en la plaza: se elige una antes que escribir otra variante de la misma. */
+  // `[RH.21]` H7: sólo SECCIONES de verdad. Sin sección, el servidor agrupa por «departamento · código» de la persona, y
+  // antes esa etiqueta se ofrecía aquí como si fuera una sección (elegirla la guardaba como texto).
   readonly seccionesConocidas = computed(() =>
-    [...new Set(this.todas().map((x) => departamentoDe(x)).filter((d) => d !== SIN_DEPARTAMENTO))].sort((a, b) => a.localeCompare(b, 'es')));
+    [...new Set(this.todas().filter((x) => !String(x.departamento || '').includes(' · ')).map((x) => departamentoDe(x)).filter((d) => d !== SIN_DEPARTAMENTO))]
+      .sort((a, b) => a.localeCompare(b, 'es')));
+  /** `[RH.21]` H5: ¿la sección nombra OTRA plaza? (la sección agrupa; la plaza la decide el reloj). */
+  plazaEnLaSeccion(seccion: string): string | null { return plazaDeSeccion(seccion, this.est.sitios(), this.est.sitio()); }
+  /** `[RH.21]` H6: la misma regla del servidor (`@megadulces/contracts`). */
+  seccionHacePromotora(seccion: string): boolean { return esDeptoDePromotoria(seccion); }
+  /** `[RH.21]` H6: promotora según SU ficha (casilla o sección de promotoría), no según el filtro de la vista. */
+  esPromotoraFicha(fd: HrFichaPersonaDto): boolean { return fd.promotora || esDeptoDePromotoria(fd.seccion); }
   readonly puedeCapturar = computed(() => this.perms.has(Permission.HR_INCIDENTS_CAPTURAR));
   readonly puedeCalificar = computed(() => this.perms.has(Permission.HR_INCIDENTS_CALIFICAR));
   /** `[RH.18.2]` Quien ve Personas (Administración) puede ir directo a cambiar lo que aquí no se puede. */
@@ -886,8 +924,11 @@ export class RhAsistenciaComponent {
     this.fichaForm.set({
       // `[RH.14.4]` Si su nombre es el apodo del reloj, el campo arranca vacío: copiar el apodo invita a guardarlo igual.
       // `[RH.20.1]` Sin ligar, lo que se ve es el apodo del reloj: también arranca vacío.
-      codigo: p.codigo, nombre: fd?.nombre_por_confirmar === 'apodo_del_reloj' || !p.registrado ? '' : (p.nombreCompleto || p.nombre), seccion: d === SIN_DEPARTAMENTO ? '' : d,
-      promotora: this.est.soloPromotoras(),
+      // `[RH.21]` H7/H6: con la ficha leída, la sección y la casilla son las SUYAS (sin sección = vacío, no su
+      // departamento; promotora = su casilla, no el filtro de la vista). Sin ficha aún, lo de antes.
+      codigo: p.codigo, nombre: fd?.nombre_por_confirmar === 'apodo_del_reloj' || !p.registrado ? '' : (p.nombreCompleto || p.nombre),
+      seccion: fd ? (fd.seccion ?? '') : (d === SIN_DEPARTAMENTO ? '' : d),
+      promotora: fd ? fd.promotora : this.est.soloPromotoras(),
       departamento: fd?.departamento_code ?? null, puesto: fd?.puesto_code ?? null, sucursal: fd?.sucursal_code ?? null,
     });
   }
@@ -904,8 +945,11 @@ export class RhAsistenciaComponent {
     // acceso el servidor lo rechaza (lo cambia Sistemas).
     const sinAcceso = !!fd && !fd.con_acceso;
     if (f.nombre.trim() && f.nombre.trim() !== (p.nombreCompleto || p.nombre)) cambios.nombre = f.nombre;
-    if (f.seccion.trim().toUpperCase() !== (antes === SIN_DEPARTAMENTO ? '' : antes)) cambios.seccion = f.seccion;
-    if (f.promotora !== this.est.soloPromotoras()) cambios.promotora = f.promotora;
+    // `[RH.21]` Se compara contra lo que la ficha TIENE (si ya se leyó), no contra lo que la vista deduce.
+    const seccionAntes = fd ? (fd.seccion ?? '').trim().toUpperCase() : (antes === SIN_DEPARTAMENTO ? '' : antes);
+    const promotoraAntes = fd ? fd.promotora : this.est.soloPromotoras();
+    if (f.seccion.trim().toUpperCase() !== seccionAntes) cambios.seccion = f.seccion;
+    if (f.promotora !== promotoraAntes) cambios.promotora = f.promotora;
     // `[RH.20.1]` Sin ligar, guardar es darla de alta: el servidor necesita el nombre completo y la sección aunque no cambien.
     if (!p.registrado) {
       cambios.nombre = f.nombre;
@@ -923,8 +967,11 @@ export class RhAsistenciaComponent {
         this.guardando.set(false);
         this.fichaForm.set(null);
         this.aviso.set({
+          // `[RH.21]` H6: «ahora en Planta» mentía si la sección es de promotoría (el servidor la sigue contando promotora).
           texto: (!p.registrado ? 'Dada de alta en la Suite, sin acceso · ' : '') + (cambios.promotora !== undefined
-            ? `Guardado · ahora en ${cambios.promotora ? 'Promotoras' : 'Planta'}`
+            ? (cambios.promotora || !esDeptoDePromotoria(f.seccion)
+              ? `Guardado · ahora en ${cambios.promotora ? 'Promotoras' : 'Planta'}`
+              : `Guardado · sigue en Promotoras por su sección «${f.seccion}»`)
             : 'Guardado'),
           mal: false,
         });

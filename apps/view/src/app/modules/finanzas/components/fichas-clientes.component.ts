@@ -109,7 +109,14 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato, BandejaFich
                         }
                         @case ('sin_aplicar') {
                           <span class="fc-warn">Entró al banco, sin cobro en Kepler</span>
-                          @if (b.abonos[0]?.declarado === f.cliente_code) { <span class="fc-muted">El abono ya está marcado como de este cliente.</span> }
+                          <!-- [CC.22] Decía sólo «ya está marcado» y nada más: quien lo presiona puede creer que
+                               terminó, y el cobro NO se escribe desde aquí. Hasta que alguien lo capture en Kepler,
+                               el cliente sigue debiendo en el sistema lo que ya pagó y su factura no recibe
+                               complemento de pago (el de un cobro de noviembre vence el 5 de diciembre). -->
+                          @if (b.abonos[0]?.declarado === f.cliente_code) {
+                            <span class="fc-muted">Marcado como de este cliente.</span>
+                            <span class="fc-warn">Falta capturar el cobro en Kepler: hasta entonces sigue debiendo esto en el sistema y su factura no recibe complemento de pago.</span>
+                          }
                         }
                         @case ('de_otro_cliente') {
                           <span class="fc-bad">El abono es de otro cliente</span>

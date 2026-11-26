@@ -451,24 +451,76 @@ export interface AutoabastoPedidoLinea {
 // pedir y 3,264 tenían una «Acción» que contradecía a quién se le pide. La cuenta del renglón vive
 // AQUÍ, pura, para que el servidor la use en las dos pantallas y la prueba la ejerza sin base de datos.
 
-/** `[AB.26]` A quién se le pide el renglón, según el canal configurado (`replenishment_channel`). */
+/** `[AB.NI.10]` De dónde salió la ruta de este renglón. ⭐ No es cosmética: cambia qué puede hacer la persona. */
+export type OrigenDeLaRuta =
+  /** La derivó un promedio del histórico, nadie la decidió. **Sigue siendo enviable** (cero regresión). */
+  | 'inherited'
+  /** Una sucursal la declaró y espera a Compras. ⛔ Todavía NO autoriza escribir en Kepler. */
+  | 'proposed'
+  /** Confirmada por Compras. Es la ruta. */
+  | 'declared';
+
+/** `[AB.26]` A quién se le pide el renglón, según la ruta de abasto (`commercial.replenishment_route`). */
 export interface SurteRenglon {
-  /** `matriz` = traspaso desde su matriz · `proveedor` = compra · `sin_ruta` = no hay canal. */
+  /** `matriz` = traspaso desde su matriz · `proveedor` = compra · `sin_ruta` = no hay ruta. */
   tipo: 'matriz' | 'proveedor' | 'sin_ruta';
   /** Código del almacén que surte (matriz) o id del proveedor. `null` sin ruta. */
   clave: string | null;
   nombre: string;
+  /**
+   * `[AB.NI.10]` De dónde salió la ruta. Ausente = no se sabe (la pantalla no debe afirmar nada).
+   * ⚠️ Opcional a propósito: un renglón sin esta marca se lee igual que antes.
+   */
+  origen_ruta?: OrigenDeLaRuta;
+  /**
+   * `[AB.NI.10]` ⚠️ La ruta derivada de este par era **ruido**: empate en el voto, o ventaja de un
+   * solo día. *Medido el 2026-11-25: de 70 empates, 61 habían cambiado de valor en siete horas, y
+   * el desempate lo daba el orden alfabético.* Se marca **para que Compras la revise**, no para
+   * bloquearla — bloquearla cambiaría un problema de verdad por uno de disponibilidad.
+   */
+  fragil?: boolean;
+}
+
+/** `[AB.NI.10]` La ruta **declarada** del par (sucursal × proveedor), cuando existe. */
+export interface RutaDeclarada {
+  via?: unknown;
+  /** Código del almacén que surte, cuando `via = 'transfer'`. */
+  source_code?: unknown;
+  origen?: OrigenDeLaRuta;
+  fragil?: boolean;
 }
 
 /**
  * `[AB.26]` El «a quién» del renglón. Sustituye a la «Acción» de la mesa, que elegía origen con el
  * sobrante de TODA la red: una instrucción que la sucursal no puede ejecutar (FASE_AB D3).
- * ⚠️ Sin canal NO es compra: se dice `sin_ruta`, no se rellena con un origen por default (ADR-056).
+ * ⚠️ Sin ruta NO es compra: se dice `sin_ruta`, no se rellena con un origen por default (ADR-056).
+ *
+ * ⭐⭐ `[AB.NI.10]` **La ruta DECLARADA gana sobre la observada.** Medido en prod el 2026-11-25: la
+ * misma derivación corrida siete horas después de la que dejó el importer traía **otra `via` en 145
+ * de 2,076 pares**, y en **70 pares el voto era un empate** que desempataba el orden alfabético.
+ * *Una relación de abasto no cambia porque hoy llegó un camión; cambia cuando alguien lo decide.*
  */
-export function surteDe(via: unknown, origen: unknown, supplierId: unknown, supplierName: unknown): SurteRenglon {
-  if (via === 'transfer' && origen) return { tipo: 'matriz', clave: String(origen), nombre: String(origen) };
-  if (supplierId) return { tipo: 'proveedor', clave: String(supplierId), nombre: String(supplierName ?? 'Proveedor') };
-  return { tipo: 'sin_ruta', clave: null, nombre: 'Sin ruta configurada' };
+export function surteDe(
+  via: unknown,
+  origen: unknown,
+  supplierId: unknown,
+  supplierName: unknown,
+  ruta?: RutaDeclarada | null,
+): SurteRenglon {
+  // La declarada manda: si trae `via`, la observada ni se mira.
+  const viaEfectiva = ruta && ruta.via != null ? ruta.via : via;
+  const origenEfectivo = ruta && ruta.via != null ? (ruta.source_code ?? null) : origen;
+  const marca: Pick<SurteRenglon, 'origen_ruta' | 'fragil'> = {};
+  if (ruta?.origen) marca.origen_ruta = ruta.origen;
+  if (ruta?.fragil) marca.fragil = true;
+
+  if (viaEfectiva === 'transfer' && origenEfectivo) {
+    return { tipo: 'matriz', clave: String(origenEfectivo), nombre: String(origenEfectivo), ...marca };
+  }
+  if (supplierId) {
+    return { tipo: 'proveedor', clave: String(supplierId), nombre: String(supplierName ?? 'Proveedor'), ...marca };
+  }
+  return { tipo: 'sin_ruta', clave: null, nombre: 'Sin ruta configurada', ...marca };
 }
 
 /** `[AB.26]` Qué pasa con el renglón. El orden es el de lectura: primero lo que nadie ha pedido. */
@@ -755,16 +807,73 @@ export function yaSeMandoACompras(l: Pick<AutoabastoPedidoLinea, 'estado'>): boo
   return l.estado === 'lo_pediste';
 }
 
-/** `[AB.29]` Por qué un renglón NO se manda a Compras, en palabras de la sucursal. `null` = sí se manda. */
-export function motivoNoEnviable(l: Pick<AutoabastoPedidoLinea, 'estado' | 'surte' | 'ajuste' | 'a_pedir'>): string | null {
-  if (l.estado === 'lo_pediste') return 'Ya lo pediste a Compras';
-  if (l.estado === 'compras_lo_planeo') return 'Compras ya lo planeó';
-  if (l.estado === 'ya_viene') return 'Ya viene lo que falta';
-  if (l.estado === 'en_politica') return 'No le falta';
-  if (l.surte.tipo === 'sin_ruta') return 'No tiene a quién pedírselo (sin ruta configurada)';
+/**
+ * `[AB.NI.10]` De qué clase es el bloqueo. ⭐⭐ **Esto es lo que decide si la persona tiene salida.**
+ *
+ * *Antes todos los bloqueos eran del mismo tipo: un texto. La pantalla no podía distinguir «no le
+ * falta» —donde no hay nada que hacer— de «no tiene a quién pedírselo» —donde la sucursal SABE la
+ * respuesta y no tenía dónde escribirla—. Ahí se acababa el camino, y ahí es donde agarraban papel.*
+ */
+export type ClaseDeBloqueo =
+  /** No hay nada que hacer: el renglón no debe salir y punto. */
+  | 'terminal'
+  /** ⭐ La persona que está mirando la pantalla puede destrabarlo ahora mismo. */
+  | 'resoluble'
+  /** Está destrabado de su lado: falta que otro haga lo suyo. */
+  | 'en_espera';
+
+/** `[AB.NI.10]` Lo que la pantalla necesita saber de un renglón que no sale. */
+export interface BloqueoRenglon {
+  /** En palabras de la sucursal. */
+  motivo: string;
+  clase: ClaseDeBloqueo;
+  /** Qué ofrecer cuando es `resoluble`. `null` cuando no hay acción. */
+  accion: 'declarar_ruta' | null;
+}
+
+/**
+ * `[AB.29]` `[AB.NI.10]` Por qué un renglón NO se manda a Compras, **y si se puede hacer algo**.
+ * `null` = sí se manda.
+ *
+ * ⛔⛔ **«Sin ruta» dejó de ser terminal.** Medido en prod el 2026-11-25: entre un cuarto y la mitad
+ * de los **375 proveedores activos** no tienen ruta en cada sucursal (04 Yurécuaro **151, el
+ * 40.3 %**), y cada uno de esos renglones **no se podía mandar a ningún lado**. *La requisición a
+ * mano que hace la sucursal no es una costumbre: era la única salida que el sistema dejaba.*
+ */
+export function bloqueoDelRenglon(
+  l: Pick<AutoabastoPedidoLinea, 'estado' | 'surte' | 'ajuste' | 'a_pedir'>,
+): BloqueoRenglon | null {
+  if (l.estado === 'lo_pediste') return { motivo: 'Ya lo pediste a Compras', clase: 'terminal', accion: null };
+  if (l.estado === 'compras_lo_planeo') return { motivo: 'Compras ya lo planeó', clase: 'terminal', accion: null };
+  if (l.estado === 'ya_viene') return { motivo: 'Ya viene lo que falta', clase: 'terminal', accion: null };
+  if (l.estado === 'en_politica') return { motivo: 'No le falta', clase: 'terminal', accion: null };
+  // ⭐ La sucursal sabe a quién se le pide: lo que faltaba era dónde decirlo.
+  // ⚠️ **El TEXTO no cambia todavía, a propósito.** «Falta decir a quién se le pide» promete una
+  //    acción que la pantalla aún no tiene (`[AB.NI.12]`), y *nada afirma lo que no es* (Ley 0 del
+  //    estándar de interfaces). Lo que cambia ahora es la **clase**: el renglón ya se puede
+  //    distinguir de un bloqueo terminal. El texto se cambia **en el mismo commit** que trae el
+  //    botón de declarar la ruta, no antes.
+  if (l.surte.tipo === 'sin_ruta') {
+    return { motivo: 'No tiene a quién pedírselo (sin ruta configurada)', clase: 'resoluble', accion: 'declarar_ruta' };
+  }
+  // ⛔ Una ruta propuesta NO autoriza escribir en Kepler: un X-A-30 a un proveedor equivocado es un
+  //    acto hacia afuera y no se dispara con la palabra de una sola persona.
+  if (l.surte.origen_ruta === 'proposed') {
+    return { motivo: 'Compras tiene que confirmar a quién se le pide', clase: 'en_espera', accion: null };
+  }
   const cantidad = l.ajuste ? l.ajuste.cantidad : l.a_pedir.cantidad;
-  if (!(cantidad > 0)) return 'La cantidad a pedir es 0';
+  if (!(cantidad > 0)) return { motivo: 'La cantidad a pedir es 0', clase: 'terminal', accion: null };
   return null;
+}
+
+/**
+ * `[AB.29]` Por qué un renglón NO se manda a Compras, en palabras de la sucursal. `null` = sí se manda.
+ * ⚠️ Conserva la firma de texto para quien sólo quiere el motivo; la **clase** del bloqueo (si la
+ * persona puede destrabarlo) está en `bloqueoDelRenglon`.
+ */
+export function motivoNoEnviable(l: Pick<AutoabastoPedidoLinea, 'estado' | 'surte' | 'ajuste' | 'a_pedir'>): string | null {
+  const b = bloqueoDelRenglon(l);
+  return b ? b.motivo : null;
 }
 
 /** `[AB.29]` Lo que manda la pantalla: QUÉ renglones. Las cantidades y a quién se le pide los pone el servidor. */

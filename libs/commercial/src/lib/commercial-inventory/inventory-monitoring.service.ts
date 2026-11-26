@@ -5,6 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { existenciaYApartado } from './stock-state';
 
 /**
  * Fase PREV.2 — Monitoreo intensivo + ventanas de pérdida (Apéndice B §10-13).
@@ -80,10 +81,15 @@ export class InventoryMonitoringService {
       if (!mon) throw new NotFoundException('Monitoreo no encontrado');
       if (mon.status !== 'active') throw new ConflictException('El monitoreo está cerrado');
 
-      const stock = await trx('commercial.stock')
-        .where({ warehouse_id: mon.warehouse_id, product_id: mon.product_id })
-        .first('quantity');
-      const expected = stock ? Number(stock.quantity) : 0;
+      // `[CANON.7.4d]` El teórico contra el que se compara el conteo rápido sale de la existencia del ODS
+      // (Kepler), no de la copia `commercial.stock`. Acá importa más que en otros lados: este número se
+      // GUARDA en `expected_qty` y de él sale la `difference` que acusa una pérdida en una ventana de horas.
+      // Un teórico de una copia congelada fabrica un faltante que nadie se robó.
+      //
+      // ⛔ `existenciaYApartado` no se traga el error (a diferencia de `leerExistencia`): si la vista no
+      // responde, el conteo NO se registra. Guardar un esperado de 0 porque no se pudo leer sería inventar
+      // un faltante del tamaño del físico contado.
+      const { existencia: expected } = await existenciaYApartado(trx, mon.warehouse_id, mon.product_id);
       const diff = dto.physical_qty - expected;
 
       const prev = await trx('commercial.inventory_monitoring_counts')

@@ -1,7 +1,7 @@
 import { asistencia, dia, persona } from '../../../testing/rh.fixture';
 import {
   SIN_DEPARTAMENTO, celdaDe, columnasDelRango, diasPorFecha, etiquetaParcial, faltasDelPeriodo, firmaHoras, horarioDe, horarioPartes, horarioRenglones, horasTexto,
-  irregularidadesDe, pausasDelDia, porDepartamento, rebasados, tramosDe,
+  irregularidadesDe, pausasDelDia, plazaEnLaSeccion, porDepartamento, rebasados, tramosDe,
 } from './reporte-formato';
 
 /**
@@ -261,5 +261,27 @@ describe('[RH.18.7] la semana en rejilla: bloques de incidencia y totales por d�
       { fecha: '2026-10-02', min: 0, checaron: 1 },   // una sola checada: checó, pero no suma horas
       { fecha: '2026-10-03', min: 0, checaron: 0 },
     ]);
+  });
+});
+
+describe('[RH.21] H5 — una sección con el nombre de otra plaza', () => {
+  // Las plazas reales (nombres de hr.attendance_sites, 2026-11-25).
+  const plazas = [
+    { code: '8-esquinas', name: '8-Esquinas' }, { code: 'sucursal-ph', name: 'Sucursal PH' },
+    { code: 'la-piedad-abastos', name: 'La Piedad Abastos' }, { code: 'morelia-vicente-guerrero', name: 'Morelia Madero' },
+    { code: 'reloj-196', name: 'RD' }, { code: 'zamora-canindo', name: 'Zamora Canindo' },
+  ];
+  it('las heredadas de Mega Talento que nombran OTRA plaza se reconocen', () => {
+    expect(plazaEnLaSeccion('PH', plazas, '8-esquinas')).toBe('Sucursal PH');
+    expect(plazaEnLaSeccion('STAFF LA PIEDAD', plazas, 'zamora-canindo')).toBe('La Piedad Abastos');
+    expect(plazaEnLaSeccion('Morelia Madero', plazas, 'morelia-abastos')).toBe('Morelia Madero');
+    expect(plazaEnLaSeccion('RD', plazas, 'sucursal-ph')).toBe('RD');
+  });
+  it('⛔ la de su propia plaza, un área o una palabra parecida NO', () => {
+    expect(plazaEnLaSeccion('ESQUINAS', plazas, '8-esquinas')).toBeNull();               // es la suya
+    expect(plazaEnLaSeccion('SUCURSAL CANINDO', plazas, 'zamora-canindo')).toBeNull();   // es la suya
+    expect(plazaEnLaSeccion('VENTAS', plazas, '8-esquinas')).toBeNull();
+    expect(plazaEnLaSeccion('PHILIPS', plazas, '8-esquinas')).toBeNull();                // palabra, no letras
+    expect(plazaEnLaSeccion('', plazas, '8-esquinas')).toBeNull();
   });
 });

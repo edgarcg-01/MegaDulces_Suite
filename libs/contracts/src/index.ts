@@ -126,6 +126,8 @@ export * from './http/autoabasto-mesa.contract';
 // [AB.40] El motor único de cantidad (tope de 45 días) para Autoabasto y Compras.
 export * from './http/cantidad-pedido.contract';
 export * from './http/warehouse-locations.contract';
+export * from './http/warehouse-fixtures.contract';
+export * from './http/warehouse-retiro.contract';
 // [GP.2] Pool de surtido con pedidos de Kepler (U-D-40) y armado de olas por tamaño.
 export * from './http/warehouse-picking-kepler.contract';
 // `[RE.ETQ]` Etiquetas de caja de la orden de entrada (TSC TE200): cola, bitácora y reglas de la etiqueta.
@@ -318,3 +320,7 @@ export * from './http/quote-close.contract';
 export * from './http/quote-search-event.contract';
 // `[COT.54]` Cuánto costó capturar una cotización (sólo se reporta agregado).
 export * from './http/quote-capture.contract';
+// `[COT.58]` La pieza de un pieza · paquete · caja se vende sólo en piso: en cotización, paquete o caja.
+export * from './http/quote-units.contract';
+// `[GP.R.2]` El cierre del resto de centavos de un cliente con el Ajuste Abono `U-A-30`, y el insoluto que le queda ante el SAT.
+export * from './finance/ajuste-abono.contract';

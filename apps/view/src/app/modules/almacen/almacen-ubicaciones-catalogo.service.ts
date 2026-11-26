@@ -20,6 +20,11 @@ import type {
   UndoLocationBatchResult,
   WarehouseLocationRow,
   WarehouseLocationsResponse,
+  CroquisResponse,
+  CrearPiezaBody,
+  DerivarPiezasResult,
+  LocationZone,
+  WarehouseFixture,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -54,6 +59,29 @@ export class AlmacenUbicacionesCatalogoService {
 
   undo(batchId: string): Observable<UndoLocationBatchResult> {
     return this.http.post<UndoLocationBatchResult>(`${this.base}/batches/${batchId}/undo`, {});
+  }
+
+  // ── [UB.PL] el croquis de la sucursal ──
+
+  /** Las piezas de un almacén y zona, y cuántas ubicaciones todavía no cuelgan de ninguna. */
+  croquis(warehouseId: string, zona: LocationZone): Observable<CroquisResponse> {
+    return this.http.get<CroquisResponse>(`${this.base}/fixtures`, {
+      params: new HttpParams().set('warehouse_id', warehouseId).set('zona', zona),
+    });
+  }
+
+  /** `[UB.PL.2]` Deriva las piezas del catálogo que ya existe. No crea ni borra ubicaciones. */
+  derivarPiezas(warehouseId: string): Observable<DerivarPiezasResult> {
+    return this.http.post<DerivarPiezasResult>(`${this.base}/fixtures/derivar`, { warehouse_id: warehouseId });
+  }
+
+  crearPieza(body: CrearPiezaBody): Observable<WarehouseFixture> {
+    return this.http.post<WarehouseFixture>(`${this.base}/fixtures`, body);
+  }
+
+  /** Mueve una pieza en el croquis o la renombra. No toca ninguna ubicación ni ningún código. */
+  moverPieza(id: string, body: { fila?: number | null; columna?: number | null; label?: string | null }): Observable<WarehouseFixture> {
+    return this.http.patch<WarehouseFixture>(`${this.base}/fixtures/${id}`, body);
   }
 
   // ── [UB.3] asignación por producto y presentación ──

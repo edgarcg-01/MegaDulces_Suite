@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
+import { By } from '@angular/platform-browser';
+import { MetricStripComponent } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { BancosCuentasComponent } from './bancos-cuentas.component';
-import { BalanceRow, Balances } from '../../bank.service';
+import { BalanceRow, Balances, Diagnostico } from '../../bank.service';
 
 /**
  * `[BFU.0.1]` Cuentas dice de dónde sale cada saldo y hasta qué día. Caso real que lo motivó (2026-11-19): las 16
@@ -72,5 +74,51 @@ describe('[BFU.0.1] Cuentas dice la fuente y el día de cada saldo', () => {
     const txt = (montar(bal([fila({ fuente: undefined, hasta: undefined, banco_hasta: undefined })])).nativeElement as HTMLElement).textContent ?? '';
     expect(txt).toContain('no medido');
     expect(txt).not.toContain('Libro de Tesorería');
+  });
+});
+
+/**
+ * `[BFU.4.5.13]` Cuentas contesta UNA pregunta —¿cierran los saldos?— y lo que entró y salió se fue a «Ingresos y
+ * egresos» (Edgar, 2026-11-25: «para no hacer tanto scroll»). Importes inventados.
+ */
+describe('[BFU.4.5.13] Cuentas: los saldos en una tira, lo que pide algo primero', () => {
+  const tres = bal([
+    fila({ account_label: '1111', fuente: 'banco', hasta: '2026-11-24', banco_hasta: '2026-11-24' }),
+    fila({ account_label: '2222', fuente: 'banco', cuadra: false, delta: 150, hasta: '2026-11-24', banco_hasta: '2026-11-24' }),
+    fila({ account_label: '3333', sin_saldo: true, fuente: undefined }),
+    fila({ account_label: '4444', fuente: 'libro', hasta: '2026-11-10', banco_hasta: '2026-11-18' }),
+  ]);
+  it('la tira dice cuántas cierran, cuántas no y cuántas no tienen movimientos, sin animar', () => {
+    const fx = montar(tres);
+    const c = fx.componentInstance;
+    expect(c.cifrasSaldos().map((x) => [x.label, x.value])).toEqual([['Saldos', '2 de 3 cierran'], ['No cierran', 1], ['Sin movimientos', 1]]);
+    expect(fx.debugElement.query(By.directive(MetricStripComponent)).componentInstance.instant()).toBe(true);
+  });
+  it('la tabla pone primero la que no cierra, luego la que sale del libro, la sin saldo y al final las que cierran', () => {
+    const c = montar(tres).componentInstance;
+    expect(c.cuentasOrdenadas().map((a) => a.account_label)).toEqual(['2222', '4444', '3333', '1111']);
+  });
+  it('lo que cierra no lleva color ni repite «$0.00»; lo que no cierra, sí dice cuánto', () => {
+    const el = montar(tres).nativeElement as HTMLElement;
+    // La columna Δ (la 9a: desplegar, cuenta, fuente, inicial, depósitos, retiros, calculado, final, Δ, cierra).
+    const deltas = Array.from(el.querySelectorAll('.fb-bal tbody tr')).map((tr) => tr.querySelectorAll('td')[8]?.textContent?.trim());
+    expect(deltas).toEqual(['$150.00', '—', '—', '—']);
+    expect(el.querySelector('.ok')).toBeNull();
+  });
+  it('«Falta explicar» lleva a Ingresos y egresos', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ imports: [BancosCuentasComponent], providers: [provideZonelessChangeDetection()] });
+    const fx = TestBed.createComponent(BancosCuentasComponent);
+    fx.componentRef.setInput('balances', tres);
+    fx.componentRef.setInput('statements', []);
+    fx.componentRef.setInput('diagnostico', { items: [], cobertura_categoria: { explicado: { n: 10, monto: 1, por_ligar: { n: 565, monto: 35_400_000 }, atrasados: 216 } } } as unknown as Diagnostico);
+    fx.componentRef.setInput('period', '2026-11');
+    fx.detectChanges();
+    const c = fx.componentInstance;
+    const falta = c.cifrasSaldos().find((x) => x.label === 'Falta explicar');
+    expect(falta).toMatchObject({ value: '$35.4 M', drill: 'ingresos' });
+    let n = 0; c.irAIngresos.subscribe(() => n++);
+    c.onDrill('ingresos');
+    expect(n).toBe(1);
   });
 });

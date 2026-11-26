@@ -514,10 +514,49 @@ export class InventoryCountService {
         prodName = prod.nombre;
       } else {
         if (!productId && dto.barcode) {
-          const prod = await trx('public.products').where({ barcode: dto.barcode }).first();
-          if (!prod) throw new NotFoundException(`Sin producto para el código '${dto.barcode}'`);
-          productId = prod.id;
-          location = prod.location || null;
+          // ⛔⛔ [IC.F1] PRIMERO el folio, DESPUÉS el catálogo global. No al revés.
+          //
+          // El catálogo tiene el mismo producto más de una vez (medido en prod el
+          // 2026-11-26: de 14,986 filas de `public.products`, **1,162 sin SKU**, **887 SKUs
+          // repetidos** y **1,017 nombres con más de un `product_id`**). Buscar el código
+          // directo en `public.products` devolvía la fila DUPLICADA —la que no tiene SKU—,
+          // su `product_id` no coincidía con el que el folio sembró, y más abajo el
+          // `if (!item)` daba de alta un **renglón nuevo con `expected_qty: 0`**.
+          //
+          // El daño era total y silencioso: el artículo original quedaba `pending` para
+          // siempre (el folio **no podía cerrarse jamás**), el total crecía con cada
+          // escaneo (el 100 % se alejaba a cada paso) y lo contado entraba como **sobrante
+          // puro** contra un teórico cero. Es lo que explica los 6 folios cancelados y 0
+          // reconciliados de toda la historia del módulo.
+          //
+          // ⭐ El testigo de que ésta es la resolución correcta ya existía: el camino SIN
+          // CONEXIÓN nunca tuvo el defecto, porque resuelve contra la caché de
+          // `/counts/:id/catalog` —que son los productos DEL FOLIO—. Acá se hace lo mismo
+          // del lado del servidor. Medido el 2026-11-26: offline acertó (`sku 00182`,
+          // teórico 19, sin crear renglón) y online falló (sku vacío, teórico 0, renglón
+          // nuevo) sobre el MISMO folio.
+          //
+          // ⚠️ El `else` se conserva a propósito: un código que de verdad no está en el
+          // folio es un **sobrante legítimo** y debe seguir dándose de alta. Lo que se
+          // corrige es el sobrante FALSO, el que nace de que un producto tenga dos
+          // identidades en el catálogo.
+          const delFolio = await trx('commercial.inventory_count_items as i')
+            .join('public.products as p', 'p.id', 'i.product_id')
+            .where('i.count_id', countId)
+            .andWhere((qb) =>
+              qb.where('p.barcode', dto.barcode).orWhere('p.sku', dto.barcode),
+            )
+            .select('i.product_id', 'p.location')
+            .first();
+          if (delFolio) {
+            productId = delFolio.product_id;
+            location = delFolio.location || null;
+          } else {
+            const prod = await trx('public.products').where({ barcode: dto.barcode }).first();
+            if (!prod) throw new NotFoundException(`Sin producto para el código '${dto.barcode}'`);
+            productId = prod.id;
+            location = prod.location || null;
+          }
         }
         if (!UUID.test(productId!)) throw new BadRequestException('product_id inválido');
       }
@@ -1279,19 +1318,80 @@ export class InventoryCountService {
   }
 
   /** Usuarios asignables como contador (CONTAR) o supervisor (SUPERVISAR). */
+  /**
+   * `[IC.27]` **Quién puede entrar al equipo de un conteo.**
+   *
+   * ── Contadores: la lista es UNIVERSAL (Edgar, 2026-11-24) ────────────────────────────────
+   *
+   * El equipo de un inventario físico no sale de un puesto: se trae gente de otras sucursales
+   * y de oficinas, **promotoras incluidas**. Así que el catálogo de `counter` son **todos los
+   * activos internos**, se elijan uno a uno. La llave para contar la da la asignación
+   * (`ContarOAsignadoGuard`), no el rol — por eso acá ya no se filtra por la clave.
+   *
+   * *Cifra que lo motivó (prod, 2026-11-24): de 263 personas activas, **96 son promotoras** y
+   * ninguna tiene `COMMERCIAL_INVENTORY_CONTAR`; el catálogo viejo ofrecía 24 nombres.*
+   *
+   * ── Supervisores: siguen filtrados, y a propósito ───────────────────────────────────────
+   *
+   * El supervisor responsable **abre el detalle del folio**, que exige `SUPERVISAR` y muestra
+   * el teórico. Ofrecer ahí a alguien sin la clave sería prometer una responsabilidad que la
+   * pantalla no lo deja ejercer.
+   *
+   * ⛔ El filtro se hace por la UNIÓN de roles (perfil base + complementos de
+   * `identity.user_roles`), que es lo que de verdad enforcea `RolesGuard`. Antes sólo miraba
+   * `u.role_name`: medido en prod, eso dejaba fuera a **7 de 31** personas que sí podían contar
+   * —entre ellas el único surtidor que usa el módulo— y a quien supervisa por complemento.
+   *
+   * Devuelve además lo que la pantalla necesita para elegir con criterio: `warehouse_code`
+   * (para subir a los del almacén que se cuenta), `puede_contar` (informativo) y `folio_vivo`
+   * (si la persona YA está comprometida en otro conteo abierto).
+   */
   async assignableUsers(role: 'counter' | 'supervisor') {
     const perm = role === 'supervisor'
       ? 'COMMERCIAL_INVENTORY_SUPERVISAR'
       : 'COMMERCIAL_INVENTORY_CONTAR';
     return this.tk.run(async (trx) => {
-      return trx('identity.users as u')
-        .join('public.role_permissions as rp', function () {
-          this.on('rp.role_name', '=', 'u.role_name').andOn('rp.tenant_id', '=', 'u.tenant_id');
-        })
-        .where('u.activo', true)
-        .whereRaw(`(rp.permissions ->> ?)::bool = true`, [perm])
-        .select('u.id', 'u.username', 'u.nombre', 'u.role_name')
-        .orderBy('u.nombre', 'asc');
+      const { rows } = await trx.raw(
+        `WITH clave AS (
+           SELECT u.id,
+                  EXISTS (
+                    SELECT 1 FROM identity.role_permissions rp
+                     WHERE rp.tenant_id = u.tenant_id
+                       AND (rp.permissions ->> ?) = 'true'
+                       AND (rp.role_name = u.role_name
+                            OR rp.role_name IN (SELECT ur.role_name
+                                                  FROM identity.user_roles ur
+                                                 WHERE ur.user_id = u.id))
+                  ) AS tiene
+             FROM identity.users u
+            WHERE u.activo = true
+         )
+         SELECT u.id, u.username, u.nombre, u.role_name, u.warehouse_code,
+                k.tiene AS puede_contar,
+                fv.folio AS folio_vivo
+           FROM identity.users u
+           JOIN clave k ON k.id = u.id
+           LEFT JOIN LATERAL (
+             SELECT c.folio
+               FROM commercial.inventory_count_assignments a
+               JOIN commercial.inventory_counts c ON c.id = a.count_id
+              WHERE a.user_id = u.id
+                AND a.assignment_role = 'counter'
+                AND c.status IN ('counting', 'review')
+              ORDER BY c.created_at DESC
+              LIMIT 1
+           ) fv ON true
+          WHERE u.activo = true
+            -- Personas, no cuentas de sistema: fuera clientes del portal, dispositivos y
+            -- cuentas de servicio. Medido: 263 internos de 286 activos.
+            AND COALESCE(u.kind, 'interno') = 'interno'
+            AND u.deleted_at IS NULL
+            -- El supervisor responsable abre el detalle (teórico): sólo quien tenga la clave.
+            AND (?::boolean OR k.tiene)
+          ORDER BY u.nombre NULLS LAST, u.username`,
+        [perm, role === 'counter'],
+      );
+      return rows;
     });
   }
 
@@ -1317,6 +1417,31 @@ export class InventoryCountService {
       if (count.status === 'reconciled' || count.status === 'cancelled')
         throw new ConflictException('El folio ya está cerrado.');
       const uid = this.userId();
+
+      /**
+       * `[IC.27]` **Asignar es dar la llave, así que se verifica a quién.**
+       *
+       * Desde que el catálogo es universal, la asignación ya no la respalda un permiso de rol:
+       * `ContarOAsignadoGuard` deja contar a quien esté en esta lista. Un id de alguien
+       * inactivo, borrado o de otro tenant entraría como fila válida y habilitaría una cuenta
+       * que no debería entrar — por eso el universo se vuelve a comprobar acá, del lado que
+       * escribe, y no se confía en lo que mandó la pantalla.
+       */
+      if (ids.length) {
+        const vivos = await trx('identity.users')
+          .whereIn('id', ids)
+          .andWhere('activo', true)
+          .andWhere(function () {
+            this.whereNull('kind').orWhere('kind', 'interno');
+          })
+          .whereNull('deleted_at')
+          .pluck('id');
+        const fuera = ids.filter((id) => !vivos.includes(id));
+        if (fuera.length)
+          throw new BadRequestException(
+            `${fuera.length} de los ${ids.length} seleccionados no es una cuenta de persona activa.`,
+          );
+      }
       await trx('commercial.inventory_count_assignments')
         .where({ count_id: countId, assignment_role: role })
         .del();

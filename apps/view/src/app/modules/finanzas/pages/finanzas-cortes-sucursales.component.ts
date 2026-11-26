@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { ActivatedRoute } from '@angular/router';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -954,7 +955,20 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
   readonly kpiItems = computed<MetricStripItem[]>(() => { const d = this.data(); return d ? this.kpis(d) : []; });
   readonly pendienteVisible = computed(() => this.cortes().reduce((t, c) => t + Math.max(c.saldo, 0), 0));
 
-  ngOnInit(): void { this.reload(); }
+  /**
+   * `[BFU.4.5.12]` Llegar ya filtrado desde Bancos: «Ver sus cortes de caja» de una sucursal abre ESTA pantalla en el mes
+   * y la sucursal de los depósitos (`?month=2026-11&sucursal=08`). Opcional a propósito: sin router (pruebas) no cambia nada.
+   */
+  private readonly route = inject(ActivatedRoute, { optional: true });
+  private sucursalPedida: string | null = null;
+
+  ngOnInit(): void {
+    const qp = this.route?.snapshot.queryParamMap;
+    const m = qp?.get('month');
+    if (m && /^\d{4}-(0[1-9]|1[0-2])$/.test(m)) this.mes.set(m);
+    this.sucursalPedida = qp?.get('sucursal') || null;
+    this.reload();
+  }
 
   pickMes(v: string | null): void {
     if (!v) return;
@@ -988,6 +1002,8 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
         this.data.set(d);
         const s = this.selSuc();
         this.selSuc.set(s ? d.sucursales.find((x) => x.sucursal === s.sucursal) ?? null : null);
+        // [BFU.4.5.12] La sucursal que pidió la liga de Bancos, una sola vez (si no está en el alcance, no se inventa).
+        if (this.sucursalPedida) { this.selSuc.set(d.sucursales.find((x) => x.sucursal === this.sucursalPedida) ?? this.selSuc()); this.sucursalPedida = null; }
         // Quien sólo ve UNA sucursal (encargado/auxiliar) la tiene seleccionada de entrada.
         if (!this.selSuc() && !d.alcance.todas && d.sucursales.length === 1) this.selSuc.set(d.sucursales[0]);
         const c = this.selCorte();

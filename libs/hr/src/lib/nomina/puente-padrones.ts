@@ -91,6 +91,17 @@ export interface RechazoDePadron {
   motivo: MotivoDeRechazo;
   /** Qué habría que mirar para resolverlo. Sin datos personales. */
   detalle: string;
+  /**
+   * `[NE.2.5]` **A quiénes miró el puente y descartó**, por id de usuario de la Suite.
+   *
+   * ⭐ Existe para que la cola manual no tenga que **inventar un segundo emparejador**: quien va a
+   * resolver el caso a mano merece ver exactamente los mismos candidatos que esta pieza consideró,
+   * no los de otra heurística parecida (ADR-056). Vacío cuando no había ninguno (`sin-candidato`)
+   * o cuando el motivo no nace de una lista de candidatos (`choque`).
+   *
+   * ⛔ Son identificadores, no nombres: quién es cada quien lo dice la fila a la que apuntan.
+   */
+  candidatos: string[];
 }
 
 export interface Puente {
@@ -127,6 +138,8 @@ export function normalizaNombre(s: string | null | undefined): string {
 }
 
 const palabras = (s: string | null | undefined): string[] => normalizaNombre(s).split(' ').filter(Boolean);
+/** `[NE.2.5]` Los candidatos que un rechazo publica: identificadores, nunca nombres. */
+const ids = (gente: readonly PersonaDeLaSuite[]): string[] => gente.map((u) => u.id);
 /** Las mismas palabras en cualquier orden: «Juan Pérez Soto» y «Pérez Soto Juan» son el mismo nombre. */
 const enOrden = (s: string | null | undefined): string => palabras(s).slice().sort().join(' ');
 
@@ -222,7 +235,7 @@ export function tiendePuente(
       continue;
     }
     if (exacto.length) {
-      rechazos.push({ codigo: p.codigo, motivo: 'ambiguo', detalle: `${exacto.length} personas vivas se llaman igual y ninguna destaca` });
+      rechazos.push({ codigo: p.codigo, motivo: 'ambiguo', detalle: `${exacto.length} personas vivas se llaman igual y ninguna destaca`, candidatos: ids(exacto) });
       continue;
     }
 
@@ -233,22 +246,24 @@ export function tiendePuente(
       continue;
     }
     if (orden.length) {
-      rechazos.push({ codigo: p.codigo, motivo: 'ambiguo', detalle: `${orden.length} personas vivas con los mismos nombres` });
+      rechazos.push({ codigo: p.codigo, motivo: 'ambiguo', detalle: `${orden.length} personas vivas con los mismos nombres`, candidatos: ids(orden) });
       continue;
     }
 
     // Regla 3: coincidir sólo en apellidos + primer nombre NO liga. Lo decide una persona.
     const kj = claveDeJuicioDePadron(p);
-    if (kj && (porJuicio.get(kj) ?? []).length) {
-      rechazos.push({ codigo: p.codigo, motivo: 'juicio', detalle: 'coincide en apellidos y primer nombre, pero no en el nombre completo' });
+    const porApellidos = kj ? (porJuicio.get(kj) ?? []) : [];
+    if (porApellidos.length) {
+      rechazos.push({ codigo: p.codigo, motivo: 'juicio', detalle: 'coincide en apellidos y primer nombre, pero no en el nombre completo', candidatos: ids(porApellidos) });
       continue;
     }
 
-    if ((porBajas.get(normalizaNombre(p.nombreCompleto)) ?? []).length) {
-      rechazos.push({ codigo: p.codigo, motivo: 'solo-baja', detalle: 'cobra, y en la Suite figura como baja' });
+    const dadosDeBaja = porBajas.get(normalizaNombre(p.nombreCompleto)) ?? [];
+    if (dadosDeBaja.length) {
+      rechazos.push({ codigo: p.codigo, motivo: 'solo-baja', detalle: 'cobra, y en la Suite figura como baja', candidatos: ids(dadosDeBaja) });
       continue;
     }
-    rechazos.push({ codigo: p.codigo, motivo: 'sin-candidato', detalle: 'nadie se llama así en la Suite' });
+    rechazos.push({ codigo: p.codigo, motivo: 'sin-candidato', detalle: 'nadie se llama así en la Suite', candidatos: [] });
   }
 
   // ── Regla 4: un usuario con más de un código ───────────────────────────────────────────────
@@ -274,6 +289,8 @@ export function tiendePuente(
         rechazos.push({
           codigo: e.codigo, motivo: 'choque',
           detalle: `${grupo.length} códigos de personas distintas caen en el mismo usuario de la Suite`,
+          // El usuario del choque ES el candidato: quien resuelva necesita saber sobre quién chocaron.
+          candidatos: [e.userId],
         });
       }
     }

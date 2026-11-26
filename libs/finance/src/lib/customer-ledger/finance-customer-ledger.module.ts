@@ -14,6 +14,9 @@ import { AutorizacionPedidosService } from './autorizacion-pedidos.service';
 import { AutorizacionDecisionService } from './autorizacion-decision.service';
 import { AutorizacionPedidosController } from './autorizacion-pedidos.controller';
 import { KeplerAutorizacionPedidoAdapter } from './kepler-autorizacion-pedido.adapter';
+import { AjusteAbonoService } from './ajuste-abono.service';
+import { AjusteAbonoController } from './ajuste-abono.controller';
+import { KeplerAjusteAbonoSinkAdapter } from './kepler-ajuste-abono-sink.adapter';
 
 /**
  * Fase CXC (ADR-048) — Cartera de clientes / Partidas vivas (CxC). Lee el espejo
@@ -31,13 +34,18 @@ import { KeplerAutorizacionPedidoAdapter } from './kepler-autorizacion-pedido.ad
   // [CC.20.2] El cliente descarga su estado de cuenta desde su enlace personal (pública, autorizada por el token).
   // [CXC.48] Los teléfonos de la cartera: el del cliente se escribe en Kepler, el del vendedor en la Suite.
   // [GP.A.2] La decisión sobre un pedido TELEMARK (escribe kdm1.c11 en Kepler con la escritura encendida).
-  controllers: [CustomerLedgerController, EstadoCuentaPublicoController, CarteraTelefonosController, AutorizacionPedidosController],
+  // [GP.R.3] Cerrar los restos de centavos de un cliente con el Ajuste Abono U-A-30 (apagado al nacer).
+  controllers: [CustomerLedgerController, EstadoCuentaPublicoController, CarteraTelefonosController, AutorizacionPedidosController,
+    AjusteAbonoController],
   providers: [CustomerLedgerService, CustomerReceivablesScannerService, EstadoCuentaClienteDocument,
     PgListenService, CarteraPorEventoService, CarteraTelefonosService, KeplerTelefonoClienteAdapter,
     // [GP.A.4] La bandeja «Por autorizar» de Crédito y cobranza (sólo lectura).
     AutorizacionPedidosService,
     // [GP.A.2] Registrar la decisión y escribirla en Kepler (el adaptador nace apagado: KEPLER_AUTORIZACION_PEDIDOS).
-    AutorizacionDecisionService, KeplerAutorizacionPedidoAdapter],
+    AutorizacionDecisionService, KeplerAutorizacionPedidoAdapter,
+    // [GP.R.3] El resto de centavos: el interruptor y el registro aquí, la escritura en el adaptador.
+    // El adaptador nace apagado (KEPLER_AJUSTE_ABONO_ESCRITURA) y no emite CFDI: declara el insoluto del SAT.
+    AjusteAbonoService, KeplerAjusteAbonoSinkAdapter],
   exports: [CustomerLedgerService, CustomerReceivablesScannerService],
 })
 export class FinanceCustomerLedgerModule {}

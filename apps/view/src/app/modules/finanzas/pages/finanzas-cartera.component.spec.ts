@@ -80,6 +80,8 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
   let query: Record<string, string>;
   let enlaceDeposito: ReturnType<typeof vi.fn>;
   let telefonos: ReturnType<typeof vi.fn>;
+  let ajusteHabilitado: ReturnType<typeof vi.fn>;
+  let cerrarRestos: ReturnType<typeof vi.fn>;
 
   function configurar() {
     TestBed.configureTestingModule({
@@ -88,7 +90,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
         provideZonelessChangeDetection(),
         provideRouter([]),
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) } } },
-        { provide: CarteraService, useValue: { cartera, detalle, createPromise, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } },
+        { provide: CarteraService, useValue: { ajusteHabilitado, cerrarRestos, cartera, detalle, createPromise, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } },
         { provide: AuthService, useValue: { user: () => ({ permissions: {} }) } },
         { provide: PermissionsService, useValue: { isAdmin: () => true } },
       ],
@@ -101,6 +103,9 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     detalle = vi.fn(() => of(DET));
     createPromise = vi.fn(() => of({ id: 'p1', estado: 'abierta' }));
     enlaceDeposito = vi.fn(() => of({ url: 'https://suite.test/deposito/TOKEN' }));
+    // `[GP.R.4]` Por omision APAGADO: el acto de cerrar centavos no aparece salvo que una prueba lo encienda.
+    ajusteHabilitado = vi.fn(() => of({ habilitado: false, motivo: 'Cerrar restos desde la Suite esta apagado en esta sucursal.' }));
+    cerrarRestos = vi.fn(() => of({ estado: 'escrito', mensaje: 'Cerrado en Kepler con el Ajuste Abono 0000003.', kepler_folio: '0000003', referencia: 'RC08X', total: 0.71, facturas: 2, cfdi_insoluto: 0.71 }));
     telefonos = vi.fn(() => of({
       cliente_code: 'C1', sucursales: [{ sucursal: '01', telefono: null }],
       escritura: { posible: false, motivo: 'La escritura del teléfono en Kepler está apagada para esta sucursal.' },
@@ -319,7 +324,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     const ahora = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: ahora }));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
+    TestBed.overrideProvider(CarteraService, { useValue: { ajusteHabilitado, cerrarRestos, cartera, detalle, createPromise, registrarContacto, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     const c = f.componentInstance;
@@ -342,7 +347,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
   it('16 · [CXC.43] un contacto que no quedó registrado SE DICE', () => {
     cartera = vi.fn(() => of({ ...resp([cli('C1', 'Abarrotes Uno', 100, 100)]), contactos_medidos: true }));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto: () => throwError(() => ({ status: 500 })), tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
+    TestBed.overrideProvider(CarteraService, { useValue: { ajusteHabilitado, cerrarRestos, cartera, detalle, createPromise, registrarContacto: () => throwError(() => ({ status: 500 })), tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     f.componentInstance.registrarContacto(DET, 'telefono');
@@ -404,7 +409,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     const estadoCuentaPdf = vi.fn(() => NEVER); // el PDF sigue generándose: el segundo clic no lo pide otra vez
     const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: new Date().toISOString() }));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
+    TestBed.overrideProvider(CarteraService, { useValue: { ajusteHabilitado, cerrarRestos, cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     const c = f.componentInstance;
@@ -437,7 +442,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     const estadoCuentaPdf = vi.fn(() => NEVER); // el PDF sigue generándose: el segundo clic no lo pide otra vez
     const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: new Date().toISOString() }));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
+    TestBed.overrideProvider(CarteraService, { useValue: { ajusteHabilitado, cerrarRestos, cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     const c = f.componentInstance;
@@ -488,7 +493,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
       { fecha: '2026-11-10', saldo_total: 3, vencido_total: 1, n_clientes: 1, pct_vencido: 33 },
     ]));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, tendencia, resolvePromise: () => of({}), enlaceDeposito, telefonos, ventaVendedor } });
+    TestBed.overrideProvider(CarteraService, { useValue: { ajusteHabilitado, cerrarRestos, cartera, detalle, createPromise, tendencia, resolvePromise: () => of({}), enlaceDeposito, telefonos, ventaVendedor } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     const c = f.componentInstance;
@@ -568,7 +573,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
       detalle = vi.fn(() => of(datos));
       const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: new Date().toISOString() }));
       configurar();
-      TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
+      TestBed.overrideProvider(CarteraService, { useValue: { ajusteHabilitado, cerrarRestos, cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
       const f = TestBed.createComponent(FinanzasCarteraComponent);
       f.detectChanges();
       const c = f.componentInstance;
@@ -782,5 +787,112 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(c.esResto(p(10, 100))).toBe(true);
     expect(c.esResto(p(10.5, 100))).toBe(false);
     expect(c.esResto(p(0, 100, true))).toBe(false);
+  });
+
+  // ── `[GP.R.4]` Cerrar los centavos sueltos del cliente ─────────────────────────────────────────
+  describe('[GP.R.4] los centavos sueltos', () => {
+    const RESTO = (folio: string, saldo: number) => ({
+      doc_tipo: 'U-D-8', doc_label: 'Factura Telemarketing', doc_code: 'UD0801', folio, folio_digital: folio,
+      fecha: '2026-11-01', vencimiento: '2026-11-16', importe: 1589.12, saldo_documento: saldo, saldo_kdm5: saldo,
+      dias_vencido: 1, vencida: true, estatus: null, saldada: false, pagada_el: null, dias_pago: null, aplicaciones: [],
+    });
+    const CON_RESTOS = { ...DET, partidas: [RESTO("0000470", 0.5), RESTO("0000543", 0.21)] } as unknown as CarteraDetalle;
+
+    function armar(datos: CarteraDetalle = CON_RESTOS, permiso = true) {
+      detalle = vi.fn(() => of(datos));
+      configurar();
+      TestBed.overrideProvider(CarteraService, { useValue: { ajusteHabilitado, cerrarRestos, cartera, detalle, createPromise, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
+      if (!permiso) {
+        TestBed.overrideProvider(PermissionsService, { useValue: { isAdmin: () => false } });
+        TestBed.overrideProvider(AuthService, { useValue: { user: () => ({ permissions: {} }) } });
+      }
+      const f = TestBed.createComponent(FinanzasCarteraComponent);
+      f.detectChanges();
+      const c = f.componentInstance;
+      c.openDetalle(cli('C1', 'Abarrotes Uno', 100, 100));
+      f.detectChanges();
+      return { f, c };
+    }
+    const txt = (f: { nativeElement: HTMLElement }) => (f.nativeElement.textContent || "").replace(/\s+/g, " ");
+
+    it('dice cuántas facturas tienen centavos sueltos y cuánto suman', () => {
+      const { f, c } = armar();
+      expect(c.restosCliente()).toEqual({ n: 2, total: 0.71, partidas: expect.any(Array) });
+      expect(txt(f)).toContain("2 facturas con centavos sueltos");
+      expect(txt(f)).toContain("0.71");
+    });
+
+    it('un cliente SIN centavos sueltos no ve nada de esto', () => {
+      const { f, c } = armar({ ...DET, partidas: [] } as unknown as CarteraDetalle);
+      expect(c.restosCliente()).toBeNull();
+      expect(txt(f)).not.toContain("centavos sueltos");
+    });
+
+    it('⛔ donde está APAGADO no ofrece el botón: dice por qué', () => {
+      const { f, c } = armar();
+      expect(txt(f)).toContain("apagado en esta sucursal");
+      expect(txt(f)).not.toContain("Cerrar los centavos");
+    });
+
+    it('encendido: pide confirmación y manda doc_code + folio, no tipo y serie', () => {
+      ajusteHabilitado = vi.fn(() => of({ habilitado: true }));
+      const { f, c } = armar();
+      expect(txt(f)).toContain("Cerrar los centavos");
+      c.restoConfirma.set(true); f.detectChanges();
+      expect(txt(f)).toContain("¿Cerrar 0.71 de 2 facturas?");
+      c.cerrarRestos(CON_RESTOS); f.detectChanges();
+      expect(cerrarRestos).toHaveBeenCalledWith('01', expect.objectContaining({
+        cliente: 'C1',
+        facturas: [{ doc_code: 'UD0801', folio: '0000470' }, { doc_code: 'UD0801', folio: '0000543' }],
+      }));
+    });
+
+    it('⛔ el aviso DECLARA lo que sigue debiendo ante el SAT, y nunca dice que quedó cerrada', () => {
+      ajusteHabilitado = vi.fn(() => of({ habilitado: true }));
+      const { f, c } = armar();
+      c.cerrarRestos(CON_RESTOS); f.detectChanges();
+      const av = c.restoAviso();
+      expect(av?.error).toBe(false);
+      expect(av?.texto).toContain("Ajuste Abono 0000003");
+      expect(av?.texto).toContain("Ante el SAT estas facturas siguen con 0.71 pendientes");
+    });
+
+    it('⛔ si el insoluto del SAT no se pudo medir, se DICE (nunca cero por omisión)', () => {
+      ajusteHabilitado = vi.fn(() => of({ habilitado: true }));
+      cerrarRestos = vi.fn(() => of({ estado: 'escrito', mensaje: 'Cerrado en Kepler con el Ajuste Abono 0000004.', kepler_folio: '0000004', cfdi_insoluto: null }));
+      const { f, c } = armar();
+      c.cerrarRestos(CON_RESTOS); f.detectChanges();
+      expect(c.restoAviso()?.texto).toContain("No se pudo medir que queda pendiente ante el SAT");
+    });
+
+    it('un rechazo se VE, y no recarga la ficha', () => {
+      ajusteHabilitado = vi.fn(() => of({ habilitado: true }));
+      cerrarRestos = vi.fn(() => of({ estado: 'rechazado', mensaje: 'es deuda, no redondeo', reintentable: false }));
+      const { f, c } = armar();
+      const antes = detalle.mock.calls.length;
+      c.cerrarRestos(CON_RESTOS); f.detectChanges();
+      expect(c.restoAviso()).toEqual({ texto: "es deuda, no redondeo", error: true });
+      expect(detalle.mock.calls.length).toBe(antes);
+    });
+
+    it('⛔ el doble clic del pánico no cobra dos veces', () => {
+      ajusteHabilitado = vi.fn(() => of({ habilitado: true }));
+      cerrarRestos = vi.fn(() => NEVER);
+      const { f, c } = armar();
+      c.cerrarRestos(CON_RESTOS);
+      c.cerrarRestos(CON_RESTOS);
+      f.detectChanges();
+      expect(cerrarRestos).toHaveBeenCalledTimes(1);
+      expect(c.restoBusy()).toBe(true);
+    });
+
+    it('sin la llave no se pregunta nada ni aparece el acto', () => {
+      ajusteHabilitado = vi.fn(() => of({ habilitado: true }));
+      const { f, c } = armar(CON_RESTOS, false);
+      expect(c.puedeCerrarRestos()).toBe(false);
+      expect(ajusteHabilitado).not.toHaveBeenCalled();
+      expect(txt(f)).toContain("centavos sueltos");          // el dato sí se ve
+      expect(txt(f)).not.toContain("Cerrar los centavos");   // el acto no
+    });
   });
 });

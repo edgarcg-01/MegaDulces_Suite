@@ -19,6 +19,15 @@
  * consecutivo, que sólo dice «7 días». Por eso este módulo **no tiene** una función que, dada una
  * fecha, diga a qué periodo pertenece: inventarla sería adivinar. El rango se DECLARA (ADR-056) o
  * se dice que no se sabe, y quien lo declare es RH.
+ *
+ * ── ⚠️ CORRECCIÓN (`[NE.2.2]`, 2026-11-24): el párrafo de arriba quedó falso en una mitad ──────
+ * Se escribió mirando el ERP y el sistema de nómina. **En ContPAQi sí está**
+ * (`contpaqi_ods.v_nomina_pago_periodo` trae `period_from`/`period_to` por pago), y medido sobre
+ * 517 fechas: el **rango modal** de cada fecha cubre el **98.2 %** de sus pagos en promedio, nunca
+ * menos del **90.4 %**, y en **516 de 517** es de **7 días que terminan el día del pago** — la
+ * semana de nómina es **sábado → viernes**. Lo que sigue en pie es el **diseño**: este módulo no
+ * adivina. Quien deriva el rango es `nomina-periodos.service.ts`, con su fuente y su consenso
+ * declarados, y lo que no alcanza el consenso **se escribe en NULL**, no se inventa.
  */
 
 /** Fecha civil `YYYY-MM-DD`. Sin hora y sin zona: un periodo es un día del calendario, no un instante. */

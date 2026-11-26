@@ -48,6 +48,8 @@ import {
   abrevUnidadBase,
   opcionesUnidad,
   unidadDelEscaneo,
+  unidadInicial,
+  piezaSoloEnPisoDe,
   paqueteDeCaja,
   esPaquete,
   gramosDeBase,
@@ -70,7 +72,7 @@ import {
 function esPesable(it: { base_unit: string | null; rung: Rung }): boolean {
   return it.base_unit === 'KG' && it.rung === 'base';
 }
-import { totalesCotizacion, type CapturaCotizacion } from '@megadulces/contracts';
+import { NOTA_PIEZA_SOLO_EN_PISO, totalesCotizacion, type CapturaCotizacion } from '@megadulces/contracts';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
 import { UltimoAgregadoComponent, textoAgregado, verRenglonEnLista, type UltimoAgregado } from '../components/ultimo-agregado.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -644,6 +646,10 @@ const ORIGENES = ORIGENES_COTIZACION;
                     <span class="unit-sub">· {{ o.detalle }}</span>
                   </ng-template>
                 </p-selectbutton>
+                <!-- [COT.58] Sin el botón Pieza, se dice por qué: no es que el producto no la tenga. -->
+                @if (piezaEnPisoElegido()) {
+                  <span class="unit-nota"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ notaPiezaEnPiso }}</span>
+                }
 
                 <!-- CANTIDAD: se TECLEA (dictado: "48 cajas" = 2 teclas, antes 8 clics) y Enter
                      agrega; los botones + / − / presets siguen para captura táctil (COT.16). -->
@@ -1276,6 +1282,7 @@ const ORIGENES = ORIGENES_COTIZACION;
       .unit-toggle-group { flex: none; }
       .unit-title { font-weight: 700; font-size: var(--fs-sm); }
       .unit-sub { font-size: var(--fs-xs); color: var(--text-muted); }
+    .unit-nota { font-size: var(--fs-xs); color: var(--text-muted); display: inline-flex; align-items: center; gap: var(--sp-1); }
       /* [COT.56] La presentación elegida se marca como el buscador con foco: contorno rojo (--action),
          palomita y texto fuerte. Antes era una pastilla blanca sobre gris, y se elegía mal paquete o caja.
          ::ng-deep porque el contorno va en el contenido interno del botón de PrimeNG. */
@@ -1803,6 +1810,12 @@ export class TeleventaQuoteNewComponent implements OnInit {
     const e = this.articuloElegido();
     return e ? opcionesUnidad(e) : [];
   });
+  /** `[COT.58]` La pieza del artículo elegido se vende sólo en piso: se dice junto a las unidades. */
+  readonly piezaEnPisoElegido = computed(() => {
+    const e = this.articuloElegido();
+    return !!e && piezaSoloEnPisoDe(e);
+  });
+  readonly notaPiezaEnPiso = NOTA_PIEZA_SOLO_EN_PISO;
   cotizandoArticulo = signal(false);
   previaArticulo = signal<PricedLine | null>(null);
   /** El buscador de artículo: al agregar a la bandeja el cursor vuelve acá para el siguiente. */
@@ -2358,7 +2371,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.fijarExistenciaElegido(p);
     this.catalogoAbierto.set(false);
     this.cantidadArticulo.set(1);
-    this.rung.set('base');
+    this.rung.set(unidadInicial(p)); // [COT.58] el paquete cuando la pieza es de piso
     this.previa$.next();
     // Dictado sin mouse (COT.16): elegido el artículo, el cursor pasa a la CANTIDAD (con el 1
     // seleccionado para sobrescribirlo). Enter ahí agrega y regresa al buscador.

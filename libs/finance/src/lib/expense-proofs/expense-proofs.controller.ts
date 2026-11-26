@@ -9,7 +9,7 @@ import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, ty
 // `[GX.49]` La forma de la solicitud que devuelve el lookup exacto.
 import type { SolicitudKepler } from './expense-proofs.service';
 // `[GX.41]` El vale que Kepler asigna por la caja «Solicita»: la forma vive en el contrato.
-import type { CanceladaResuelta, EstadoKeplerDelGasto, ValeAsignado } from '@megadulces/contracts';
+import type { CanceladaResuelta, ComprobacionEnLaCola, EstadoKeplerDelGasto, ValeAsignado } from '@megadulces/contracts';
 // `[GX.71]` Quién ve el historial de TODOS: una regla, la misma que usa la pantalla.
 import { leerFiltroHistorial, puedeVerHistorialDeTodos } from '@megadulces/contracts';
 import type { CalendarioDelMes } from './calendario-gastos';
@@ -419,10 +419,20 @@ export class ExpenseProofsController {
   @Post(':id/reintentar-gasto')
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: '[PGP.123] G.14 Genera el gasto (X-A-10) de un vale validado en Kepler (quien lo pidió o quien aprueba); devuelve cómo quedó, con su motivo si no tocaba.' })
-  generarGasto(@Param('id') id: string, @Req() req: AuthedRequest): Promise<EstadoKeplerDelGasto | null> {
+  generarGasto(@Param('id') id: string, @Body() body: { lectura_comparada?: boolean } | undefined, @Req() req: AuthedRequest): Promise<EstadoKeplerDelGasto | null> {
     const esAprobador = req?.user?.permissions?.[Permission.FINANCE_EXPENSES_COMPROBAR] === true
       || isPlatformAdminRole(req?.user?.role_name);
-    return this.svc.generarGasto(id, quienDecide(req), esAprobador);
+    // G.16: «Ya lo comparé · Generar» (DG12): la persona dice que comparó el comprobante con la solicitud.
+    return this.svc.generarGasto(id, quienDecide(req), esAprobador, { lecturaComparada: body?.lectura_comparada === true });
+  }
+
+  // `[PGP.123]` G-AUD.16 — El gasto (X-A-10) de un vale, para su panel desde cualquier pantalla (antes sólo desde la cola).
+  // Sólo lee; el mismo alcance de quien trabaja con gastos.
+  @Get(':id/gasto-kepler')
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[PGP.123] G-AUD.16 El gasto (X-A-10) de un vale validado: folio, póliza y qué le falta. Sólo lee.' })
+  gastoKepler(@Param('id') id: string): Promise<ComprobacionEnLaCola | null> {
+    return this.svc.gastoKeplerDe(id);
   }
 
   // `[PGP.123]` G.UI.1e — Cerrar el caso de una cancelada en Kepler: «Ya lo revisé» (con nota) o ligarla a su recaptura.

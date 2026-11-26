@@ -30,6 +30,8 @@ import {
   abrevUnidadBase,
   opcionesUnidad,
   unidadDelEscaneo,
+  unidadInicial,
+  piezaSoloEnPisoDe,
   paqueteDeCaja,
   desglose,
   parseCantidad,
@@ -56,7 +58,7 @@ import {
   fechaVigencia,
   type QuoteDeliverableData,
 } from '../quote-deliverable-export';
-import { LARGO_NOTA_CIERRE, MOTIVOS_CIERRE_COTIZACION, totalesCotizacion, type MotivoCierreCotizacion } from '@megadulces/contracts';
+import { LARGO_NOTA_CIERRE, MOTIVOS_CIERRE_COTIZACION, NOTA_PIEZA_SOLO_EN_PISO, totalesCotizacion, type MotivoCierreCotizacion } from '@megadulces/contracts';
 import { desgloseDescuento, pasosDelPrecio, explicacionDelPrecio, precioSinRedondear } from '../quote-discount-breakdown';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
@@ -531,6 +533,10 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                         </button>
                       }
                     </div>
+                    <!-- [COT.58] Sin el botón Pieza, se dice por qué: no es que el producto no la tenga. -->
+                    @if (piezaEnPiso(e)) {
+                      <span class="unit-nota"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ notaPiezaEnPiso }}</span>
+                    }
                   </div>
 
                   <!-- CONTROL TÁCTIL DE CANTIDAD (MOBILE 16:9 - Sin teclado en pantalla) -->
@@ -1187,6 +1193,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       .unit-toggle-active i { color: var(--action); }
       .unit-title { font-weight: 700; font-size: var(--fs-sm); color: var(--text-main); }
       .unit-sub { font-size: var(--fs-micro); color: var(--text-muted); }
+      .unit-nota { font-size: var(--fs-xs); color: var(--text-muted); display: inline-flex; align-items: center; gap: var(--sp-1); }
 
       /* Cantidad: stepper + incrementos en una fila */
       .touch-qty-seccion { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.5rem; }
@@ -1779,6 +1786,9 @@ export class TeleventaQuoteDetailComponent implements OnInit {
       this.svc.registrarBusqueda({ branch: suc, term: this.termino, chosen_sku: p.sku, position: lugar, results: lista.length });
     }
     this.elegido.set(p);
+    // [COT.58] La unidad que ya estaba se conserva si este artículo la ofrece; si no (la pieza de un
+    // pieza · paquete · caja), arranca en la menor que sí ofrece.
+    this.rung.set(unidadInicial(p, this.rung()));
     this.catalogoAbierto.set(false);
     this.previa$.next();
     // [COT.33] Elegido el artículo, el cursor pasa a la cantidad (con el 1 seleccionado).
@@ -2013,6 +2023,12 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   opcionesUnidad(e: QuoteCatalogRow): OpcionUnidad[] {
     return opcionesUnidad(e);
   }
+
+  /** `[COT.58]` La pieza del artículo se vende sólo en piso: se dice junto a las unidades. */
+  piezaEnPiso(e: QuoteCatalogRow): boolean {
+    return piezaSoloEnPisoDe(e);
+  }
+  readonly notaPiezaEnPiso = NOTA_PIEZA_SOLO_EN_PISO;
 
   /** Abreviatura de la unidad base para el desglose ("12 PAQ $41.82"), nunca "PZS" fijo. */
   abrevBase(e: QuoteCatalogRow | null): string {

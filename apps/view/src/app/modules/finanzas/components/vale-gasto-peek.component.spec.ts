@@ -3,7 +3,9 @@ import { LOCALE_ID } from '@angular/core';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { ValeGastoPeekComponent, notaAdicional, type AprobacionVale } from './vale-gasto-peek.component';
-import type { ValeGasto } from '../comprobaciones.service';
+import { ComprobacionesService, type ValeGasto } from '../comprobaciones.service';
+import { of } from 'rxjs';
+import { provideRouter } from '@angular/router';
 import type { ComprobacionEnLaCola } from '@megadulces/contracts';
 
 /**
@@ -171,7 +173,30 @@ describe('ValeGastoPeekComponent', () => {
     it('sin acciones es de sólo lectura', () => {
       montar(V(), []);
       expect(fix.nativeElement.querySelectorAll('.vp-act button').length).toBe(0);
-      expect(fix.nativeElement.textContent).toContain('no hay nada que decidir');
+      // [PGP.123] G-AUD.2: el vale espera firma; el pie lo dice en vez de «ya se resolvió».
+      expect(fix.nativeElement.textContent).toContain('Espera la firma de quien aprueba gastos.');
+      expect(fix.nativeElement.textContent).not.toContain('ya se resolvió');
+    });
+
+    it('[PGP.123] G-AUD.2 la frase de cierre sólo en el vale resuelto', () => {
+      montar(V({ status: 'validada' }), []);
+      expect(fix.nativeElement.textContent).toContain('En la Suite ya se resolvió: aquí no hay nada que decidir.');
+      montar(V({ status: 'revision' }), []);
+      expect(fix.nativeElement.textContent).toContain('Espera que Finanzas revise el comprobante.');
+    });
+
+    it('[PGP.123] G-AUD.1 sin departamentos de la página, «Departamento» NO dice la persona', () => {
+      montar(V({ solicitante: 'SUPERUSER', departamentos: undefined }), []);
+      const dd = [...fix.nativeElement.querySelectorAll('.vp-datos > div')].find((d: Element) => /Departamento/.test(d.textContent ?? '')) as HTMLElement;
+      expect(dd.textContent).toContain('sin medir en esta pantalla');
+      expect(dd.textContent).not.toContain('SUPERUSER');
+    });
+
+    it('[PGP.123] G-AUD.3 la clasificación no se rotula «Tipo» (se leía como estado)', () => {
+      montar(V(), []);
+      const t = fix.nativeElement.textContent as string;
+      expect(t).toContain('Clasificación');
+      expect(t).not.toMatch(/Tipo(Con factura|Vale autorizado|sin clasificar)/);
     });
 
     /**
@@ -771,5 +796,148 @@ describe('ValeGastoPeekComponent', () => {
         'Compra de activo: Silla ejecutiva · 3 unidades de $6,000.00',
       ]);
     });
+  });
+});
+
+/**
+ * `[PGP.123]` G-AUD.16 (2026-11-23) — El vale comprobado dice su gasto desde cualquier pantalla. Medido en prod: abierto
+ * desde el buscador, el panel del vale de prueba no decía su X-A-10 0000095 ni su póliza D 406.
+ * G-AUD.19 — con el gasto escrito, «Cancelar en Kepler…» de la solicitud ya no se ofrece.
+ */
+describe('[PGP.123] G-AUD.16 el panel pide el gasto del vale validado', () => {
+  const ESCRITO: ComprobacionEnLaCola = {
+    comprobacion: { listo: true, fecha: '2026-11-23' },
+    gasto: { id: 'v1', status: 'written', folio: '0000095', poliza: 'kdc22611/D/406', fecha: '2026-11-23', nota: null, intentos: 1, siguiente: null },
+    escritura: { abierta: true, motivo: null, detalle: null },
+  };
+  const pedidos: string[] = [];
+  beforeAll(() => registerLocaleData(localeEsMx));
+  beforeEach(() => {
+    pedidos.length = 0;
+    TestBed.configureTestingModule({
+      imports: [ValeGastoPeekComponent],
+      providers: [
+        { provide: LOCALE_ID, useValue: 'es-MX' },
+        { provide: ComprobacionesService, useValue: { gastoKepler: (id: string) => { pedidos.push(id); return of(ESCRITO); } } },
+      ],
+    });
+  });
+  const montar = (vale: ValeGasto, gastoDePagina?: ComprobacionEnLaCola | null) => {
+    const fix = TestBed.createComponent(ValeGastoPeekComponent);
+    fix.componentRef.setInput('vale', vale);
+    if (gastoDePagina !== undefined) fix.componentRef.setInput('gastoKepler', gastoDePagina);
+    fix.componentRef.setInput('open', true);
+    fix.detectChanges();
+    return fix;
+  };
+
+  it('validado y sin gasto de la página: lo pide y dice folio y póliza', () => {
+    const fix = montar(V({ id: 'v1', status: 'validada' }));
+    expect(pedidos).toEqual(['v1']);
+    expect(fix.nativeElement.textContent).toContain('Escrito por la Suite: X-A-10 0000095 · póliza D 406 (nov 2026)');
+    expect(fix.componentInstance.gastoEscrito()).toBe(true);
+    expect(fix.componentInstance.cancelable()).toBe(false);
+  });
+
+  it('⛔ NEGATIVA: si no está validado, o la página ya trae el gasto, no lo pide', () => {
+    montar(V({ id: 'v2', status: 'recibida' }));
+    montar(V({ id: 'v3', status: 'validada' }), ESCRITO);
+    expect(pedidos).toEqual([]);
+  });
+});
+
+describe('[PGP.123] G-RED.1 la ruta del vale en el panel', () => {
+  beforeAll(() => registerLocaleData(localeEsMx));
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [ValeGastoPeekComponent],
+      providers: [{ provide: LOCALE_ID, useValue: 'es-MX' }, provideRouter([])],
+    });
+  });
+  const montar = (vale: ValeGasto, subir: { folio: string | null; sucursal: string | null } | null = null) => {
+    const fix = TestBed.createComponent(ValeGastoPeekComponent);
+    fix.componentRef.setInput('vale', vale);
+    fix.componentRef.setInput('subirComprobante', subir);
+    fix.componentRef.setInput('open', true);
+    fix.detectChanges();
+    return fix;
+  };
+  const pasos = (fix: ComponentFixture<ValeGastoPeekComponent>) =>
+    Array.from(fix.nativeElement.querySelectorAll('ol.vp-ruta > li')) as HTMLElement[];
+
+  it('pinta los cinco pasos en una lista ordenada y marca SÓLO el que toca ahora', () => {
+    const fix = montar(V({ status: 'recibida' }));
+    const li = pasos(fix);
+    expect(li.map((x) => x.querySelector('.vp-paso-n')?.childNodes[0]?.textContent?.trim())).toEqual(['Pedido', 'Firma', 'Comprobante', 'Revisión', 'Gasto en Kepler']);
+    expect(li.filter((x) => x.getAttribute('aria-current') === 'step').length).toBe(1);
+    expect(li[1].getAttribute('aria-current')).toBe('step');
+    // El estado también en palabra (lector de pantalla), no sólo en color.
+    expect(li[1].textContent).toContain('Toca ahora');
+  });
+
+  it('firmado y debiendo el comprobante: «Subir comprobante» lleva a la captura con su folio', () => {
+    const fix = montar(V({ status: 'aprobada' }), { folio: '0009678', sucursal: '00' });
+    const a = fix.nativeElement.querySelector('.vp-paso-acc') as HTMLAnchorElement | null;
+    expect(a?.textContent).toContain('Subir comprobante');
+    expect(a?.getAttribute('href')).toBe('/finanzas/gastos?folio=0009678&sucursal=00');
+  });
+
+  it('⛔ NEGATIVA: si la página no lo ofrece (Aprobación, Historial), no hay botón de subir', () => {
+    const fix = montar(V({ status: 'aprobada' }));
+    expect(fix.nativeElement.querySelector('.vp-paso-acc')).toBeNull();
+    expect(pasos(fix)[2].textContent).toContain('lo sube quien lo pidió');
+  });
+
+  it('⛔ G-RED.1b: sin archivo no se ofrece «Ver el comprobante» (llevaría a «no trae ningún archivo»)', () => {
+    const fix = montar(V({ status: 'aprobada' }));
+    expect(fix.nativeElement.textContent).not.toContain('Ver el comprobante');
+  });
+
+  it('G-RED.1b: con la forma de /mine (sin banderas), el pie de un aprobado dice lo mismo que la ruta', () => {
+    const fix = montar(V({ status: 'aprobada', requiere_evidencia: undefined, tiene_evidencia: undefined }));
+    expect(pasos(fix)[2].textContent).toContain('Falta subir el comprobante');
+    expect(fix.nativeElement.textContent).toContain('Espera el comprobante de quien lo pidió.');
+    expect(fix.nativeElement.textContent).not.toContain('espera que se cierre en la Suite');
+  });
+
+  it('«Ver el comprobante» lleva el foco al título de la evidencia', async () => {
+    const fix = montar(V({ status: 'revision', tiene_evidencia: true }));
+    document.body.appendChild(fix.nativeElement); // el foco sólo existe en un nodo del documento
+    await new Promise((r) => setTimeout(r)); // el panel toma el foco al abrirse (microtarea); el clic llega después
+    const ir = Array.from(fix.nativeElement.querySelectorAll('.vp-paso-ir') as NodeListOf<HTMLButtonElement>).find((b) => b.textContent?.includes('Ver el comprobante'));
+    expect(ir).toBeTruthy();
+    ir!.click();
+    expect(document.activeElement?.id).toBe('vp-sec-evidencia');
+  });
+
+  it('⛔ NEGATIVA: sin la solicitud de Kepler en la página, no se ofrece «Ver la solicitud» (no hay a dónde ir)', () => {
+    const fix = montar(V({ status: 'aprobada' }));
+    expect(fix.nativeElement.textContent).not.toContain('Ver la solicitud');
+  });
+});
+
+describe('[PGP.123] G-RED.1 el pie no contradice a la ruta', () => {
+  beforeAll(() => registerLocaleData(localeEsMx));
+  beforeEach(() => TestBed.configureTestingModule({ imports: [ValeGastoPeekComponent], providers: [{ provide: LOCALE_ID, useValue: 'es-MX' }] }));
+  const conGasto = (g: ComprobacionEnLaCola) => {
+    const fix = TestBed.createComponent(ValeGastoPeekComponent);
+    fix.componentRef.setInput('vale', V({ status: 'validada', tiene_evidencia: true }));
+    fix.componentRef.setInput('gastoKepler', g);
+    fix.componentRef.setInput('open', true);
+    fix.detectChanges();
+    return fix.componentInstance;
+  };
+  const G = (gasto: ComprobacionEnLaCola['gasto']): ComprobacionEnLaCola => ({
+    comprobacion: { listo: true, fecha: '2026-11-23' }, gasto, escritura: { abierta: true, motivo: null, detalle: null },
+  });
+  const base = { id: 'v', status: null, folio: null, poliza: null, fecha: null, nota: null, intentos: 0, siguiente: null };
+
+  it('cerrado en la Suite y Kepler canceló el gasto: el pie dice que falta el gasto y a quién le toca', () => {
+    const c = conGasto(G({ ...base, status: 'cancelled', folio: '0000092', nota: 'Kepler canceló el gasto' }));
+    expect(c.queEspera()).toMatch(/^En la Suite ya se cerró; falta el gasto en Kepler: le toca a /);
+  });
+  it('⛔ NEGATIVA: con el gasto escrito, la ruta terminó y el pie dice que no hay nada que decidir', () => {
+    const c = conGasto(G({ ...base, status: 'written', folio: '0000095', poliza: 'kdc22611/D/406' }));
+    expect(c.queEspera()).toBe('En la Suite ya se resolvió: aquí no hay nada que decidir.');
   });
 });

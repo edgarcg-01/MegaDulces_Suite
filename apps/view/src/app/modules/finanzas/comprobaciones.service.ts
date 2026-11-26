@@ -648,8 +648,15 @@ export class ComprobacionesService {
     return this.http.post<CanceladaResuelta>(`${this.base}/${encodeURIComponent(id)}/cancelada/ligar`, { folio });
   }
 
-  reintentarGasto(id: string): Observable<EstadoKeplerDelGasto | null> {
-    return this.http.post<EstadoKeplerDelGasto | null>(`${this.base}/${encodeURIComponent(id)}/reintentar-gasto`, {});
+  /** `[PGP.123]` G.14/G.16 — «Generar gasto»; con `lecturaComparada`, «Ya lo comparé · Generar» (DG12). */
+  reintentarGasto(id: string, lecturaComparada = false): Observable<EstadoKeplerDelGasto | null> {
+    return this.http.post<EstadoKeplerDelGasto | null>(`${this.base}/${encodeURIComponent(id)}/reintentar-gasto`,
+      lecturaComparada ? { lectura_comparada: true } : {});
+  }
+
+  /** `[PGP.123]` G-AUD.16 — El gasto (X-A-10) de un vale validado, para su panel desde cualquier pantalla. Sólo lee. */
+  gastoKepler(id: string): Observable<ComprobacionEnLaCola | null> {
+    return this.http.get<ComprobacionEnLaCola | null>(`${this.base}/${encodeURIComponent(id)}/gasto-kepler`);
   }
 
   delDia(fecha?: string, limit = 500): Observable<GastosDelDia> {

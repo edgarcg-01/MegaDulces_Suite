@@ -9,7 +9,6 @@ import type {
   SdPriority, SdRequestDetail, SdSettingsDto, SdSlaPolicyDto, SdSlaScanResult, SdStatsResponse, SdStatus,
   SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact, SdRoutingResponse, SdUpsertRoutingRuleDto, SdReportResponse, SdRequesterDto, SdDepartmentDto,
   SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole, SdMarkTestDto, SdTransferDto, SdTransferResult, SdTranscribeDto, SdTranscribeResult, SdUpsertFieldDto, SdUpsertZoneDto,
-  SdTransferTargetsResponse,
 } from '@megadulces/contracts';
 // Import directo, no el barril: el barril arrastra zod y todos los contratos al JS inicial (`[BUNDLE.2]`).
 import { SD_PAUSE_REASONS } from '@megadulces/contracts/http/service-desk';
@@ -104,8 +103,6 @@ export class ServiceDeskService {
   markTest(id: string, dto: SdMarkTestDto): Observable<SdRequestDetail> { return this.http.post<SdRequestDetail>(`${this.base}/requests/${id}/test`, dto); }
   /** `[MS.7.11]` Traslada un ticket a otra cola. Devuelve un resultado, NO la ficha: quien traslada ya no la ve. */
   transfer(id: string, dto: SdTransferDto): Observable<SdTransferResult> { return this.http.post<SdTransferResult>(`${this.base}/requests/${id}/transfer`, dto); }
-  /** `[MSP.5.0]` A dónde se puede trasladar: sin el filtro de puestos de «Nueva solicitud» (trasladar no es levantar). Sólo la coordinación. */
-  transferTargets(): Observable<SdTransferTargetsResponse> { return this.http.get<SdTransferTargetsResponse>(`${this.base}/transfer-targets`); }
   stats(): Observable<SdStatsResponse> { return this.http.get<SdStatsResponse>(`${this.base}/requests/stats`); }
   detail(id: string): Observable<SdRequestDetail> { return this.http.get<SdRequestDetail>(`${this.base}/requests/${id}`); }
 

@@ -16,10 +16,40 @@ import { anchoBarrasMm, barrasSvg, escHtml } from '@megadulces/ui-web';
  */
 
 /** La hoja que el navegador manda a la TSC con el rollo amarillo: UNA etiqueta de 55 × 25 mm (medida con regla). */
-export const PAGINA_TSC_AMARILLA = 'size: 55mm 25mm; margin: 0;';
+/**
+ * `[UB.RF.20]` **Hay DOS rollos amarillos y conviven** (Edgar, 2026-11-25): distintas sucursales tienen
+ * uno u otro, así que el tamaño dejó de ser una constante y se elige al imprimir. Las dos medidas están
+ * tomadas **con regla**, no de una configuración — que es la lección que costó `[UB.RF.16]`: Kepler dice
+ * «Amarilla 60 × 30» y ese rollo medía 55 × 25.
+ *
+ * El alto de la etiqueta va 0.4 mm por debajo del alto del rollo: con la etiqueta exacta a la hoja, el
+ * redondeo del navegador mete una hoja en blanco entre una y otra.
+ *
+ * ⚠️ El **ancho** del código de barras NO depende del rollo: lo fija la densidad (2 puntos por módulo,
+ * 0.25 mm a 203 dpi), así que `TA011` mide 22.5 mm en los dos. Lo que el rollo grande gana es **altura
+ * de barras, tamaño de código y margen para códigos largos**, que es lo que se lee caminando.
+ */
+export type RolloAmarillo = '55x25' | '60x29';
 
-/** El rollo amarillo, en mm: lo que la plantilla y sus pruebas usan para medir que todo quepa. */
-export const GEOMETRIA_AMARILLA = { anchoMm: 55, altoMm: 25, margenMm: 1.5 } as const;
+export const ROLLOS_AMARILLOS = {
+  '55x25': { anchoMm: 55, altoMm: 25, etiquetaAltoMm: 24.6, margenMm: 1.5, rotuloMm: 2.4, codigoMm: 9, codigoMedioMm: 7, codigoChicoMm: 5.5, barrasAltoMm: 7, rotulo: '55 × 25 mm', cm: '5.5 × 2.5 cm' },
+  // Código 10.5 y barras 8.5, no 11 y 9: con esos sumaba 26.08 contra un tope de 26.1 — pasaba por
+  // 0.02 mm, que es una casualidad, no un diseño. Así quedan ~1 mm de aire y el `space-between` respira.
+  '60x29': { anchoMm: 60, altoMm: 29, etiquetaAltoMm: 28.6, margenMm: 1.5, rotuloMm: 2.8, codigoMm: 10.5, codigoMedioMm: 8.5, codigoChicoMm: 6.5, barrasAltoMm: 8.5, rotulo: '60 × 29 mm', cm: '6 × 2.9 cm' },
+} as const;
+
+export const ROLLO_POR_OMISION: RolloAmarillo = '55x25';
+
+/** Lo que queda para el contenido una vez quitados los dos márgenes. */
+export function anchoUtilMm(rollo: RolloAmarillo): number {
+  const r = ROLLOS_AMARILLOS[rollo];
+  return Math.round((r.anchoMm - 2 * r.margenMm) * 100) / 100;
+}
+
+export function paginaTscAmarilla(rollo: RolloAmarillo): string {
+  const r = ROLLOS_AMARILLOS[rollo];
+  return `size: ${r.anchoMm}mm ${r.altoMm}mm; margin: 0;`;
+}
 
 export interface EtiquetaUbicacion {
   code: string;
@@ -55,14 +85,17 @@ export function etiquetasUbicacionHtml(us: readonly EtiquetaUbicacion[]): string
  *
  * Alto, de arriba abajo: 1.5 margen · 2.6 rótulo · 9 código · 7 barras · 1.5 margen = 21.6, y ~3 mm de aire repartido.
  */
-export const CSS_ETIQUETA_UBICACION = [
-  'body{margin:0}',
-  '.et{box-sizing:border-box;width:55mm;height:24.6mm;padding:1.5mm;display:flex;flex-direction:column;align-items:center;justify-content:space-between;',
-  'color:black;font-family:Arial,Helvetica,sans-serif;overflow:hidden;break-after:page;page-break-after:always}',
-  '.et:last-child{break-after:auto;page-break-after:auto}',
-  '.eu-arriba{max-width:100%;font-size:2.4mm;font-weight:700;line-height:1.1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-  '.eu-code{font-size:9mm;font-weight:900;line-height:1;letter-spacing:.02em;white-space:nowrap}',
-  '.eu-c-m{font-size:7mm}',
-  '.eu-c-s{font-size:5.5mm}',
-  '.eu-bar{display:block;height:7mm;max-width:52mm}',
-].join('');
+export function cssEtiquetaUbicacion(rollo: RolloAmarillo): string {
+  const r = ROLLOS_AMARILLOS[rollo];
+  return [
+    'body{margin:0}',
+    `.et{box-sizing:border-box;width:${r.anchoMm}mm;height:${r.etiquetaAltoMm}mm;padding:${r.margenMm}mm;display:flex;flex-direction:column;align-items:center;justify-content:space-between;`,
+    'color:black;font-family:Arial,Helvetica,sans-serif;overflow:hidden;break-after:page;page-break-after:always}',
+    '.et:last-child{break-after:auto;page-break-after:auto}',
+    `.eu-arriba{max-width:100%;font-size:${r.rotuloMm}mm;font-weight:700;line-height:1.1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}`,
+    `.eu-code{font-size:${r.codigoMm}mm;font-weight:900;line-height:1;letter-spacing:.02em;white-space:nowrap}`,
+    `.eu-c-m{font-size:${r.codigoMedioMm}mm}`,
+    `.eu-c-s{font-size:${r.codigoChicoMm}mm}`,
+    `.eu-bar{display:block;height:${r.barrasAltoMm}mm;max-width:${anchoUtilMm(rollo)}mm}`,
+  ].join('');
+}

@@ -355,5 +355,215 @@ abajo verificada.**
 |---|---|---|
 | ~~D1~~ | ~~KG, BTO y CUB: ¿una orden «otras unidades» o tres documentos?~~ → **resuelta 2026-11-24: se juntan**, con el umbral medido de 12 renglones (§4.2) | Edgar |
 | D2 | Los 21 sin unidad: ¿se pide la ficha a Compras desde aquí, o sólo se listan? | Edgar |
+| ~~D3~~ | ~~¿Quién declara la ruta de abasto: la sucursal directo, o propone y Compras confirma?~~ → **resuelta 2026-11-25: la sucursal propone, Compras confirma** (§10.8) | Edgar |
 | — | `on_hand` en `branch` (`[AB.NI.6]`) | equipo |
 | — | Los rótulos de línea llegan sucios del ERP (`CANEL?S S.A. DE C.V.`, truncados a 30 caracteres). Se muestran **tal cual**: corregirlos aquí sería inventar un catálogo | equipo |
+
+---
+
+## 10. El pedido manual: una pantalla, dos salidas (2026-11-25)
+
+> **Pedido de Edgar, 2026-11-25:** «se deben poder hacer ambos desde la misma, con un pedido
+> manual; hoy llegan a las sucursales y ellas se surten, entonces tienen que hacer una requisición
+> manual y pasarla a Compras.» Y, el mismo día: **«debemos eliminar por completo los import».**
+
+### 10.1 La requisición a mano no es una costumbre: es la única salida que el sistema deja
+
+El renglón cuyo producto no tiene ruta configurada **no se puede mandar a ningún lado**.
+`motivoNoEnviable()` ([`autoabasto-pedido.contract.ts`](../../../libs/contracts/src/http/autoabasto-pedido.contract.ts))
+devuelve *«No tiene a quién pedírselo (sin ruta configurada)»* y ahí se acaba el camino: ni pedido
+de sucursal ni requisición de compra. **Ese es el momento exacto en que la sucursal agarra papel.**
+
+Y no es un caso de borde. Medido en prod el **2026-11-25**, sólo lectura, cruzando los **375
+proveedores activos con producto** contra `commercial.replenishment_channel`:
+
+| Sucursal | Proveedores activos | **Sin ruta** | % |
+|---|---:|---:|---:|
+| 05 Zamora Centro | 375 | **183** | 48.8 % |
+| 07 Morelia Madero | 375 | **183** | 48.8 % |
+| 04 Yurécuaro | 375 | **151** | 40.3 % |
+| 06 Canindo | 375 | 140 | 37.3 % |
+| 08 Morelia Abastos | 375 | 124 | 33.1 % |
+| 03 8 Esquinas | 375 | 123 | 32.8 % |
+| 02 La Piedad Abastos | 375 | 121 | 32.3 % |
+| 00 Cedis Oficinas | 375 | 103 | 27.5 % |
+| 01 Padre Hidalgo | 375 | 101 | 26.9 % |
+
+**Entre un cuarto y la mitad de los proveedores activos no tienen ruta en cada sucursal.**
+
+### 10.2 Por qué no la tienen: la ruta la inventa un importer de madrugada
+
+`commercial.replenishment_channel (warehouse_id, supplier_id) → via` la llena
+[`database/importers/kepler/import-replenishment-cadence.js`](../../../database/importers/kepler/import-replenishment-cadence.js),
+que **deriva el canal del histórico de entregas** (`analytics.stock_movements`, 180 días) y corre
+dentro de `run-prod-feeds.js`. Medido: **2,390 filas, recalculadas el 2026-11-25 a las 03:23.**
+
+⛔ **Consecuencia estructural: un proveedor que apenas empezó a llegar a la sucursal no tiene
+historia, así que nunca tiene ruta.** El sistema sólo reconoce lo que ya venía pasando — y lo que
+Edgar describe («hoy llegan a las sucursales y ellas se surten») es, por definición, lo nuevo.
+
+⭐⭐ **La tabla ya tiene el candado, y nunca se usó.** La columna `cadence_source
+('derived'|'manual')` existe desde la migración del 2026-07-20 y el `ON CONFLICT` del importer
+respeta `WHERE cadence_source='derived'`: una fila `manual` está protegida. Medido: **2,390 filas,
+las 2,390 `derived`, cero `manual`, cero con `updated_by`.** ⛔ **Ninguna línea de TypeScript en el
+monorepo nombra `cadence_source`** — no hay pantalla ni endpoint que pueda escribirlo. *El candado
+se construyó hace cuatro meses y jamás se le puso llave. Una bandera sin camino de escritura es
+decoración.*
+
+⚠️ **Y la ruta entre sucursales ya está declarada — dentro del script.** El mismo importer arranca
+con una constante `TOPOLOGY = { '02':'01', '03':'01', '04':'01', '05':'06' }` y la escribe en
+`commercial.warehouses.source_warehouse_id`. Medido en prod: **04 Yurécuaro ← 01 Padre Hidalgo**,
+fijado el 2026-10-06 — exactamente lo que Edgar dijo de viva voz. *La decisión de negocio existe:
+vive como literal en un script de importación, sin dueño, sin fecha y sin motivo.*
+
+### 10.3 Lo que ya existe y lo que falta
+
+| | Hoy |
+|---|---|
+| Elegir **de qué sucursal** me surto | ✅ existe (`origen_code` en el envío) |
+| El carril de proveedor de punta a punta | ✅ funciona: **177 de 190** llegaron a Kepler en 14 días |
+| Elegir **«al proveedor» en vez de «a la matriz»** | ⛔ no existe: lo decide `replenishment_channel` |
+| **Declarar** una ruta a mano | ⛔ no existe ningún camino de escritura |
+| Un renglón sin ruta | ⛔ **bloqueado duro**, no es ni una cosa ni la otra |
+| **Agregar un producto a mano** | ⛔ no existe (§5.4 lo diseña; sin ruta no serviría) |
+
+### 10.4 El diseño: no son dos pantallas, es una pantalla con una decisión
+
+La sucursal no vive dos procesos. Vive uno: **«necesito esto, ¿a quién se lo pido?»**. Lo que
+cambia es el destino, no la pantalla. El §5.4 «Agregar algo a mano» ya estaba bien pensado — lo que
+le faltaba era **a dónde va lo que agregás**.
+
+**El acto que se automatiza es el que ya hacen** (*automatizar el acto, no el papel*). Hoy la
+sucursal propone y Compras confirma, con papel de por medio. Entonces:
+
+1. La sucursal **declara** «este proveedor me surte directo» (o «me lo manda tal sucursal») desde
+   el renglón mismo, sin salir de la pantalla.
+2. El pedido nace en **«esperando que Compras confirme la ruta»** y aparece en la cola de Compras.
+   ⛔ **La propuesta NO escribe en Kepler por sí sola**: un `X-A-30` a un proveedor equivocado es
+   un acto hacia afuera y no se dispara con la palabra de una sola persona.
+3. Compras confirma → la ruta queda escrita **para siempre** y el pedido sale.
+4. **La segunda vez que ese proveedor llega, sale sin preguntar.** Ahí está el ahorro: la pregunta
+   se hace **una vez por par** (sucursal × proveedor), no una vez por pedido.
+
+### 10.5 ⭐⭐ La ruta derivada es una moneda al aire — medido el 2026-11-25
+
+Antes de escribir una línea, se corrió **la misma derivación del importer** contra prod y se comparó
+**fila por fila** con la tabla que ese importer dejó a las **03:23 del mismo día**. Sobre los
+**2,076 pares** que están en las dos:
+
+| Qué | Cuánto |
+|---|---:|
+| Pares con **otra `via`** que hace siete horas | **145** |
+| …de «de matriz» a «compra directa» | **141** |
+| Entradas ingestadas hoy, **todas después de las 03:23** (última 10:15) | **284** |
+
+Y el voto que decide la `via` **no decide casi nada**:
+
+| Margen del voto | Pares | De esos, **ya cambiaron** |
+|---|---:|---:|
+| **Empate** | 70 | **61** (87 %) |
+| Gana por **un** día | 109 | 41 (38 %) |
+| Gana por 2–3 días | 163 | 24 |
+| Gana cómodo (4+) | 455 | 16 |
+| Un solo canal | 1,279 | **3** |
+
+⛔⛔ **En los 70 empates, el desempate lo da `ORDER BY ..., channel` — o sea el orden alfabético:
+`purchase` le gana a `transfer` porque empieza con p.** Para unos **180 pares**, *dónde se pide la
+mercancía* lo decide una entrega de más.
+
+➡️ **Derivar la ruta no era sólo caro: era incorrecto.** Una relación de abasto no cambia porque
+hoy llegó un camión; cambia cuando **alguien lo decide**. Por eso la ruta pasa a ser dato propio
+(HITL) escrito **por evento**, y el importer se borra.
+
+### 10.5b ⛔ La cadencia NO se vuelve vista: la medición lo refutó
+
+El primer diseño de este anexo decía «la cadencia es una medición → vista `derive-no-copy`». **Se
+midió y no se sostiene**, así que se corrige acá:
+
+- El cuerpo de la derivación corrido **como vista tarda 58.9 s** (su tramo de clasificación solo,
+  **1,276 ms**). `ix_stockmov_date` lee **799,943 filas y tira 691,020** sobre una tabla de
+  **3,904,518 filas / 1,379 MB**.
+- Y sus columnas **las consumen pantallas**, no sólo el escáner: **45 usos** en
+  `commercial-replenishment.service.ts`, **13** en `compras.service.ts`, **8** en
+  `compras-pedido-real.component.ts`.
+
+*Materializar por costo es legítimo; lo que no es legítimo es refrescarlo con un importer de
+madrugada.* La cadencia **se queda materializada** y su refresco pasa a ser **por evento** — item
+aparte, fuera de estos cuatro.
+
+### 10.5c Cómo queda partido
+
+| Qué | Qué es | Dónde vive |
+|---|---|---|
+| **La ruta** (`via`, `source_warehouse_id`) | Una **decisión** | `commercial.replenishment_route` — tabla propia (HITL), escrita por evento, **sembrada una sola vez** desde la tabla de hoy y marcada `origen='inherited'` |
+| **La cadencia** | Una **medición** | Se queda materializada; su refresco pasa a ser por evento (item aparte) |
+| `commercial.v_replenishment_route` | El camino de pantalla | VISTA que **no toca `analytics.stock_movements`** |
+
+⛔ **La siembra NO cambia el comportamiento de hoy:** una ruta `inherited` **sigue siendo enviable**
+(cero regresión). Lo que cambia es que ahora se puede **distinguir** una ruta que alguien decidió de
+una que salió de un promedio — y corregirla sin culpa.
+
+⚠️ **Las rutas frágiles se marcan, no se bloquean.** Los 70 empates y los 109 que ganan por un día
+llevan `ruta_fragil = true` para que Compras las revise. **Bloquearlas rompería lo que hoy
+funciona**, y eso sería cambiar un problema de verdad por uno de disponibilidad.
+
+### 10.6 Capas y entregables
+
+| Item | Capa | Qué entrega |
+|---|---|---|
+| `[AB.NI.9]` | C0 | `commercial.replenishment_route` (HITL) + `v_replenishment_route` + la siembra marcada `inherited`, con las frágiles marcadas. **`import-replenishment-cadence.js` borrado** y fuera de `run-prod-feeds.js`. La topología sale de la constante `TOPOLOGY` y queda como dato con dueño y fecha. ⛔ **NO toca la cadencia** (§10.5b) ni borra `replenishment_channel` (regla 5) |
+| `[AB.NI.10]` | C1 | `surteDe()` honra la declaración sobre la observación; `motivoNoEnviable()` deja de bloquear duro el `sin_ruta` y lo vuelve **resoluble** |
+| `[AB.NI.11]` | C2 | Declarar la ruta (sucursal) y confirmarla (Compras); el envío acepta el renglón cuya ruta se acaba de confirmar |
+| `[AB.NI.12]` | C3 | La decisión en la pantalla: destino por orden, «agregar a mano» llegando a productos sin ruta, y el estado «ruta por confirmar» |
+
+### 10.7 Criterios de aceptación verificables
+
+1. **El importer ya no existe** y `grep -rn 'import-replenishment-cadence' database/` no devuelve
+   nada. **Prueba negativa:** si `run-prod-feeds.js` todavía lo nombra, el item no está cerrado.
+2. **La siembra no pierde ni inventa una ruta:** `commercial.replenishment_route` trae, para cada
+   par de `replenishment_channel`, el mismo `via` y el mismo `source_warehouse_id`. ⛔ **Se
+   compara fila por fila**, no por conteos: dos conjuntos del mismo tamaño pueden diferir en cada
+   fila. ⚠️ Las únicas que pueden faltar son los **traspasos sin origen conocido** —ni en la fila ni
+   en la topología del almacén—, y faltan **a propósito**: una ruta que no sabe quién surte no es
+   una ruta. Su cuenta **se declara al aplicar**.
+   **Probado el 2026-11-25** en clúster desechable con las tres formas (traspaso con origen ·
+   traspaso que hereda el origen del almacén · traspaso sin origen posible): **3 de 4 sembradas, la
+   cuarta excluida**, y las 3 quedaron **enviables** (cero regresión).
+3. Una ruta **declarada** gana sobre la derivada cuando están en conflicto.
+   **Prueba negativa:** devolver la derivada es un fallo.
+   ⭐ **Las guardas de la tabla, probadas el 2026-11-25 (7 rojos vistos caer):** un traspaso sin
+   origen · `declared` sin confirmante · quitarle el confirmante a una declarada · una `via`
+   inventada · un `origen` inventado · dos rutas para el mismo par (UNIQUE) · `app_runtime`
+   escribiendo una fila de otro tenant (RLS `WITH CHECK`). Y la RLS en los dos sentidos: con otro
+   tenant en el contexto se ven **0 filas**, con el propio **4**.
+4. `motivoNoEnviable()` sobre un renglón sin ruta devuelve un motivo **resoluble** (la pantalla
+   puede ofrecer la acción), distinto del de «no le falta», que no lo es.
+   **Prueba negativa:** si los dos devuelven el mismo tipo de motivo, la pantalla no puede
+   distinguirlos y el renglón vuelve a quedar sin salida.
+5. Declarar una ruta **no escribe nada en Kepler**: tras declarar sin confirmar, el conteo de
+   documentos del servidor es **idéntico**. ⛔ Esta se mide **contra base real con el payload de la
+   pantalla** (regla 13), no con un doble.
+6. Con la ruta confirmada, el **mismo** renglón que antes decía «no tiene a quién pedírselo» sale,
+   y sale por el carril que se declaró (`U-D-40` si matriz, `X-A-30` si proveedor).
+7. En Yurécuaro, los **151 proveedores sin ruta** aparecen como **resolubles**, no como
+   bloqueados. Hoy son cero.
+8. La vista responde **por debajo de 500 ms** en el camino que usa la pantalla (la pantalla lee
+   ruta, no cadencia). **Prueba negativa:** si el plan de la pantalla toca
+   `analytics.stock_movements`, la partición no quedó bien hecha.
+
+### 10.8 Lo que se declara
+
+- ✅ **RESUELTA — Edgar, 2026-11-25: «sí, la sucursal propone y Compras confirma».** Queda
+  ratificado el default con el que se construyó: *el acto que se automatiza es el que ya hacen*. Los
+  cuatro pasos de §10.4 y los criterios 5 y 6 quedan **firmes**. ⛔ Y es esto lo que vuelve
+  **obligatorio** que una ruta `proposed` **no sea enviable**: sin el paso de confirmación, la
+  palabra de una sola persona dispararía un `X-A-30` a un proveedor equivocado — un acto hacia
+  afuera. *Lo que se quita no es la confirmación: es la hoja de papel que hoy la transporta.*
+- ⛔⛔ **«Eliminar por completo los import» es un programa, no este item.** Medido el 2026-11-25:
+  **69 scripts** en `database/importers/kepler/`, de los cuales **`run-prod-feeds.js` nombra 56**.
+  Este anexo retira **uno** — el de la ruta — y lo retira *entero*, no a medias. ⛔ El de abajo es
+  más grande: `analytics.stock_movements` es una **tabla de 1,379 MB y 3,904,518 filas** alimentada
+  por `import-stock-movements.js`, y es de quien depende la cadencia. Mientras esa siga siendo una
+  copia, la vista de cadencia lee una copia: **se declara, no se disimula.**
+- ⚠️ **222 pares** de la tabla tienen un `warehouse_id` que no está en
+  `analytics.v_erp_branch_catalog`: no se sabe de qué sucursal son. **NO MEDIDO**, queda abierto.

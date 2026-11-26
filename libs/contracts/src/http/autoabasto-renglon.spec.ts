@@ -145,7 +145,10 @@ describe('[AB.29] esEnviable — qué se manda a Compras (la misma regla en pant
     expect(motivoNoEnviable(armarRenglon(entrada({ falta: 0, falta_base: 0 })).linea)).toBe('No le falta');
   });
 
-  it('⛔ sin ruta no hay a quién pedírselo: no se manda aunque falte', () => {
+  // ⚠️ `[AB.NI.10]` El TEXTO no cambia todavía, a propósito: prometería una acción que la pantalla
+  // aún no tiene (`[AB.NI.12]`). Lo que cambió es que `bloqueoDelRenglon` lo marca `resoluble` y ya
+  // se distingue de un bloqueo terminal (ver `autoabasto-ruta.spec.ts`).
+  it('⛔ sin ruta todavía no se manda; lo que cambió es la CLASE del bloqueo, no el texto', () => {
     const { linea } = armarRenglon(entrada({ surte: surteDe(null, null, null, null) }));
     expect(linea.estado).toBe('sin_pedir');
     expect(motivoNoEnviable(linea)).toBe('No tiene a quién pedírselo (sin ruta configurada)');

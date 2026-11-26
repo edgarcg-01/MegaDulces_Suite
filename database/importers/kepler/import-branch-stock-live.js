@@ -1,5 +1,25 @@
 /* eslint-disable no-console */
 /**
+ * ⛔⛔ RETIRADO EL 2026-11-25 — `[CANON.7.5]` (Edgar: «hay que matar ese importer»). NO ENGANCHARLO
+ * DE VUELTA SIN LEER ESTO.
+ *
+ * Salió del carril `stock` de `run-prod-feeds.js`. Era el ÚNICO escritor de
+ * `commercial.stock.quantity`, y esa copia quedó CONGELADA a propósito (la tabla no se borra, regla 5).
+ * La existencia se lee de `analytics.v_erp_stock_on_hand` — el ODS— desde `[CANON.7.1]`…`[CANON.7.4]`.
+ *
+ * Lo medido en prod el día del corte, celda por (almacén, producto): la copia tenía **27,035 que
+ * Kepler ya no tiene** (el almacén borrado `MD-32` y productos congelados desde la migración de cada
+ * sucursal) y **343 que decían otra cosa**. Correrlo hoy no «actualiza» nada: revive esas celdas.
+ *
+ * La sonda `stock` de db-health quedó retirada con su relevo nombrado, y **se auto-denuncia**: si algo
+ * escribe la copia después del 2026-11-25 la sonda pasa a `warn`. O sea que ejecutar esto a mano se ve.
+ *
+ * El archivo se conserva porque documenta la fórmula de la existencia de Kepler (`c4+c8−c9`, validada
+ * contra el fuente del reporte `invrepexsrep.kpl`) y porque `[CANON.7.4d]` todavía está retirando a los
+ * escritores que le quedan a la copia. Cuando eso cierre, se borra.
+ *
+ * ── Lo de abajo es la documentación histórica, de cuando corría ────────────────────────────────────
+ *
  * Stock VIVO multi-sucursal → commercial.stock, en MODO INCREMENTAL (delta-only).
  *
  * Reemplaza/generaliza import-ph-stock-live.js (que era PH solo + per-fila; retirado en ADR-055).

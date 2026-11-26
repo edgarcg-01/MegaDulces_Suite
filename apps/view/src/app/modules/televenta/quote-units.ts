@@ -3,6 +3,7 @@
  * en las pantallas de cotización y en el Excel/PDF, y se prueban en `quote-units.spec.ts`.
  * `quotes.service.ts` las re-exporta para no cambiar ninguna importación existente.
  */
+import { piezaSoloEnPiso } from '@megadulces/contracts';
 import type { QuoteCatalogRow, QuoteOrigin, Rung } from './quotes.service';
 
 /**
@@ -197,18 +198,31 @@ export interface OpcionUnidad {
 }
 
 /**
+ * `[COT.58]` La pieza de un producto pieza · paquete · caja se vende sólo en piso de ventas: en
+ * cotización no se ofrece. La regla es la de `@megadulces/contracts` (la misma que valida el
+ * servidor), con los rótulos tal como los NOMBRA la pantalla: un paquete o una caja sin rótulo
+ * se llaman Paquete y Caja (`nombreUnidadIntermedia`, `nombreUnidadMayor`).
+ */
+export function piezaSoloEnPisoDe(e: QuoteCatalogRow): boolean {
+  const paquete = e.pack_size && e.pack_size > 1 ? e.pack_label || 'PAQ' : null;
+  const caja = e.box_size || e.box_label ? e.box_label || 'CJA' : null;
+  return piezaSoloEnPiso(e.unit_base, paquete, caja);
+}
+
+/**
  * Las unidades que el ERP declara para el artículo, de MENOR a MAYOR (izquierda → derecha):
  * KINDER DELICE = Pieza 1 · Paquete 10 · Caja 140. Antes salían base · caja · paquete (COT.16).
- * Sólo las que existen: sin unidad mayor no hay botón de caja.
+ * Sólo las que existen: sin unidad mayor no hay botón de caja. Y sin la pieza de un pieza ·
+ * paquete · caja, que se vende sólo en piso (COT.58).
  */
 export function opcionesUnidad(e: QuoteCatalogRow): OpcionUnidad[] {
   const base = abrevUnidadBase(e.unit_base, e.sold_by_kg);
   const g = gramosDeBase(e);
   const enBase = (n: number) => (g ? pesoTexto(n * g) : `${n} ${e.sold_by_kg ? 'kg' : base}`);
   const tituloBase = g ? (g === 500 ? 'Medio kilo' : pesoTexto(g)) : nombreUnidadBase(e.unit_base, e.sold_by_kg);
-  const out: OpcionUnidad[] = [
-    { rung: 'base', titulo: tituloBase, tamano: 1, detalle: enBase(1), icono: 'pi-tag' },
-  ];
+  const out: OpcionUnidad[] = piezaSoloEnPisoDe(e)
+    ? []
+    : [{ rung: 'base', titulo: tituloBase, tamano: 1, detalle: enBase(1), icono: 'pi-tag' }];
   if (e.pack_size && e.pack_size > 1) {
     out.push({ rung: 'pack', titulo: nombreUnidadIntermedia(e.pack_label), tamano: e.pack_size, detalle: enBase(e.pack_size), icono: 'pi-clone' });
   }
@@ -233,8 +247,22 @@ export function opcionesUnidad(e: QuoteCatalogRow): OpcionUnidad[] {
 export function unidadDelEscaneo(e: QuoteCatalogRow): Rung | 'sin-opcion' | null {
   const f = e.scan_factor;
   if (f === null || f === undefined) return null;
+  // `[COT.58]` El código de la pieza de un pieza · paquete · caja no elige nada: queda la unidad
+  // inicial (el paquete) y la pantalla dice que la pieza es de piso. No es «un empaque sin precio».
+  if (f === 1 && piezaSoloEnPisoDe(e)) return null;
   const o = opcionesUnidad(e).find((x) => x.tamano === f);
   return o ? o.rung : 'sin-opcion';
+}
+
+/**
+ * `[COT.58]` La unidad con la que arranca un artículo recién elegido: la que ya estaba si el
+ * artículo la ofrece; si no, la menor que ofrece (la base casi siempre; el paquete cuando la pieza
+ * es de piso). Antes las pantallas fijaban la base, que en esos productos ya no es una opción.
+ */
+export function unidadInicial(e: QuoteCatalogRow, actual?: Rung | null): Rung {
+  const opciones = opcionesUnidad(e);
+  if (actual && opciones.some((o) => o.rung === actual)) return actual;
+  return opciones[0]?.rung ?? 'base';
 }
 
 /**

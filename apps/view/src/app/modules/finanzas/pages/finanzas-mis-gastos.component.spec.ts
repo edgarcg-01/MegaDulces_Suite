@@ -54,7 +54,8 @@ describe('FinanzasMisGastosComponent', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => http.verify());
+  // [PGP.123] G-AUD.16: el panel de un vale validado pide su gasto (X-A-10) él mismo; aquí se contesta vacío.
+  afterEach(() => { for (const r of http.match((x) => x.url.endsWith('/gasto-kepler'))) if (!r.cancelled) r.flush(null); http.verify(); });
 
   const montar = (r: ExpenseProofsReport | null = REPORTE()) => {
     fix = TestBed.createComponent(FinanzasMisGastosComponent);
@@ -411,6 +412,38 @@ describe('FinanzasMisGastosComponent', () => {
    * `[GX.106]` **La fecha en que se mandó, en vez de los días** (pedido del usuario, 2026-11-09: «lo de
    * días cámbialo por la fecha en que se mandó»). Los días quedan sólo para lo atorado, en palabras.
    */
+  /** `[PGP.123]` G-RED.2 — La barrita de la ruta en cada fila: los mismos pasos que el panel, en palabras para el lector. */
+  describe('[PGP.123] G-RED.2 la barrita de la ruta en la fila', () => {
+    const segs = (folio: string) => {
+      const fila = [...fix.nativeElement.querySelectorAll('tr')].find((tr: Element) => tr.textContent?.includes(folio)) as HTMLElement;
+      return [...fila.querySelectorAll('.mg-seg')].map((s) => s.getAttribute('data-estado'));
+    };
+
+    it('un aprobado: cinco segmentos, el comprobante toca ahora, y el lector oye el paso', () => {
+      montar(REPORTE({ rows: [FILA({ id: 'r1', status: 'aprobada', folio_solicitud: '0000301' })] }));
+      ver('tu');
+      expect(segs('0000301')).toEqual(['hecho', 'hecho', 'actual', 'pendiente', 'pendiente']);
+      expect(txt()).toContain('Paso 3 de 5, Comprobante: toca ahora');
+      expect(txt()).toContain('Pendiente de comprobación');
+      const mini = fix.nativeElement.querySelector('.mg-mini') as HTMLElement;
+      expect(mini.getAttribute('aria-hidden')).toBe('true');
+    });
+
+    it('⛔ un cerrado sin el gasto de Kepler en la respuesta: el último segmento es «sin leer», no «hecho»', () => {
+      montar(REPORTE({ rows: [FILA({ id: 'r2', status: 'validada', folio_solicitud: '0000302', etapa: 'autorizado', gasto_folios: [] })] }));
+      ver('kepler');
+      expect(segs('0000302')[4]).toBe('sin_medir');
+      expect(txt()).not.toContain('Ruta terminada');
+    });
+
+    it('⛔ la solicitud de Kepler sin vale no tiene barrita: no se le inventa una ruta', () => {
+      montar(REPORTE({ rows: [], asignados: [{ sucursal: '00', folio: '0000007', fecha: '2026-10-01', importe: 100, solicita: 'X', destinatario: 'PROV ASIGNADO', concepto: 'C', estado: 'A', aplicada: false, vinculado_por: 'solicita' }] }));
+      ver('tu');
+      expect(txt()).toContain('0000007');
+      expect(fix.nativeElement.querySelectorAll('.mg-seg').length).toBe(0);
+    });
+  });
+
   describe('[GX.106] la fecha en que se mandó', () => {
     const ASIGNADO = { sucursal: '00', folio: '0000007', fecha: '2026-10-01', importe: 100, solicita: 'X', destinatario: 'PROV ASIGNADO', concepto: 'C', estado: 'A', aplicada: false, vinculado_por: 'solicita' as const };
     const encabezados = () => [...fix.nativeElement.querySelectorAll('th')].map((t) => (t as HTMLElement).textContent?.trim());
@@ -522,6 +555,67 @@ describe('FinanzasMisGastosComponent', () => {
       ver('kepler');
       expect(boton()).toBeUndefined();
       expect(txt()).toContain('Lista para generar, pero la escritura de gastos a Kepler todavía está apagada en esta base');
+    });
+
+    it('G.16: con la lectura distinta, «Ya lo comparé · Generar» manda lectura_comparada; sin ella no hay botón de generar', () => {
+      montar(REPORTE({ rows: [FILA({ id: 'l1', status: 'validada', folio_solicitud: '0000904', etapa: 'autorizado', gasto_folios: [], importe: 250,
+        gasto_kepler: { comprobacion: { listo: false, motivo: 'lectura_distinta', quien: 'sucursal', texto: 'La lectura del comprobante dice $6,000.00 y la solicitud $250.00: compáralos antes de generar el gasto' }, escritura: ABIERTA, gasto: null } })] }));
+      ver('kepler');
+      expect(boton()).toBeUndefined();
+      const comparar = [...fix.nativeElement.querySelectorAll('button')].find((b: Element) => /Ya lo comparé · Generar \$250\.00/.test(b.textContent ?? '')) as HTMLButtonElement;
+      expect(comparar).toBeTruthy();
+      expect(txt()).toContain('compáralos antes de generar el gasto');
+      comparar.click();
+      const r = http.expectOne((x) => x.method === 'POST' && x.url.endsWith('/l1/reintentar-gasto'));
+      expect(r.request.body).toEqual({ lectura_comparada: true });
+      r.flush({ id: 'l1', status: 'written', folio: '0000132', poliza: 'kdc22611/D/9', fecha: '2026-11-21', nota: null, intentos: 1, siguiente: null });
+      http.expectOne((x) => x.url.includes('/finance/expenses/proofs/mine')).flush(REPORTE({ rows: [] }));
+    });
+
+    /** `[PGP.123]` G-AUD.14 — Lo que Kepler canceló: «Generar otra vez» gris, y el segundo clic confirma; nunca «Generar gasto». */
+    it('G-AUD.14: un gasto cancelado en Kepler pide confirmar antes de escribir otro', () => {
+      montar(REPORTE({ rows: [FILA({ id: 'x1', status: 'validada', folio_solicitud: '0000905', etapa: 'autorizado', gasto_folios: [], importe: 250,
+        gasto_kepler: { comprobacion: { listo: true, fecha: '2026-11-20' }, escritura: ABIERTA,
+          gasto: { id: 'x1', status: 'cancelled', folio: null, poliza: null, fecha: null, nota: 'Kepler canceló el gasto X-A-10 0000091 (póliza kdc22611/D/370): el vale vuelve a esperar su gasto; la Suite no lo reescribe sola («Reintentar el gasto»)', intentos: 1, siguiente: null } } })] }));
+      ver('kepler');
+      const porTexto = (rx: RegExp) => [...fix.nativeElement.querySelectorAll('button')].find((b: Element) => rx.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
+      expect(boton()).toBeUndefined();
+      expect(txt()).not.toContain('Reintentar el gasto');
+      porTexto(/Generar otra vez · \$250\.00/)!.click();
+      fix.detectChanges();
+      http.expectNone((r) => r.url.endsWith('/reintentar-gasto'));
+      porTexto(/Sí, escribir otro · \$250\.00/)!.click();
+      const r = http.expectOne((x) => x.method === 'POST' && x.url.endsWith('/x1/reintentar-gasto'));
+      expect(r.request.body).toEqual({});
+      r.flush({ id: 'x1', status: 'written', folio: '0000140', poliza: 'kdc22611/D/11', fecha: '2026-11-23', nota: null, intentos: 2, siguiente: null });
+      http.expectOne((x) => x.url.includes('/finance/expenses/proofs/mine')).flush(REPORTE({ rows: [] }));
+    });
+
+    /**
+     * G-RED.1b (H2 de la auditoría con Playwright) — El panel decía «si fue un error, “Generar otra vez”» y el botón sólo
+     * estaba en la fila. Ahora el panel lo trae, con el mismo doble clic, usa el gasto que ya vino en la fila (no lo vuelve a
+     * pedir) y, al recargar, la ruta del panel dice lo que acaba de pasar.
+     */
+    it('G-RED.1b: «Generar otra vez» también desde el panel, y el panel se pone al día', () => {
+      const CANCELADO = FILA({ id: 'x2', status: 'validada', folio_solicitud: '0000906', etapa: 'autorizado', gasto_folios: [], importe: 250,
+        gasto_kepler: { comprobacion: { listo: true, fecha: '2026-11-20' }, escritura: ABIERTA,
+          gasto: { id: 'x2', status: 'cancelled', folio: null, poliza: null, fecha: null, nota: 'Kepler canceló su gasto', intentos: 1, siguiente: null } } });
+      montar(REPORTE({ rows: [CANCELADO] }));
+      c.abrir(CANCELADO);
+      fix.detectChanges();
+      expect(http.match((x) => x.url.endsWith('/gasto-kepler')).length).toBe(0);
+      const panel = () => fix.nativeElement.querySelector('app-vale-gasto-peek') as HTMLElement;
+      const enPanel = (rx: RegExp) => [...panel().querySelectorAll('button')].find((b: Element) => rx.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
+      enPanel(/Generar otra vez · \$250\.00/)!.click();
+      fix.detectChanges();
+      http.expectNone((r) => r.url.endsWith('/reintentar-gasto'));
+      enPanel(/Sí, escribir otro gasto · \$250\.00/)!.click();
+      const r = http.expectOne((x) => x.method === 'POST' && x.url.endsWith('/x2/reintentar-gasto'));
+      r.flush({ id: 'x2', status: 'written', folio: '0000141', poliza: 'kdc22611/D/12', fecha: '2026-11-23', nota: null, intentos: 2, siguiente: null });
+      const escrito = { ...CANCELADO, gasto_kepler: { ...CANCELADO.gasto_kepler!, gasto: { ...CANCELADO.gasto_kepler!.gasto!, status: 'written', folio: '0000141', poliza: 'kdc22611/D/12' } } };
+      http.expectOne((x) => x.url.includes('/finance/expenses/proofs/mine')).flush(REPORTE({ rows: [escrito as typeof CANCELADO] }));
+      fix.detectChanges();
+      expect(panel().textContent).toContain('Folio 0000141 · póliza D 12 (nov 2026)');
     });
 
     it('si no se genera, dice el motivo del servidor (no un «listo» falso)', () => {

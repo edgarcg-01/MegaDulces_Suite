@@ -3,13 +3,15 @@ import * as crypto from 'node:crypto';
 import * as ExcelJS from 'exceljs';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, applySmartSearch, todayMx } from '@megadulces/platform-core';
-import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
+import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput, warehouseName } from '@megadulces/contracts';
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimFueraDeAlcance, claimVerdict, type ClaimRow } from './recon-claim-key';
 import { elegirEnLaSemana } from './recon-pase-semana';
+import { PASE_GRUPO_ACREEDOR, paseDelGrupo } from './recon-pase-grupo';
 import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
 import { aplicarMotorDeCategoria } from './estado-de-cuenta/motor-de-categoria.aplicar';
-import { coberturaDeCategoria, leerFila, NOMBRE_DE_GRUPO, type FilaDeCobertura } from './estado-de-cuenta/cobertura-de-categoria';
+import { coberturaDeCategoria, grupoDeLaFila, leerFila, NOMBRE_DE_GRUPO, type FilaDeCobertura } from './estado-de-cuenta/cobertura-de-categoria';
+import { NOMBRE_DE_ORIGEN } from './estado-de-cuenta/origen-del-renglon';
 import { leerHechosDelPeriodo } from './estado-de-cuenta/hechos-del-periodo.query';
 import { compileRules, classifyWith, normKey } from './classify-rules';
 import { avisarBancos } from './aviso-bancos';
@@ -220,6 +222,14 @@ export interface ListMovementsQuery {
   area?: string;
   /** `[BFU.4.5.6]` 'true' → sólo lo que falta ligar (no explicado según `explicarRenglon`). */
   por_ligar?: string;
+  /** `[BFU.4.5.12]` 'entra' → sólo depósitos · 'sale' → sólo retiros. */
+  direccion?: string;
+  /** `[BFU.4.5.12]` Sólo las entradas de ese origen (`claveDeEntrada`: `venta_tienda`, `cobranza`, `sin_documento:terminal`…). */
+  origen?: string;
+  /** `[BFU.4.5.12]` Sólo la venta de tienda de esa sucursal (código de Kepler del corte). */
+  sucursal_venta?: string;
+  /** `[BFU.4.5.14]` 'true' → sin lo que se movió entre tus cuentas (el grupo `traspaso` de las dos direcciones). */
+  de_fuera?: string;
 }
 
 @Injectable()
@@ -748,13 +758,22 @@ export class FinanceBankService {
       // [BFU.4.5.6] Por área / lo que falta ligar: los renglones que `leerFila` pone ahí, con los MISMOS hechos y la misma
       // regla que la cifra «quién explica cada peso» — el número y la lista que abre no pueden contar distinto. Sólo hay
       // área en el universo del motor (la descarga del banco ya en el libro): lo que la descarga trae y el libro no, no entra.
+      // [BFU.4.5.12] Y por dirección (entradas / salidas), por origen de la entrada y por sucursal del corte: el grupo lo
+      // decide `grupoDeLaFila`, la misma pieza que arma la cifra. [BFU.4.5.14] En las salidas el área es la del grupo
+      // (lo que fue a otra cuenta tuya es `traspaso`, no el área que lo atiende), y `de_fuera` quita ese grupo.
       let idsDelArea: string[] | null = null;
-      if (q.area || q.por_ligar === 'true') {
-        if (!q.period) throw new BadRequestException('el filtro por área necesita el periodo');
+      const direccion = q.direccion === 'entra' || q.direccion === 'sale' ? q.direccion : null;
+      const deFuera = q.de_fuera === 'true';
+      if (q.area || q.por_ligar === 'true' || direccion || q.origen || q.sucursal_venta || deFuera) {
+        if (!q.period) throw new BadRequestException('el filtro por área, dirección u origen necesita el periodo');
         const hoy = todayMx();
         idsDelArea = (await leerHechosDelPeriodo(trx, q.period)).filter((h) => {
-          const l = leerFila(h, hoy);
-          return (!q.area || l.area === q.area) && (q.por_ligar !== 'true' || l.explicado === false);
+          const l = leerFila(h, hoy), g = grupoDeLaFila(h, hoy);
+          return (!q.area || (direccion === 'sale' ? g.grupo : l.area) === q.area) && (q.por_ligar !== 'true' || l.explicado === false)
+            && (!deFuera || (g.direccion !== null && g.grupo !== 'traspaso'))
+            && (!direccion || g.direccion === direccion)
+            && (!q.origen || (g.direccion === 'entra' && g.grupo === q.origen))
+            && (!q.sucursal_venta || h.sucursal_doc === q.sucursal_venta);
         }).map((h) => h.id);
       }
       const soloDelLibro = q.uncategorized === 'true' || !!q.recon_status || idsDelArea !== null;
@@ -1735,7 +1754,14 @@ export class FinanceBankService {
       // [BFU.4.5.6] + quién explica cada peso, por área, con el nombre del departamento (o del grupo declarado).
       cobertura_categoria: (() => {
         const c = coberturaDeCategoria(filasCobertura, todayMx(), totalBanco);
-        for (const a of c.por_area) a.nombre = nombresDeArea.get(a.area) ?? NOMBRE_DE_GRUPO[a.area] ?? a.area;
+        const nombreDeArea = (k: string) => nombresDeArea.get(k) ?? NOMBRE_DE_GRUPO[k] ?? k;
+        for (const a of c.por_area) a.nombre = nombreDeArea(a.area);
+        // [BFU.4.5.12] Las entradas se nombran por su origen; la venta de tienda, por sucursal; las salidas, por área.
+        for (const g of c.entradas?.grupos ?? []) {
+          g.nombre = NOMBRE_DE_ORIGEN[g.area] ?? g.area;
+          for (const x of g.sucursales ?? []) x.nombre = warehouseName(x.sucursal) || 'Sin sucursal';
+        }
+        for (const g of c.salidas?.grupos ?? []) g.nombre = nombreDeArea(g.area);
         return c;
       })(),
       recon_estado: reconEstado,
@@ -1957,7 +1983,7 @@ export class FinanceBankService {
         .where('tenant_id', tenantId).whereNotNull('account_label')
         .andWhere('fecha_efectiva', '>=', iniWide).andWhere('fecha_efectiva', '<', finWide).whereRaw('signo <> 0')
         .select('sucursal', 'doc_tipo', 'folio', 'clave_banco', 'account_label', 'importe', 'signo',
-          'fecha_efectiva', 'fecha_valor', 'fecha_pago_sat', 'fecha_captura', 'beneficiario')
+          'fecha_efectiva', 'fecha_valor', 'fecha_pago_sat', 'fecha_captura', 'beneficiario', 'entidad_code')
         // [CB.74] Orden fijo también del lado Kepler: en un empate (mismo importe, misma distancia) gana el primero.
         .orderBy([{ column: 'fecha_efectiva' }, { column: 'sucursal' }, { column: 'doc_tipo' }, { column: 'folio' },
           { column: 'clave_banco' }, { column: 'account_label' }, { column: 'importe' }, { column: 'signo' }]))
@@ -1972,6 +1998,8 @@ export class FinanceBankService {
             importe: n(p.importe), fecha: p.fecha_efectiva, fecha_poliza: p.fecha_valor,
             fuente_fecha: p.fecha_pago_sat ? 'complemento_sat' : 'poliza',
             fcap: p.fecha_captura, benef: p.beneficiario,
+            // [BFU.7.12] El acreedor de Kepler: con él el pase 4 distingue el grupo de UN acreedor del grupo casual.
+            entidad: p.entidad_code ?? null,
             dir: Number(p.signo) > 0 ? 'in' : 'out', used: false,
             // `dentro` se evalúa con la fecha EFECTIVA: un cobro tecleado en agosto cuyo pago
             // fue el 31-jul pertenece a julio, y con la fecha de la póliza quedaba fuera de los
@@ -2109,7 +2137,9 @@ export class FinanceBankService {
       }
       // Pase 4 (agrupado): 1 movimiento del banco = N docs Kepler de la MISMA cuenta+dir
       // (cobranza: un depósito = varias UA05; SUA en exhibiciones). Suma exacta ≤5, ventana ±10d.
-      let p4 = 0;
+      // [BFU.7.12] El grupo de UN acreedor con todos sus documentos a ≤1 día se guarda con su propio pase: el motor de
+      // categoría sí decide con él. Lo demás sigue débil (`recon-pase-grupo.ts`).
+      let p4 = 0, p4Acreedor = 0;
       for (const mv of bankMovs) {
         if (matchedSet.has(mv.id) || mv.amount < 5000) continue;
         const e = pool.get(`${mv.label}|${mv.dir}`); if (!e) continue;
@@ -2119,7 +2149,9 @@ export class FinanceBankService {
         const idx = subsetSum(cands.map((p) => cents(p.importe)), cents(mv.amount), 5);
         if (!idx) continue;
         p4++;
-        for (const i of idx) emit(mv, cands[i], 0.55, 'motor-tes-group');
+        const g = paseDelGrupo(ymd(mv.date), idx.map((i) => ({ acreedor: cands[i].entidad, fecha: ymd(cands[i].fecha) })));
+        if (g.pase === PASE_GRUPO_ACREEDOR) p4Acreedor++;
+        for (const i of idx) emit(mv, cands[i], g.confianza, g.pase);
       }
 
       // ── CB.46 — pases CRUZADOS de mes (pool ancho) ────────────────────────────────────
@@ -2316,6 +2348,8 @@ export class FinanceBankService {
       return {
         period, engine: 'tesoreria', bank_movements: bankMovs.length, matched: matchedBank,
         second_pass: p2, name_pass: p3, group_pass: p4, rescue_pass: p7,
+        // [BFU.7.12] De los grupos, cuántos son de UN acreedor el mismo día (el motor de categoría sí decide con ellos).
+        group_pass_acreedor: p4Acreedor,
         // CB.46 — cuánto se rescató cruzando el borde de mes, y qué NO se pudo conciliar
         // por fecha porque la fecha no existe (se declara, no se disfraza de faltante).
         batch_pass: p5, cross_month_pass: p6,

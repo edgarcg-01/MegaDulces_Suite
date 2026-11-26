@@ -9,24 +9,67 @@
  *   · pago      = ligado a un pago del Calendario EJECUTADO (`payment_allocations.paid_bank_movement_id`; sólo las
  *                 ejecutadas lo tienen: 192 de 275, medido el 2026-11-24);
  *   · cliente   = cliente declarado (`customer_code`, CC.11).
+ *
+ * `[BFU.4.5.12]` Y el ORIGEN de su documento (`origen-del-renglon.ts`): un cobro aplicado a un corte de caja POS
+ * (`kdm5` → `U-D-23`) es venta de tienda, con la sucursal del corte; otro cobro, cobranza; `N-*-26`, traspaso.
+ * ⛔ El cobro se busca en `kdm5` por su llave de ABONO (`ix_kdm5_abono`) y el cargo se compara DESPUÉS, concatenado: con
+ * `c8/c9/c10` sueltos en el WHERE el planner elige `ix_kdm5_aplicacion_factura` (todas las aplicaciones a cortes de la
+ * sucursal) y la consulta tarda 1.1 s; así, ~78 ms (prod, noviembre de 2026, 1,480 cobros casados, mediana de 3).
+ * Las aplicaciones se leen VIGENTES (`analytics.kepler_kdm5_vigente`, `[CSU.11]`, compuerta `check:kdm5-vigente`): un
+ * depósito casado con un cobro cancelado en Kepler no es venta de tienda por ese cobro. La vista se aplana y el filtro
+ * sigue entrando a `ix_kdm5_abono` (medido: el mismo plan, +25 ms por el anti-join con `kdm1`).
  */
 import type { Knex } from 'knex';
 import type { FilaDeCobertura } from './cobertura-de-categoria';
 
 export interface HechosDelRenglon extends FilaDeCobertura { id: string }
 
+const SQL = `
+WITH mov AS MATERIALIZED (
+  SELECT bm.id, bm.statement_id, bm.category_id, bm.category_reason, bm.category_evidence, bm.movement_date, bm.amount_in,
+         bm.amount_out, bm.classified_by, bm.customer_code, bm.concept
+    FROM finance.bank_movements bm
+    JOIN finance.bank_statements st ON st.id = bm.statement_id
+   WHERE st.period = ? AND bm.deleted_at IS NULL AND bm.sync_source = 'banco'
+),
+m AS MATERIALIZED (
+  SELECT r.bank_movement_id, r.kepler_sucursal AS suc, r.kepler_doc_tipo AS tipo, btrim(r.kepler_doc_folio) AS folio
+    FROM finance.bank_recon_matches r JOIN mov ON mov.id = r.bank_movement_id
+),
+venta AS MATERIALIZED (
+  SELECT m.bank_movement_id, min(m.suc) AS suc
+    FROM m
+    JOIN analytics.kepler_kdm5_vigente k
+      ON k.c2 = 'U' AND btrim(k.c1) = m.suc AND btrim(k.c3) = 'A' AND btrim(k.c4::text) = split_part(m.tipo, '-', 3)
+     AND btrim(k.c5::text) = '1' AND btrim(k.c6) = m.folio
+   WHERE m.tipo LIKE 'U-A-%' AND k.sucursal = m.suc
+     AND (btrim(k.c8) || '-' || btrim(k.c9::text) || '-' || btrim(k.c10::text)) = 'D-23-1'
+   GROUP BY 1
+),
+origen AS MATERIALIZED (
+  SELECT m.bank_movement_id,
+         CASE WHEN bool_or(v.bank_movement_id IS NOT NULL) THEN 'venta_tienda'
+              WHEN bool_or(m.tipo LIKE 'U-A-%') THEN 'cobranza'
+              WHEN bool_or(m.tipo LIKE 'N-_-26') THEN 'traspaso'
+              ELSE 'otro_documento' END AS origen_doc,
+         min(v.suc) AS sucursal_doc
+    FROM m LEFT JOIN venta v ON v.bank_movement_id = m.bank_movement_id
+   GROUP BY 1
+)
+SELECT mov.id, (mov.category_id IS NOT NULL) AS con_categoria, mov.category_reason AS motivo,
+       mov.category_evidence->>'responsable' AS responsable, to_char(mov.movement_date, 'YYYY-MM-DD') AS fecha,
+       mc.owner_department_code AS area, (mov.amount_in > 0) AS entra, mc.code AS categoria, mov.classified_by,
+       mov.category_evidence->>'fuente' AS fuente,
+       EXISTS (SELECT 1 FROM finance.bank_recon_matches r WHERE r.bank_movement_id = mov.id) AS documento,
+       EXISTS (SELECT 1 FROM finance.payment_allocations pa WHERE pa.paid_bank_movement_id = mov.id AND pa.status = 'executed') AS pago,
+       (mov.customer_code IS NOT NULL) AS cliente,
+       mov.concept AS concepto, o.origen_doc, o.sucursal_doc,
+       1 AS n, (mov.amount_in + mov.amount_out)::numeric AS monto
+  FROM mov
+  LEFT JOIN finance.movement_categories mc ON mc.id = mov.category_id
+  LEFT JOIN origen o ON o.bank_movement_id = mov.id`;
+
 export async function leerHechosDelPeriodo(trx: Knex | Knex.Transaction, period: string): Promise<HechosDelRenglon[]> {
-  const filas = await trx('finance.bank_movements as bm')
-    .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-    .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
-    .where('st.period', period).whereNull('bm.deleted_at').where('bm.sync_source', 'banco')
-    .select('bm.id', trx.raw('(bm.category_id IS NOT NULL) AS con_categoria'), trx.raw('bm.category_reason AS motivo'),
-      trx.raw(`bm.category_evidence->>'responsable' AS responsable`), trx.raw(`to_char(bm.movement_date, 'YYYY-MM-DD') AS fecha`),
-      trx.raw('mc.owner_department_code AS area'), trx.raw('(bm.amount_in > 0) AS entra'),
-      trx.raw('mc.code AS categoria'), 'bm.classified_by', trx.raw(`bm.category_evidence->>'fuente' AS fuente`),
-      trx.raw('EXISTS (SELECT 1 FROM finance.bank_recon_matches r WHERE r.bank_movement_id = bm.id) AS documento'),
-      trx.raw(`EXISTS (SELECT 1 FROM finance.payment_allocations pa WHERE pa.paid_bank_movement_id = bm.id AND pa.status = 'executed') AS pago`),
-      trx.raw('(bm.customer_code IS NOT NULL) AS cliente'),
-      trx.raw('1 AS n'), trx.raw('(bm.amount_in + bm.amount_out)::numeric AS monto'));
-  return filas as HechosDelRenglon[];
+  const r = await trx.raw(SQL, [period]);
+  return (r.rows ?? r) as HechosDelRenglon[];
 }

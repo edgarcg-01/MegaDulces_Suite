@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, model, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, input, model, output, signal } from '@angular/core';
 import { branchLabel } from '../../../core/constants/store-branches';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
@@ -9,14 +9,17 @@ import { VisorEvidenciaComponent, type DocEvidencia } from './visor-evidencia.co
 import { parseLocalDate } from '../../../core/utils/mx-date';
 import { puedeIncrustarPdf } from '../../../core/utils/pdf-inline';
 import {
-  CLASIFICACION_LABEL, type DepartamentoDelVale, type ExpenseClasificacion, type ProofFile, type ValeGasto,
+  CLASIFICACION_LABEL, ComprobacionesService, type DepartamentoDelVale, type ExpenseClasificacion, type ProofFile, type ValeGasto,
 } from '../comprobaciones.service';
+import type { Subscription } from 'rxjs';
 import { aceptaEvidenciaAdicional, detallesParaMostrar, esEvidenciaAdicional } from '@megadulces/contracts';
 // `[PGP.79]` La misma lectura que el renglón de la bandeja: una regla, no dos.
 import { activoEnUnaLinea, explicacionKepler, lecturaKepler, type DetalleDeLaSolicitud, type KeplerDelVale } from '@megadulces/contracts';
 // `[PGP.123]` G.UI.5 — La misma línea del gasto que la cola «Esperan a Kepler»: una regla, no dos.
 import type { ComprobacionEnLaCola } from '@megadulces/contracts';
-import { lineaDelGasto, puedeEscribirseYa } from '../pages/esperan-kepler.ayudas';
+import { lineaDelGasto, pideGenerarOtraVez, puedeEscribirseYa } from '../pages/esperan-kepler.ayudas';
+import { RouterLink } from '@angular/router';
+import { ESTADO_DEL_PASO_TEXTO, pasoActual, rutaDelVale, type EstadoDelPaso, type SeccionDelPaso } from './ruta-del-vale';
 
 /** Qué se puede hacer con el vale desde acá. Lo decide la PÁGINA, no este visor. */
 export type AccionVale = 'aprobar' | 'comprobar' | 'rechazar' | 'pedir_reapertura'
@@ -88,7 +91,7 @@ type DocDelExpediente = DocEvidencia;
 @Component({
   selector: 'app-vale-gasto-peek',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TextareaModule, SidePeekComponent, VisorEvidenciaComponent],
+  imports: [CommonModule, RouterLink, ButtonModule, TextareaModule, SidePeekComponent, VisorEvidenciaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
   <!-- ── El vale, completo ──────────────────────────────────────────────────── -->
@@ -113,15 +116,43 @@ type DocDelExpediente = DocEvidencia;
 
         @if (p.concepto) { <p class="vp-con">{{ p.concepto }}</p> }
 
+        <!-- [PGP.123] G-RED.1 (2026-11-23) — La ruta del vale: los cinco pasos en orden, cuál toca ahora y a dónde ir.
+             Contesta «¿dónde veo mi solicitud, mi comprobante, la autorización?» (auditoría de usuario del 2026-11-23).
+             modern-web-guidance (accessibility): <ol> porque el orden importa; el paso actual con aria-current="step"; el
+             estado va en ícono de forma distinta + palabra para lector de pantalla, nunca sólo en color. -->
+        @if (ruta().length) {
+          <h3 class="vp-h" id="vp-ruta-h">La ruta del vale</h3>
+          <div class="vp-ruta-w">
+            <ol class="vp-ruta" aria-labelledby="vp-ruta-h">
+              @for (s of ruta(); track s.clave) {
+                <li class="vp-paso" [attr.data-estado]="s.estado" [attr.aria-current]="s === actual() ? 'step' : null">
+                  <span class="vp-paso-m" aria-hidden="true">@if (iconoPaso(s.estado); as ic) { <i class="pi" [ngClass]="ic"></i> }</span>
+                  <span class="vp-paso-n">{{ s.nombre }}<span class="sr-only">: {{ estadoPaso(s.estado) }}.</span></span>
+                  <span class="vp-paso-t">{{ s.texto }}</span>
+                  @if (s.clave === 'comprobante' && s.estado === 'actual' && subirComprobante(); as sc) {
+                    <a pButton class="p-button-sm vp-paso-acc" [routerLink]="['/finanzas/gastos']" [queryParams]="{ folio: sc.folio, sucursal: sc.sucursal }">
+                      <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;Subir comprobante</a>
+                  }
+                  @if (haySeccion(s.seccion)) {
+                    <button type="button" class="vp-paso-ir" (click)="irA(s.seccion)">{{ textoIr(s.seccion) }}</button>
+                  }
+                </li>
+              }
+            </ol>
+          </div>
+        }
+
         <dl class="vp-datos">
           <div><dt>Folio</dt><dd class="vp-mono">{{ p.folio_solicitud || 'sin folio' }}</dd></div>
           <div><dt>Sucursal</dt><dd>{{ branchLabel(p.sucursal) || '—' }}</dd></div>
           <!-- [GX.98] El departamento de Kepler, con la parte de cada uno si está repartido. El
                capturado («Sucursal NN») no es un departamento. -->
           <div><dt>{{ (p.departamentos?.length ?? 0) > 1 ? 'Departamentos' : 'Departamento' }}</dt><dd>
-            @if (p.departamentos === undefined) { {{ p.solicitante || 'sin medir' }} }
+            <!-- [PGP.123] G-AUD.1 (2026-11-23): sin departamentos de la página se pintaba «solicitante», que es SIEMPRE la
+                 persona (medido: 2,324 de 2,324 vales de 60 días). Bajo «Departamento» salía «superuser». -->
+            @if (p.departamentos === undefined) { sin medir en esta pantalla }
             @else if (p.departamentos === null) { sin leer en Kepler }
-            @else if (!p.departamentos.length) { {{ p.folio_solicitud ? 'sin departamento en Kepler' : 'aún no está en Kepler (se escribe al firmarse)' }} }
+            @else if (!p.departamentos.length) { {{ depVacio(p) }} }
             @else if (p.departamentos.length === 1) { {{ nombreDep(p.departamentos[0]) }} }
             @else {
               <ul class="vp-deps">
@@ -138,7 +169,9 @@ type DocDelExpediente = DocEvidencia;
           <!-- Las dos fechas, siempre: el gasto puede ser de otro día que el levantamiento. -->
           <div><dt>Fecha del gasto</dt><dd>{{ p.fecha_gasto ? (diaLocal(p.fecha_gasto) | date: 'dd/MM/yy') : 'no declarada' }}</dd></div>
           @if (p.clasificacion !== undefined) {
-                <div><dt>Tipo</dt><dd>{{ p.clasificacion ? tipoGasto(p.clasificacion) : 'sin clasificar' }}</dd></div>
+                <!-- [PGP.123] G-AUD.3: «Tipo: Vale autorizado» junto a «Espera firma» se leía como estado. Es la
+                     clasificación del gasto; su nombre («Vale autorizado») lo decide Finanzas. -->
+                <div><dt>Clasificación</dt><dd>{{ p.clasificacion ? tipoGasto(p.clasificacion) : 'sin clasificar' }}</dd></div>
               }
           @if (p.forma_pago !== undefined) {
                 <div><dt>Pago</dt><dd>{{ p.forma_pago ? formaPago(p.forma_pago) : 'sin forma de pago' }}@if (p.forma_pago_detalle) { · {{ detallePago(p.forma_pago_detalle) }} }</dd></div>
@@ -155,7 +188,7 @@ type DocDelExpediente = DocEvidencia;
           la Suite al firmar. Va antes de la constancia: primero si quedo autorizada, despues con que.
         -->
         @if (kepler(); as k) {
-          <h3 class="vp-h">Solicitud en Kepler</h3>
+          <h3 class="vp-h" id="vp-sec-kepler" tabindex="-1">Solicitud en Kepler</h3>
           <div class="vp-kep">
             <div class="vp-aut-h">
               <span class="vp-aut-doc vp-mono">{{ k.solicitud || (k.nace_en_la_suite ? 'nace en la Suite' : 'sin folio') }}</span>
@@ -218,14 +251,27 @@ type DocDelExpediente = DocEvidencia;
           motivo y a quién le toca), si lo escribió la Suite (folio, póliza, fecha) o si ya está en Kepler.
         -->
         @if (lineaG(); as l) {
-          <h3 class="vp-h">Gasto en Kepler (X-A-10)</h3>
+          <h3 class="vp-h" id="vp-sec-gasto" tabindex="-1">Gasto en Kepler (X-A-10)</h3>
           <div class="vp-kep">
             <p class="vp-kep-t" [class.ok]="l.tono === 'ok'" [class.warn]="l.tono === 'warn'" [class.bad]="l.tono === 'bad'">{{ l.texto }}</p>
             @if (l.quien) { <p class="vp-kep-t">Le toca a {{ l.quien }}.</p> }
-            @if (gastoKepler()?.gasto?.fecha; as fg) { <p class="vp-kep-t">Fecha del gasto en Kepler: {{ diaLocal(fg) | date: 'dd/MM/yy' }}</p> }
+            @if (gastoVisto()?.gasto?.fecha; as fg) { <p class="vp-kep-t">Fecha del gasto en Kepler: {{ diaLocal(fg) | date: 'dd/MM/yy' }}</p> }
             @if (puedeReintentarGasto() && escribibleG()) {
-              <p-button type="button" [label]="(gastoKepler()?.gasto?.status ? 'Generar otra vez · ' : 'Generar gasto · ') + money(p.importe)"
+              <p-button type="button" [label]="(gastoVisto()?.gasto?.status ? 'Generar otra vez · ' : 'Generar gasto · ') + money(p.importe)"
                         icon="pi pi-refresh" size="small" [outlined]="true" [disabled]="ocupado()" (onClick)="reintentarGasto.emit(p.id)" />
+            } @else if (puedeReintentarGasto() && otraVezG()) {
+              <!-- [PGP.123] G-AUD.14: Kepler canceló el gasto; el segundo clic confirma que se escribe OTRO. -->
+              @if (confirmandoOtraVez()) {
+                <!-- «No» va donde estaba «Generar otra vez»: un doble clic cae en lo seguro (modern-web-guidance, dialog). -->
+                <div class="vp-cancelar-b">
+                  <p-button type="button" label="No" size="small" [text]="true" [disabled]="ocupado()" (onClick)="confirmandoOtraVez.set(false)" />
+                  <p-button type="button" [label]="'Sí, escribir otro gasto · ' + money(p.importe)" size="small" severity="danger"
+                            [disabled]="ocupado()" (onClick)="confirmandoOtraVez.set(false); reintentarGasto.emit(p.id)" />
+                </div>
+              } @else {
+                <p-button type="button" [label]="'Generar otra vez · ' + money(p.importe)" size="small" [outlined]="true" severity="secondary"
+                          [disabled]="ocupado()" (onClick)="confirmandoOtraVez.set(true)" />
+              }
             }
           </div>
         }
@@ -267,7 +313,7 @@ type DocDelExpediente = DocEvidencia;
 
         <!-- ── Los papeles ──────────────────────────────────────────────────── -->
         <div class="vp-h-row">
-          <h3 class="vp-h">Evidencia</h3>
+          <h3 class="vp-h" id="vp-sec-evidencia" tabindex="-1">Evidencia</h3>
           <!-- [GX.87] Sumar lo que llegó después, con su porqué. Lo ofrece la página (dueño o
                quien aprueba) y nunca en un vale rechazado: ése se vuelve a capturar. -->
           @if (puedeAgregarEvidencia()) {
@@ -347,7 +393,7 @@ type DocDelExpediente = DocEvidencia;
 
         @if (decisiones().length) {
           <div class="vp-act">
-            @if (p.status === 'aprobada' && p.requiere_evidencia && !p.tiene_evidencia) {
+            @if (p.status === 'aprobada') {
               <!-- La evidencia la sube quien capturó, no quien firma. Decirlo evita que
                    el aprobador busque un botón que no le toca. -->
               <span class="ap-faint">la evidencia la sube quien lo levantó</span>
@@ -384,7 +430,9 @@ type DocDelExpediente = DocEvidencia;
           <!-- [PGP.123] G.UI.1: la frase se acota a la Suite. Un vale validado puede seguir esperando su gasto en
                Kepler (la cola «Esperan a Kepler» de esta misma pantalla), y «no hay nada que decidir» se leía como
                trámite terminado. -->
-          <p class="ap-faint vp-cerrado">En la Suite ya se resolvió: aquí no hay nada que decidir.</p>
+          <!-- [PGP.123] G-AUD.2 (2026-11-23): la frase salía a todo vale sin acciones para quien mira, también al que espera
+               firma (medido: el solicitante leía «ya se resolvió» de un vale que nadie había firmado). Ahora dice a qué espera. -->
+          <p class="ap-faint vp-cerrado">{{ queEspera() }}</p>
         }
         </div>
       </div>
@@ -511,12 +559,54 @@ type DocDelExpediente = DocEvidencia;
     border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: 4px 8px; }
 
   @media (max-width: 48rem) { .vp-datos { grid-template-columns: 1fr; } }
+
+  /* [PGP.123] G-RED.1 — La ruta del vale. A lo ancho, cinco columnas con su línea; angosta, apilada (container query
+     sobre el panel, no sobre la ventana: el panel cambia de ancho con el menú abierto). */
+  .vp-ruta-w { container-type: inline-size; }
+  .vp-ruta { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr); gap: var(--sp-3); }
+  .vp-paso { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    min-width: 0; padding-top: 1.875rem; }
+  /* La línea que une un paso con el siguiente: llena (oscura) si este paso ya se hizo. */
+  .vp-paso::before { content: ''; position: absolute; top: .6875rem; left: 1.625rem; right: calc(-1 * var(--sp-3) + .25rem);
+    height: 2px; background: var(--border-color); }
+  .vp-paso:last-child::before { display: none; }
+  .vp-paso[data-estado='hecho']::before { background: var(--fg-1); }
+  .vp-paso-m { position: absolute; top: 0; left: 0; width: 1.375rem; height: 1.375rem; border-radius: 50%;
+    display: grid; place-items: center; box-sizing: border-box; border: 2px solid var(--fg-3);
+    background: var(--card-bg); color: var(--fg-3); }
+  .vp-paso-m .pi { font-size: .6875rem; font-weight: 700; }
+  .vp-paso[data-estado='hecho'] .vp-paso-m { background: var(--fg-1); border-color: var(--fg-1); color: var(--card-bg); }
+  /* El paso actual es el ÚNICO con color de acción y además es más grande: el tamaño lo distingue sin color. */
+  .vp-paso[data-estado='actual'] .vp-paso-m { width: 1.625rem; height: 1.625rem; top: -.125rem;
+    background: var(--action); border-color: var(--action); color: var(--action-ink); }
+  .vp-paso[data-estado='mal'] .vp-paso-m { background: var(--bad-soft-bg); border-color: var(--bad-soft-fg); color: var(--bad-soft-fg); }
+  .vp-paso[data-estado='no_aplica'] .vp-paso-m,
+  .vp-paso[data-estado='sin_medir'] .vp-paso-m { border-style: dashed; }
+  .vp-paso-n { font-size: var(--fs-sm); font-weight: 600; color: var(--fg-1); }
+  .vp-paso[data-estado='pendiente'] .vp-paso-n, .vp-paso[data-estado='no_aplica'] .vp-paso-n { color: var(--fg-2); }
+  .vp-paso-t { font-size: var(--fs-xs); color: var(--fg-2); overflow-wrap: anywhere; }
+  .vp-paso[data-estado='mal'] .vp-paso-t { color: var(--bad-soft-fg); }
+  .vp-paso-acc { margin-top: var(--sp-1); }
+  .vp-paso-ir { margin-top: 2px; padding: 2px 0; border: 0; background: none; font: inherit; font-size: var(--fs-xs);
+    color: var(--fg-1); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  .vp-paso-ir:hover { color: var(--action); }
+  .vp-paso-ir:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 2px; }
+  .vp-h[tabindex='-1']:focus { outline: none; }
+  .vp-h[tabindex='-1']:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  @container (max-width: 40rem) {
+    .vp-ruta { grid-auto-flow: row; grid-auto-columns: auto; gap: var(--sp-2); }
+    .vp-paso { padding-top: 0; padding-left: 2.25rem; min-height: 1.75rem; }
+    .vp-paso::before { top: 1.5rem; bottom: calc(-1 * var(--sp-2)); left: .625rem; right: auto; width: 2px; height: auto; }
+  }
+  @media (pointer: coarse) { .vp-paso-ir, .vp-paso-acc { min-height: 44px; } }
   `],
 })
 export class ValeGastoPeekComponent {
   /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
   readonly branchLabel = branchLabel;
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly host = inject(ElementRef);
 
   readonly open = model(false);
   /** El expediente a mostrar. `null` = no hay nada que ver. */
@@ -571,6 +661,8 @@ export class ValeGastoPeekComponent {
   readonly cancelable = computed(() => {
     const k = this.kepler();
     const v = this.vale();
+    // `[PGP.123]` G-AUD.19: con el gasto escrito, Kepler no deja cancelar la solicitud: no se ofrece.
+    if (this.gastoEscrito()) return false;
     if (k?.nace_en_la_suite) {
       return ['written', 'seen_in_ods'].includes(k.nace_en_la_suite.status ?? '') && ['aprobada', 'validada', 'revision'].includes(v?.status ?? '');
     }
@@ -612,12 +704,99 @@ export class ValeGastoPeekComponent {
   /** La página ofrece «Escribir / Reintentar el gasto» (Aprobación, que exige COMPROBAR, igual que el servidor). */
   readonly puedeReintentarGasto = input(false);
   readonly reintentarGasto = output<string>();
-  readonly lineaG = computed(() => {
+  /**
+   * `[PGP.123]` G-AUD.16 (2026-11-23) — El gasto del vale cuando la página no lo trae: el panel lo pide él mismo para un
+   * vale validado. Antes el bloque sólo salía abierto desde «Esperan a Kepler», y el vale comprobado no decía su X-A-10
+   * ni su póliza en ningún otro lado. `undefined` = no se pidió (o no aplica); `null` = se pidió y no se pudo calcular.
+   */
+  readonly gastoPropio = signal<ComprobacionEnLaCola | null | undefined>(undefined);
+  private readonly comprobaciones = ((): ComprobacionesService | null => {
+    // El panel vive en pruebas sin HttpClient: sin servicio, sólo no pide (lo que no se midió no se dibuja).
+    try { return inject(ComprobacionesService); } catch { return null; }
+  })();
+  private pedidoGasto: Subscription | null = null;
+  /** Lo que el panel muestra del gasto: el de la página manda; si no lo trae, el pedido aquí. */
+  readonly gastoVisto = computed(() => {
     const g = this.gastoKepler();
+    return g !== undefined ? g : this.gastoPropio();
+  });
+  readonly lineaG = computed(() => {
+    const g = this.gastoVisto();
     return g === undefined ? null : lineaDelGasto(g);
   });
   /** Sólo si la Suite lo escribiría (listo, base abierta) y no hay gasto escrito: si no, el botón repetiría el motivo. */
-  readonly escribibleG = computed(() => puedeEscribirseYa(this.gastoKepler()));
+  readonly escribibleG = computed(() => puedeEscribirseYa(this.gastoVisto()));
+  /** G-AUD.14 — Kepler canceló el gasto y hoy se escribiría de nuevo: se ofrece aparte, con confirmación. */
+  readonly otraVezG = computed(() => pideGenerarOtraVez(this.gastoVisto()));
+  readonly confirmandoOtraVez = signal(false);
+  /** G-AUD.19 — El gasto ya está en Kepler: la solicitud no se cancela desde aquí (Kepler lo rechazaría). */
+  readonly gastoEscrito = computed(() => {
+    const e = this.gastoVisto()?.gasto;
+    return !!e?.folio && e.status !== 'cancelled';
+  });
+
+  /**
+   * `[PGP.123]` G-RED.1 — Dónde subir el comprobante, si quien mira es quien lo pidió (Mis gastos). `null` = esta
+   * página no lo ofrece: el paso dice a quién le toca, sin botón.
+   */
+  readonly subirComprobante = input<{ folio: string | null; sucursal: string | null } | null>(null);
+  /** G-RED.1 — Los pasos del vale, con lo que el panel ya tiene (ver `ruta-del-vale.ts`). */
+  readonly ruta = computed(() => rutaDelVale(this.vale(), this.kepler(), this.gastoVisto()));
+  readonly actual = computed(() => pasoActual(this.ruta()));
+  estadoPaso(e: EstadoDelPaso): string { return ESTADO_DEL_PASO_TEXTO[e]; }
+  /** Forma distinta por estado: el color nunca va solo. Pendiente = círculo hueco, sin ícono. */
+  iconoPaso(e: EstadoDelPaso): string | null {
+    switch (e) {
+      case 'hecho': return 'pi-check';
+      case 'actual': return 'pi-arrow-right';
+      case 'mal': return 'pi-times';
+      case 'no_aplica': return 'pi-minus';
+      case 'sin_medir': return 'pi-question';
+      default: return null;
+    }
+  }
+  /** El enlace «Ver …» sólo si su sección está pintada en este panel (la solicitud sólo viaja desde Aprobación). */
+  haySeccion(s: SeccionDelPaso): boolean {
+    if (s === 'kepler') return !!this.kepler();
+    if (s === 'gasto') return !!this.lineaG();
+    return s === 'evidencia';
+  }
+  textoIr(s: SeccionDelPaso): string {
+    return s === 'kepler' ? 'Ver la solicitud' : s === 'gasto' ? 'Ver el gasto' : 'Ver el comprobante';
+  }
+  /**
+   * Lleva a la sección y le pasa el foco al título (modern-web-guidance, accessibility: el destino de un salto es su
+   * primer elemento con `tabindex="-1"`). Sin animación si la persona pidió menos movimiento.
+   */
+  irA(s: SeccionDelPaso): void {
+    // Dentro de ESTE panel, no en todo el documento: dos páginas abiertas no se roban el destino.
+    const h = s ? (this.host.nativeElement as HTMLElement).querySelector<HTMLElement>(`#vp-sec-${s}`) : null;
+    if (!h) return;
+    const quieto = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+    h.scrollIntoView?.({ block: 'start', behavior: quieto ? 'auto' : 'smooth' });
+    h.focus({ preventScroll: true });
+  }
+
+  /** `[PGP.123]` G-AUD.2 — Lo que se dice al pie cuando quien mira no tiene nada que decidir: a qué espera el vale. */
+  readonly queEspera = computed(() => {
+    const p = this.vale();
+    switch (p?.status) {
+      case 'recibida': return 'Espera la firma de quien aprueba gastos.';
+      // G-RED.1b: por contrato de `approve`, `aprobada` es siempre «falta el comprobante». Las banderas no viajan en `/mine`
+      // y con ellas ausentes esto decía «espera que se cierre» mientras la ruta decía «falta subir el comprobante».
+      case 'aprobada': return 'Espera el comprobante de quien lo pidió.';
+      case 'revision': return 'Espera que Finanzas revise el comprobante.';
+      case 'rechazada': return 'Se rechazó: aquí no hay nada que decidir.';
+      default: {
+        // G-RED.1: con el gasto pendiente o con problema, «nada que decidir» contradecía a la ruta de arriba.
+        if (this.actual()?.clave === 'gasto') {
+          const quien = this.lineaG()?.quien;
+          return `En la Suite ya se cerró; falta el gasto en Kepler${quien ? `: le toca a ${quien}` : ''}.`;
+        }
+        return 'En la Suite ya se resolvió: aquí no hay nada que decidir.';
+      }
+    }
+  });
 
   /** `[GX.30]` Aprobar viaja con la marca: ver `AprobacionVale`. */
   readonly aprobar = output<AprobacionVale>();
@@ -653,6 +832,22 @@ export class ValeGastoPeekComponent {
       // `[GX.99]` El visor grande es del vale que se miraba: al cambiar de vale se cierra.
       this.visorAbierto.set(false);
       this.visorIndice.set(0);
+      this.confirmandoOtraVez.set(false);
+    }, { allowSignalWrites: true });
+    // `[PGP.123]` G-AUD.16 — Vale validado sin gasto de la página: se pide aquí. Al cambiar de vale, el pedido anterior se
+    // suelta (su respuesta ya no es de este vale).
+    effect(() => {
+      const v = this.vale();
+      const dePagina = this.gastoKepler();
+      this.pedidoGasto?.unsubscribe();
+      this.pedidoGasto = null;
+      this.gastoPropio.set(undefined);
+      const svc = this.comprobaciones;
+      if (!v?.id || v.status !== 'validada' || dePagina !== undefined || typeof svc?.gastoKepler !== 'function') return;
+      this.pedidoGasto = svc.gastoKepler(v.id).subscribe({
+        next: (g) => this.gastoPropio.set(g ?? null),
+        error: () => this.gastoPropio.set(null),
+      });
     }, { allowSignalWrites: true });
   }
 
@@ -680,9 +875,21 @@ export class ValeGastoPeekComponent {
     if (!p) return '';
     // `[GX.98]` El departamento de Kepler (el de más importe). El capturado dice «Sucursal NN».
     const deps = p.departamentos;
+    // G-AUD.1: sin departamentos de la página, el subtítulo dice sólo el folio (antes, la persona como si fuera el área).
+    if (deps === undefined) return p.folio_solicitud || 'sin folio';
     const dep = deps?.length ? (deps.length > 1 ? `${this.nombreDep(deps[0])} y ${deps.length - 1} más` : this.nombreDep(deps[0]))
-      : deps === undefined ? (p.solicitante || 'sin departamento') : p.folio_solicitud ? 'sin departamento en Kepler' : 'aún no está en Kepler';
+      : this.depVacio(p);
     return `${p.folio_solicitud || 'sin folio'} · ${dep}`;
+  }
+
+  /**
+   * `[PGP.123]` G-AUD.17 (2026-11-23) — El departamento vacío, dicho sin afirmar una ausencia que no es. Medido: el vale
+   * que la Suite acababa de escribir decía «sin departamento en Kepler» con «depto. 1-03-54-00» en el mismo panel: la
+   * réplica todavía no traía el renglón. Lo que escribió la Suite se dice «todavía no se lee en la réplica».
+   */
+  depVacio(p: ValeGasto): string {
+    if (!p.folio_solicitud) return 'aún no está en Kepler (se escribe al firmarse)';
+    return this.kepler()?.nace_en_la_suite ? 'todavía no se lee en la réplica' : 'sin departamento en Kepler';
   }
 
   readonly docs = computed<DocDelExpediente[]>(() => {

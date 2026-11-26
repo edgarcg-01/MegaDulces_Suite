@@ -4,7 +4,7 @@
 > no está saliendo» · «resolvamos existencia y todo lo que pueda salir del ODS».
 >
 > **Estado:** C0 medido (este documento). `[CANON.7.1]` ✅ **en prod desde el 2026-11-19** (las 9 sucursales en 29–57 ms
-> leídas con RLS, antes 10.5–14 s); 7.2–7.5 sin construir. Se cuelga de la excepción de cupo que Edgar firmó para CANON (anexo
+> leídas con RLS, antes 10.5–14 s); **7.2, 7.3 y 7.4a/b/c/e también en prod** (medido el 2026-11-25, §5): falta prender el interruptor de 7.4c, y 7.4d y 7.5 sin construir. Se cuelga de la excepción de cupo que Edgar firmó para CANON (anexo
 > `FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05.md` §8); items `[CANON.7.N]`.
 >
 > ⭐ **Corrección del 2026-11-19 (§2.1 y §3):** la vista no era lenta por RLS sino por un **estimado**. Se arregla con una
@@ -295,3 +295,171 @@ código; los más calientes son el catálogo del portal y el detalle de pedido. 
 - **D-EX3 (decide Claude, firma Edgar):** retirar el botón «Ajustar» de la portada de Almacén. Recomendado: sí — 0 llamadas
   en 60 días, escribe en una copia que se va a congelar, y el ajuste de existencia es de Kepler (ADR-040). Sin él, la portada
   sólo lee y puede pasar al ODS entera.
+- ~~**D-EX4 (decide Claude, firma Edgar):** el consumo FEFO de los lotes pasa al evento del ODS~~ — **firmada el
+  2026-11-20** («sí, sigue»); migración `20261120150025` aplicada en prod el 2026-11-20 a las 19:45.
+- **D-EX5 (Edgar):** los renglones `NA` guardados quedan sin lector tras los pasos 2–3. Recomendado: borrarlos en
+  `[CANON.7.5]`, con el conteo antes y después. **Medidos hoy: 64,563 renglones, 107.7 M de piezas.**
+
+---
+
+## 5. Estado medido el 2026-11-25 — qué falta para que la regla se cumpla
+
+> **Pedido, literal (Edgar, 2026-11-25):** «toda fuente de verdad debe ser el ODS».
+>
+> No abre nada: **es esta misma campaña**. Lo que sigue es qué le falta, medido hoy en prod (sólo lectura,
+> `system_identifier` 7688376744939610156) y contra `/api/health`, que sirve `b995d6a2a` (2026-11-24).
+
+| Tramo | Estado hoy |
+|---|---|
+| `[CANON.7.1]` estadística + factor por evento | ✅ en prod (migración del 2026-11-19 11:24) |
+| `[CANON.7.2]` lectores clase A · `[CANON.7.3]` clase B | ✅ en prod |
+| `[CANON.7.4a]` portada · `[CANON.7.4b]` pedidos · `[CANON.7.4e]` scanner | ✅ en prod |
+| `[CANON.7.4c]` lotes | 🟡 migración aplicada (2026-11-20 19:45) y **el interruptor sigue APAGADO**: `commercial.lotes_fefo_por_evento.encendida = false`, así que el consumo FEFO lo sigue haciendo `trg_rebalance_stock_lots` sobre la copia. Los dos disparadores están instalados y habilitados; manda el interruptor |
+| `[CANON.7.4d]` lo que nadie usa | ⬜ sin construir |
+| `[CANON.7.5]` retirar el importer | ⬜ sin construir — `import-branch-stock-live` **corrió hoy a las 08:20** |
+
+Lo que la copia arrastra hoy, celda por (almacén, producto): **27,035 que el ODS no tiene** (eran 27,100 el 18-nov),
+**343 que difieren**, 1,517 sólo en el ODS. El lote `NA` guardado quedó **sin lector** desde que los pasos 2–3 entraron
+a prod, y sigue ahí: 64,563 renglones, 107.7 M de piezas.
+
+### 5.1 Tres fuentes de inventario que el plan todavía no nombra
+
+1. **`inventory.warehouse_stock` — una SEGUNDA copia de la existencia.** 7,742 filas en 2 almacenes, **congelada desde
+   el 2026-06-15 13:56** (ningún escritor vivo). Pero tiene lector: el conteo físico la ofrece como origen del teórico
+   (`inventory_counts.stock_source = 'inventory'`, 4 de los 6 folios la usaron). Entra a `[CANON.7.4d]` con la otra.
+2. **`analytics.stock_movements` — 3.9 M de renglones que `import-stock-movements.js` copia de `kepler_ods.kdm1 ⋈
+   kdm2`** (ventana rodante; al día hoy, 16,181 renglones en 7 días). No es una copia que mienta —se reconstruye— pero
+   es una **materialización del ODS sin declararse como tal**, y es lo único que sostiene `/almacen/movimientos` y el
+   rastreo de traspasos. → **D-EX7**.
+3. **El conteo físico propio ESCRIBE en la copia** (`inventory-count.service.ts`, `reconcile()`), y es lo que el plan
+   clasificó en `[CANON.7.4d]` como «lo que nadie usa» (0 conteos en 60 días; medido el 2026-11-25: 6 folios, los 6
+   cancelados, 7 renglones contados de 18,845, 0 reconciliados, 0 archivos a Kepler). ⛔ Si el conteo cíclico se
+   prende, su ajuste caería en una tabla que `[CANON.7.5]` va a congelar. → **D-EX8**.
+
+### 5.2 Decisiones nuevas
+
+- **D-EX6 (Edgar):** cuándo prender el interruptor de `[CANON.7.4c]`. Recomendado: **fuera de horario hábil**, en un
+  solo acto (prender el del ODS apaga el de la copia por la llave cruzada: no hay ventana con los dos ni con ninguno).
+  Es un `UPDATE` de una fila; la migración ya está en prod y probada contra Postgres real (9 casos, 7 mutantes).
+  Al prenderlo, 5 celdas tienen declarado por encima de Kepler (medido el 2026-11-20).
+- **D-EX7 (decide Claude, firma Edgar):** qué se hace con `analytics.stock_movements`. Recomendación provisional:
+  **declararla materialización legítima con su frescura a la vista**, no derivarla por vista — `kdm2` tiene 6.8 M de
+  renglones y una vista por documento no sostendría la pantalla. ⚠️ **NO MEDIDO**: el costo de la vista equivalente.
+  Se mide antes de firmar.
+- **D-EX8 (Edgar):** el conteo físico de la Suite — **repuntarlo al ODS** (teórico y ajuste, más el archivo que
+  Kepler captura) **o retirarlo** con el resto de `[CANON.7.4d]`. Es la decisión que ordena `[IC.27]` y el conteo
+  cíclico: hoy el proceso no ocurre (ver arriba), así que no hay prisa operativa, pero sí hay código vivo que escribe
+  en una tabla que se va a congelar.
+
+### 5.3 Lo ejecutado el 2026-11-25 (Edgar: «resolvamos esto»)
+
+**1. `[CANON.7.4c]` prendido en prod — D-EX6 firmada.** `UPDATE` de una fila a las **08:46:42**, por el pod de
+`pg-prod` (el rol `edgar` del `.env` es de sólo lectura por diseño: el muro es que no tiene `INSERT/UPDATE`).
+Antes de tocar nada se verificó lo que podía morder: los dos disparadores son **AFTER** (el `RETURN NULL` de la
+llave no cancela ninguna operación) y la llave cruzada está de verdad en el cuerpo de
+`commercial.fn_rebalance_stock_lots` en la base.
+
+| | Antes (08:46) | Después |
+|---|---:|---:|
+| Lotes fechados vivos | 179 celdas · 17,618 piezas | 179 · 17,617 |
+| Bitácora `stock_lot_movements` | 8 (la última, del 11-nov) | **9** |
+| Celdas con declarado por encima de Kepler | 5 · 8,169 piezas (2 sin fila en `kdil`) | 5 (se consumen cuando Kepler toque ese producto) |
+| Errores del disparador | — | 0 |
+
+⭐ El renglón 9 es **el primer consumo FEFO disparado por el ODS**: `EXP-2026-12-31`, salida de 1 pieza, motivo
+`kepler_existencia`, a las **08:48:05** — dos minutos después de prender, en la primera pasada de la ingesta
+posterior. La ingesta siguió sana (carril `ods_live_hot` a las 08:48:17, 9 sucursales, 0 errores).
+
+⭐ **La prueba negativa, que es la que importa:** tras la pasada del importer de las 08:50 —el que escribe
+`commercial.stock` y dispara `trg_rebalance_stock_lots`— el lote `NA` **siguió en cero**. O sea que la copia
+dejó de recalcularlo de verdad, no sólo en el papel.
+
+**2. D-EX5 firmada y ejecutada — los `NA` fantasma, fuera.** `DELETE` de **64,564 renglones** (107,729,618
+piezas que no existían), en una transacción, tras comprobar que a `commercial.stock_lots` no apunta **ninguna**
+llave foránea y que no tiene disparadores propios. Quedan **206 renglones** (179 vivos, 17,617 piezas); la
+bitácora y el auxiliar de ubicaciones, intactos. **Respaldo:** las 64,564 filas con todas sus columnas en
+`respaldo-lotes-NA-2026-11-25.csv` (14.6 MB), tomado minutos antes del borrado y con el interruptor ya
+prendido, así que no se desactualizó entre una cosa y la otra.
+
+**3. `[CANON.7.4d]` — los dos que leían la copia dentro de algo que escribe.** Los dos fabricaban un número
+falso, no sólo uno viejo:
+
+- **El conteo rápido de Monitoreo** (A6) **guardaba** el teórico de la copia en `expected_qty`, y de ahí sale la
+  `difference` que acusa una pérdida en una ventana de horas. Ahora sale de `existenciaYApartado` (ODS), que
+  **no se traga el error**: si la vista no responde, el conteo no se registra en vez de guardar un 0 que
+  inventaría un faltante del tamaño del físico contado.
+- **La alerta de «bajo stock»** del scanner leía la copia, donde las **27,035 celdas que Kepler ya no tiene**
+  están todas en cero y por lo tanto bajo cualquier umbral: una alerta por producto fantasma. Ahora lee
+  `EXISTENCIA_ODS_CON_APARTADO_SQL`, **con el tenant explícito** — el cron corre con `KNEX_NEW_DB` (sin RLS) y
+  `analytics.*` no tiene política, así que el `SET LOCAL app.tenant_id` que alcanzaba con la copia (que sí tiene
+  RLS) acá habría mandado las alertas de un tenant a otro.
+
+**Probado:** `api:typecheck` sin caché, verde. Candado `existencia-ods-lectores.spec.ts` ampliado (39 casos) con
+**tres mutantes en rojo**: el scanner de vuelta a la copia, el scanner sin el filtro de tenant, y el monitoreo de
+vuelta a la copia. Suites de `commercial-inventory` + `commercial-alerts`: 156 verdes.
+
+**Regla 13 — contra Postgres real:** `inventory-monitoring.it.spec.ts` (nuevo) ejerce el **servicio real** como
+`app_runtime` con `kdil` sembrado en 40 y **la copia mintiendo a propósito en 999**: 6 casos verdes y dos
+mutantes en rojo (`expected 999 to be 40` es la prueba de que el control funciona). Y
+`database/tests/test-newdb-inventory-monitoring.js` —que seguía describiendo la forma vieja con un *mirror* que
+leía la copia— pasa a sembrar el ODS con la copia como control: 14/14.
+
+**Lo que NO se hizo hoy, con nombre:** `[CANON.7.4d]` no está completo — siguen escribiendo en la copia el ajuste
+y los movimientos de `commercial-inventory.service.ts`, la recepción propia (`commercial-purchase-orders`), la
+carga de camioneta (`commercial-route-control`) y el conteo físico (**D-EX8**, firmada: se repunta al ODS). Los
+pasillos (`warehouse-aisles`) leen `aisle_id`, que **sólo existe en la copia**: no se puede repuntar, se retira o
+lo reemplaza la ubicación de UB — deuda con nombre. Y `[CANON.7.5]` sigue pendiente: `import-branch-stock-live`
+escribió la copia hoy a las 08:20 y a las 08:50.
+
+### 5.4 `[CANON.7.5]` — el importer de la copia, fuera del carril (2026-11-25)
+
+> **Pedido, literal (Edgar, 2026-11-25):** «hay que matar ese importer».
+
+`import-branch-stock-live` sale de `STEPS.stock` en `run-prod-feeds.js`. Era el **único escritor** de
+`commercial.stock.quantity` — comprobado: no hay `feeds-ingest` desplegado ni `FEEDS_SINK` en ningún
+deployment, así que el camino alterno (`stock-delta` de `services/feeds-ingest`) está muerto. La tabla
+**no se borra** (regla 5): queda congelada en su última pasada.
+
+**Lo que se midió antes de apagar, para saber a quién dejaba colgando:**
+
+| Lo que podía romperse | Medido en prod el 2026-11-25 | Qué se hizo |
+|---|---|---|
+| Pasillos (`listAisles`, 19 llamadas, la última el 16-oct) | **0 de 59,265 filas de la copia tienen `aisle_id`**: ningún producto está asignado a un pasillo | Nada que repuntar — la pantalla ya mostraba 4 pasillos vacíos. `aisle_id` sólo existe en la copia: se retira o lo reemplaza la ubicación de UB (deuda con nombre) |
+| Sonda `stock` de db-health (warn 6 h, crit 14 h sobre `updated_at`) | Se habría puesto roja **para siempre** a las 14 h, diciendo «el feed se cayó», que es falso | **Retirada** con `retiredOn: '2026-11-25'` y el relevo NOMBRADO: `ods_branch_check_stale`, la sonda de `kdil` y el carril `ods_live_hot` (warn 0.5 h) — que vigilan la fuente sucursal por sucursal, no un `max()` global. Y se auto-denuncia: si algo escribe la copia después del corte, pasa a `warn` |
+| Conteos de inventario abiertos | **0 vivos** | Nada bloquea |
+| `/inventory/unlocated` y `/bins` (110 y 78 llamadas) | **No leen la copia**: leen `stock_lots` y `stock_lot_locations` | Sin cambio por el corte — pero ver abajo |
+| Caminos de 0 uso en 90 días | `adjust`, `movements`, `stock/:wh/:prod`, `aisles/brands`, `aisles/assign`, `assign-lot`: **cero llamadas** | Siguen escribiendo una tabla congelada; `[CANON.7.4d]` los retira uno por uno |
+
+**El carril `stock` no desaparece:** `import-replenishment-plan` sigue cada 15 min, y ahora tiene más
+sentido que antes — refresca el fact del pedido tras cambiar la existencia, que es justo lo que el ODS
+mueve solo.
+
+**Candado** en `existencia-ods-lectores.spec.ts` (43 casos), con **dos mutantes en rojo**: re-enganchar
+el importer en el carril, y quitarle el `retiredOn` a la sonda. El propio importer abre con un aviso de
+retiro, porque correrlo a mano **no actualiza la copia: revive las 27,035 celdas que Kepler ya no tiene**.
+`api:typecheck` sin caché, verde. Actualizados `REGISTRO_CANONICO_COMPLETO.md` y
+`MODELO_CANONICO_DATOS.md`, que seguían declarando `commercial.stock` como la fuente de la existencia.
+
+⚠️ **El corte no surte efecto hasta que la imagen de ingesta se despliegue** (el paso vive en
+`run-prod-feeds.js`, dentro del pod `feeds-cron`). Hasta entonces el importer sigue escribiendo cada 15
+minutos. Empujar y desplegar: de Edgar.
+
+### 5.5 Lo que el borrado de los `NA` dejó a la vista — **D-EX9**
+
+Los 64,564 renglones `NA` que se borraron eran lo que `GET /inventory/unlocated` («por ubicar» de
+Ubicaciones) listaba: **30,041 de ellos tenían saldo**, con 107.7 M de piezas — es decir, la pantalla
+mostraba el almacén entero como «por ubicar», topado a 1,000 renglones, encabezado por el `NA` del CEDIS
+con 97 M de piezas de un solo SKU. Hoy muestra sólo los lotes fechados sin ubicar.
+
+El paso 2 de `[CANON.7.4c]` preveía que «por ubicar» leyera el `NA` **derivado** (existencia del ODS −
+lo declarado), y eso **no se implementó** en `bin-location.unlocated`: sigue leyendo `stock_lots` crudo.
+
+⚠️ Y hay algo más de fondo: esa pantalla pertenece al sistema **lote × bin** (`stock_lot_locations`,
+**1 fila en prod**), que compite con **UB** (`bin_assignments`, producto × presentación, 30 asignaciones
+en el piloto de PH). Reconstruirla sobre el ODS sin decidir cuál de los dos vive sería construir sobre
+el que está muerto.
+
+- **D-EX9 (Edgar):** «por ubicar» se deriva del ODS (existencia − lo ubicado) **o** se retira porque UB
+  la reemplaza. Uso medido: 110 llamadas en 90 días, 16 en noviembre y de `direccion`/`superadmin` — en
+  octubre, cuando corría el piloto, eran 174 con `almacenista`. Recomendación: **que la reemplace UB**,
+  porque el auxiliar por lote lleva una sola fila desde que existe.

@@ -21,7 +21,7 @@ const PH = { id: 'w-ph', code: '01', name: 'Padre Hidalgo' };
 const ROW = (code: string, p: Partial<WarehouseLocationRow> = {}): WarehouseLocationRow => ({
   id: 'b-' + code, warehouse_id: PH.id, warehouse_code: '01', code, label: null, familia: 'ubicacion', zona: code[0] as 'B' | 'T',
   pasillo: code[1], rack: Number(code.slice(2, 4)), nivel: Number(code[4]), tipo: code[0] === 'B' ? 'surtido' : 'tienda_piso',
-  estado: 'activa', motivo_estado: null, pick_sequence: 1, renglones_con_cantidad: 0, updated_at: '2026-11-19T00:00:00Z', ...p,
+  estado: 'activa', motivo_estado: null, pick_sequence: 1, renglones_con_cantidad: 0, renglones_totales: 0, productos_asignados: 0, updated_at: '2026-11-19T00:00:00Z', ...p,
 });
 const DETALLE = (asignaciones: ProductLocationDetail['asignaciones'] = []): ProductLocationDetail => ({
   warehouse: PH, product: { id: 'p-07302', sku: '07302', nombre: 'AVILA MAZAPAN 40' }, ficha_kepler: true, aviso: null, asignaciones,
@@ -256,6 +256,39 @@ describe('[UB.RF.11] Ubicar productos', () => {
     expect(c.aqui()).toBeNull();
     expect(texto()).toContain('ahí no va el lugar de un producto');
     expect(api.createAssignment).not.toHaveBeenCalled();
+  });
+
+  /**
+   * `[UB.RF.19]` «Los productos no se están almacenando ni mostrando» (Edgar, 2026-11-25). Sí se
+   * almacenaban: dos a las 13:54 y 13:55 en TA011 de Padre Hidalgo, con 0 errores de API. Lo que no
+   * había era dónde verlos: al guardar, el producto sale de la lista —el filtro de entrada es «Por
+   * ubicar» y ya dejó de estarlo— y la única señal era un aviso que se va. A las 13:56 se intentó dar
+   * de alta TA011, la ubicación donde acababan de quedar.
+   */
+  describe('[UB.RF.19] lo que se acaba de ubicar queda a la vista', () => {
+    it('⭐ un producto ubicado SIN estar parado en la ubicación también entra a la bandeja', async () => {
+      const { c, leer } = montar();
+      await leer('7502212930012'); // abre el producto
+      await leer('BA053'); // le pone lugar
+      expect(c.aqui()).toBeNull(); // no se trabajó "parado en" la ubicación
+      expect(c.hechos().map((h) => h.code)).toEqual(['BA053']);
+    });
+
+    it('⛔ NEGATIVA: si el guardado FALLA, no se anuncia como hecho', async () => {
+      const falla = new HttpErrorResponse({ status: 409, error: { message: 'Esta presentación ya tiene lugar fijo de surtido' } });
+      const { c, leer } = montar({ crearFalla: falla });
+      await leer('7502212930012');
+      await leer('BA053');
+      expect(c.hechos()).toEqual([]);
+    });
+
+    it('el mismo producto ubicado dos veces no se cuenta dos veces en la bandeja', async () => {
+      const { c, leer } = montar();
+      await leer('7502212930012');
+      await leer('BA053');
+      const ids = c.hechos().map((h) => h.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    });
   });
 
   // ── Rechazos y permisos ─────────────────────────────────────────────────────────────────────

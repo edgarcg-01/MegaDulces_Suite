@@ -107,9 +107,13 @@ suite('[RH.15.5] la firma de la semana, contra la base', () => {
 });
 
 describe('[RH.15.5] el controlador nuevo arranca (design:paramtypes, por #414)', () => {
+  // `[RH.15.5x]` El plazo propio NO es para la lógica —comparar dos referencias tarda nada— sino
+  // para el PRIMER `import` de estos dos módulos, que con la suite entera de `libs/hr` en paralelo
+  // pasaba de los 5 s por defecto y ponía en rojo la compuerta que existe por #414. Una compuerta
+  // que parpadea enseña a ignorarla, que es exactamente lo que no puede pasar con ésta.
   it('Nest le inyecta el servicio de firmas', async () => {
     const { HrAttendanceSignoffsController } = await import('./attendance-signoffs.controller');
     const { HrAttendanceSignoffsService } = await import('./attendance-signoffs.service');
     expect(Reflect.getMetadata('design:paramtypes', HrAttendanceSignoffsController)).toEqual([HrAttendanceSignoffsService]);
-  });
+  }, 60000);
 });

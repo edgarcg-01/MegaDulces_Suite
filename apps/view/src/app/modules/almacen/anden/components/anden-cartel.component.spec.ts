@@ -16,11 +16,12 @@ import { AndenCartelComponent, type CartelUbicacion } from './anden-cartel.compo
 const U = (n: number): CartelUbicacion[] =>
   Array.from({ length: n }, (_, i) => ({ code: `TA0${String(11 + i).padStart(2, '0')}`.slice(0, 5), label: 'Tienda · nivel 1', almacen: '01' }));
 
-function montar(ubicaciones: CartelUbicacion[], formato?: 'cartel' | 'etiqueta') {
+function montar(ubicaciones: CartelUbicacion[], formato?: 'cartel' | 'etiqueta', rollo?: '55x25' | '60x29') {
   TestBed.configureTestingModule({ imports: [AndenCartelComponent] });
   const fix = TestBed.createComponent(AndenCartelComponent);
   fix.componentRef.setInput('ubicaciones', ubicaciones);
   if (formato) fix.componentRef.setInput('formato', formato);
+  if (rollo) fix.componentRef.setInput('rollo', rollo);
   fix.detectChanges();
   return { fix, el: fix.nativeElement as HTMLElement };
 }
@@ -58,6 +59,39 @@ describe('[UB.RF.12] cartel de ubicación · etiqueta chica para la tienda', () 
     expect(o.html.match(/class="et eu"/g)).toHaveLength(4);
     expect(o.html).toContain('TA014');
     expect(o.css).toContain('.et{box-sizing:border-box;width:55mm;height:24.6mm');
+  });
+
+  /**
+   * `[UB.RF.20]` Hay dos rollos amarillos y conviven (Edgar, 2026-11-25). Lo que se imprime tiene que ser
+   * el que la persona eligió: mandar el otro gasta el rollo entero antes de que alguien lo note.
+   */
+  it('⭐ [UB.RF.20] con el rollo de 60 × 29 manda ESA hoja, no la de 55 × 25', () => {
+    const { fix } = montar(U(4), 'etiqueta', '60x29');
+    fix.componentInstance.imprimir();
+    const o = vi.mocked(printIsolated).mock.calls[0][0];
+    expect(o.page).toBe('size: 60mm 29mm; margin: 0;');
+    expect(o.css).toContain('width:60mm;height:28.6mm');
+    expect(o.html.match(/class="et eu"/g)).toHaveLength(4);
+  });
+
+  it('⛔ NEGATIVA [UB.RF.20]: con el rollo grande NO se cuela ninguna medida del chico', () => {
+    const { fix } = montar(U(1), 'etiqueta', '60x29');
+    fix.componentInstance.imprimir();
+    const o = vi.mocked(printIsolated).mock.calls[0][0];
+    expect(o.page).not.toContain('55mm');
+    expect(o.css).not.toContain('width:55mm');
+    expect(o.css).not.toContain('height:24.6mm');
+  });
+
+  it('[UB.RF.20] la nota dice el tamaño del rollo elegido, para que se cargue el papel correcto', () => {
+    const { fix, el } = montar(U(1), 'etiqueta', '60x29');
+    expect(el.textContent).toContain('60 × 29 mm');
+    expect(el.textContent).not.toContain('55 × 25 mm');
+    // Y al cambiar de rollo, la nota cambia con él: no se queda diciendo el papel anterior.
+    fix.componentRef.setInput('rollo', '55x25');
+    fix.detectChanges();
+    expect(el.textContent).toContain('55 × 25 mm');
+    expect(el.textContent).not.toContain('60 × 29 mm');
   });
 
   it('NEGATIVA [UB.RF.16]: ya no manda la fila de 3 del checado (100 × 48) al rollo amarillo', () => {

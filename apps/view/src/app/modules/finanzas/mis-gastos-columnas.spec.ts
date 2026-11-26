@@ -188,6 +188,16 @@ describe('[GX.97] situacionDe', () => {
     expect(situacionDe({ status: 'validada', etapa: 'por_ejercer', gasto_folios: [] })?.texto).toBe('Falta que la autoricen en Kepler');
   });
 
+  it('[PGP.123] G.16b: si sólo frena la lectura del comprobante, el texto dice el acto: comparar', () => {
+    expect(situacionDe({ status: 'validada', etapa: 'autorizado', gasto_folios: [], lecturaDistinta: true })?.texto)
+      .toBe('Compara el comprobante y genera el gasto');
+    // Negativa: sin la lectura distinta, el texto de siempre; y la marca no cambia lo que espera otra cosa.
+    expect(situacionDe({ status: 'validada', etapa: 'autorizado', gasto_folios: [], lecturaDistinta: false })?.texto)
+      .toBe('Autorizada: falta generar el gasto en Kepler');
+    expect(situacionDe({ status: 'validada', etapa: 'por_ejercer', gasto_folios: [], lecturaDistinta: true })?.texto)
+      .toBe('Falta que la autoricen en Kepler');
+  });
+
   it('lo cerrado dice cómo cerró', () => {
     expect(situacionDe({ status: 'validada', etapa: 'ejercido', gasto_folios: ['1'] })?.texto).toBe('Gasto aplicado en Kepler');
     expect(situacionDe({ status: 'validada', etapa: 'cancelado_kepler', gasto_folios: [] })).toEqual({
