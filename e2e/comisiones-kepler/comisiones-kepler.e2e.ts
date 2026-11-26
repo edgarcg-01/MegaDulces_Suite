@@ -2,7 +2,7 @@ import { test, expect, type Page, type Route } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { sesion, contexto, quieta } from '../reestructura/comun';
-import { medir } from '../reestructura/medir';
+import { cortados, medir } from '../reestructura/medir';
 
 /**
  * `[CB.62.4]` **Bancos › Contra Kepler › Comisiones, medido contra PRODUCCIÓN.**
@@ -157,6 +157,22 @@ test.describe('[CB.62.4] Comisiones de terminal, contra producción', () => {
     const pintadas = (await filas.count()) - (await page.locator('#cm-listos').locator('xpath=../..').locator('tbody .surf-empty').count());
     const m = await medir(page);
     const vacio = await page.locator('.cm-vacio').count();
+
+    // ⭐ CONTROL DEL INSTRUMENTO, con la respuesta sabida de antemano: se planta un texto que NO cabe en
+    // su caja y se comprueba que `cortados()` lo encuentra. Sin esto, un `[]` no distingue «la pantalla
+    // está bien» de «la medición no ve nada» — que es justo lo que pasó el 2026-11-26: la primera versión
+    // sólo miraba el desborde de la VENTANA y habría dado cero para siempre.
+    const CEBO = 'CONTROL: este texto no cabe en su caja y tiene que salir en la lista';
+    await page.evaluate((t) => {
+      const d = document.createElement('div');
+      d.id = 'control-cortado';
+      d.textContent = t;
+      d.setAttribute('style', 'position:fixed;top:0;left:0;width:60px;overflow-x:hidden;white-space:nowrap;z-index:-1');
+      document.body.appendChild(d);
+    }, CEBO);
+    const conCebo = await cortados(page, 30);
+    await page.evaluate(() => document.getElementById('control-cortado')?.remove());
+    const textosCortados = await cortados(page);
     // ⭐ El segundo cruce, entre dos cosas que la persona VE: el titular dice «N cargos» y la tabla agrupa esos
     // cargos por día de venta. Medido el 2026-11-26: 16 cargos en 5 días, 214 en 46, 180 en 4 cuentas, 20 en 10
     // bloques — o sea las secciones **agrupan**, no esconden. Si alguna vez la suma de la columna «Cargos» no da
@@ -178,7 +194,7 @@ test.describe('[CB.62.4] Comisiones de terminal, contra producción', () => {
       listos_pintados: pintadas, listos_segun_api: listosApi.length, seccion_vacia: vacio === 1,
       cargos_pintados: cargosPintados, cargos_del_titular: verdad.resumen.listos,
       monto_listo_api: verdad.resumen.monto_listo, suma_total_dias_listos: listosApi.reduce((s, d) => s + Number(d.total), 0),
-      medicion: m,
+      medicion: m, textos_cortados: textosCortados, control_del_cebo: conCebo.some((x) => x.includes('CONTROL:')),
     });
     await page.screenshot({ path: path.join(RES, 'comisiones-prod.png'), fullPage: true });
 
@@ -193,6 +209,9 @@ test.describe('[CB.62.4] Comisiones de terminal, contra producción', () => {
       expect(cargosPintados, 'los cargos de la tabla deben sumar los que anuncia el titular (agrupar sí, esconder no)').toBe(verdad.resumen.listos);
     }
     expect(t.seguia_cargando, 'la pantalla no puede quedarse en «Cargando»').toBe(false);
+    // Primero el control: si el cebo NO sale, la lista de textos cortados no significa nada y no se publica.
+    expect(conCebo.some((x) => x.includes('CONTROL:')), 'el medidor de textos cortados debe encontrar el cebo plantado').toBe(true);
+    expect(textosCortados, 'ningún texto de la pantalla puede quedar recortado sin forma de leerlo').toEqual([]);
     await ctx.close();
   });
 
@@ -236,7 +255,11 @@ test.describe('[CB.62.4] Comisiones de terminal, contra producción', () => {
     const boton = page.getByRole('button', { name: /Generar en Kepler/ });
     await expect(boton, 'la pantalla debe ofrecer «Generar en Kepler»').toHaveCount(1);
     const apagado = await boton.isDisabled();
-    const nota = (await page.locator('#cm-apagado, .cm-nota-accion').first().textContent().catch(() => null))?.replace(/\s+/g, ' ').trim() ?? null;
+    // ⛔ Los dos ids: `cm-apagado` era el de la versión de sólo lectura, `cm-nota-accion` el de [CB.62.5].
+    // Y se cuenta ANTES de pedir el texto: textContent() sobre un locator vacío no devuelve null, espera
+    // el elemento hasta agotar el timeout — dos minutos colgada por un selector viejo, no por la pantalla.
+    const linea = page.locator('#cm-nota-accion, #cm-apagado').first();
+    const nota = (await linea.count()) ? (await linea.textContent())?.replace(/\s+/g, ' ').trim() ?? null : null;
     anotar('boton', { apagado, nota });
 
     // Vale cualquiera de los dos estados; lo que NO vale es un botón mudo. Apagado sin decir por qué es un
