@@ -3,7 +3,10 @@ import {
   MIRAS,
   CROQUIS_FILAS_MAX,
   acomodarCara,
-  carasDePieza,
+  carasCoherentes,
+  carasPorOmision,
+  racksDeLaCara,
+  type RacksDeCara,
   laOtraCaraDelMueble,
   miraOpuesta,
   plantaDeCaras,
@@ -14,6 +17,7 @@ import {
   acomodar,
   cabeEnElCroquis,
   expandFixture,
+  nombreDeCara,
   nombrePieza,
   piezasDerivadas,
   tipoDePieza,
@@ -267,13 +271,13 @@ describe('[UB.PL.11] la planta se arma con caras', () => {
     ({ id, fixture_id: 'f' + id, cara: 'nones', fila, columna, mira });
 
   describe('cuántas caras tiene cada mueble', () => {
-    it('⭐ un anaquel de pasillo tiene dos caras; una cabecera, una sola', () => {
-      expect(carasDePieza('anaquel')).toEqual(['nones', 'pares']);
-      expect(carasDePieza('cabecera')).toEqual(['unica']);
+    it('⭐ con qué caras NACE cada mueble (sólo el punto de partida: después se configuran)', () => {
+      expect(carasPorOmision('anaquel')).toEqual(['nones', 'pares']);
+      expect(carasPorOmision('cabecera')).toEqual(['todos']);
     });
 
     it('⛔ NEGATIVA: una caja tampoco tiene dos frentes — no se le dibuja un corredor en medio', () => {
-      expect(carasDePieza('caja')).toEqual(['unica']);
+      expect(carasPorOmision('caja')).toEqual(['todos']);
     });
   });
 
@@ -410,5 +414,85 @@ describe('[UB.PL.11] los pasillos corren para donde corran', () => {
     const suelta = { ...cara('s', 1, 1, 'arriba'), fila: null, columna: null, mira: null } as FixtureFace;
     const r = acomodarCara([a, suelta], { id: 's', fila: 1, columna: 2, mira: 'izquierda' });
     expect(r.ok).toBe(false);
+  });
+});
+
+/**
+ * `[UB.PL.12]` **Qué racks lleva cada cara se configura, no se deduce.** Hasta aquí lo decidía el
+ * código —par/non, porque así es Padre Hidalgo—, y eso obligaba a cada tienda a parecerse a aquélla.
+ * Edgar: «que sea 100% libre de acomodar el croquis a gustos… todas las preguntas que me hiciste que
+ * se puedan resolver desde interfaz».
+ */
+describe('[UB.PL.12] qué racks lleva una cara', () => {
+  const cara = (racks_modo: RacksDeCara, rack_desde: number | null = null, rack_hasta: number | null = null) =>
+    ({ id: 'c' + racks_modo + rack_desde, racks_modo, rack_desde, rack_hasta });
+
+  it('⭐ el pasillo clásico: nones de un lado, pares del otro', () => {
+    expect(racksDeLaCara(cara('nones'), 6)).toEqual([1, 3, 5]);
+    expect(racksDeLaCara(cara('pares'), 6)).toEqual([2, 4, 6]);
+  });
+
+  it('⭐ un mueble contra la pared se lleva TODOS los racks en una sola cara', () => {
+    expect(racksDeLaCara(cara('todos'), 4)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('⭐ una corrida partida por TRAMOS, que es lo que par/non no podía decir', () => {
+    expect(racksDeLaCara(cara('rango', 1, 3), 6)).toEqual([1, 2, 3]);
+    expect(racksDeLaCara(cara('rango', 4, 6), 6)).toEqual([4, 5, 6]);
+  });
+
+  it('⛔ NEGATIVA: una cara que no guarda nada no se lleva un solo rack', () => {
+    expect(racksDeLaCara(cara('ninguno'), 20)).toEqual([]);
+  });
+
+  it('⛔ NEGATIVA: un tramo no se sale de los racks que el mueble tiene', () => {
+    expect(racksDeLaCara(cara('rango', 1, 99), 3)).toEqual([1, 2, 3]);
+  });
+
+  describe('las caras de un mueble no se pisan', () => {
+    it('⭐ nones y pares se reparten el mueble entero sin tocarse', () => {
+      expect(carasCoherentes([cara('nones'), cara('pares')], 10).ok).toBe(true);
+    });
+
+    it('⭐ dos tramos que no se solapan también valen', () => {
+      expect(carasCoherentes([cara('rango', 1, 5), cara('rango', 6, 10)], 10).ok).toBe(true);
+    });
+
+    it('⛔ NEGATIVA: un rack no puede estar en las dos caras del mismo mueble', () => {
+      const r = carasCoherentes([cara('todos'), cara('nones')], 6);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.motivo).toContain('de un lado o del otro');
+    });
+
+    it('⛔ NEGATIVA: dos tramos que se montan se rechazan diciendo EN QUÉ rack', () => {
+      const r = carasCoherentes([cara('rango', 1, 5), cara('rango', 5, 9)], 10);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.motivo).toContain('05');
+    });
+
+    it('⛔ NEGATIVA: más de cuatro costados no es un mueble', () => {
+      const cinco = [1, 2, 3, 4, 5].map((i) => ({ id: 'c' + i, racks_modo: 'ninguno' as RacksDeCara, rack_desde: null, rack_hasta: null }));
+      expect(carasCoherentes(cinco, 10).ok).toBe(false);
+    });
+
+    it('⭐ un hueco SIN cara es válido a propósito: una esquina o un paso no necesita frente', () => {
+      expect(carasCoherentes([cara('rango', 1, 3)], 10).ok).toBe(true);
+    });
+  });
+
+  describe('cómo se llama cada cara', () => {
+    const anaquel = { tipo: 'anaquel' as const, pasillo: 'A', label: null };
+
+    it('⭐ la cara dice qué lado del pasillo es', () => {
+      expect(nombreDeCara(anaquel, { racks_modo: 'nones', label: null })).toBe('Anaquel de pasillo A · nones');
+    });
+
+    it('⭐ una cara que se lleva el mueble entero se llama como el mueble, sin sufijo', () => {
+      expect(nombreDeCara({ tipo: 'cabecera', pasillo: 'D', label: null }, { racks_modo: 'todos', label: null })).toBe('Cabecera D');
+    });
+
+    it('⭐ y su nombre propio manda sobre todo lo demás', () => {
+      expect(nombreDeCara(anaquel, { racks_modo: 'nones', label: 'Dulces a granel' })).toBe('Dulces a granel');
+    });
   });
 });

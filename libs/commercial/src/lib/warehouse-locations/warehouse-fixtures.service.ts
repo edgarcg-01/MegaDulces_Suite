@@ -3,8 +3,10 @@ import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import {
   CROQUIS_FILAS_MAX,
+  RACKS_DE_CARA,
   acomodarCara,
-  carasDePieza,
+  carasCoherentes,
+  carasPorOmision,
   FIXTURE_KINDS,
   cabeEnElCroquis,
   defaultPickSequence,
@@ -14,7 +16,9 @@ import {
   piezasDerivadas,
   type AcomodoBody,
   type AcomodoCarasBody,
-  type CaraDePieza,
+  type CaraBody,
+  type PiezaBody,
+  type RacksDeCara,
   type CrearPiezaBody,
   type FixtureFace,
   type MiraHacia,
@@ -274,15 +278,16 @@ export class WarehouseFixturesService {
    * Idempotente — `ON CONFLICT DO NOTHING` sobre el índice de «una cara por pieza».
    */
   private async darleCaras(trx: Knex.Transaction, pieza: Pick<WarehouseFixture, 'id' | 'warehouse_id' | 'zona' | 'tipo'>): Promise<void> {
-    const filas = carasDePieza(pieza.tipo).map((cara) => ({
+    const filas = carasPorOmision(pieza.tipo).map((modo, i) => ({
       tenant_id: trx.raw('public.current_tenant_id()'),
       fixture_id: pieza.id,
       warehouse_id: pieza.warehouse_id,
       zona: pieza.zona,
-      cara,
+      slot: i + 1,
+      racks_modo: modo,
     }));
     if (!filas.length) return;
-    await trx('commercial.warehouse_fixture_faces').insert(filas).onConflict(['tenant_id', 'fixture_id', 'cara']).ignore();
+    await trx('commercial.warehouse_fixture_faces').insert(filas).onConflict(['tenant_id', 'fixture_id', 'slot']).ignore();
   }
 
   /**
@@ -324,15 +329,161 @@ export class WarehouseFixturesService {
     });
   }
 
+
+  // ── `[UB.PL.12]` La cara y la pieza se configuran desde la pantalla ──────────────────────────
+
+  /** Las caras vivas de una pieza, con su almacén verificado contra el alcance de quien pide. */
+  private async piezaYsusCaras(trx: Knex.Transaction, fixtureId: string, ctx: Awaited<ReturnType<typeof contextoDeAlcance>>) {
+    const pieza = await trx('commercial.warehouse_fixtures').where({ id: fixtureId }).whereNull('deleted_at').first(...COLUMNAS);
+    if (!pieza) throw new NotFoundException('Esa pieza no existe.');
+    const wh = await almacenDeUbicaciones(trx, this.scope, ctx, String(pieza.warehouse_id).toLowerCase(), true);
+    const caras: FixtureFace[] = (
+      await trx('commercial.warehouse_fixture_faces').where({ fixture_id: fixtureId }).whereNull('deleted_at').select(...COLUMNAS_CARA)
+    ).map(aCara);
+    return { pieza: aPieza(pieza), caras, wh };
+  }
+
+  /**
+   * `[UB.PL.12]` **Agrega una cara a un mueble.** Hasta cuatro: una isla se ve por los cuatro
+   * costados. Nace sin lugar — ponerla en la planta es otro acto.
+   */
+  async agregarCara(body: CaraBody): Promise<FixtureFace[]> {
+    this.tenantCtx.requireTenantId();
+    const ctx = await contextoDeAlcance(this.scope, 'warehouse/locations');
+    return this.tk.run(async (trx) => {
+      const { pieza, caras } = await this.piezaYsusCaras(trx, String(body?.fixture_id ?? ''), ctx);
+      const nueva = this.caraValida(body, pieza, caras, null);
+      const usados = new Set(caras.map((c) => c.slot));
+      const slot = [1, 2, 3, 4].find((s) => !usados.has(s));
+      if (!slot) throw new ConflictException('Un mueble tiene cuatro costados como mucho.');
+      await trx('commercial.warehouse_fixture_faces').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        fixture_id: pieza.id,
+        warehouse_id: pieza.warehouse_id,
+        zona: pieza.zona,
+        slot,
+        ...nueva,
+        created_by: this.tenantCtx.get()?.userId || null,
+        updated_by: this.tenantCtx.get()?.userId || null,
+      });
+      return (await trx('commercial.warehouse_fixture_faces').where({ fixture_id: pieza.id }).whereNull('deleted_at').select(...COLUMNAS_CARA)).map(aCara);
+    });
+  }
+
+  /** `[UB.PL.12]` Cambia qué racks lleva una cara, o cómo se llama. No la mueve de lugar. */
+  async cambiarCara(id: string, body: CaraBody): Promise<FixtureFace[]> {
+    this.tenantCtx.requireTenantId();
+    const ctx = await contextoDeAlcance(this.scope, 'warehouse/locations');
+    return this.tk.run(async (trx) => {
+      const cara = await trx('commercial.warehouse_fixture_faces').where({ id }).whereNull('deleted_at').first('fixture_id');
+      if (!cara) throw new NotFoundException('Esa cara no existe.');
+      const { pieza, caras } = await this.piezaYsusCaras(trx, String(cara.fixture_id), ctx);
+      const cambios = this.caraValida(body, pieza, caras, id);
+      await trx('commercial.warehouse_fixture_faces').where({ id }).update({
+        ...cambios,
+        updated_at: trx.fn.now(),
+        updated_by: this.tenantCtx.get()?.userId || null,
+      });
+      return (await trx('commercial.warehouse_fixture_faces').where({ fixture_id: pieza.id }).whereNull('deleted_at').select(...COLUMNAS_CARA)).map(aCara);
+    });
+  }
+
+  /**
+   * `[UB.PL.12]` Quita una cara del mueble. ⭐ Se RETIRA (`deleted_at`), no se borra: su lugar en
+   * la planta es trabajo de alguien y conviene poder saber que existió.
+   */
+  async quitarCara(id: string): Promise<FixtureFace[]> {
+    this.tenantCtx.requireTenantId();
+    const ctx = await contextoDeAlcance(this.scope, 'warehouse/locations');
+    return this.tk.run(async (trx) => {
+      const cara = await trx('commercial.warehouse_fixture_faces').where({ id }).whereNull('deleted_at').first('fixture_id');
+      if (!cara) throw new NotFoundException('Esa cara no existe.');
+      const { pieza, caras } = await this.piezaYsusCaras(trx, String(cara.fixture_id), ctx);
+      if (caras.length <= 1) throw new ConflictException('Un mueble necesita al menos una cara: si sobra el mueble entero, quítalo del croquis.');
+      await trx('commercial.warehouse_fixture_faces').where({ id }).update({
+        deleted_at: trx.fn.now(),
+        deleted_by: this.tenantCtx.get()?.userId || null,
+      });
+      return (await trx('commercial.warehouse_fixture_faces').where({ fixture_id: pieza.id }).whereNull('deleted_at').select(...COLUMNAS_CARA)).map(aCara);
+    });
+  }
+
+  /**
+   * `[UB.PL.12]` Renombra una pieza o le cambia el tipo, los racks o los niveles.
+   *
+   * ⛔ **NO crea ni borra ubicaciones.** Subir los racks de 17 a 20 dice cómo es el mueble; dar de
+   * alta los códigos que faltan sigue siendo la captura, que es donde se ve cuántos se crean.
+   */
+  async editarPieza(id: string, body: PiezaBody): Promise<WarehouseFixture> {
+    this.tenantCtx.requireTenantId();
+    const ctx = await contextoDeAlcance(this.scope, 'warehouse/locations');
+    return this.tk.run(async (trx) => {
+      const { pieza, caras } = await this.piezaYsusCaras(trx, id, ctx);
+      const tipo = body.tipo === undefined ? pieza.tipo : body.tipo;
+      if (!FIXTURE_KINDS[tipo]) throw new BadRequestException('Ese tipo de mueble no existe.');
+      const racks = body.racks === undefined ? pieza.racks : Number(body.racks);
+      const niveles = body.niveles === undefined ? pieza.niveles : Number(body.niveles);
+      const forma = FIXTURE_KINDS[tipo];
+      if (!(Number.isInteger(racks) && racks >= 0 && racks <= forma.racksMax)) {
+        throw new BadRequestException(`${forma.label}: de 0 a ${forma.racksMax} racks.`);
+      }
+      if (!(Number.isInteger(niveles) && niveles >= 0 && niveles <= forma.nivelesMax)) {
+        throw new BadRequestException(`${forma.label}: de 0 a ${forma.nivelesMax} niveles.`);
+      }
+      // ⭐ El control que importa: bajar los racks puede dejar dos caras pisándose, porque los
+      // tramos se recortan. Se mide contra los racks NUEVOS, no contra los que tenía.
+      const coherentes = carasCoherentes(caras, racks);
+      if (!coherentes.ok) throw new ConflictException(coherentes.motivo);
+
+      const [row] = await trx('commercial.warehouse_fixtures').where({ id }).update({
+        tipo,
+        racks,
+        niveles,
+        ...(body.label === undefined ? {} : { label: (body.label ?? '').trim() || null }),
+        updated_at: trx.fn.now(),
+        updated_by: this.tenantCtx.get()?.userId || null,
+      }).returning([...COLUMNAS]);
+      this.logger.log(`[UB.PL.12] ${nombrePieza(aPieza(row))}: tipo ${tipo}, ${racks} rack(s), ${niveles} nivel(es)`);
+      return aPieza(row);
+    });
+  }
+
+  /** Lo que se puede escribir de una cara, ya validado contra su pieza y sus hermanas. */
+  private caraValida(body: CaraBody, pieza: WarehouseFixture, caras: FixtureFace[], excepto: string | null) {
+    const modo = body?.racks_modo;
+    if (!RACKS_DE_CARA.some((m) => m.modo === modo)) throw new BadRequestException('Falta decir qué racks lleva esta cara.');
+    const desde = modo === 'rango' ? Number(body.rack_desde) : null;
+    const hasta = modo === 'rango' ? Number(body.rack_hasta) : null;
+    if (modo === 'rango') {
+      if (!Number.isInteger(desde) || !Number.isInteger(hasta) || (desde as number) < 1 || (hasta as number) < (desde as number)) {
+        throw new BadRequestException('Un tramo va de un rack a otro, y el primero no puede pasar al segundo.');
+      }
+    }
+    const propuesta = { id: excepto ?? 'nueva', racks_modo: modo, rack_desde: desde, rack_hasta: hasta };
+    const juntas = [...caras.filter((c) => c.id !== excepto), propuesta];
+    const coherentes = carasCoherentes(juntas, pieza.racks);
+    if (!coherentes.ok) throw new ConflictException(coherentes.motivo);
+    return {
+      racks_modo: modo,
+      rack_desde: desde,
+      rack_hasta: hasta,
+      ...(body.label === undefined ? {} : { label: (body.label ?? '').trim() || null }),
+    };
+  }
+
 }
 
-const COLUMNAS_CARA = ['id', 'fixture_id', 'cara', 'fila', 'columna', 'mira'] as const;
+const COLUMNAS_CARA = ['id', 'fixture_id', 'slot', 'racks_modo', 'rack_desde', 'rack_hasta', 'label', 'fila', 'columna', 'mira'] as const;
 
 function aCara(r: Record<string, unknown>): FixtureFace {
   return {
     id: String(r.id),
     fixture_id: String(r.fixture_id),
-    cara: r.cara as CaraDePieza,
+    slot: Number(r.slot) || 1,
+    racks_modo: (r.racks_modo as RacksDeCara) ?? 'todos',
+    rack_desde: r.rack_desde == null ? null : Number(r.rack_desde),
+    rack_hasta: r.rack_hasta == null ? null : Number(r.rack_hasta),
+    label: (r.label as string | null) ?? null,
     fila: r.fila == null ? null : Number(r.fila),
     columna: r.columna == null ? null : Number(r.columna),
     mira: (r.mira as MiraHacia | null) ?? null,

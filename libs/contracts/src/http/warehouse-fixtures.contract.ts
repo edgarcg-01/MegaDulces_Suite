@@ -386,16 +386,26 @@ export type CaraDePieza = 'nones' | 'pares' | 'unica';
 export interface FixtureFace {
   id: string;
   fixture_id: string;
-  cara: CaraDePieza;
+  /** Identidad de la cara dentro de su pieza: 1 a 4. */
+  slot: number;
+  /** [UB.PL.12] Qué racks lleva: nones, pares, todos, un rango, o ninguno. */
+  racks_modo: RacksDeCara;
+  rack_desde: number | null;
+  rack_hasta: number | null;
+  /** Nombre propio de la cara, si alguien se lo puso. */
+  label: string | null;
   /** Dónde cae en la planta. `null` mientras nadie la haya colocado. */
   fila: number | null;
   columna: number | null;
   mira: MiraHacia | null;
 }
 
-/** Cuántas caras tiene una pieza, según su tipo. Una cabecera es de una sola cara. */
-export function carasDePieza(tipo: FixtureKind): CaraDePieza[] {
-  return FIXTURE_KINDS[tipo]?.dosFrentes ? ['nones', 'pares'] : ['unica'];
+/**
+ * `[UB.PL.12]` Con qué caras NACE una pieza, según su tipo. Es sólo el punto de partida al
+ * derivarla: desde la pantalla se le agregan, se le quitan y se les cambia qué racks llevan.
+ */
+export function carasPorOmision(tipo: FixtureKind): RacksDeCara[] {
+  return FIXTURE_KINDS[tipo]?.dosFrentes ? ['nones', 'pares'] : ['todos'];
 }
 
 /** Una cara está colocada cuando tiene celda **y** dirección: sin las tres no se puede dibujar. */
@@ -530,7 +540,103 @@ export interface AcomodoCarasBody {
  * Una pieza de una sola cara se llama como la pieza, sin sufijo: decir «Cabecera D · única» sería
  * ruido sobre algo que no tiene alternativa.
  */
-export function nombreDeCara(f: Pick<WarehouseFixture, 'tipo' | 'pasillo' | 'label'>, cara: CaraDePieza): string {
+export function nombreDeCara(f: Pick<WarehouseFixture, 'tipo' | 'pasillo' | 'label'>, cara: Pick<FixtureFace, 'racks_modo' | 'label'>): string {
+  if (cara.label) return cara.label;
   const base = nombrePieza(f);
-  return cara === 'unica' ? base : `${base} · ${cara}`;
+  const modo = RACKS_DE_CARA.find((m) => m.modo === cara.racks_modo);
+  // Una cara que se lleva TODO el mueble, o que no guarda nada, se llama como la pieza y ya: decir
+  // «Cabecera D · todos los racks» es ruido sobre algo que no tiene alternativa.
+  if (cara.racks_modo === 'todos' || cara.racks_modo === 'ninguno') return base;
+  return `${base} · ${modo ? modo.label.replace('Racks ', '') : cara.racks_modo}`;
+}
+
+// ── `[UB.PL.12]` La cara se CONFIGURA: cuántas hay y qué racks lleva cada una ─────────────────
+
+/**
+ * `[UB.PL.12]` **Qué racks lleva una cara.** Hasta aquí lo decidía el código: un anaquel tenía dos
+ * caras y se repartían por par/non, porque así es Padre Hidalgo. Pero eso es **una** forma de armar
+ * un pasillo, no la única — y decidirlo desde acá obliga a cada tienda a parecerse a aquélla.
+ *
+ * *Edgar, 2026-11-26: «que sea 100% libre de acomodar el croquis a gustos, si un pasillo tiene
+ * pares y nones, si una cabecera tiene una frente a ella, todas las preguntas que me hiciste que se
+ * puedan resolver desde interfaz».*
+ *
+ * Los cinco modos cubren lo que se ve en una tienda:
+ *  · `nones` y `pares` — el pasillo clásico, un frente a cada lado del corredor;
+ *  · `todos` — un mueble de una sola cara: contra la pared, o una cabecera entera;
+ *  · `rango` — la corrida se parte por tramos y no por paridad (01–10 de un lado, 11–20 del otro);
+ *  · `ninguno` — la cara existe y **no guarda códigos**: un refrigerador, una caja, una columna.
+ */
+export type RacksDeCara = 'nones' | 'pares' | 'todos' | 'rango' | 'ninguno';
+
+export const RACKS_DE_CARA: { readonly modo: RacksDeCara; readonly label: string; readonly ayuda: string }[] = [
+  { modo: 'nones', label: 'Racks nones', ayuda: '01, 03, 05… Un frente del pasillo.' },
+  { modo: 'pares', label: 'Racks pares', ayuda: '02, 04, 06… El frente de enfrente.' },
+  { modo: 'todos', label: 'Todos los racks', ayuda: 'Un mueble de una sola cara: contra la pared, o una cabecera entera.' },
+  { modo: 'rango', label: 'Un tramo', ayuda: 'Del rack X al Y, cuando la corrida se parte por tramos y no por paridad.' },
+  { modo: 'ninguno', label: 'No guarda nada', ayuda: 'Un refrigerador, una caja, una columna: va en el croquis para ubicarse.' },
+];
+
+/** Los racks que le tocan a una cara, dentro de los que tiene su pieza. */
+export function racksDeLaCara(
+  cara: Pick<FixtureFace, 'racks_modo' | 'rack_desde' | 'rack_hasta'>,
+  racksDeLaPieza: number,
+): number[] {
+  if (cara.racks_modo === 'ninguno') return [];
+  const todos = Array.from({ length: Math.max(0, racksDeLaPieza) }, (_, i) => i + 1);
+  if (cara.racks_modo === 'nones') return todos.filter((r) => r % 2 === 1);
+  if (cara.racks_modo === 'pares') return todos.filter((r) => r % 2 === 0);
+  if (cara.racks_modo === 'rango') {
+    const d = cara.rack_desde ?? 1;
+    const h = cara.rack_hasta ?? racksDeLaPieza;
+    return todos.filter((r) => r >= d && r <= h);
+  }
+  return todos;
+}
+
+export type CarasDeLaPieza =
+  | { ok: true }
+  | { ok: false; motivo: string };
+
+/**
+ * `[UB.PL.12]` **Las caras de una pieza no pueden pisarse.** Un rack está de un lado del mueble o
+ * del otro, nunca en los dos: si dos caras reclaman el mismo, una de las dos miente y la etiqueta
+ * terminaría pegada donde no va.
+ *
+ * ⭐ Lo que **no** se valida a propósito: que las caras cubran TODOS los racks. Una corrida puede
+ * tener un tramo sin frente (una esquina, un hueco de paso), y exigir la cobertura completa
+ * obligaría a inventar una cara para taparlo.
+ */
+export function carasCoherentes(
+  caras: readonly Pick<FixtureFace, 'id' | 'racks_modo' | 'rack_desde' | 'rack_hasta'>[],
+  racksDeLaPieza: number,
+): CarasDeLaPieza {
+  if (caras.length > 4) return { ok: false, motivo: 'Un mueble tiene cuatro costados como mucho.' };
+  const visto = new Map<number, string>();
+  for (const c of caras) {
+    for (const r of racksDeLaCara(c, racksDeLaPieza)) {
+      if (visto.has(r)) {
+        return { ok: false, motivo: `El rack ${String(r).padStart(2, '0')} ya está en otra cara de este mueble: un rack va de un lado o del otro, no en los dos.` };
+      }
+      visto.set(r, c.id);
+    }
+  }
+  return { ok: true };
+}
+
+/** `[UB.PL.12]` Lo que se manda para agregar, cambiar o quitar una cara. */
+export interface CaraBody {
+  fixture_id: string;
+  racks_modo: RacksDeCara;
+  rack_desde?: number | null;
+  rack_hasta?: number | null;
+  label?: string | null;
+}
+
+/** `[UB.PL.12]` Lo que se manda para renombrar una pieza o cambiarle el tipo. */
+export interface PiezaBody {
+  tipo?: FixtureKind;
+  label?: string | null;
+  racks?: number;
+  niveles?: number;
 }

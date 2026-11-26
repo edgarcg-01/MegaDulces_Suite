@@ -12,7 +12,10 @@ import {
   aisleOrder,
   describeLocationCode,
   FIXTURE_KINDS,
+  FIXTURE_KINDS as FORMAS,
   MIRAS,
+  RACKS_DE_CARA,
+  racksDeLaCara,
   LOCATION_KINDS,
   LOCATION_LEVEL_MAX,
   acomodarCara,
@@ -25,7 +28,11 @@ import {
   rackOpuesto,
   type CeldaDeLaPlanta,
   type CroquisResponse,
+  type CaraBody,
+  type PiezaBody,
   type FixtureFace,
+  type FixtureKind,
+  type RacksDeCara,
   type MiraHacia,
   type SoltarCara,
   type LocationKind,
@@ -279,7 +286,7 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
                               <button type="button" class="ub-ac-cara ub-ac-{{ lado }}" draggable="true"
                                 [class.tomada]="tomada() === c.id" [attr.aria-pressed]="tomada() === c.id"
                                 [attr.aria-label]="nombreDeId(c.id) + ', renglón ' + celda.fila + ', lugar ' + celda.columna + ', mira ' + lado"
-                                (dragstart)="tomar(c.id)" (click)="tomar(c.id)">{{ nombreDeId(c.id) }}</button>
+                                (dragstart)="tomar(c.id)" (click)="tomar(c.id); configurarPiezaDe(c.id)">{{ nombreDeId(c.id) }}</button>
                             } @else {
                               <button type="button" class="ub-ac-hueco ub-ac-{{ lado }}" [disabled]="!tomada() || guardandoAcomodo()"
                                 [attr.aria-label]="'Soltar en el renglón ' + celda.fila + ', lugar ' + celda.columna + ', mirando ' + lado"
@@ -298,7 +305,7 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
                         @for (c of carasSinLugar(); track c.id) {
                           <button type="button" class="ub-ac-cara" draggable="true"
                             [class.tomada]="tomada() === c.id" [attr.aria-pressed]="tomada() === c.id"
-                            (dragstart)="tomar(c.id)" (click)="tomar(c.id)">{{ nombreDeId(c.id) }}</button>
+                            (dragstart)="tomar(c.id)" (click)="tomar(c.id); configurarPiezaDe(c.id)">{{ nombreDeId(c.id) }}</button>
                         }
                       </div>
                     } @else {
@@ -308,6 +315,58 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
                       aria-label="Sacar de la planta la cara que tienes en la mano"
                       (dragover)="$event.preventDefault()" (drop)="soltarCara(null, null, null)" (click)="soltarCara(null, null, null)">sacar de la planta</button>
                   </div>
+                  <!-- [UB.PL.12] El panel donde se contesta TODO lo que antes decidía el código:
+                       qué es este mueble, cómo se llama, cuántas caras tiene y qué racks lleva cada
+                       una. Se abre tocando una cara; sin nada tomado, no estorba. -->
+                  @if (piezaEnMano(); as p) {
+                    <div class="ub-ac-config" role="group" [attr.aria-label]="'Configurar ' + nombrePiezaDe(p)">
+                      <div class="ub-ac-cfg-head">
+                        <h3 class="ub-ph">{{ nombrePiezaDe(p) }}</h3>
+                        <button type="button" class="ub-ac-sacar" (click)="piezaEnMano.set(null)">cerrar</button>
+                      </div>
+                      <div class="ub-ac-cfg-fila">
+                        <label class="ub-ac-cfg-campo"><span>Nombre</span>
+                          <input pInputText type="text" [ngModel]="p.label ?? ''" (ngModelChange)="borradorPieza.set({ ...borradorPieza(), label: $any($event) })" placeholder="Refrigerados, Caja 3…" />
+                        </label>
+                        <label class="ub-ac-cfg-campo"><span>Qué es</span>
+                          <select [ngModel]="borradorPieza().tipo ?? p.tipo" (ngModelChange)="borradorPieza.set({ ...borradorPieza(), tipo: $any($event) })">
+                            @for (k of FORMAS_LISTA; track k.tipo) { <option [value]="k.tipo">{{ k.label }}</option> }
+                          </select>
+                        </label>
+                        <label class="ub-ac-cfg-campo corto"><span>Racks</span>
+                          <input pInputText type="number" min="0" [ngModel]="borradorPieza().racks ?? p.racks" (ngModelChange)="borradorPieza.set({ ...borradorPieza(), racks: +$any($event) })" />
+                        </label>
+                        <label class="ub-ac-cfg-campo corto"><span>Niveles</span>
+                          <input pInputText type="number" min="0" [ngModel]="borradorPieza().niveles ?? p.niveles" (ngModelChange)="borradorPieza.set({ ...borradorPieza(), niveles: +$any($event) })" />
+                        </label>
+                        <button pButton type="button" class="p-button-sm" [disabled]="guardandoCfg()" (click)="guardarPieza(p.id)"><span class="p-button-label">Guardar</span></button>
+                      </div>
+                      <p class="ub-hint">Cambiar los racks dice cómo es el mueble; no da de alta ni quita códigos — eso sigue siendo la captura.</p>
+
+                      <h4 class="ub-ph">Caras<span class="num"> · {{ carasDe(p.id).length }}</span></h4>
+                      @for (c of carasDe(p.id); track c.id) {
+                        <div class="ub-ac-cfg-cara">
+                          <select [ngModel]="c.racks_modo" (ngModelChange)="configurarCara(c, $any($event))" [attr.aria-label]="'Qué racks lleva ' + nombreDeId(c.id)">
+                            @for (m of RACKS_MODOS; track m.modo) { <option [value]="m.modo">{{ m.label }}</option> }
+                          </select>
+                          @if (c.racks_modo === 'rango') {
+                            <input pInputText type="number" class="corto" min="1" [ngModel]="c.rack_desde ?? 1" (ngModelChange)="configurarCara(c, 'rango', +$any($event), c.rack_hasta)" aria-label="Del rack" />
+                            <span class="ub-ac-cfg-a">a</span>
+                            <input pInputText type="number" class="corto" min="1" [ngModel]="c.rack_hasta ?? p.racks" (ngModelChange)="configurarCara(c, 'rango', c.rack_desde, +$any($event))" aria-label="Al rack" />
+                          }
+                          <span class="ub-ac-cfg-cuenta num">{{ cuantosRacks(c, p.racks) }}</span>
+                          <span class="ub-ac-cfg-lugar">{{ c.fila ? 'en la planta' : 'sin lugar' }}</span>
+                          @if (carasDe(p.id).length > 1) {
+                            <button type="button" class="ub-ac-sacar" [disabled]="guardandoCfg()" (click)="quitarCara(c.id)" [attr.aria-label]="'Quitar ' + nombreDeId(c.id)">quitar</button>
+                          }
+                        </div>
+                      }
+                      <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardandoCfg() || carasDe(p.id).length >= 4" (click)="agregarCara(p.id)"><span class="p-button-label">Agregar una cara</span></button>
+                      <p class="ub-hint">Un mueble entre dos pasillos lleva dos caras, una para cada corredor. Una isla puede tener cuatro. Un refrigerador o una caja llevan una que no guarda nada.</p>
+                      @if (cfgErr(); as e) { <p class="ub-hint ub-bad" role="alert">{{ e }}</p> }
+                    </div>
+                  }
+
                   @if (acomodoErr(); as e) { <p class="ub-hint ub-bad" role="alert">{{ e }}</p> }
                 </div>
               }
@@ -555,6 +614,25 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
       border:1px dashed var(--border-color); border-radius:var(--r-sm); background:none; }
     .ub-ac-sacar:not(:disabled) { color:var(--text-main); cursor:pointer; }
     @media (pointer:coarse) { .ub-ac-hueco { min-height:2.75rem; } .ub-ac-cara { padding:.6rem .8rem; } }
+
+    /* [UB.PL.12] El panel donde se contesta qué es el mueble y qué lleva cada cara. */
+    .ub-ac-config { display:flex; flex-direction:column; gap:var(--sp-2); padding:.6rem .5rem; margin-top:var(--sp-2);
+      border:1px solid var(--action); border-radius:var(--r-md); background:var(--card-bg); }
+    .ub-ac-cfg-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); }
+    .ub-ac-cfg-fila { display:flex; flex-wrap:wrap; align-items:flex-end; gap:var(--sp-2); }
+    .ub-ac-cfg-campo { display:flex; flex-direction:column; gap:.15rem; min-width:9rem; }
+    .ub-ac-cfg-campo.corto { min-width:4.5rem; }
+    .ub-ac-cfg-campo > span { color:var(--text-muted); font-size:var(--fs-nano); text-transform:uppercase; letter-spacing:.05em; }
+    .ub-ac-cfg-campo input, .ub-ac-cfg-campo select, .ub-ac-cfg-cara select, .ub-ac-cfg-cara input {
+      font:inherit; font-size:var(--fs-xs); padding:.3rem .4rem; border:1px solid var(--border-color);
+      border-radius:var(--r-sm); background:var(--card-bg); color:var(--text-main); }
+    .ub-ac-cfg-cara { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; padding:.3rem;
+      border-radius:var(--r-sm); background:var(--surface-2); }
+    .ub-ac-cfg-cara input.corto { width:4rem; }
+    .ub-ac-cfg-a { color:var(--text-muted); font-size:var(--fs-xs); }
+    .ub-ac-cfg-cuenta { color:var(--text-main); font-size:var(--fs-xs); }
+    .ub-ac-cfg-lugar { color:var(--text-muted); font-size:var(--fs-nano); }
+    @media (pointer:coarse) { .ub-ac-cfg-campo input, .ub-ac-cfg-campo select, .ub-ac-cfg-cara select { padding:.6rem .5rem; } }
 
     /* [UB.PL.11] El croquis dibujado: renglones de muebles con corredores entre medio. */
     .ub-croquis { display:flex; flex-direction:column; gap:var(--sp-3); padding:.75rem .85rem .25rem; overflow-x:auto; }
@@ -897,13 +975,105 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
     const c = id ? this.caras().find((x) => x.id === id) : null;
     if (!c) return 'la cara';
     const p = this.piezasDeZona().find((x) => x.id === c.fixture_id);
-    return p ? nombreDeCara(p, c.cara) : 'la cara';
+    return p ? nombreDeCara(p, c) : 'la cara';
   }
 
   /** La cara de ese lado de la celda, si la hay. Evita indexar por string en la plantilla. */
   caraEn(celda: CeldaDeLaPlanta, lado: MiraHacia): FixtureFace | null {
     return celda.caras[lado] ?? null;
   }
+
+  // ── `[UB.PL.12]` Configurar el mueble y sus caras, desde la pantalla ────────────────────────
+  /** La pieza que se está configurando. Se abre al tocar una cara; `null` cierra el panel. */
+  readonly piezaEnMano = signal<WarehouseFixture | null>(null);
+  readonly borradorPieza = signal<PiezaBody>({});
+  readonly guardandoCfg = signal(false);
+  readonly cfgErr = signal<string | null>(null);
+
+  /** Los modos de racks y los tipos de mueble, para los selectores. */
+  readonly RACKS_MODOS = RACKS_DE_CARA;
+  readonly FORMAS_LISTA = Object.entries(FORMAS).map(([tipo, k]) => ({ tipo: tipo as FixtureKind, label: k.label }));
+
+  carasDe(fixtureId: string): FixtureFace[] {
+    return this.caras().filter((c) => c.fixture_id === fixtureId).sort((a, b) => a.slot - b.slot);
+  }
+
+  nombrePiezaDe(p: WarehouseFixture): string {
+    return nombrePieza(p);
+  }
+
+  /** Cuántos racks le tocan a esta cara: la cuenta que vuelve comprobable lo que se eligió. */
+  cuantosRacks(c: FixtureFace, racksDeLaPieza: number): string {
+    const n = racksDeLaCara(c, racksDeLaPieza).length;
+    return n === 0 ? 'sin racks' : n === 1 ? '1 rack' : `${n} racks`;
+  }
+
+  private tragarCaras(caras: FixtureFace[]): void {
+    this.guardandoCfg.set(false);
+    this.cfgErr.set(null);
+    this.croquis.update((c) => (c ? { ...c, caras } : c));
+  }
+
+  private seQuejo(e: HttpErrorResponse): void {
+    this.guardandoCfg.set(false);
+    const m = e.error?.message;
+    this.cfgErr.set(typeof m === 'string' ? m : 'No se pudo guardar. Nada quedó a medias.');
+  }
+
+  /** Abre el panel sobre la pieza de esa cara. */
+  configurarPiezaDe(caraId: string): void {
+    const c = this.caras().find((x) => x.id === caraId);
+    const p = c ? this.piezasDeZona().find((x) => x.id === c.fixture_id) ?? null : null;
+    this.borradorPieza.set({});
+    this.cfgErr.set(null);
+    this.piezaEnMano.set(p);
+  }
+
+  configurarCara(c: FixtureFace, modo: RacksDeCara, desde?: number | null, hasta?: number | null): void {
+    if (this.guardandoCfg()) return;
+    this.guardandoCfg.set(true);
+    const body: CaraBody = {
+      fixture_id: c.fixture_id,
+      racks_modo: modo,
+      rack_desde: modo === 'rango' ? desde ?? c.rack_desde ?? 1 : null,
+      rack_hasta: modo === 'rango' ? hasta ?? c.rack_hasta ?? null : null,
+    };
+    this.api.cambiarCara(c.id, body).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (caras) => this.tragarCaras(caras), error: (e: HttpErrorResponse) => this.seQuejo(e) });
+  }
+
+  agregarCara(fixtureId: string): void {
+    if (this.guardandoCfg()) return;
+    this.guardandoCfg.set(true);
+    // Nace llevándose lo que quede libre: 'todos' si es la primera, y si no, el modo que falta.
+    const ya = this.carasDe(fixtureId).map((c) => c.racks_modo);
+    const modo: RacksDeCara = !ya.length ? 'todos' : ya.includes('nones') && !ya.includes('pares') ? 'pares' : ya.includes('pares') && !ya.includes('nones') ? 'nones' : 'ninguno';
+    this.api.agregarCara({ fixture_id: fixtureId, racks_modo: modo }).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (caras) => this.tragarCaras(caras), error: (e: HttpErrorResponse) => this.seQuejo(e) });
+  }
+
+  quitarCara(id: string): void {
+    if (this.guardandoCfg()) return;
+    this.guardandoCfg.set(true);
+    this.api.quitarCara(id).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (caras) => this.tragarCaras(caras), error: (e: HttpErrorResponse) => this.seQuejo(e) });
+  }
+
+  guardarPieza(id: string): void {
+    if (this.guardandoCfg()) return;
+    this.guardandoCfg.set(true);
+    this.api.editarPieza(id, this.borradorPieza()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => {
+        this.guardandoCfg.set(false);
+        this.cfgErr.set(null);
+        this.borradorPieza.set({});
+        this.piezaEnMano.set(p);
+        this.croquis.update((c) => (c ? { ...c, piezas: c.piezas.map((x) => (x.id === p.id ? p : x)) } : c));
+      },
+      error: (e: HttpErrorResponse) => this.seQuejo(e),
+    });
+  }
+
 
   /** Tomar y volver a tocar para soltar: el equivalente del arrastre que sí funciona sin mouse. */
   tomar(id: string): void {
@@ -987,8 +1157,10 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
       const pieza = piezas.find((p) => p.id === c.fixture_id);
       if (!pieza) return null;
       const bloque = pieza.pasillo ? porPasillo.get(pieza.pasillo) ?? null : null;
-      const frente = !bloque ? null : c.cara === 'pares' ? bloque.pares : bloque.nones;
-      return { id: c.id, nombre: nombreDeCara(pieza, c.cara), frente, pasillo: pieza.pasillo };
+      // [UB.PL.12] Qué racks dibuja esta cara ya no se deduce de su nombre: lo dice `racks_modo`,
+      // que es lo que alguien eligió en la pantalla. `ninguno` es un mueble que no guarda códigos.
+      const frente = !bloque || c.racks_modo === 'ninguno' ? null : c.racks_modo === 'pares' ? bloque.pares : bloque.nones;
+      return { id: c.id, nombre: nombreDeCara(pieza, c), frente, pasillo: pieza.pasillo };
     };
     const planta = this.planta();
     return planta.map((renglon, i) => {

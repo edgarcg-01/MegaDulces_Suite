@@ -21,6 +21,8 @@ import type {
   WarehouseLocationRow,
   WarehouseLocationsResponse,
   AcomodoCarasBody,
+  CaraBody,
+  PiezaBody,
   FixtureFace,
   CroquisResponse,
   CrearPiezaBody,
@@ -87,6 +89,28 @@ export class AlmacenUbicacionesCatalogoService {
    */
   acomodarCroquis(body: AcomodoCarasBody): Observable<{ movidas: number; caras: FixtureFace[] }> {
     return this.http.put<{ movidas: number; caras: FixtureFace[] }>(`${this.base}/fixtures/acomodo`, body);
+  }
+
+  // ── `[UB.PL.12]` Configurar el mueble y sus caras desde la pantalla ──
+
+  /** Agrega una cara a un mueble (hasta 4), diciendo qué racks lleva. */
+  agregarCara(body: CaraBody): Observable<FixtureFace[]> {
+    return this.http.post<FixtureFace[]>(`${this.base}/fixtures/caras`, body);
+  }
+
+  /** Cambia qué racks lleva una cara, o cómo se llama. */
+  cambiarCara(id: string, body: CaraBody): Observable<FixtureFace[]> {
+    return this.http.patch<FixtureFace[]>(`${this.base}/fixtures/caras/${id}`, body);
+  }
+
+  /** Quita una cara del mueble. Se retira, no se borra. */
+  quitarCara(id: string): Observable<FixtureFace[]> {
+    return this.http.delete<FixtureFace[]>(`${this.base}/fixtures/caras/${id}`);
+  }
+
+  /** Renombra un mueble o le cambia el tipo, los racks o los niveles. No crea ubicaciones. */
+  editarPieza(id: string, body: PiezaBody): Observable<WarehouseFixture> {
+    return this.http.put<WarehouseFixture>(`${this.base}/fixtures/${id}`, body);
   }
 
   /** Mueve una pieza en el croquis o la renombra. No toca ninguna ubicación ni ningún código. */
