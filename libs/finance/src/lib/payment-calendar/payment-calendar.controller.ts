@@ -9,7 +9,7 @@ import {
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarSuficiencia, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -161,6 +161,16 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: '[TP.16] Cuentas de ORIGEN elegibles al preparar un pago (activas, sin la caja).' })
   originAccounts(): Promise<PaymentOriginAccount[]> {
     return this.svc.originAccounts();
+  }
+
+  /**
+   * `[PGP.218]` Antes del programa, el dinero del cargo en su cuenta (anexo CR §3.0, DCR9). Sólo lectura, siempre hoy.
+   */
+  @Get('suficiencia')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: '[PGP.218] Por cada cuenta de origen: el saldo al cierre de su último día conocido (el de Bancos), lo programado desde ella y los cargos que el banco cobra solo en los próximos 7 días (por su historia, [PGP.209]), con el primer cargo que no cubre y cuánto falta. Los depósitos por venir no se suman. Sin saldo: no_medido. Medido el 2026-11-25 reconstruyendo el 12-nov: Santander 2169 tenía $31,144.45 y esperaba $79,876 de la arrendadora el 14 (faltaban $48,731.55); el banco los cobró tarde.' })
+  suficiencia(): Promise<PaymentCalendarSuficiencia> {
+    return this.svc.suficiencia();
   }
 
   @Get('payment-habits')
@@ -455,6 +465,20 @@ export class PaymentCalendarController {
     const { pdf, folio } = await this.docs.renderCheque(id, { prueba: esPrueba, dx: Number(dx), dy: Number(dy) });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${esPrueba ? 'prueba-' : ''}cheque-${folio}.pdf"`);
+    res.end(pdf);
+  }
+
+  /**
+   * `[PGP.168.1]` **La póliza del cheque**: media carta, ORIGINAL y COPIA (las dos hojas que van detrás del cheque). Lo
+   * pide quien prepara los pagos; «Hecho por» es quien la imprime (la sesión, no la pantalla). No escribe nada.
+   */
+  @Get('allocations/:id/poliza.pdf')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'PGP.168.1 — la póliza del cheque del pago (media carta, original y copia): la copia del cheque, los documentos pagados y sus sumas iguales al centavo. 409 con el motivo si el pago no puede salir en cheque.' })
+  async polizaPdf(@Param('id') id: string, @Req() req: AuthedRequest, @Res() res: Response): Promise<void> {
+    const { pdf, folio } = await this.docs.renderPoliza(id, req.user?.full_name || req.user?.username || null);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="poliza-cheque-${folio}.pdf"`);
     res.end(pdf);
   }
 

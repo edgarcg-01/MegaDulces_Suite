@@ -62,13 +62,17 @@ import {
   type CargoKepler, type FacturaParaDebeMenos, type ModoAjusteAlSaldo, type OpcionesAjusteAlSaldo, type RenglonVivoDeLaFactura,
 } from './debe-menos';
 import { ErrorAlPartir, EVENTO_PARTIDO_EN_TRANSFERENCIAS, partirEnTransferencias, type ParteDelPago } from './partir-en-transferencias';
+import { SQL_CUBIERTO, TABLE_BY_SOURCE, recalcularObligacion, type ObligationSource } from './recalcular-obligacion';
+import { armarSuficiencia } from './suficiencia-de-cuentas';
+import { leerEntradaDeSuficiencia } from './suficiencia-de-cuentas.query';
+import type { PaymentCalendarSuficiencia } from '@megadulces/contracts';
 import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
 import { AUTOR_PAGO_EN_KEPLER, EVENTO_LIGADO_A_KEPLER, EVENTO_PAGADO_EN_KEPLER, SQL_POR_LIGAR_A_KEPLER, decidirPagoEnKepler } from './pago-en-kepler';
 
 /** `[PGP.117]` Quién libera un pago vencido: queda en `updated_by` y en la bitácora. */
 export const AUTOR_PAGOS_VENCIDOS = 'sistema:pagos-vencidos';
 
-export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
+export type { ObligationSource } from './recalcular-obligacion';
 
 /**
  * `[TP.18.7]` La llave del origen derivado vive en `shared/`: la usan el Calendario y Pronto
@@ -203,28 +207,8 @@ interface AllocationItemRow {
   discount_amount: number | string;
 }
 
-/**
- * `[PGP.91]` **Lo que un item CUBRE de su factura**, en SQL: el neto que sale del banco más el
- * descuento que dio el proveedor. Toda suma que diga cuánto de una obligación está reservado o
- * pagado lee ESTO, para que el sobrante descontado no se vuelva a ofrecer mientras la nota de
- * crédito de Kepler no llega. ⛔ Lo que dice cuánto DINERO sale (`amount_assigned`, el tope del
- * día, los PDF, el cruce con el `X-D-26`) sigue leyendo `applied_amount` solo.
- */
-const SQL_CUBIERTO = '(i.applied_amount + i.discount_amount)';
-
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 
-/**
- * `[TP.18]` `null` = el origen **no tiene tabla propia**: es derivado de una vista del ERP y su
- * saldo se calcula al vuelo. Todo lo que lee o escribe una obligación tiene que preguntar por esto
- * antes de tocar una tabla — por eso el tipo lo obliga (`string | null`) en vez de dejarlo afuera.
- */
-const TABLE_BY_SOURCE: Record<ObligationSource, string | null> = {
-  budget_expense: 'budget.expense_obligations',
-  financial_commitment: 'finance.financial_commitments',
-  supplier_payable: 'commercial.supplier_payment_obligations',
-  kepler_payable: null,
-};
 const CLASSIFICATION_BY_SOURCE: Record<ObligationSource, string> = {
   budget_expense: 'gasto',
   financial_commitment: 'compromiso_financiero',
@@ -292,6 +276,33 @@ type FilaDePago = AllocationRowLite & {
   lot_date: string; lot_status: string | null; status: string; classification: string;
   authorized_at?: Date | string | null; created_at?: Date | string | null;
 };
+/** `[PGP.168.1]` Lo que la póliza lee de cada renglón del pago armado (`armarFilas`). */
+export interface ItemDePoliza {
+  applied_amount: number;
+  beneficiary: string | null;
+  obligation_source: string;
+  /** El folio de Kepler en una factura derivada; el concepto en las demás. */
+  concept: string | null;
+  branch_code: string | null;
+  doc_ref?: string | null;
+  vence?: string | null;
+  payee_code?: string | null;
+  discount_amount: number;
+  discount_lines?: unknown;
+  discount_reason?: unknown;
+  discount_rate?: unknown;
+  discount_note?: unknown;
+  cfdi?: { estado: string; cfdi: { uuid: string } | null } | null;
+}
+/** `[PGP.168.1]` El pago con lo que su cheque y su póliza necesitan (`pagoParaPoliza`). */
+export interface PagoParaPoliza extends PagoParaCheque {
+  dia: string;
+  banco_alias: string | null;
+  /** La cuenta del banco en ContPAQi (`bank_accounts.contpaqi_cuenta`); null si no la tiene. */
+  cuenta_banco: { cuenta: string; nombre: string | null } | null;
+  classification: string;
+  items: ItemDePoliza[];
+}
 /** `[TP.15]` Lo que el candado de saldo lee de una obligación a proveedor (columnas de la mig 20261016002604). */
 /** `[PGP.76]` El turno que quedó a cada pago del día después de reordenarlo. */
 export interface DayOrderRank { id: string; priority_rank: number }
@@ -493,32 +504,9 @@ export class PaymentCalendarService {
     if (!DATE_RX.test(d)) throw new BadRequestException('Fecha inválida (YYYY-MM-DD)');
   }
 
-  /** Recalcula reserved_amount/paid_amount/status de UNA obligación desde sus items activos. */
+  /** Recalcula reserved_amount/paid_amount/status de UNA obligación desde sus items activos (`recalcularObligacion`). */
   private async recalcObligation(trx: Knex.Transaction, source: ObligationSource, id: string) {
-    const table = TABLE_BY_SOURCE[source];
-    // `[TP.18]` El origen derivado no tiene dónde guardar `reserved_amount`/`paid_amount`: su
-    // saldo se recalcula al vuelo en cada lectura, desde estos mismos items. No hay nada que
-    // desincronizar, que es justamente lo que `recalcObligation` viene a evitar en los otros tres.
-    if (!table) return;
-    // `[PGP.91]` Reservado y pagado son lo CUBIERTO (neto + descuento al pagar), no sólo el neto:
-    // una factura pagada con 3 % de descuento queda saldada aquí, y el 3 % no vuelve a ofrecerse
-    // mientras Kepler no emite la nota de crédito. Respeta el CHECK reservado + pagado ≤ original
-    // de las tres tablas porque lo cubierto nunca pasa del disponible (`createAllocation`/`addItem`).
-    const [agg] = await trx('finance.payment_allocation_items as i')
-      .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
-      .where({ 'i.obligation_source': source, 'i.obligation_id': id })
-      .select(
-        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'pending'), 0) AS reserved`),
-        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'executed'), 0) AS paid`),
-      );
-    const row = await trx(table).select('original_amount', 'status').where({ id }).first();
-    if (!row) return;
-    const reserved = Number(agg?.reserved ?? 0);
-    const paid = Number(agg?.paid ?? 0);
-    const newStatus = row.status === 'cancelled' ? 'cancelled'
-      : paid >= Number(row.original_amount) ? 'paid'
-      : (paid > 0 || reserved > 0) ? 'partial' : 'pending';
-    await trx(table).where({ id }).update({ reserved_amount: reserved, paid_amount: paid, status: newStatus, updated_at: trx.fn.now() });
+    return recalcularObligacion(trx, source, id);
   }
 
   /** Recalcula amount_assigned de UN allocation desde sus items. */
@@ -1316,6 +1304,47 @@ export class PaymentCalendarService {
         reference_text: r.reference_text ?? null,
         amount_assigned: r.amount_assigned,
         items: (pago.items ?? []).map((it) => ({ applied_amount: it.applied_amount, beneficiary: (it.beneficiary ?? null) as string | null })),
+      };
+    });
+  }
+
+  /**
+   * `[PGP.168.1]` **Un pago con lo que su póliza necesita**: lo mismo que el cheque (`dictamenCheque` se repite con estos
+   * datos) más cada documento completo —folio, sucursal, referencia, vencimiento, descuento— con su CFDI, que aquí se
+   * lee SIEMPRE (en el día cuesta ~330 ms para todos los pagos; aquí, para uno: y un cheque de mañana también lleva
+   * póliza), la clasificación del pago y la cuenta contable del banco. El beneficiario sale de `armarFilas`, la misma
+   * regla del día: la póliza y el cheque no pueden decir dos nombres. Sólo lectura.
+   */
+  async pagoParaPoliza(allocationId: string): Promise<PagoParaPoliza | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(allocationId ?? ''))) return null;
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const a = (await trx('finance.payment_allocations as a')
+        .join('finance.payment_calendar_lots as l', 'l.id', 'a.lot_id')
+        .leftJoin('finance.bank_accounts as ba', 'ba.id', 'a.bank_account_id')
+        .where({ 'a.id': allocationId, 'a.tenant_id': tenantId })
+        .whereNot('a.status', 'cancelled')
+        .first('a.*', trx.raw("to_char(l.lot_date, 'YYYY-MM-DD') AS lot_date"), 'l.status AS lot_status',
+          'ba.bank AS banco', 'ba.alias AS banco_alias', 'ba.contpaqi_cuenta AS banco_cuenta', 'ba.contpaqi_cuenta_nombre AS banco_cuenta_nombre',
+          // El importe como TEXTO del numeric: los centavos se leen exactos, sin pasar por un flotante.
+          trx.raw('a.amount_assigned::text AS amount_texto'))) as (FilaDePago & {
+          banco: string | null; banco_alias: string | null; banco_cuenta: string | null; banco_cuenta_nombre: string | null;
+          amount_texto: string; payment_method: string | null; reference_text: string | null;
+        }) | undefined;
+      if (!a) return null;
+      const [pago] = await this.armarFilas(trx, tenantId, [a], { conCfdi: () => true, validarDias: [] });
+      if (!pago) return null;
+      const cuenta = (a.banco_cuenta ?? '').trim();
+      return {
+        dia: a.lot_date,
+        banco: a.banco ?? null,
+        banco_alias: a.banco_alias ?? null,
+        cuenta_banco: cuenta ? { cuenta, nombre: (a.banco_cuenta_nombre ?? '').trim() || null } : null,
+        classification: String(a.classification ?? ''),
+        payment_method: a.payment_method ?? null,
+        reference_text: a.reference_text ?? null,
+        amount_assigned: a.amount_texto,
+        items: ((pago.items ?? []) as unknown as ItemDePoliza[]),
       };
     });
   }
@@ -2692,6 +2721,17 @@ export class PaymentCalendarService {
       .where('active', true)
       .select('id', 'bank', 'account_label', 'alias', 'kind')
       .orderBy([{ column: 'bank' }, { column: 'account_label' }]));
+  }
+
+  /**
+   * `[PGP.218]` **¿Le alcanza a cada cuenta de origen para lo programado y para los cargos que el banco cobra solo?**
+   * Hoy y los próximos 7 días (anexo CR §3.0, DCR9): la regla vive en `armarSuficiencia`, la lectura en
+   * `leerEntradaDeSuficiencia`. Sólo lee. Siempre es HOY: el saldo y la historia de los cargos son los de hoy.
+   */
+  async suficiencia(): Promise<PaymentCalendarSuficiencia> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hoy = todayMx();
+    return this.tk.run(async (trx) => armarSuficiencia(await leerEntradaDeSuficiencia(trx, tenantId, hoy)));
   }
 
   /**

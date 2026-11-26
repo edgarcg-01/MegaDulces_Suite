@@ -47,6 +47,14 @@ const RE = /^[^\S\n]*(?:import|export)\b[^\n;]*?\sfrom\s*['"](\.[^'"]*)['"]/gm;
 /** Y el `import './efecto';` suelto, sin `from`. */
 const RE_SUELTO = /^[^\S\n]*import\s*['"](\.[^'"]*)['"]/gm;
 
+/**
+ *   El prefiltro del `git grep --cached`, en ERE de POSIX. Es una SEGUNDA reja: si ésta no
+ * reconoce una forma, la compuerta la salta en silencio y `colgados()` ni se entera. Por eso el
+ * `--self-test` la ejerce contra los mismos casos  probar sólo la función que decide deja este
+ * filtro sin control, que es la forma de tener una prueba negativa que no prueba nada.
+ */
+const ERE_PREFILTRO = "^[[:space:]]*(import|export)[^;]*['\"]\\.";
+
 const EXT = ['', '.ts', '.tsx', '.d.ts', '.js', '.mjs', '.cjs', '.json', '/index.ts', '/index.js'];
 
 /** Normaliza `a/b/../c` â†’ `a/c` sin tocar el disco. */
@@ -99,17 +107,49 @@ if (process.argv.includes('--self-test')) {
     if (dio !== esperado) { malos++; console.log(`   âœ— ${que}: esperaba ${esperado}, dio ${dio}`); }
   }
   if (malos) { console.log(`\n[X] self-test: ${malos} caso(s) mal.`); process.exit(1); }
+  // CONTROL de la segunda reja: toda linea que `colgados()` marca tiene que pasar el prefiltro.
+  const pre = new RegExp(ERE_PREFILTRO.replace('[[:space:]]', '\\s'), 'm');
+  let ciegos = 0;
+  for (const [f, src, esperado, que] of casos) {
+    if (esperado === 0) continue;
+    if (!pre.test(src)) { ciegos++; console.log(`    CONTROL: el prefiltro del git grep NO ve "${que}"  la compuerta lo saltaria en silencio`); }
+  }
+  if (ciegos) { console.log(`\n[X] self-test: ${ciegos} caso(s) que el prefiltro no ve.`); process.exit(1); }
   console.log(`OK self-test: ${casos.length} casos (4 que marcan, 9 que no â€” incluidos el selector CSS y el comentario).`);
   process.exit(0);
 }
 
-const versionados = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\0').filter(Boolean);
+const g = (args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28 });
+
+/**
+ * P El universo y el CONTENIDO salen del ÍNDICE, no del disco.
+ *
+ * Medido el 2026-11-26, el mismo día que esta compuerta nació: leyendo el disco marcaba 8
+ * archivos que estaban modificados SÓLO en el árbol de trabajo (` M`, sin preparar) de otras
+ * sesiones, y como `gate-push.js` culpa por NOMBRE de archivo, cualquier push amplio cargaba
+ * con suciedad que no llevaba adentro: frenó nueve refrescos de PR seguidos.
+ *
+ * Y el límite del índice no afloja nada: el defecto que tiró `main` ese día entró por un
+ * COMMIT, no por el disco. Lo que se empuja es el índice; lo que alguien tiene a medias en su
+ * editor no es asunto de esta compuerta.
+ */
+const versionados = g(['ls-files']).split('\n').filter(Boolean);
 const universo = new Set(versionados);
 const hallazgos = [];
-for (const f of versionados) {
-  if (!/\.(ts|tsx|js|mjs|cjs)$/.test(f) || /node_modules/.test(f)) continue;
-  let src; try { src = fs.readFileSync(f, 'utf8'); } catch { continue; }
-  for (const rel of colgados(f, src, universo)) hallazgos.push([f, rel]);
+
+// Un solo proceso para todo el índice: `git grep --cached` en vez de 4,400 lecturas.
+let lineas = [];
+try {
+  lineas = g(['grep', '--cached', '-n', '-E', ERE_PREFILTRO, '--',
+    '*.ts', '*.tsx', '*.js', '*.mjs', '*.cjs']).split('\n').filter(Boolean);
+} catch (e) { if (e.status !== 1) throw e; } // 1 = sin coincidencias
+
+for (const l of lineas) {
+  const m = l.match(/^([^:]+):\d+:(.*)$/);
+  if (!m) continue;
+  const [, f, txt] = m;
+  if (/node_modules/.test(f)) continue;
+  for (const rel of colgados(f, txt, universo)) hallazgos.push([f, rel]);
 }
 
 if (hallazgos.length) {

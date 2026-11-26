@@ -74,6 +74,12 @@ export * from './http/supplier-credits.contract';
 export * from './http/purchase-delivery.contract';
 // [TP.16] Calendario de Pagos: semana completa, «Ordenar y pagar» y cuentas de origen.
 export * from './http/payment-calendar.contract';
+// `[PGP.218]` ¿Le alcanza a la cuenta de origen para lo programado y para los cargos que el banco cobra solo? (la regla, para servidor y pantalla).
+export * from './finance/suficiencia-de-cuentas.contract';
+// `[PGP.210]` El contrato que sustenta un cargo del banco: vocabulario (= los CHECK) y reglas puras.
+export * from './finance/contratos-de-cargo.contract';
+// `[PGP.219]` El interés del crédito, calculado: saldo × tasa implícita del último cargo × días (DCR8/DCR10).
+export * from './finance/interes-del-credito.contract';
 // [PGP.97] la guía «pagado en el banco, falta en Kepler».
 export * from './http/fuera-de-programa.contract';
 // [OR.4] Trabajo: el vocabulario común de una tarea asignada. El reparto se construyó CUATRO veces
@@ -250,6 +256,8 @@ export * from './finance/pago-vencido.contract';
 export * from './finance/importe-con-letra';
 // `[PGP.165]` El cheque impreso: la plantilla en mm (BanBajío), los campos ya escritos y si el pago puede salir en cheque.
 export * from './finance/cheque-impreso';
+// `[PGP.168.1]` La póliza del cheque: la copia del cheque, los documentos pagados y sus sumas iguales, al centavo.
+export * from './finance/poliza-cheque';
 // `[PGP.118]` Anticipos a proveedor: el submódulo de Deuda con proveedores.
 export * from './finance/anticipos.contract';
 export * from './finance/venta-vendedor.contract';

@@ -43,6 +43,9 @@ import { nombreDeBase } from '@megadulces/contracts';
 import { anticiposDelDia, PERMISOS_PEDIR_ANTICIPO, type AnticipoSolicitadoRow } from '@megadulces/contracts';
 import { PedirAnticipoDialogComponent, diaInicialDelAnticipo, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
 import { AvisoProveedorDialogComponent } from '../components/aviso-proveedor-dialog.component';
+import { SuficienciaCuentasPeekComponent } from '../components/suficiencia-cuentas-peek.component';
+import { avisoDelOrigen, lineaDeLaSemana, type AvisoDelOrigen } from './calendario-pagos-suficiencia';
+import type { PaymentCalendarSuficiencia } from '@megadulces/contracts';
 import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarUrl } from '../../../shared/util/abrir-pdf';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
@@ -199,7 +202,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent, PagosCapturaLoteComponent, SegmentedComponent, PedirAnticipoDialogComponent, SemanaPickerComponent, AvisoProveedorDialogComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent, PagosCapturaLoteComponent, SegmentedComponent, PedirAnticipoDialogComponent, SemanaPickerComponent, AvisoProveedorDialogComponent, SuficienciaCuentasPeekComponent],
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
@@ -254,6 +257,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       <app-pedir-anticipo-dialog #pedirAnt (pedido)="alPedirAnticipo($event)" />
       <!-- [PGP.194] El aviso de pago al proveedor (su desglose y la transferencia), desde el renglón de un pago pagado. -->
       <app-aviso-proveedor-dialog #avisoProv />
+      <!-- [PGP.218] El desglose de «qué cuenta se queda corta»: se abre desde su línea en la barra de la semana. -->
+      <app-suficiencia-cuentas-peek [open]="panelCuentas()" (openChange)="panelCuentas.set($event)" [suficiencia]="suficiencia()" [error]="suficienciaError()" (reintentar)="reintentarSuficiencia()" />
 
       @if (modo() === 'etapa') {
         <section class="pg-bandeja" aria-labelledby="pg-bandeja-h">
@@ -310,6 +315,17 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             <button type="button" class="pg-atr" (click)="irAlDia(atrasados()[0].date)">
               <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
               <span><b>{{ pagos(atrasadosPagos()) }}</b> por <b class="comm-num">{{ moneyShort(atrasadosMonto()) }}</b> siguen en {{ atrasados().length === 1 ? 'un día que ya pasó' : dias(atrasados().length) + ' que ya pasaron' }} ({{ atrasadosRango() }})@if (atrasadosSalidos()) { · {{ atrasadosSalidos() === 1 ? 'otro ya salió' : 'otros ' + atrasadosSalidos() + ' ya salieron' }} del banco }</span>
+              <i class="pi pi-angle-right" aria-hidden="true"></i>
+            </button>
+          }
+          <!-- [PGP.218] DCR9 (Francisco, 2026-11-25): «que el cargo se contemple antes de hacer el programa». UNA línea, con el
+               patrón de la de arriba y sólo si alguna cuenta se queda corta para lo preparado y los cargos que el banco cobra
+               solo en 7 días; abre el desglose. Lo que no se pudo saber se dice: un silencio se leería como «alcanza». -->
+          @if (lineaCuentas(); as lc) {
+            <!-- También con error: abre el desglose, que dice qué falló y trae «Reintentar» (app-load-state). -->
+            <button type="button" class="pg-atr" [class.is-nm]="lc.tipo === 'quieta'" aria-haspopup="dialog" (click)="panelCuentas.set(true)">
+              <i class="pi" [class.pi-building-columns]="!suficienciaError()" [class.pi-exclamation-triangle]="suficienciaError()" aria-hidden="true"></i>
+              <span>{{ lc.texto }}</span>
               <i class="pi pi-angle-right" aria-hidden="true"></i>
             </button>
           }
@@ -1015,6 +1031,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           @if (canGestionar() && chequeImprimible(a)) {
                             <button type="button" class="pg-saldada-btn" [disabled]="printing()" (click)="imprimirCheque(a)"
                                     [attr.aria-label]="'Imprimir el cheque ' + a.reference_text + ' de ' + allocationTitle(a)"><i class="pi pi-print" aria-hidden="true"></i> Imprimir cheque</button>
+                            <!-- [PGP.168.1] Las 2 hojas de póliza (original y copia, media carta) que van detrás del cheque. -->
+                            <button type="button" class="pg-saldada-btn" [disabled]="printing()" (click)="imprimirPoliza(a)"
+                                    [attr.aria-label]="'Imprimir la póliza del cheque ' + a.reference_text + ' de ' + allocationTitle(a)"><i class="pi pi-file" aria-hidden="true"></i> Póliza</button>
                           }
                           <!-- [PGP.114] En la etapa no se repite lo que dice la etapa («Preparado · por autorizar» en «Por autorizar»). -->
                           @if (day || a.status !== 'pending' || !!cs.falta || etapa(a) !== 'autorizar') {
@@ -1499,6 +1518,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <label class="cal-dlg-label" for="cal-prep-origin">Cuenta de origen (de dónde sale el dinero)</label>
         <!-- [PGP.155] A una cuenta sin CLABE sólo se transfiere desde una cuenta nuestra del mismo banco: sólo se ofrecen ésas. -->
         <p-select appendTo="body" inputId="cal-prep-origin" [options]="prepOrigenes()" [(ngModel)]="prepOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" [fluid]="true" [emptyMessage]="origenVacio()" class="cal-dlg-sel" />
+        <!-- [PGP.218] Lo que pasa en la cuenta elegida CON este pago (la misma regla del servidor, conUnPagoMas): el cargo del
+             banco que deja sin cubrir y cuánto falta, o en voz baja lo que queda. No bloquea: Tesorería decide. -->
+        @if (avisoDeCuenta(prepAllocation, prepOriginId); as av) {
+          <p class="cal-dlg-hint" [class.cal-habito-nm]="av.mal" [attr.role]="av.mal ? 'alert' : null"><i class="pi" [ngClass]="av.mal ? 'pi-exclamation-triangle' : 'pi-building-columns'" aria-hidden="true"></i> {{ av.texto }}</p>
+        }
         }
         <!-- [PGP.190.1] Si la lista de cuentas no se pudo leer, se dice aquí con su salida; antes el selector sólo decía «Sin opciones». -->
         @if (originError(); as e) {
@@ -1517,7 +1541,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <input id="cal-prep-ref" pInputText type="text" inputmode="numeric" autocomplete="off" [(ngModel)]="prepReference" placeholder="Folio" class="cal-dlg-full" />
         <!-- [PGP.165] El número que trae el cheque que va a la impresora; la hoja de prueba se usa una vez por impresora. -->
         <p class="cal-dlg-hint"><i class="pi pi-print" aria-hidden="true"></i> El número impreso en el cheque que vas a meter a la impresora. Al guardar, «Imprimir cheque» aparece en su renglón.
-          ¿Impresora nueva? <button type="button" class="pg-saldada-btn" [disabled]="printing()" (click)="imprimirHojaDePrueba()">Hoja de prueba</button> en papel blanco, contra un cheque cancelado.</p>
+          @if (prepBancoDelCheque()) {
+            ¿Impresora nueva? <button type="button" class="pg-saldada-btn" [disabled]="printing()" (click)="imprimirHojaDePrueba()">Hoja de prueba</button> en papel blanco, contra un cheque cancelado de esa chequera.
+          } @else {
+            Elige la cuenta del cheque: la hoja de prueba es la de su chequera.
+          }</p>
       }
       @if (prepMethod === 'efectivo' && prepAllocation && esPagoDeAnticipo(prepAllocation)) {
         <!-- [PGP.157] Un anticipo en efectivo sale de la Caja General de SU base: cada base cuadra sola (Francisco,
@@ -1597,6 +1625,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           <p class="cal-dlg-hint pg-it-sald"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ textoDeMas(dm) }}. Autorizado así, sale por {{ money(a.amount_assigned) }}; lo que se debe hoy es {{ money(numero(a.amount_assigned) - dm.de_mas) }}.</p>
         }
         <p class="cal-dlg-hint">{{ comoSale(a).texto || methodLabel(a.payment_method || '') }} · sale el {{ dayLong(diaDe(a)) }} · {{ documentos(a.items) }}@if (numero(a.discount_total) > 0) { · con {{ money(a.discount_total) }} de descuento }.</p>
+        <!-- [PGP.218] Antes de la firma, si su cuenta de origen cubre este pago y los cargos que el banco cobra solo. -->
+        @if (avisoDeCuenta(a, a.bank_account_id); as av) {
+          <p class="cal-dlg-hint" [class.cal-habito-nm]="av.mal"><i class="pi" [ngClass]="av.mal ? 'pi-exclamation-triangle' : 'pi-building-columns'" aria-hidden="true"></i> {{ av.texto }}</p>
+        }
         @if (a.created_by) {
           <p class="cal-dlg-hint">Lo armó {{ a.created_by }}. Debe autorizarlo alguien distinto de quien lo armó o preparó; la Suite todavía no lo impide.</p>
         }
@@ -2262,6 +2294,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-atr:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-atr.is-nm { cursor:default; color:var(--warn-soft-fg); }
     .pg-atr.is-nm:hover { text-decoration:none; }
+    /* [PGP.218] La línea de las cuentas en voz baja (cargos sin medir, o la lectura falló) SÍ abre el desglose: se ve
+       que se toca. Y con el dedo, 44 px (DESIGN §716; medido en la prueba visual: 24 px en el Fold 7). */
+    button.pg-atr.is-nm { cursor:pointer; }
+    button.pg-atr.is-nm:hover { text-decoration:underline; }
+    @media (pointer: coarse) { .pg-atr { min-height:44px; } }
     .pg-sec-saldada { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
     .pg-dlg-list li.is-saldada { color:var(--bad-fg); }
     .pg-dlg-warn { display:inline-flex; align-items:center; gap:var(--sp-1); margin-left:var(--sp-2); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
@@ -4003,6 +4040,34 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       error: () => { this.atrasados.set([]); this.atrasadosSalidos.set(0); this.atrasadosError.set(true); },
     });
   }
+  /**
+   * `[PGP.218]` ¿Le alcanza a cada cuenta de origen para lo preparado y para los cargos que el banco cobra solo en 7 días?
+   * (anexo CR §3.0, DCR9). Se relee con la semana (`reload`): preparar o pagar cambia lo que sale de cada cuenta.
+   */
+  readonly suficiencia = signal<PaymentCalendarSuficiencia | null>(null);
+  readonly suficienciaError = signal(false);
+  readonly panelCuentas = signal(false);
+  readonly lineaCuentas = computed(() =>
+    lineaDeLaSemana(this.suficiencia(), this.suficienciaError(), { dinero: (n) => this.moneyShort(n), dia: (iso) => this.shortDate(iso) }));
+  private loadSuficiencia(): void {
+    this.http.get<PaymentCalendarSuficiencia>(`${this.base}/suficiencia`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => { this.suficiencia.set(s ?? null); this.suficienciaError.set(false); },
+      error: () => { this.suficiencia.set(null); this.suficienciaError.set(true); },
+    });
+  }
+  /** «Reintentar» del desglose: sin el error, el panel vuelve a «cargando» mientras llega la respuesta. */
+  reintentarSuficiencia(): void {
+    this.suficienciaError.set(false);
+    this.loadSuficiencia();
+  }
+  /** `[PGP.218]` La línea de «Preparar pago» y de «Autorizar»: lo que pasa en esa cuenta si además sale este pago. */
+  avisoDeCuenta(a: PaymentCalendarAllocation | null | undefined, cuentaId: string | null | undefined): AvisoDelOrigen | null {
+    if (!a) return null;
+    return avisoDelOrigen(this.suficiencia(), this.suficienciaError(), cuentaId,
+      { allocation_id: a.id, fecha: this.diaDe(a), importe: this.numero(a.amount_assigned) },
+      { dinero: (n) => this.money(n), dia: (iso) => this.shortDate(iso) });
+  }
+
   /** Abre un día de cualquier semana (la tira se mueve a la suya). */
   irAlDia(fecha: string): void {
     this.armado.set(null);
@@ -4780,6 +4845,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.loadBandeja();
     this.loadObligations();
     this.loadAtrasados();
+    this.loadSuficiencia();
     this.cargarAnticiposPedidos();
   }
 
@@ -6404,8 +6470,20 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
   /** `[PGP.165]` El cheque en PDF del tamaño del cheque: importe al centavo, letra y fecha del día los pone el servidor. */
   imprimirCheque(a: PaymentCalendarAllocation): void { this.openPdf(`${this.base}/allocations/${a.id}/cheque.pdf`); }
-  /** `[PGP.165]` La hoja de prueba en carta, para calibrar la impresora contra un cheque cancelado. */
-  imprimirHojaDePrueba(): void { this.openPdf(`${this.base}/cheques/prueba.pdf?banco=BBAJIO`); }
+  /** `[PGP.168.1]` La póliza del cheque en media carta (original y copia): la copia del cheque y lo que paga, al centavo. */
+  imprimirPoliza(a: PaymentCalendarAllocation): void { this.openPdf(`${this.base}/allocations/${a.id}/poliza.pdf`); }
+  /**
+   * `[PGP.165]` El banco de la cuenta elegida en «Preparar». Cada chequera tiene su papel (BanBajío 160 × 70 mm,
+   * Santander 162.3 × 72.1): la hoja de prueba es la de ESA cuenta. Null = todavía no se elige la cuenta.
+   */
+  prepBancoDelCheque(): string | null {
+    return this.originOpts().find((o) => o.id === this.prepOriginId)?.bank ?? null;
+  }
+  /** `[PGP.165]` La hoja de prueba en carta, para calibrar la impresora contra un cheque cancelado de esa chequera. */
+  imprimirHojaDePrueba(): void {
+    const banco = this.prepBancoDelCheque();
+    if (banco) this.openPdf(`${this.base}/cheques/prueba.pdf?banco=${encodeURIComponent(banco)}`);
+  }
   /**
    * `[PGP.33]` La instrucción de ejecución. Se llamaba `printCajaGeneral` y el PDF se titulaba
    * «— Caja General» para TODO el lote; medido, el 87.3 % del dinero sale de banco y lo dispersa

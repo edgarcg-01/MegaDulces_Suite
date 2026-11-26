@@ -1,5 +1,6 @@
 import {
-  ETIQUETA_MOTIVO_NO_SE_PIDE, fechasDeLaRegla, sumarDias, diaIso,
+  ETIQUETA_MOTIVO_NO_SE_PIDE, fechasDeLaRegla, historialDeLaRegla, OCASIONAL_CADA_N_DIAS, sumarDias, diaIso, ultimoCambioSinHistorial,
+  type CambioDeRegla, type PasoDelHistorial,
   type AlcanceDeQuienVe, type AvanceDelEmbudo, type EscalonLlenado, type EstadoDeRegla, type FuenteActividad, type MarcaVista, type PatronDeRegla, type PesoProveedor, type PropuestaDiaFijo, type PropuestaSinRegla,
   type ReglaCalendario,
 } from '@megadulces/contracts';
@@ -280,4 +281,86 @@ export function pesoEnPalabras(peso: PesoProveedor | null, rondas: number): { re
   const r = `${rondas} ${rondas === 1 ? 'ronda' : 'rondas'} en 12 meses`;
   if (!peso) return { principal: 'Peso no medido', detalle: r };
   return { principal: `${porcentaje(peso.compra_pct)} de la compra`, detalle: `${peso.ocs_12m} OC · ${r} · escalón ${peso.escalon}` };
+}
+
+/** `[PQ.3.18]` (c) Lo que dice el aviso tras definir los ocasionales en bloque (y lo que no se tocó, si hubo). */
+export function avisoOcasionales(r: { readonly definidas: number; readonly hasta: string; readonly omitidas: readonly unknown[] }): string {
+  const hechas = r.definidas === 1 ? '1 proveedor ocasional quedó' : `${r.definidas} proveedores ocasionales quedaron`;
+  const base = r.definidas ? `${hechas} fuera de ciclo hasta el ${diaCorto(r.hasta)}, con una regla «cada ${OCASIONAL_CADA_N_DIAS} días».` : 'No se definió ningún ocasional.';
+  const n = r.omitidas.length;
+  return n ? `${base} ${n === 1 ? '1 no se tocó' : `${n} no se tocaron`}: ya tenían regla o ya no eran ocasionales.` : base;
+}
+
+// ── [PQ.3.17] Quién la definió, quién la cambió y de qué a qué (anexo C §10.9, DC25) ────────────────────────────────
+
+const CAMPOS_DEL_PATRON = ['pattern', 'weekdays', 'month_days', 'month_last_day', 'every_n_days', 'weekend_shift', 'week_interval', 'week_anchor', 'month_week'];
+
+/** El patrón entero, con su segunda línea (desde cuándo cuenta, qué hace en fin de semana). */
+function patronCompleto(r: PatronDeRegla): string {
+  const c = corrimientoEnPalabras(r);
+  return c ? `${patronEnPalabras(r)} (${c.charAt(0).toLowerCase()}${c.slice(1)})` : patronEnPalabras(r);
+}
+
+/** «Ana López» · «sin nombre declarado» (la escritura no dijo quién: hecha fuera de la Suite). */
+export function quienCambio(c: Pick<CambioDeRegla, 'por'>): string {
+  return c.por ?? 'sin nombre declarado';
+}
+
+/**
+ * `[PQ.3.17]` Lo que cambió en un paso del historial, en renglones: el patrón entero antes y después (no las columnas
+ * sueltas), el responsable por nombre, fuera de ciclo con su motivo, la nota, la baja. Una escritura que no movió nada
+ * de eso (se guardó igual) también se dice: el historial cuenta cada vez que alguien guardó.
+ */
+export function pasoEnPalabras(p: PasoDelHistorial): string[] {
+  const c = p.cambio.campos;
+  const hay = (k: string) => k in c;
+  const out: string[] = [];
+  if (CAMPOS_DEL_PATRON.some(hay)) {
+    const a = patronCompleto(p.antes);
+    const d = patronCompleto(p.despues);
+    out.push(a === d ? `Patrón: ${d}, guardado otra vez` : `Patrón: ${a} → ${d}`);
+  }
+  if (hay('reviewer_user_id')) {
+    const n = (id: string | null) => (id ? p.cambio.nombres[id] ?? 'sin nombre registrado' : 'nadie (revisa el puesto)');
+    out.push(`Responsable: ${n(p.antes.reviewer_user_id)} → ${n(p.despues.reviewer_user_id)}`);
+  }
+  if (hay('out_of_cycle_until')) {
+    const hasta = p.despues.out_of_cycle_until;
+    const motivo = p.despues.out_of_cycle_reason;
+    out.push(hasta ? `Fuera de ciclo hasta el ${diaCorto(hasta)}${motivo ? `: «${motivo}»` : ''}` : 'Regresó al ciclo');
+  } else if (hay('out_of_cycle_reason') && p.despues.out_of_cycle_reason) {
+    out.push(`Motivo de fuera de ciclo: «${p.despues.out_of_cycle_reason}»`);
+  }
+  if (hay('note')) out.push(p.despues.note ? `Nota: «${p.despues.note}»` : 'Se quitó la nota');
+  if (hay('deleted_at') && c['deleted_at'].despues) out.push('Dada de baja');
+  if (!out.length) out.push('Se guardó sin cambios');
+  return out;
+}
+
+/** `[PQ.3.17]` El historial de una regla listo para pintar (o `null` si no hay nada que decir). */
+export interface HistorialVisible {
+  readonly pasos: readonly { readonly cuando: string; readonly quien: string; readonly lineas: readonly string[] }[];
+  /** «Se ven los 10 más recientes de 14.» */
+  readonly mas: string | null;
+  /** El último cambio es de antes de que se guardara el historial. */
+  readonly sin_historial: string | null;
+}
+
+/**
+ * `[PQ.3.17]` De la regla del calendario a lo que dice el detalle. `medido = false` (el historial no se pudo leer):
+ * sin pasos y sin «antes del historial»; eso lo dice el aviso del calendario, no una lista vacía.
+ */
+export function historialVisible(
+  r: Pick<ReglaCalendario, 'pattern' | 'weekdays' | 'month_days' | 'month_last_day' | 'every_n_days' | 'weekend_shift' | 'week_interval'
+    | 'week_anchor' | 'month_week' | 'reviewer_user_id' | 'out_of_cycle_until' | 'out_of_cycle_reason' | 'note' | 'ultimo_cambio' | 'cambios' | 'cambios_total'>,
+  medido: boolean,
+): HistorialVisible | null {
+  if (!medido || !r.cambios) return null;
+  const pasos = historialDeLaRegla(r, r.cambios).map((p) => ({ cuando: diaCorto(p.cambio.dia), quien: quienCambio(p.cambio), lineas: pasoEnPalabras(p) }));
+  const total = r.cambios_total ?? r.cambios.length;
+  const sin = ultimoCambioSinHistorial(r)
+    ? 'Ese último cambio es de antes de que se guardara el historial: se sabe quién y cuándo, no de qué a qué.'
+    : null;
+  if (!pasos.length && !sin) return null;
+  return { pasos, mas: total > pasos.length ? `Se ven los ${pasos.length} más recientes de ${total}.` : null, sin_historial: sin };
 }

@@ -1,4 +1,4 @@
-import { PLANTILLA_CHEQUE_BAJIO, camposDelCheque, datosDeChequeDePrueba } from '@megadulces/contracts';
+import { PLANTILLAS_CHEQUE, PLANTILLA_CHEQUE_BAJIO, PLANTILLA_CHEQUE_SANTANDER, camposDelCheque, datosDeChequeDePrueba } from '@megadulces/contracts';
 import { AJUSTAR_CHEQUE_JS, DESPLAZAMIENTO_MAX_MM, chequeHtml, chequeSvg, desplazamiento, hojaDePruebaHtml } from './cheque-svg';
 
 const pl = PLANTILLA_CHEQUE_BAJIO;
@@ -14,9 +14,20 @@ describe('[PGP.165] el cheque en SVG', () => {
     expect(html).toContain('.ch-hoja{width:160mm;height:69.5mm;overflow:hidden}');
   });
 
+  it('el Santander sale en SU papel (162.3 × 72.1), no en el de BanBajío', () => {
+    const html = chequeHtml(PLANTILLA_CHEQUE_SANTANDER, campos);
+    expect(html).toContain('@page{size:162.3mm 72.1mm;margin:0}');
+    expect(html).toContain('viewBox="0 0 162.3 72.1"');
+    expect(html).toContain('.ch-hoja{width:162.3mm;height:71.6mm;overflow:hidden}');
+    // «INICIE AQUÍ»: el importe arranca a la izquierda del recuadro.
+    expect(html).toContain(`class="fit ch-importe" x="125" y="31.8" font-size="3.6" text-anchor="start"`);
+  });
+
   it('ningún dato cae en el medio milímetro que se recorta abajo', () => {
-    const z = pl.zonas;
-    for (const zona of [z.fecha, z.beneficiario, z.importe, z.letra, z.leyenda]) expect(zona.base + zona.letraMax).toBeLessThan(pl.altoMm - 0.5);
+    for (const p of PLANTILLAS_CHEQUE) {
+      const z = p.zonas;
+      for (const zona of [z.fecha, z.beneficiario, z.importe, z.letra, z.leyenda]) expect(zona.base + zona.letraMax, p.clave).toBeLessThan(p.altoMm - 0.5);
+    }
   });
 
   it('el cheque real lleva SÓLO los datos: ni contorno, ni líneas, ni rótulos de prueba', () => {
@@ -86,5 +97,12 @@ describe('[PGP.165] la hoja de prueba', () => {
     expect(prueba).toContain('16 × 7 cm');
     expect(prueba).toContain('SIN CALIBRAR');
     expect(prueba).toContain('corrimiento aplicado: 1 mm a lo ancho');
+  });
+
+  it('la de Santander pide recortar SU tamaño y dice de qué papel es', () => {
+    const s = hojaDePruebaHtml(PLANTILLA_CHEQUE_SANTANDER, camposDelCheque(datosDeChequeDePrueba('2026-11-26')));
+    expect(s).toContain('16.2 × 7.2 cm');
+    expect(s).not.toContain('16 × 7 cm');
+    expect(s).toContain('HOJA DE PRUEBA · Santander · PYME (162.3 × 72.1 mm)');
   });
 });
