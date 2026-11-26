@@ -281,7 +281,24 @@ interface LiveCountEntry {
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="11" class="in-empty">Sin items para este filtro.</td></tr>
+          <!--
+            [IC.F17] Tres estados distintos, tres mensajes distintos. Antes los tres decían
+            «Sin items para este filtro»: ante un 403 la tabla afirmaba que el folio estaba
+            vacío mientras el encabezado publicaba «Sin contar 3,363».
+          -->
+          <tr>
+            <td colspan="11" class="in-empty">
+              @if (itemsFalla() === 'sin_permiso') {
+                <span class="in-empty-ttl">No puedes ver los artículos de este folio.</span>
+                <span class="in-empty-sub">Tu puesto no incluye el detalle del conteo. Pídeselo a quien lo supervisa.</span>
+              } @else if (itemsFalla() === 'error') {
+                <span class="in-empty-ttl">No se pudieron cargar los artículos.</span>
+                <span class="in-empty-sub">No es que el folio esté vacío: la consulta falló. Vuelve a cargar.</span>
+              } @else {
+                Sin items para este filtro.
+              }
+            </td>
+          </tr>
         </ng-template>
       </p-table>
       </div>
@@ -337,7 +354,14 @@ interface LiveCountEntry {
     .in-var-neg { color: var(--bad-fg); font-weight: 600; }
     .in-var-pos { color: var(--ok-fg); font-weight: 600; }
     .in-row-disc { background: color-mix(in srgb, var(--orange-500, #f97316) 8%, transparent); }
-    .in-empty { text-align: center; padding: 2rem; color: var(--text-muted, #78716c); }
+    .in-empty { text-align: center; padding: 2rem; color: var(--text-muted); }
+    /*
+      [IC.F17] El motivo va VISIBLE, no en un tooltip: sin mouse no existe, y es justo el dato
+      que distingue «el folio está vacío» de «no tienes permiso».
+      (Sin acentos graves acá adentro: parten el template literal de styles. Séptima vez.)
+    */
+    .in-empty-ttl { display: block; color: var(--text-main); font-weight: 600; }
+    .in-empty-sub { display: block; margin-top: var(--sp-1); color: var(--text-muted); }
     .in-form { display: flex; flex-direction: column; gap: .4rem; }
     .in-form label { font-size: .8rem; font-weight: 600; color: var(--text-muted, #78716c); margin-top: .6rem; }
     :host ::ng-deep .in-w-full { width: 100%; }
@@ -413,14 +437,44 @@ export class ComercialInventorySessionDetailComponent {
 
   countId = this.route.snapshot.paramMap.get('id')!;
   progress = signal<InventorySupervisorProgress | null>(null);
+
+  /**
+   * ⛔⛔ `[IC.F18]` **Por qué el avance no está, cuando no está.** `null` = se pudo leer.
+   *
+   * Hasta el 2026-11-26 los KPIs hacían `?? 0` y un **403 se publicaba como CEROS**: a quien sólo
+   * tiene `VER` —prevención, cuyo oficio ES el descuadre— la pantalla le mostraba «Cobertura 0.0 %
+   * · Contados 0/0 · Sin contar 0 · Discrepancias 0 · Valor en riesgo $0» sobre un folio con
+   * **3,363 artículos sin contar**. Eso no se lee como «no tengo permiso»: se lee como
+   * **inventario contado y cuadrado**. Medido en vivo (`inventario-fisico.md` §9d, F18).
+   *
+   * Es la regla 11 del proyecto y el ADR-056: lo que no se pudo medir **se declara**, nunca se
+   * dibuja como cero ni como verde.
+   */
+  avanceFalla = signal<'sin_permiso' | 'error' | null>(null);
+  /** Lo mismo para la tabla de artículos (`[IC.F17]`): vacío ≠ sin permiso ≠ error. */
+  itemsFalla = signal<'sin_permiso' | 'error' | null>(null);
+
   readonly kpiItems = computed<MetricStripItem[]>(() => {
     const p = this.progress();
+    const falla = this.avanceFalla();
+    // ⛔ Sin dato NO es cero. `no_medido` además inhabilita el tono, así que no queda un
+    // indicador en verde ni en rojo afirmando algo que nadie midió.
+    if (falla || !p) {
+      const nota = falla === 'sin_permiso'
+        ? 'No tienes permiso para ver el avance de este folio. Pídeselo a quien lo supervisa.'
+        : 'No se pudo leer el avance. Vuelve a cargar.';
+      return ['Cobertura', 'Contados', 'Sin contar', 'Discrepancias', 'Valor en riesgo'].map(
+        (label): MetricStripItem => ({
+          label, value: '—', format: 'text', state: 'no_medido', stateNote: nota,
+        }),
+      );
+    }
     return [
-      { label: 'Cobertura', value: p?.coverage_pct ?? 0, format: 'percent' },
-      { label: 'Contados', value: `${p?.counted_once ?? 0}/${p?.total ?? 0}`, format: 'text' },
-      { label: 'Sin contar', value: p?.uncounted ?? 0, tone: (p?.uncounted ?? 0) > 0 ? 'bad' : 'default' },
-      { label: 'Discrepancias', value: p?.discrepancies ?? 0, tone: (p?.discrepancies ?? 0) > 0 ? 'warn' : 'default' },
-      { label: 'Valor en riesgo', value: +(p?.value_at_variance ?? 0), format: 'currency' },
+      { label: 'Cobertura', value: p.coverage_pct ?? 0, format: 'percent' },
+      { label: 'Contados', value: `${p.counted_once ?? 0}/${p.total ?? 0}`, format: 'text' },
+      { label: 'Sin contar', value: p.uncounted ?? 0, tone: (p.uncounted ?? 0) > 0 ? 'bad' : 'default' },
+      { label: 'Discrepancias', value: p.discrepancies ?? 0, tone: (p.discrepancies ?? 0) > 0 ? 'warn' : 'default' },
+      { label: 'Valor en riesgo', value: +(p.value_at_variance ?? 0), format: 'currency' },
     ];
   });
   items = signal<InventoryCountItem[]>([]);
@@ -435,11 +489,28 @@ export class ComercialInventorySessionDetailComponent {
    * apagar un boton que antes funcionaba.
    */
   bloqueado(): boolean {
+    // ⛔⛔ [IC.F11] FAIL-CLOSED cuando no se pudo leer el avance.
+    //
+    // Medido el 2026-11-25: **cuanto MENOS permiso tenía la persona, más habilitado se le veía
+    // el botón.** Quien sí puede reconciliar recibe `bloqueos` y el botón se apaga ✅; a quien
+    // recibe **403** le quedaba `progress = null` → `undefined` → `Array.isArray` falso →
+    // **habilitado**. Una cuenta con sólo `VER` lo apretó, confirmó «No se puede deshacer» y
+    // mandó el POST (lo rechazó el servidor, pero en silencio — ver F19).
+    //
+    // ⚠️ Se respeta la intención de `[CNT.1]`: un **deploy viejo que no manda el campo** sigue
+    // sin bloquear. Lo que cambia es el otro caso, que antes no se distinguía: **no haber podido
+    // leer el avance NO es "no hay bloqueos", es "no sé nada"**, y ahí se cierra.
+    if (this.avanceFalla() !== null || this.progress() === null) return true;
     const b = this.progress()?.bloqueos;
     return Array.isArray(b) && b.length > 0;
   }
 
   bloqueoResumen(): string {
+    const falla = this.avanceFalla();
+    if (falla === 'sin_permiso')
+      return 'No puedes cerrar este folio: tu puesto no incluye la reconciliación.';
+    if (falla === 'error' || this.progress() === null)
+      return 'No se pudo leer el avance del folio, así que no se puede cerrar. Vuelve a cargar.';
     const b = this.progress()?.bloqueos;
     if (!Array.isArray(b) || !b.length) return '';
     return 'No se puede cerrar todavia: ' + b.map((x) => x.mensaje).join(' ');
@@ -594,16 +665,40 @@ export class ComercialInventorySessionDetailComponent {
 
   load() {
     this.loading.set(true);
+    this.avanceFalla.set(null);
+    this.itemsFalla.set(null);
     this.svc.inventorySupervisorProgress(this.countId)
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (p) => this.progress.set(p), error: () => this.toast.add({ severity: 'error', summary: 'Error al cargar avance' }) });
+      .subscribe({
+        next: (p) => { this.progress.set(p); this.avanceFalla.set(null); },
+        // ⛔ [IC.F18] El progreso NO se queda en null en silencio: si queda, los KPIs
+        // pintaban `?? 0` y la pantalla afirmaba un inventario cuadrado. Se declara.
+        error: (e) => {
+          this.progress.set(null);
+          this.avanceFalla.set(e?.status === 403 ? 'sin_permiso' : 'error');
+          this.toast.add({
+            severity: 'error',
+            summary: e?.status === 403 ? 'No tienes permiso para ver el avance' : 'Error al cargar avance',
+          });
+        },
+      });
 
     const status = this.filter() === 'all' ? undefined : this.filter();
     this.svc.inventoryCountItems(this.countId, status)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (its) => { this.items.set(its); this.loading.set(false); },
-        error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al cargar items' }); },
+        next: (its) => { this.items.set(its); this.itemsFalla.set(null); this.loading.set(false); },
+        // ⛔ [IC.F17] Sin esto la tabla decía «Sin items para este filtro» ante un 403,
+        // mientras el encabezado publicaba «SIN CONTAR 3,363». Dos verdades a la vez.
+        error: (e) => {
+          this.loading.set(false);
+          this.items.set([]);
+          this.itemsFalla.set(e?.status === 403 ? 'sin_permiso' : 'error');
+          this.toast.add({
+            severity: 'error',
+            summary: e?.status === 403 ? 'No tienes permiso para ver los artículos' : 'Error al cargar items',
+          });
+        },
       });
   }
 

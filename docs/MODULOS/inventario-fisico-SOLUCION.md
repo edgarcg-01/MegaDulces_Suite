@@ -36,7 +36,7 @@ Eso es una decisión de PM, no técnica.
 | **D** | **El tope de la lista del supervisor** | F5, F6 | 🔴 |
 | **E** | **Captura del contador** | F7, F8, F9, F10, F14 | 🔴 |
 | **F** | **Rótulos y estados que no dicen la verdad** | F3, F12, F13, F16, F22 | 🟠 |
-| **G** | **`reconcile` con defensa de capa única** | F20 | 🟠 una línea |
+| **G** | **`reconcile` con defensa de capa única** | F20 | ✅ **Arreglado 2026-11-26** |
 
 ---
 
@@ -134,17 +134,37 @@ reabasto).
 - **F11** 🔴 — **cuanto menos permiso, más habilitado se ve el botón**: «Reconciliar» se deshabilita
   por los **bloqueos del folio**, y quien no tiene permiso no recibe los datos para calcularlos, así
   que se le habilita. Una cuenta con sólo `VER` lo apretó y mandó el `POST`.
-- **F19** 🔴🔴 — **las tres acciones rechazadas fallan en silencio** (reconciliar, cancelar,
-  calcular discrepancias): ni error, ni aviso. Encadenado con F18, la persona **puede creer que
-  reconcilió bien**.
+- **F19** ⚠️ **NO CONFIRMADO, degradado el 2026-11-26** — se publicó como 🔴🔴 («las tres acciones
+  rechazadas fallan en silencio») sobre **no haber visto un mensaje en una captura**. Al ir a
+  arreglarlo se midió el código: los tres caminos **sí llaman al toast**, el componente provee
+  `MessageService` y el `<p-toast>` está **al inicio del template, sin condición**. Lo más probable
+  es que la captura cayera fuera de los segundos que dura el aviso. **No se arregla a ciegas**:
+  hace falta reproducirlo mirando la pantalla en el momento del clic.
 
-**El arreglo es uno solo:** que un 403 **se declare** —`status: 'sin_permiso'`, no `0`— y que la
-interfaz distinga **tres estados** que hoy confunde: *sin datos*, *sin permiso* y *error*. Es la
-**regla 11 del proyecto** (ADR-056), incumplida de frente.
+### ✅ Estado: F18, F17 y F11 arreglados el 2026-11-26
 
-⛔ **Prueba negativa obligatoria:** entrar con una cuenta de sólo `VER` y verificar que **ningún**
-indicador muestre un número, que la tabla diga por qué está vacía, y que los botones que el servidor
-va a rechazar **no se ofrezcan**.
+**No se inventó ninguna pieza.** `MetricStripItem` ya tenía `state: 'no_medido'` (del ADR-056) y
+esta pantalla no lo usaba.
+
+| | Antes | Ahora |
+|---|---|---|
+| **F18** | `?? 0` → cinco ceros ante un 403 | `—` con estado **no medido** y el motivo **visible** |
+| **F17** | «Sin items para este filtro» para los tres casos | tres mensajes: vacío · sin permiso · error |
+| **F11** | `progress` nulo → `undefined` → botón **habilitado** | **fail-closed**: sin avance legible no se cierra |
+
+⭐ En **F11** se respetó la decisión de `[CNT.1]` —un deploy viejo que no manda `bloqueos` sigue sin
+bloquear— y se cerró sólo el caso que no se distinguía: **no haber podido leer el avance no es «no
+hay bloqueos», es «no sé nada»**.
+
+⚠️ **El motivo va visible, no en un tooltip**: sin mouse un `title` no existe, y es justo el dato
+que distingue «el folio está vacío» de «no tienes permiso».
+
+⛔ **Falta la prueba en pantalla viva**, y hasta que alguien la haga esto es NO MEDIDO: entrar con
+una cuenta de sólo `VER` y verificar que **ningún indicador muestre un número**, que la tabla diga
+**por qué** está vacía, y que «Reconciliar» salga **deshabilitado**.
+
+Compuertas al cerrar: `check:templates` ✅ 599 componentes · `check:pantalla -- comercial` ✅
+**0 fallas NUEVAS**, y el componente **tipa con 0 errores semánticos**.
 
 ---
 
