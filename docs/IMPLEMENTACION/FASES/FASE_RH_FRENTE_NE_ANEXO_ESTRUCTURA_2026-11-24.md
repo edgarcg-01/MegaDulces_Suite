@@ -218,3 +218,33 @@ preguntas por escrito** antes de generar la interfaz.
   abre **D12**. ⭐ Y la medición de D9 **tumbó mi propio argumento**: derivar el histórico entero de
   ContPAQi (103,266 recibos, 2017→2026) tarda **~1 s**, no es caro — la tabla del recibo se
   justifica por **lo que muere con el Access**, no por el costo.
+- **2026-11-26** — **Aterrizaje del frente** (campaña de la fase 0). De **22** renglones en 🧪 a
+  **7**, y los 7 dicen **por qué** siguen ahí: cuatro son primitivos sin llamador (esperan a
+  **D11**), uno espera a **RH**, uno a **D12** y uno se midió hoy. Catorce pasaron a ✅ —
+  investigación ya publicada, el mismo criterio con que el frente cerró `[NE.0.1]` y
+  `[NE.0.8]`…`[NE.0.11]`— y dos a 🚀. Se quitaron **dos copias literales** que había dejado un
+  merge (verificando que la copia fuera **prefijo exacto** de la que se conserva, no a ojo), se
+  cerraron cuatro **líneas-plan** ya superadas —`[NE.0.3]` figuraba ⬜ y ✅ a la vez— y se
+  **declaró** la colisión del código `[NE.0.4]`, usado para tres cosas distintas: renumerarlo
+  rompería la trazabilidad de los commits que ya lo citan.
+  ⭐ **Medido ese día para `[NE.0.15]`:** `horas_extra` sigue en **25 capturas, 0 con nota y 0
+  con autorizante**, y la última es del **2026-11-06** — veinte días sin una captura nueva, así que
+  el cambio **no se ha ejercido ni una vez**: es **desuso, no defecto**. Su hermana
+  `horario_distinto` sí se usa (171 capturas, la última ese mismo día) y trae nota en **171 de
+  171**. ⚠️ **Declarado sin medir:** de esas 171 sólo **105** traen autorizante, cuando el item
+  afirma que ese tipo «exige los dos desde octubre»; no se midió cuál de las dos explicaciones es.
+  ⚠️ **Nota de procedencia — corregida el mismo día, porque el commit que nombraba ya no
+  existe.** Este aterrizaje **no tiene commit propio**: viajó dentro de uno ajeno
+  (`docs([COT.7.50])`) que al commitear el tracker con pathspec se llevó estos cambios sin
+  commitear del árbol compartido — y el commit que escribía esta bitácora (`21505b47f`) quedó
+  **huérfano**, porque otra sesión rearmó la historia fuera del árbol y lo dejó fuera. **No se
+  perdió nada** —el contenido está en `HEAD` y en el árbol—, pero el trabajo quedó bajo títulos
+  que no lo describen, y la bitácora del tablero se arma **de los títulos**: por eso queda escrito
+  acá, que es donde sí se lee.
+  ⭐ **Medido ese día contra `origin/main` (`d0347c5c2`), por CONTENIDO y no por hash** —los hashes
+  se reescribieron—: los **siete commits** del frente **sí llegaron** (están los cinco testigos:
+  la llave partida en el catálogo, el controlador que la usa, el cero calculado de la compuerta,
+  la corrección de `CLAUDE.md` y los plazos de las pruebas de `libs/hr`). ⛔ **El aterrizaje NO:**
+  sus 26 notas están en `HEAD` y en **cero** en `origin/main`, detrás de **17 commits locales sin
+  empujar**. Hasta que alguien empuje, el tablero de afuera sigue viendo los 22 renglones viejos.
+  ⛔ **Y el frente sigue parado en lo mismo:** D8, D9, D11 y D12 son de Edgar.
