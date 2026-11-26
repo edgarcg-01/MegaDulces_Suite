@@ -286,3 +286,46 @@ programa de Kepler al postear uno**, y eso no se ve escribiendo desde afuera: la
 - ⬜ Siguen abiertos `CC.22.a` (la fila no dice qué factura cuadra, aunque el importe coincide al centavo) y
   `CC.22.b` (no se declara la obligación fiscal ni su fecha).
 - ⬜ Y el caso de la captura **sigue sin cobro en Kepler**: esto prueba que se puede escribir, no lo escribe.
+
+## CC.24 — ⛔⛔ Ingeniería inversa del timbrado: si la Suite inserta el cobro, el complemento NO sale (2026-11-26)
+
+> Edgar: *«apliquemos ingeniería inversa»*. En vez de esperar a que alguien capture un cobro para ver qué mueve
+> Kepler, se dedujo de los **1,489 cobros que ya existen**. Y el resultado **corrige lo que `CC.23` afirmaba**.
+
+### Lo que decía CC.23, y por qué estaba al revés
+
+CC.23 advertía: *«en cuanto el cobro existe, el comprobante fiscal sale solo, y uno mal escrito se vuelve un CFDI
+mal timbrado»*. **Es al revés, y es peor.**
+
+### Las cuatro evidencias
+
+| | Lo medido | Qué prueba |
+|---|---|---|
+| 1 | **1,489 de 1,489** cobros de más de 7 días tienen su complemento: **100.00 %** | no falla nunca |
+| 2 | Del cobro al timbre: **mediana medio minuto, máximo 1 minuto** (785 casos) | es **al guardar**, no un barrido |
+| 3 | ⭐ De 27 cobros **cancelados**, sólo **1** tiene complemento | si bastara con que la fila exista, los 27 lo tendrían |
+| 4 | ⭐ En todo 2026, **cero capturistas que no sean personas** (`0CYC`, `42MAVH`, `VIVIANA`…) | **nunca entró un cobro por otra vía** |
+
+⛔ **Y las tablas tienen cero disparadores.** O sea que el timbre **lo pone el programa de Kepler en el acto de
+guardar**, no la base de datos.
+
+### La consecuencia, que cambia el diseño
+
+**Si la Suite inserta el cobro directamente en las tablas, el programa no se entera y el complemento no se
+timbra.** El cobro existiría, la factura se vería pagada, la cartera cuadraría… y **la obligación fiscal quedaría
+incumplida en silencio**. Eso es peor que no capturarlo: un cobro que falta se ve en la bandeja; un complemento
+que nunca salió **no se ve en ningún lado** hasta que lo busca el SAT.
+
+⭐ Por eso **el ensayo de `CC.23` sigue valiendo, pero contesta otra pregunta**: probó que la Suite puede escribir
+un cobro **mecánicamente bien** (folio, documento, cartera, aplicación, póliza cuadrada, saldo a cero). Lo que
+ahora sabemos es que **eso no alcanza**: escribir bien las tablas no es capturar un cobro.
+
+### Lo que se decide antes de seguir
+
+| | Pregunta | De quién |
+|---|---|---|
+| **D-CC1** | ¿Kepler tiene una vía de importación que **sí** dispare su flujo (y por lo tanto el timbre)? Si la hay, el camino es ésa, no escribir las tablas | ⬜ Sistemas / el proveedor de Kepler |
+| **D-CC2** | Si no la hay: ¿la Suite **prepara** el cobro (lo deja listo, con su factura ya cuadrada) y una persona sólo confirma en Kepler? Eso quita el trabajo de buscar y teclear, sin tocar el timbre | ⬜ Edgar |
+
+⬜ **NO MEDIDO**: si existe esa vía de importación. Es lo único que falta para cerrar la pregunta, y **no se
+contesta midiendo la base**: se le pregunta a quien conoce el programa.

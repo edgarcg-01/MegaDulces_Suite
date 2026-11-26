@@ -5,6 +5,16 @@ cobro **de verdad** contra Kepler (folio del contador real, encabezado clonado, 
 por factura **y su póliza**), comprobando que el saldo de la factura baja y que la póliza cuadra, y **deshaciéndolo**.
 El `ROLLBACK` es **incondicional, en `finally`**: no hay ningún camino que confirme.
 
+> ⛔⛔ **CORREGIDO el 2026-11-26, el mismo día:** la sección de abajo decía que el comprobante «sale solo» en
+> cuanto el cobro existe. **Es al revés.** La ingeniería inversa (`CC.24` del anexo) midió que el timbre lo pone
+> **el programa de Kepler al guardar**, no la base: 100 % de cobertura en 1,489 cobros, mediana de medio minuto,
+> **26 de 27 cobros cancelados sin complemento**, y cero capturistas que no sean personas en todo 2026. Así que
+> **si la Suite inserta el cobro en las tablas, el complemento NO se timbra** — y eso es peor que no capturarlo,
+> porque un cobro que falta se ve y un complemento que nunca salió no se ve.
+>
+> ⭐ **Este ensayo sigue valiendo**, pero contesta otra pregunta: que la Suite escribe el cobro **mecánicamente
+> bien**. Lo que ahora sabemos es que escribir bien las tablas **no es capturar un cobro**.
+
 ## ⛔⛔ Por qué este ensayo es más delicado que el del Ajuste Abono
 
 Un Ajuste Abono no emite CFDI. **Un cobro sí.** Medido el 2026-11-26 sobre los cobros de noviembre: **783 de 785
