@@ -31,7 +31,9 @@ export const PARAMETROS_COMPRA_LABEL = 'Parámetros de compra';
 export const PARAMETROS_COMPRA_TABS: PageTab[] = [
   {
     // RA-PRO.3/10 — lead time, ciclo (cadencia + colchón), mínimo de compra y fill rate.
-    label: 'Proveedores',
+    // `[PQ.3.23]` Se llamaba «Proveedores»; desde DC32 así se llama el apartado de la relación con el proveedor
+    // (`proveedores-tabs.ts`), y dos lugares del mismo menú no pueden llamarse igual. La ruta no cambia.
+    label: 'Por proveedor',
     route: '/compras/proveedores',
     icon: 'pi pi-truck',
     permission: Permission.COMPRAS_PROVEEDORES_VER,

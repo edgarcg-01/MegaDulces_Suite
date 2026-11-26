@@ -266,7 +266,8 @@ recibido (hoy 24 %). **Esfuerzo:** C0 S; equivalencias M; aviso + pantalla M–L
   cambio es una solicitud que autoriza el comprador, con quién y cuándo. Arranca precargada con lo que ya
   sabemos (último costo aplicado) para que él la confirme. Es la referencia de `[PQ.157]`: costo de
   factura fuera de la lista autorizada = cambio no anunciado. Cierre: proveedores del piloto con lista
-  confirmada, y renglones aplicados fuera de lista antes/después.
+  confirmada, y renglones aplicados fuera de lista antes/después. **Dónde vive:** Compras › Proveedores ›
+  «Listas de precios» (DC32 del anexo C, 2026-11-24), no en Catálogo, donde hoy sólo hay un marcador vacío.
 - **`[PQ.156]`** ⚠️ DP7 — **C1–C3 — La cita.** Ventanas por sucursal que abre el almacén; el proveedor (o
   Compras, en el respaldo de DP1) elige fecha y ventana al confirmar sus facturas; el Andén ve su día
   por hora. Cierre: citas del piloto cumplidas en su ventana, y OC «a la medida de la factura» y vales

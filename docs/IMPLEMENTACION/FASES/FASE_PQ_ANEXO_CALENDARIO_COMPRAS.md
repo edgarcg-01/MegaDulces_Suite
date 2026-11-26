@@ -3,8 +3,14 @@
 > Anexo de [`FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md`](FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md), frente **F2** (agenda de
 > proveedores). Reemplaza el alcance de **PQ.3** y lo parte en **PQ.3.1–PQ.3.14**; absorbe la pestaña Ciclo
 > de **PQ.4** y la fuente del aviso de **PQ.5**. Método: [`METODO_DE_TRABAJO.md`](../../METODO_DE_TRABAJO.md).
-> Las decisiones de este anexo se numeran **DC1–DC24** para no confundirlas con las D del plan base.
+> Las decisiones de este anexo se numeran **DC1–DC39** para no confundirlas con las D del plan base.
 > ⭐ **Cómo se revisa (reglas por alcance: corporativo, zona o sucursal) y las visitas por WhatsApp: §10.**
+> ⭐ **El apartado se llama «Proveedores» (DC32, 2026-11-24): Calendario · Citas · Revisión · Acuerdos · Listas de
+> precios. Cómo quedó en el menú y qué apartado es cada item: §10.14.**
+> ⭐ **Lo que sigue —la maqueta del 20-nov repartida en los apartados, el orden de construcción y la base de Citas— y
+> Parámetros por proveedor a profundizar: §10.15.**
+> ⭐ **Parámetros por proveedor, decidido el 2026-11-25 (manda el Calendario, mínimo pactado ≠ pedido típico, entrega y fill
+> rate medidos, pestaña «Condiciones»): §10.16.**
 
 ```
 OBJETIVO: sustituir la hoja «2026» del Excel de Compras (la brújula del equipo para no dejar
@@ -14,7 +20,7 @@ MÉTRICA:  proveedores con compra en los últimos 12 meses y ciclo DEFINIDO por 
           (2026-11-10): 0 de 356 (sin las 9 claves de sucursal propia; la Suite no tiene captura de
           ciclo usada: 0 manuales).
           → META: 356 de 356 (DC5: todos entran en ciclo) y la hoja 2026 deja de usarse.
-CAPA TOPE: C3 (pantalla Compras › Calendario de compras)
+CAPA TOPE: C3 (pantalla Compras › Proveedores › Calendario; hasta el 2026-11-25, Compras › Calendario de compras)
 ÁREA:      Compras (operan) · Dirección (consulta) · sucursales (compras locales)
 DUEÑO:     Francisco (negocio)
 ESTADO:    🔨 — PQ.3.1–PQ.3.6 🧪 (vista, base, dominio, API, pantalla, permisos y alcance); dentro de PQ (🔨), no abre fase.
@@ -144,6 +150,14 @@ Ciclo de Pedido: una sola agenda.
 | DC29 | **La cadencia de «días de la semana»** (PQ.3.15): cada semana · cada 2 · cada 3 · una vez al mes · cada 6 semanas, en el orden en que la pidieron los usuarios. «Cada N semanas» cuenta desde «a partir del» y no se mueve con la actividad de Kepler. «Una vez al mes» = el 1º, 2º, 3º, 4º o último de ese día en el mes (12 al año). Descartado «cada 4 semanas»: 13 al año, y se corre de semana del mes. Reemplaza el alcance de PQ.3.15 (que decía 2, 3 o 4) | ✅ Francisco, 2026-11-24 |
 | DC30 | **El responsable de una regla** (PQ.3.22): una persona activa con la llave efectiva de marcar que escribe en **todas** las sucursales de la regla (así siempre la ve y la atiende), con el filtro «Mis revisiones». Sin las cuentas de sistema (superadmin, admin), como en `receipt-devueltas` | ✅ Francisco, 2026-11-24 |
 | DC31 | Las cinco mejoras van en **un PR** (tocan los mismos archivos; el PR separa cada una con su item) | ✅ Francisco, 2026-11-24 |
+| DC32 | **El apartado se llama «Proveedores»** y en él viven **Calendario, Citas, Revisión, Acuerdos y Listas de precios del proveedor** (esta última, hoy un marcador vacío en Catálogo). Lectura de los cuatro nuevos contra este anexo y el P: Citas = reuniones con ejecutivos y visitas (§9.1, §10.4); Revisión = la revisión de negocio y su ficha (§9.2); Acuerdos = lo pactado y el plan de trabajo (§9.3–§9.4); Listas de precios = `[PQ.155]` (anexo P, DP4). Cómo quedó: §10.14 | ✅ jefa de compras, Edgar y Francisco, 2026-11-24 (el nombre y los apartados) · ✅ la lectura, Francisco 2026-11-25: son los tableros de la maqueta del 20-nov (§10.15) |
+| DC33 | **Parámetros por proveedor y Parámetros de compra se profundizan aparte** (Francisco, 2026-11-25: *«lo podemos profundizar»*). Mientras tanto siguen en Parámetros de compra. Lo medido para esa plática: §10.15 | ✅ sesión hecha el mismo día (Francisco: «ahora»): DC35–DC39, §10.16 |
+| DC34 | **Cómo se reparte la maqueta y en qué orden se construye** (§10.15): la agenda de la semana, con los tres tipos de reunión, y las visitas por WhatsApp van en **Citas**; la lista «revisiones de negocio por programar» y la ficha, en **Revisión**; los acuerdos y el plan de trabajo, en **Acuerdos**. Primero Citas (la reunión es la raíz de lo demás), luego Acuerdos, luego la ficha | 🟡 Claude, 2026-11-25 (diseño y orden; Francisco puede moverlo) |
+| DC35 | **Manda el Calendario.** Donde la gerencia definió una regla, el aviso «Hoy te toca» de Pedido la lee (PQ.3.24); el número del sugerido la toma después, en un cambio aparte con antes/después (PQ.6, regla 15). Sin regla, se ve la propuesta de Kepler marcada «sin confirmar». Reemplaza a DC3 cuando llegue PQ.6 | ✅ Francisco, 2026-11-25 |
+| DC36 | **El mínimo del proveedor no es el pedido típico.** «Mínimo del proveedor» = condición pactada (monto o cajas para surtir o para flete gratis), la captura Compras con quién y cuándo, y Pedido avisa si no se alcanza (PQ.3.26). «Pedido típico» = lo que el sistema calcula del historial, sólo información y con su nombre (PQ.3.25). Hoy la pantalla llama «Mín $ / Mín cajas» al pedido típico | ✅ Francisco, 2026-11-25 («sí, algunos» imponen mínimo) |
+| DC37 | **El tiempo de entrega y el fill rate se miden, no se capturan**: de Kepler, OC → entrada por proveedor y sucursal (amplía DC15) y lo pedido contra lo recibido. Se ven en las condiciones del proveedor y el motor usa el real; se retira su captura (PQ.3.27) | ✅ Francisco, 2026-11-25 |
+| DC38 | **Pestaña «Condiciones» en Proveedores** (la sexta): mínimo pactado, tiempo de entrega y fill rate reales, pedido típico, ciclo (la regla del Calendario) y plazo de pago. Parámetros de compra se queda con lo del motor: Categorías, Red de abasto y los ajustes globales (PQ.3.28) | ✅ Francisco, 2026-11-25 · 🟡 falta el OK de la jefa de compras y de Edgar: en la junta del 24-nov se acordaron cinco pestañas |
+| DC39 | **Se retira `import-supplier-params.js`**: el ciclo del motor y el pedido típico salen de una vista derivada de Kepler (regla 1, cero importers). Los valores que nadie sabe quién puso (172 ciclos y 255 mínimos «desconocido») no se promueven a «mínimo pactado»: se declaran y se le muestran a Compras para que capture los reales (PQ.3.25) | 🟡 Claude, 2026-11-25 (técnica, por regla 1) |
 
 ### 4.1 Quién entra (DC6), medido contra los roles de prod
 
@@ -186,7 +200,7 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
   concentrada caen en miércoles, pero sólo el 37 % de sus OC sale ese día. No se propone como día de
   revisión; las citas de entrega son del WMS (§2).
 
-## 6. Items (en el tracker como PQ.3.1–PQ.3.19)
+## 6. Items (en el tracker como PQ.3.1–PQ.3.28)
 
 | # | Entregable | Capa |
 |---|---|---|
@@ -197,10 +211,10 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | PQ.3.5 | Pantalla «Calendario de compras» (Hoy · Semana · Mes · Sin ciclo), «Armar pedido» hacia Pedido; reemplaza la pestaña Ciclo; el aviso de Pedido lee el calendario | C3 |
 | PQ.3.6 | Permisos repartidos según §4.1 (regla 20) y alcance por sucursal para compras locales | C2/C3 |
 | PQ.3.7 | Paralelo de 2 semanas contra la hoja 2026: cada día, lo que lista el Excel sale en el calendario; con eso se retira la hoja | — |
-| PQ.3.8 | **Agenda con el proveedor** (§9.1): reuniones (cita con ejecutivo · revisión de negocio · plan de trabajo) con participantes internos y del proveedor, temas y minuta; periodicidad de la revisión por proveedor (DC10). Pestaña «Agenda con proveedores» | C0→C3 |
-| PQ.3.9 | **Ficha de la revisión de negocio** (§9.2), derivada sin capturar: cada bloque con su fuente medida antes de pintarse; lo que no se pueda medir, se declara | C0→C3 |
-| PQ.3.10 | **Acuerdos** con área, responsable y fecha (§9.3) sobre el contrato único de tareas (OR.4, sin quinta tabla); aparecen en «Mi trabajo»; la reunión siguiente abre con los pendientes. Pestaña «Acuerdos» | C0→C3 |
-| PQ.3.11 | **Plan de trabajo anual** por proveedor (§9.4): sus acuerdos por área; los de Mercadotecnia ligados a MKTN001 | C1→C3 |
+| PQ.3.8 | **Agenda con el proveedor** (§9.1): reuniones (cita con ejecutivo · revisión de negocio · plan de trabajo) con participantes internos y del proveedor, temas y minuta; periodicidad de la revisión por proveedor (DC10). Pestaña **«Citas»** del apartado Proveedores (DC32; antes «Agenda con proveedores») | C0→C3 |
+| PQ.3.9 | **Ficha de la revisión de negocio** (§9.2), derivada sin capturar: cada bloque con su fuente medida antes de pintarse; lo que no se pueda medir, se declara. Pestaña **«Revisión»** del apartado Proveedores (DC32) | C0→C3 |
+| PQ.3.10 | **Acuerdos** con área, responsable y fecha (§9.3) sobre el contrato único de tareas (OR.4, sin quinta tabla); aparecen en «Mi trabajo»; la reunión siguiente abre con los pendientes. Pestaña **«Acuerdos»** del apartado Proveedores (DC32) | C0→C3 |
+| PQ.3.11 | **Plan de trabajo anual** por proveedor (§9.4): sus acuerdos por área; los de Mercadotecnia ligados a MKTN001. Vive en «Acuerdos» (DC32) | C1→C3 |
 | PQ.3.12 | **Invitación de calendario** (§9.5): `.ics` por correo (Google Workspace / Outlook) con el puerto de correo existente | C2 |
 | PQ.3.13 | **Visitas por WhatsApp** (§10.4): horario de visitas por persona, «Ofrecer horarios» y «Pedir visita» (con motivo); el mensaje sale por `wa.me` con el ayudante que ya existe, movido a `libs/`; el contacto del ejecutivo es dato propio | C0→C3 |
 | PQ.3.14 | La vista propone **día fijo por sucursal** donde la entrega y la OC caen el mismo día de la semana (16 pares medidos, 84 %). En el CEDIS no lo propone: ahí es día de recepción (37 %, R7) | C0 |
@@ -212,6 +226,12 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | PQ.3.20 | **El manual de capacitación, dentro de la Suite** (§10.11): botón «Manual» en el encabezado del calendario que abre `assets/manuales/calendario-compras.html` en otra pestaña; primitivo `app-manual-link`; un candado compara los rótulos de la pantalla con los del manual | C3 |
 | PQ.3.21 | **Varias zonas o sucursales con casillas** (§10.12, DC28): «Por zona» y «Por sucursal» (antes «Una zona», «Una sucursal»); una regla por lugar, todas o ninguna; corregir no cambia el lugar | C2→C3 |
 | PQ.3.22 | **El responsable de la regla y «Mis revisiones»** (§10.12, DC30): sólo quien puede marcar y escribe en todas las sucursales de la regla; la API lo exige al guardar | C2→C3 |
+| PQ.3.23 | **El apartado «Proveedores»** (§10.14, DC32): la entrada «Calendario de compras» del menú pasa a «Proveedores» con su barra de pestañas (`proveedores-tabs.ts`); hoy sólo Calendario, y cada apartado entra a la barra cuando tenga pantalla; la pestaña «Proveedores» de Parámetros de compra pasa a «Por proveedor»; el manual enseña la ruta nueva | C3 |
+| PQ.3.24 | **El aviso «Hoy te toca» de Pedido lee el Calendario** (DC35, §10.16): donde hay regla, la regla; sin regla, la propuesta de Kepler marcada «sin confirmar». Antes/después del aviso con la misma consulta | C2→C3 |
+| PQ.3.25 | **Pedido típico y ciclo del motor, derivados** (DC36, DC39): vista sobre Kepler que retira `import-supplier-params.js`; la pantalla dice «Pedido típico», no «Mín»; los valores de origen desconocido se declaran | C0→C3 |
+| PQ.3.26 | **El mínimo del proveedor, pactado** (DC36): monto o cajas, con motivo (para surtir o flete gratis), quién y cuándo; Pedido avisa cuando no se alcanza | C0→C3 |
+| PQ.3.27 | **Tiempo de entrega y fill rate reales** (DC15, DC37): por proveedor y sucursal, desde Kepler; el motor usa el real (cambia números: antes/después, commit aparte); se retira la captura | C0→C1 |
+| PQ.3.28 | **La pestaña «Condiciones»** (DC38): las condiciones de cada proveedor en un lugar; Parámetros de compra queda con lo del motor. Espera el OK de la jefa de compras y de Edgar | C3 |
 
 ## 7. Definición de Terminado
 
@@ -243,6 +263,9 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | 2026-11-22 | **PQ.3.18 🧪**: el orden y el medidor del embudo en «Sin regla», sin migración. Control en prod con el repo real = medición independiente (0 escalones distintos); dominio 36 ✔ (5 mutantes), vista 26 ✔, componente 14 ✔ (3 mutantes), Postgres real 45 ✓. Falta la decisión en bloque de los ocasionales, la prueba visual y el PR | sesión Claude |
 | 2026-11-23 | **PQ.3.20 🧪** (§10.11): el manual de capacitación vive en la pantalla (botón «Manual», otra pestaña) como archivo del repo; `app-manual-link` compartido; el candado de rótulos (65 en `origin/main`, todos en el manual; mutante en rojo), la prueba visual del manual en 3 perfiles + oscuro (0 fallas tras subir a 44 px los objetivos táctiles) y la del botón en la pantalla viva por puesto (0 fallas). Falta el PR (con `main` en rojo por `a9a843a95`) | Francisco (pidió el manual y dónde vive) + sesión Claude |
 | 2026-11-24 | **PQ.3.15 🧪 · PQ.3.21 🧪 · PQ.3.22 🧪** (§10.12): las primeras mejoras que pidieron los usuarios al día siguiente de salir a prod: varias zonas o sucursales con casillas (una regla por lugar), la cadencia de los días de la semana (cada 2, 3 o 6 semanas, o una vez al mes) y el responsable con «Mis revisiones». DC28–DC31 de Francisco. Migración `20261124133043` (la prueba contra Postgres real encontró un defecto en ella, ya corregido). 23 ✓ contra Postgres, 7 mutantes en rojo; prueba visual ✔ en 3 perfiles y oscuro | Francisco (lo pidieron los usuarios) + sesión Claude |
+| 2026-11-25 | **DC32 · PQ.3.23 🧪** (§10.14): el apartado se llama «Proveedores» (lo acordaron la jefa de compras, Edgar y Francisco el 24-nov) con Calendario, Citas, Revisión, Acuerdos y Listas de precios; en el menú hoy sólo el Calendario, y cada apartado entra cuando tenga pantalla. «Parámetros de compra › Proveedores» pasa a «Por proveedor». 5 ✓, 3 mutantes en rojo; falta la prueba visual. Por confirmar: que «Citas» sean las reuniones con el ejecutivo (no la cita de entrega, PQ.156) y el rótulo «Revisión de negocio» | Francisco + sesión Claude |
+| 2026-11-25 | **DC32 ✅ · DC33 🟡 · DC34 🟡** (§10.15): Citas y Revisión son los tableros de la maqueta del 20-nov; Parámetros por proveedor se profundiza aparte (medido: se consulta y nadie escribe desde su pantalla en 60 días; tiempo de entrega y fill rate en 0 de 1,034 fichas). Orden: Citas → Acuerdos → ficha de Revisión. **PQ.3.8 🔨**: la base de Citas | Francisco + sesión Claude |
+| 2026-11-25 | **DC33 ✅ · DC35–DC38 ✅ · DC39 🟡** (§10.16): sesión de Parámetros por proveedor. Medido: tres ciclos para el mismo proveedor (regla del Calendario, ciclo por canal del aviso de Pedido, ciclo del motor) que no coinciden en ninguno de los 12 con regla corporativa; el «mínimo» es el pedido típico calculado; tiempo de entrega y fill rate sin captura. Decidido: manda el Calendario, mínimo pactado aparte del pedido típico, entrega y fill rate medidos, pestaña «Condiciones». Items PQ.3.24–PQ.3.28 | Francisco + sesión Claude |
 
 ---
 
@@ -251,13 +274,16 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 Francisco: *«aquí entrarían las citas con ejecutivos, revisiones de negocios y planes de trabajo entre
 proveedor, compras, mkt y finanzas; las citas del wms ya son parte del proceso de operación»*.
 
-El calendario queda en tres capas, en la misma entrada del menú:
+Todo vive en la misma entrada del menú, que desde DC32 (2026-11-24) se llama **«Proveedores»** y tiene cinco
+apartados (§10.14). Antes eran «tres capas» con las pestañas «Agenda con proveedores» y «Acuerdos»:
 
-| Capa | Qué resuelve | Pestañas |
+| Apartado (pestaña) | Qué resuelve | Items |
 |---|---|---|
-| 1. Cadencia y seguimiento del día (§1–§6) | A quién toca pedirle y quién va rezagado (sustituye la hoja 2026) | Hoy · Semana · Ciclos |
-| 2. Agenda con el proveedor (§9.1–§9.2) | Citas con ejecutivos, revisiones de negocio y planes de trabajo | Agenda con proveedores |
-| 3. Acuerdos y seguimiento (§9.3–§9.4) | Que lo pactado tenga dueño, fecha y se cierre | Acuerdos |
+| **Calendario** (§1–§6, §10) | A quién toca pedirle y quién va rezagado (sustituye la hoja 2026) | PQ.3.1–PQ.3.7, PQ.3.14–PQ.3.22 |
+| **Citas** (§9.1, §10.4) | Citas con ejecutivos y visitas, con su invitación | PQ.3.8, PQ.3.12, PQ.3.13 |
+| **Revisión** (§9.1–§9.2) | La revisión de negocio con el proveedor y su ficha | PQ.3.8 (la reunión), PQ.3.9 (la ficha) |
+| **Acuerdos** (§9.3–§9.4) | Que lo pactado tenga dueño, fecha y se cierre; el plan de trabajo del año | PQ.3.10, PQ.3.11 |
+| **Listas de precios** (anexo P) | La lista del proveedor, con vigencia; cada cambio lo autoriza el comprador | `[PQ.155]` |
 
 ### 9.1 Las reuniones
 
@@ -1149,3 +1175,202 @@ Piedad y otra en Zamora: era el rodeo para «dos zonas». Las decisiones son DC2
   - *El manual:* el botón «Manual» abre el que ya enseña «Por zona», «¿Cada cuánto?» y «Mis revisiones».
   - El último paso del guion falló por el guion (el panel de detalle tapaba el botón «Manual»); se midió aparte, con la
     pantalla limpia: ✓.
+### 10.14 El apartado «Proveedores» (PQ.3.23 · DC32 · 2026-11-25)
+Francisco, 2026-11-25: *«ayer platicando con la jefa de compras y Edgar (PM), llegamos a la conclusión que este módulo
+se llame proveedores, y los apartados que viven aquí serían calendario, citas, revisión, acuerdos, listas de precios
+del proveedor (hoy en catálogo)»*.
+**Qué es cada apartado y dónde está hoy**
+| Apartado | Qué es (lectura de este anexo y del P) | Items | Hoy |
+|---|---|---|---|
+| **Calendario** | A quién toca pedirle, dónde y quién va rezagado | PQ.3.1–PQ.3.22 | en prod, `/compras/calendario` |
+| **Citas** | Reuniones con el ejecutivo del proveedor y visitas por WhatsApp, con su invitación (§9.1, §9.5, §10.4) | PQ.3.8, PQ.3.12, PQ.3.13 | ⬜ sin código |
+| **Revisión** | La revisión de negocio y su ficha derivada (§9.1–§9.2) | PQ.3.8 (la reunión), PQ.3.9 (la ficha) | ⬜ sin código |
+| **Acuerdos** | Lo pactado con dueño y fecha, y el plan de trabajo del año (§9.3–§9.4); los de Mercadotecnia se ligan a su MKTN001 (`/comercial/acuerdos`, que sigue siendo de Mercadotecnia) | PQ.3.10, PQ.3.11 | ⬜ sin código |
+| **Listas de precios** | La lista del proveedor: la mantiene él, con vigencia, y cada cambio lo autoriza el comprador (anexo P, DP4) | `[PQ.155]` (⚠️ DP1) | ⬜ sin código. En Catálogo sólo hay el marcador `/compras/catalogo/listas-precios` («Contenido por desarrollar»), que dejó de ser pestaña con `[PF.12.1]` |
+**Por confirmar (🟡 en DC32)** — ✅ **contestado el 2026-11-25**: Francisco remitió a la maqueta del 20-nov; Citas y
+Revisión son sus tableros (§10.15) y Parámetros se profundiza aparte (DC33). Lo de abajo queda como estaba escrito.
+- **Citas.** Este anexo dejó las citas de entrega en el almacén (§2), y el anexo P hace de la cita de entrega un acto de
+  la Suite (`[PQ.156]`, DP7: ventanas que abre el almacén; el Andén la recibe). La lectura de aquí: «Citas» de
+  Proveedores = las reuniones con el ejecutivo, y la cita de entrega sigue en el Andén. Si en la junta se pensó en las
+  citas de entrega, PQ.156 se muda a esta pestaña.
+- **Revisión.** La revisión de negocio (§9.1–§9.2), no la revisión del día (ésa es «Mis revisiones», dentro del
+  Calendario) ni «Revisión de facturas» (Recepción y pago). Como ese renglón ya está en el menú de Compras, se propone
+  rotular la pestaña «Revisión de negocio» cuando nazca.
+- **Parámetros por proveedor** (tiempo de entrega, ciclo del motor, mínimo, fill rate) no está entre los cinco y sigue
+  en Parámetros de compra. Llevarlo a Proveedores sería una sexta pestaña, a decidir aparte.
+**Las preguntas antes de tocar la pantalla (skill `diseno` §0b)**
+1. *Qué ve al entrar y en qué orden:* lo mismo que hoy, el Calendario: es el único apartado con pantalla y el de uso
+   diario (`analytics.ui_usage`, 2026-11-25: 50 lecturas en 4 de los últimos 30 días; gerencia de compras, operaciones
+   de compras y Dirección). Cambian el nombre de la entrada y la migaja («Compras / Proveedores»).
+2. *Qué no ve:* pestañas de lo que no existe. Mostrar los cuatro apartados sin pantalla repetiría el «Contenido por
+   desarrollar» que `[PF.12.1]` sacó del Catálogo. Con una sola pestaña la barra no se pinta.
+3. *Accesibilidad:* el mismo clic (la entrada lleva directo al Calendario) y la misma URL: marcadores, la liga del
+   manual y «Abrir en Pedido» siguen sirviendo.
+4. *Ligas:* la entrada sigue justo antes de Pedido, que es a donde lleva el Calendario.
+5. *¿Le toca?* Sí. Las tres llaves del calendario (DC7) son las de la entrada: nadie gana ni pierde acceso, sin
+   permisos nuevos ni re-login.
+**Cómo quedó (🧪, 2026-11-25)**
+- `apps/view/src/app/modules/compras/proveedores-tabs.ts`: `PROVEEDORES_LABEL` y `PROVEEDORES_TABS`, hoy sólo
+  «Calendario» con las tres llaves en `anyOf`. El menú, la barra y la migaja leen de ahí; cada apartado entra cuando
+  tenga pantalla.
+- Menú: «Calendario de compras» → **«Proveedores»** (icono `pi-building`), en el mismo lugar.
+- La página del Calendario pinta `<app-page-tabs>` (escondida mientras haya una pestaña; `check-sidebar-tabs` pide que
+  alguna página pinte la barra de cada entrada con `tabs:`). Su título sigue siendo «Calendario de compras».
+- Parámetros de compra: la pestaña «Proveedores» pasa a **«Por proveedor»** (`[AUD-A5]`: dos lugares del mismo menú
+  con el mismo nombre). Misma ruta (`/compras/proveedores`) y mismo permiso.
+- El manual enseña la ruta nueva del menú y la migaja (9 lugares) y su fecha pasa al 25-nov.
+- No cambia: URLs, permisos, API ni base. Sin migración.
+**Verificación**
+- `proveedores-tabs.spec.ts` 5 ✓: ninguna pestaña del menú de Compras se llama «Proveedores»; ninguna pestaña del
+  apartado abre un marcador vacío (los marcadores se leen de `app.routes.ts`; control: los 4 de hoy); cualquiera de las
+  tres llaves lleva al Calendario y sin ellas la entrada no se pinta; el Calendario vive en un solo apartado. **3
+  mutantes en rojo** (Parámetros vuelve a «Proveedores», una pestaña a `listas-precios`, se cae la llave CICLO); el
+  control, en verde; los archivos se restauraron y se verificaron por hash.
+- Compras + layout + pestañas: 84 archivos, 1,171 ✓ · `core` y rutas: 24 archivos, 266 ✓ · `tsgo` 0 errores ·
+  plantillas typechequean · `check:pantalla compras-calendario` 0 fallas antes y después · `check-sidebar-tabs` 147
+  pestañas con entrada (+1) y las mismas 2 fallas heredadas de Contabilidad.
+- **Prueba visual ✔ (2026-11-25, local: API contra Docker y vista)**: el menú dice «Proveedores» justo antes de Pedido
+  (también en la barra inferior del celular), la migaja dice «Proveedores», el Calendario no pinta barra con una sola
+  pestaña y Parámetros de compra tiene «Por proveedor» (ninguna pestaña «Proveedores»), en escritorio.
+
+### 10.15 Lo que sigue en «Proveedores»: la maqueta repartida, el orden y la base de Citas (2026-11-25)
+
+Francisco, 2026-11-25: *«si retomamos las maquetas que me presentaste sobre el calendario de compras, ahí existían estos
+módulos y es lo que tenemos que seguir construyendo desde el nuevo nombre "proveedores"; el tema de parámetros de
+proveedor y de compra lo podemos profundizar»*.
+
+La referencia es la maqueta del 2026-11-20 (privada, fuera del repo: sus reuniones, acuerdos y contactos son de ejemplo).
+Sus cinco tableros, en los apartados de DC32 (DC34):
+
+| Tablero de la maqueta | Apartado | Items | Qué trae |
+|---|---|---|---|
+| Ciclos: reglas por alcance | **Calendario** | PQ.3.2–PQ.3.22 | en prod |
+| Agenda con proveedores | **Citas** | PQ.3.8 | la semana de reuniones (cita con ejecutivo · revisión de negocio · plan de trabajo), filtro por tipo, el detalle con participantes de las dos partes, temas, el calendario de revisión del proveedor y los acuerdos pendientes de la reunión anterior; reprogramar y escribir la minuta |
+| Visita por WhatsApp | **Citas** | PQ.3.13 | el proveedor pide visita o Mega Dulces la pide con motivo; horarios libres de quien recibe; mensaje por `wa.me`; marcar el horario que eligió |
+| Revisiones de negocio por programar + Ficha de revisión | **Revisión** | PQ.3.9 | los proveedores del 80 % de la compra sin revisión en el trimestre (DC10) y la ficha derivada (§9.2) |
+| Acuerdos | **Acuerdos** | PQ.3.10, PQ.3.11 | vencidos y de la semana primero, por área, de qué reunión salió y a qué se liga; el plan de trabajo del año |
+
+En la maqueta la lista «por programar» vivía debajo de la agenda; aquí pasa a Revisión, que es la pregunta que contesta
+(*¿a quién le debemos la revisión del trimestre?*). La agenda de Citas sigue mostrando las revisiones ya agendadas,
+porque son reuniones de la semana.
+
+**El orden (DC34)**
+
+1. **Citas — PQ.3.8.** La reunión es la raíz: la revisión de negocio y el plan de trabajo son reuniones, y cada acuerdo
+   sale de una. Todo es dato propio (las reuniones no dejan rastro en Kepler) y las decisiones están tomadas (DC9,
+   DC10, DC13).
+2. **Acuerdos — PQ.3.10 y PQ.3.11.** Cada acuerdo cuelga de su reunión. Antes de su C0, el ADR que lo declara como
+   fuente del contrato único de tareas (`[OR.4]`: hoy 8 fuentes declaradas; la novena se declara ahí, como hicieron MS,
+   DP y MDT), para que le aparezca a su responsable en «Mi trabajo».
+3. **Revisión — PQ.3.9.** La ficha se mide bloque por bloque (§9.2): sale con lo que ya tiene fuente (compra de 12
+   meses, ciclo, surtido, cartera y pagos, acuerdos) y lo demás declarado «por medir».
+4. **Visitas por WhatsApp — PQ.3.13**, sobre la agenda. Decide el contacto del ejecutivo: ya existe
+   `finance.supplier_collection_contacts` (el contacto de cobranza, `[PGP.193]`), así que se mide si se extiende con el
+   papel del contacto antes de abrir otra tabla de contactos (ADR-056).
+5. **Invitación `.ics` — PQ.3.12**: espera que Edgar confirme el correo de salida en prod (credenciales, regla 7).
+6. **Listas de precios — `[PQ.155]`**: vive en el anexo P y espera DP1 (Edgar).
+
+Cada apartado entra a `proveedores-tabs.ts` —y con eso al menú— cuando tenga pantalla (`[PF.12.1]`).
+
+**Parámetros por proveedor y de compra, para profundizar (DC33)** — medido en prod, sólo lectura, 2026-11-25:
+
+- La pantalla «Por proveedor» se consulta y **nadie escribe desde ella**: su lectura (`/api/commercial/replenishment/
+  suppliers`) tuvo 31 llamadas en 15 de los últimos 60 días; sus dos escrituras (tiempo de entrega y parámetros de
+  pedido), **0**.
+- En las 1,034 fichas vivas de `catalog.suppliers`: ciclo del motor (`cadence_days_override`) 300, mínimo en monto 300,
+  mínimo en cajas 275; **tiempo de entrega 0, fill rate 0, cobertura 0**. Quién y cómo capturó los 300 **no está
+  medido**: `updated_at` no lo dice.
+- El choque a resolver en esa plática: el ciclo del motor (`cadence_days_override`, que sí alimenta al sugerido) y la
+  regla del Calendario (que no lo alimenta hasta PQ.6, DC3) dicen cosas parecidas en dos lugares.
+
+**La base de Citas (PQ.3.8 · C0)**
+
+Dos tablas propias en `commercial` (regla 18: `tenant_id`, auditoría, RLS forzado; `app_runtime` sin DELETE: una
+reunión se cancela con motivo, un participante se quita con fecha):
+
+- **`commercial.supplier_meetings`** — una reunión con un proveedor: la clave de Kepler (`supplier_code`, la misma de
+  las reglas del Calendario y de la vista PQ.3.1); el tipo (cita con ejecutivo · revisión de negocio · plan de trabajo,
+  §9.1); el estado (por confirmar · agendada · realizada · cancelada); inicio y fin; la modalidad (en persona ·
+  llamada · videollamada) y el lugar; los temas en orden; quién la organiza; el año del plan (sólo y siempre en el plan
+  de trabajo, DC12); la minuta, con quién y cuándo.
+  - *Realizada* exige la minuta (§9.1: «después, una minuta corta»): una reunión que ya pasó sin minuta se ve como
+    tal, no se da por hecha.
+  - *Cancelada* exige el motivo.
+- **`commercial.supplier_meeting_participants`** — quién va: por Mega Dulces, un usuario de la Suite con su área
+  (Compras, Mercadotecnia, Finanzas o Dirección, DC9 y DC16); por el proveedor, nombre y puesto. Un usuario no se
+  repite en la misma reunión.
+
+Lo que **no** entra en esta base, y dónde va: el teléfono y el correo del ejecutivo (PQ.3.13, con la decisión de
+arriba), la periodicidad de la revisión por proveedor (PQ.3.9, junto con la lista «por programar»), la invitación
+(PQ.3.12) y los acuerdos (PQ.3.10).
+
+El vocabulario vive en `libs/contracts/src/http/supplier-meetings.contract.ts` y los CHECK aceptan exactamente sus
+listas: lo vigila la prueba contra Postgres real.
+
+**Cómo quedó la base de Citas (PQ.3.8 · C0 🧪, 2026-11-25)**
+
+- Contrato `supplier-meetings.contract.ts` (tipos, estados, modalidades, lados, áreas y sus etiquetas) y migración
+  `20261125203927` (generada; sin aplicar en prod: va antes de soltar el PR que la lleve).
+- `database/tests/test-newdb-pq3-8-agenda-proveedor.js`, contra Postgres real (Docker local, base nueva), como
+  `app_runtime`: **51 ✔**. Las cinco listas del contrato = los CHECK; los seis casos de la maqueta entran (los temas se
+  leen en orden); 22 negativas de la reunión y 12 de los participantes; la trampa del NULL en los temas con su control
+  en la misma base; un usuario una vez por reunión (quitarlo con fecha lo libera); `app_runtime` cancela y escribe la
+  minuta con UPDATE pero no borra; RLS y WITH CHECK con otro tenant.
+- **5 mutantes en rojo** (temas con la expresión ingenua, sin `REVOKE DELETE`, la minuta sin quién ni cuándo, sin el
+  índice único del participante, el contrato con un tipo que la base no acepta); control en verde; archivos
+  restaurados y verificados por hash.
+- ⭐ **El mutante «sin `REVOKE DELETE`» salió verde la primera vez**: la base local no da `DELETE` por defecto en
+  `commercial`, y prod sí (`app_runtime=arwd/postgres`, medido el 2026-11-25). Sin eso, «no puede borrar» pasaba por
+  la base, no por la migración. La prueba ahora lo **declara NO MEDIDO** cuando la base no replica a prod; con los
+  privilegios de prod replicados, el mutante se pone en rojo.
+- `up()` real dos veces (idempotente); `down()` con una reunión capturada la conserva (regla 5) y vacía la quita.
+- `check:mig-colisiones --solo-git` sin colisiones (la lectura de prod no se hizo: el análisis es parcial y así se
+  declara); `tsgo` sin errores.
+- Sigue: C1 (el dominio: la semana, qué reunión pasó sin minuta, los pendientes de la anterior) y C2 (la API con sus
+  permisos, ADR-054), después la pantalla.
+
+### 10.16 Parámetros por proveedor: lo que se decidió (DC33–DC39 · 2026-11-25)
+
+Francisco pidió la sesión de inmediato («ahora»). Se partió de lo medido, no de la pantalla.
+
+**Lo medido** (pg-prod 7688376744939610156, sólo lectura, 2026-11-25)
+
+| Parámetro (`catalog.suppliers`) | Quién lo pone | Para qué lo usa el sistema | Estado |
+|---|---|---|---|
+| Ciclo del motor (`cadence_days_override` + `colchon_days`) | `import-supplier-params.js` (RA-PRO.10) lo calcula del historial; la pantalla puede pisarlo | El objetivo por ciclo de «Qué toca» y de la agenda por proveedor (`cadenceTarget()`) | 300 fichas: 115 «derivado», **172 «desconocido»** (había un valor que no coincidía con lo derivable: el importer ya no lo toca), 13 sin clasificar |
+| «Mín $ / Mín cajas» (`min_order_amount`, `min_order_boxes`) | el mismo importer | Sólo informa en Pedido «cuánto llevas contra lo normal» (RA-PRO.69): **es el pedido típico, no un mínimo del proveedor** | 300 y 275 fichas; 255 y 209 «desconocido» |
+| Tiempo de entrega (`lead_time_days`) | nadie | El motor usa 7 días, o lo que deduce de Kepler para la cobertura | **0 de 1,034**; tampoco por canal (0 de 2,390) |
+| Fill rate (`fill_rate_override`) | nadie | Infla el sugerido; el automático (historial de OC y vales) sí trabaja | 0 capturados |
+| Ajustes globales (`commercial.replenishment_settings`) | la pantalla | Cobertura por omisión 30 días, ventana del fill rate 180, etc. | sin cambios desde el 2026-07-28 |
+
+La pantalla «Por proveedor» se consulta (31 lecturas en 15 de los últimos 60 días) y **nadie escribe desde ella** (0).
+
+**Tres ciclos para el mismo proveedor.** El aviso «Hoy te toca pedirle a N proveedores» de Pedido (PQ.5) no lee el
+Calendario, como pedía PQ.3.5: lee el ciclo **por canal** (`commercial.replenishment_channel.next_due_date`). Hoy dice
+**121 vencidos + 22 hoy** de 233 proveedores con ciclo por canal. Para los 12 proveedores con regla corporativa en el
+Calendario, en **ninguno** coinciden los tres. Tres ejemplos:
+
+| Proveedor | Regla del Calendario (la gerencia) | Ciclo por canal (aviso de Pedido) | Ciclo del motor |
+|---|---|---|---|
+| Proveedor A | cada lunes | 25 días | 30 |
+| Proveedor B | cada 17 días | 41 | 35 |
+| Proveedor C | el 23 de cada mes | 6 | 8 |
+
+**Lo que se decidió**
+
+- **DC35 — Manda el Calendario.** El aviso de Pedido lee la regla donde la hay (PQ.3.24); el sugerido la toma en PQ.6,
+  aparte y con antes/después. Sin regla, la propuesta de Kepler sale «sin confirmar».
+- **DC36 — Mínimo pactado ≠ pedido típico.** Algunos proveedores sí imponen mínimo (para surtir o para flete gratis):
+  se captura como condición, con quién y cuándo, y Pedido avisa si no se alcanza (PQ.3.26). El pedido típico sigue
+  calculándose, pero se llama así y sólo informa (PQ.3.25).
+- **DC37 — Tiempo de entrega y fill rate se miden** de Kepler por proveedor y sucursal; el motor usa el real y la
+  captura se retira (PQ.3.27, cambia números: commit aparte con antes/después).
+- **DC38 — Pestaña «Condiciones»** en Proveedores con todo lo de arriba más el plazo de pago (PQ.3.28). Parámetros de
+  compra se queda con Categorías, Red de abasto y los ajustes globales. ⚠️ Es una sexta pestaña: falta el OK de la
+  jefa de compras y de Edgar.
+- **DC39 — Se retira el importer** (regla 1): ciclo del motor y pedido típico salen de una vista derivada. Los valores
+  «desconocido» no se promueven a mínimo pactado: se declaran.
+
+**El orden.** PQ.3.24 va primero: es chico y hoy Pedido y el Calendario le dicen a la misma persona cosas distintas
+sobre a quién le toca pedir. Después sigue Citas (PQ.3.8 C1–C3) y, en paralelo de datos, PQ.3.25 y PQ.3.27 (C0).
+PQ.3.26 y PQ.3.28 esperan el OK de la sexta pestaña.
