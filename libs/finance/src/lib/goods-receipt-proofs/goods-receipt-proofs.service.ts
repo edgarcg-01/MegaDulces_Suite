@@ -26,9 +26,9 @@ import {
 } from './documento-duplicado';
 // `[RE.43]` De qué entrada es un papel: el folio del proveedor va contra `referencia`. Puro y medido.
 import { llaveDelFolio, ordenarCandidatas, sqlNucleoReferencia, sqlSufijoReferencia } from './emparejar-papel';
-import { aprendibles, conciliarRenglones, normCodigo, normStr, type RenglonKepler } from './conciliar-renglones';
+import { aprendibles, conciliarRenglones, normStr, type RenglonKepler } from './conciliar-renglones';
 // `[RE.55]` De dónde salen los renglones: XML del CFDI, u OCR sólo si su lectura es confiable.
-import { conceptosDelCfdi, lecturaConfiable, porPrecedencia, rfcsDelProveedor, type FuenteRenglones, type RfcsDelProveedor } from './fuente-renglones';
+import { conceptosDelCfdi, lecturaConfiable, type FuenteRenglones } from './fuente-renglones';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -2648,10 +2648,9 @@ export class GoodsReceiptProofsService {
    * (OCR) contra las líneas de la orden de entrada de Kepler (`erp_goods_receipt_lines`,
    * que ya traen el SKU interno + nombre + cantidad). Resuelve el SKU en cascada:
    *
-   *   1. ALIAS aprendido  — su código (`[PQ.148]`) o su descripción ya confirmados para este proveedor.
+   *   1. ALIAS aprendido  — descripción ya vista para este proveedor (RFC) → SKU directo.
    *   2. CÓDIGO DE BARRAS  — EAN impreso en el renglón → catalog.product_barcodes → SKU.
-   *   3. HISTORIA          — `[PQ.148]` su código cayó siempre en ese SKU en facturas ya aplicadas.
-   *   4. DESCRIPCIÓN       — similitud de tokens contra el `nombre` de las líneas Kepler.
+   *   3. DESCRIPCIÓN       — similitud de tokens contra el `nombre` de las líneas Kepler.
    *
    * Asignación greedy (cada línea Kepler se consume una sola vez), priorizando alias/barcode
    * (certeros) y luego descripción por score. La cantidad se normaliza a PIEZAS con el
@@ -2670,17 +2669,12 @@ export class GoodsReceiptProofsService {
         .where({ tenant_id: tenantId, sucursal: suc, folio: fol })
         .first('proveedor_rfc', 'proveedor_nombre');
       if (!entrada) throw new BadRequestException(`entrada ${suc}/${fol} no existe en el espejo de Kepler`);
+      const rfc = (entrada.proveedor_rfc || '').trim().toUpperCase();
 
       // `[RE.55]` La fuente de los renglones: los conceptos del CFDI ligado (el mismo que muestra el
       // expediente) y, sin CFDI, el OCR sólo si su lectura pasa las pruebas de `lecturaConfiable`.
       const fuente = await this.fuenteRenglones(trx, tenantId, suc, fol, leidas);
       const remLines = fuente.usar;
-
-      // `[PQ.150]` El código es de quien FACTURA: alias e historia se buscan con el RFC de la factura ligada
-      // primero y el del acreedor en Kepler después (falta en 42 % de las entradas, o es otro), y se aprende
-      // bajo el de la factura. Sin factura ligada, como antes: el de Kepler.
-      const quien = rfcsDelProveedor(entrada.proveedor_rfc, fuente.rfcFactura);
-      const rfc = quien.aprender ?? '';
 
       // Líneas Kepler de ESTA entrada (candidatos del match).
       const kepRaw = await trx('analytics.erp_goods_receipt_lines')
@@ -2709,8 +2703,14 @@ export class GoodsReceiptProofsService {
         for (const r of bf.rows || []) if (Number(r.box_factor) > 0) bfMap.set(String(r.sku), Number(r.box_factor));
       }
 
-      // Lo aprendido de este proveedor: alias (`[RE.53]`, `[PQ.148]`) e historia (`[PQ.148]`), con los RFC de `quien`.
-      const { aliasMap, aliasPorCodigo, historiaPorCodigo } = await this.equivalenciasDe(trx, tenantId, quien);
+      // Aliases aprendidos para este proveedor.
+      const aliasMap = new Map<string, { sku: string; nombre_interno: string | null; box_factor: number | null }>();
+      if (rfc) {
+        const al = await trx('commercial.supplier_item_aliases')
+          .where({ tenant_id: tenantId, proveedor_rfc: rfc }).whereNull('deleted_at')
+          .select('descripcion_norm', 'sku', 'nombre_interno', trx.raw('box_factor::numeric AS box_factor'));
+        for (const a of al) aliasMap.set(a.descripcion_norm, { sku: a.sku, nombre_interno: a.nombre_interno, box_factor: a.box_factor != null ? Number(a.box_factor) : null });
+      }
 
       // Barcodes → sku (solo los que aparecen en la remisión).
       const barcodes = remLines.map((l) => (l.codigo_barras || '').trim()).filter((b) => b.length >= 8);
@@ -2724,7 +2724,7 @@ export class GoodsReceiptProofsService {
 
       // `[RE.53]` Emparejar es del motor puro: global (nombre + cantidad + importe) y con la base
       // de IVA del documento. Aquí sólo se cargan los datos.
-      const c = conciliarRenglones({ remision: remLines, kepler, aliases: aliasMap, aliasesPorCodigo: aliasPorCodigo, historiaPorCodigo, barcodes: bcMap, boxFactor: bfMap });
+      const c = conciliarRenglones({ remision: remLines, kepler, aliases: aliasMap, barcodes: bcMap, boxFactor: bfMap });
       const results = c.lines;
       const totals = {
         lineas_remision: results.length,
@@ -2742,48 +2742,10 @@ export class GoodsReceiptProofsService {
 
       return {
         sucursal: suc, folio: fol, proveedor_rfc: rfc || null, proveedor_nombre: entrada.proveedor_nombre || null,
-        // `[PQ.150]` De dónde salió el RFC con que se buscó y se aprende: se dice, no se supone.
-        proveedor_rfc_fuente: quien.fuente,
         lines: results, kepler_orphans: c.kepler_orphans, base_precio: c.base_precio, no_producto: c.no_producto, totals,
         lectura: fuente.lectura,
       };
     });
-  }
-
-  /**
-   * `[PQ.150]` Lo aprendido de un proveedor, buscado con TODOS sus RFC (`quien.buscar`): el de la factura y el
-   * del acreedor en Kepler. Si los dos traen el mismo código o la misma descripción, gana el que va primero
-   * (el de la factura: es quien escribe el código).
-   *  · Alias confirmados (`commercial.supplier_item_aliases`): por descripción (`[RE.53]`) y por código (`[PQ.148]`).
-   *  · Historia (`commercial.v_supplier_item_code_history`, sólo los códigos que cayeron siempre en el mismo
-   *    SKU). Va en su propio savepoint: si la vista no se puede leer, la conciliación sigue sin ella —esos
-   *    renglones caen a la descripción, como antes— y queda en el log; no se inventa nada.
-   */
-  private async equivalenciasDe(trx: Knex.Transaction, tenantId: string, quien: RfcsDelProveedor) {
-    type Equivalencia = { sku: string; nombre_interno: string | null; box_factor: number | null };
-    const aliasMap = new Map<string, Equivalencia>();
-    const aliasPorCodigo = new Map<string, Equivalencia>();
-    const historiaPorCodigo = new Map<string, Equivalencia>();
-    if (!quien.buscar.length) return { aliasMap, aliasPorCodigo, historiaPorCodigo };
-
-    const al = await trx('commercial.supplier_item_aliases')
-      .where({ tenant_id: tenantId }).whereIn('proveedor_rfc', quien.buscar).whereNull('deleted_at')
-      .select('proveedor_rfc', 'descripcion_norm', 'codigo_proveedor', 'sku', 'nombre_interno', trx.raw('box_factor::numeric AS box_factor'));
-    for (const a of porPrecedencia(al, quien.buscar)) {
-      const v = { sku: a.sku, nombre_interno: a.nombre_interno, box_factor: a.box_factor != null ? Number(a.box_factor) : null };
-      aliasMap.set(a.descripcion_norm, v);
-      if (a.codigo_proveedor) aliasPorCodigo.set(a.codigo_proveedor, v);
-    }
-
-    try {
-      const hs = await trx.transaction((sp) => sp('commercial.v_supplier_item_code_history')
-        .where({ tenant_id: tenantId, estable: true }).whereIn('proveedor_rfc', quien.buscar)
-        .select('proveedor_rfc', 'codigo_proveedor', 'sku', 'nombre_kepler'));
-      for (const h of porPrecedencia(hs, quien.buscar)) historiaPorCodigo.set(h.codigo_proveedor, { sku: h.sku, nombre_interno: h.nombre_kepler, box_factor: null });
-    } catch (err) {
-      this.logger.warn(`[PQ.148] la historia de códigos de ${quien.buscar.join('/')} no se pudo leer; se concilia sin ella: ${(err as Error).message}`);
-    }
-    return { aliasMap, aliasPorCodigo, historiaPorCodigo };
   }
 
   /**
@@ -2793,15 +2755,11 @@ export class GoodsReceiptProofsService {
    */
   private async fuenteRenglones(trx: Knex.Transaction, tenantId: string, suc: string, fol: string, leidas: RemisionLine[]) {
     const x = (await this.expediente.calcularLote(trx, tenantId, [{ sucursal: suc, folio: fol }])).get(`${suc}/${fol}`);
-    // `[PQ.150]` El RFC de quien factura, aunque el XML no esté: con él se buscan las equivalencias.
-    let rfcFactura: string | null = null;
     if (x?.cfdi) {
-      const row = await trx('fiscal.cfdis').where({ tenant_id: tenantId, id: x.cfdi.id }).first('xml', 'emisor_rfc');
-      rfcFactura = row?.emisor_rfc ?? null;
+      const row = await trx('fiscal.cfdis').where({ tenant_id: tenantId, id: x.cfdi.id }).first('xml');
       const conceptos = conceptosDelCfdi(row?.xml);
       if (conceptos.length) {
         return {
-          rfcFactura,
           usar: conceptos,
           // `[RE.59]` Si la liga es sólo SUGERENCIA (nombre + importe, RFC + importe…), la conciliación lo dice:
           // sirve para confirmarla, no la da por buena.
@@ -2825,7 +2783,6 @@ export class GoodsReceiptProofsService {
     const l = lecturaConfiable(leidas, doc);
     const sinCfdi = x?.cfdi ? ['el CFDI ligado todavía no tiene su XML'] : [];
     return {
-      rfcFactura,
       usar: l.confiable ? leidas : [],
       lectura: { fuente: 'ocr' as FuenteRenglones, confiable: l.confiable, motivos: [...l.motivos, ...sinCfdi], uuid: null as string | null, renglones_leidos: leidas.length, liga_sugerida: false },
     };
@@ -2838,7 +2795,7 @@ export class GoodsReceiptProofsService {
    * refresca `last_seen`. La próxima remisión del mismo proveedor resuelve sola.
    */
   async confirmLineMatch(
-    dto: { proveedor_rfc?: string; descripcion?: string; sku?: string; nombre_interno?: string; unidad_proveedor?: string; box_factor?: number; codigo_proveedor?: string },
+    dto: { proveedor_rfc?: string; descripcion?: string; sku?: string; nombre_interno?: string; unidad_proveedor?: string; box_factor?: number },
     actor?: string,
   ) {
     this.tenantCtx.requireTenantId();
@@ -2854,7 +2811,6 @@ export class GoodsReceiptProofsService {
       const row = await this.upsertAlias(trx, rfc, {
         descripcion: descRaw, sku, nombre_interno: dto.nombre_interno || null,
         unidad_proveedor: (dto.unidad_proveedor || '').toUpperCase() || null, box_factor: bf,
-        codigo_proveedor: dto.codigo_proveedor ?? null,
       });
       this.logger.log(`alias aprendido: [${rfc}] "${descNorm}" → SKU ${sku} (x${row?.veces_confirmado}) por ${actor || '?'}`);
       return { id: row?.id, sku: row?.sku, veces_confirmado: Number(row?.veces_confirmado), confianza: Number(row?.confianza) };
@@ -2867,47 +2823,24 @@ export class GoodsReceiptProofsService {
    * INSERT no podía pasar (la tabla tiene 0 filas desde que existe, medido en prod 2026-10-29).
    * Quién validó queda en el historial de la evidencia y en el log; aquí van nulos.
    */
-  private async upsertAlias(trx: Knex.Transaction, rfc: string, a: { descripcion: string; sku: string; nombre_interno: string | null; unidad_proveedor: string | null; box_factor: number | null; codigo_proveedor?: string | null }) {
+  private async upsertAlias(trx: Knex.Transaction, rfc: string, a: { descripcion: string; sku: string; nombre_interno: string | null; unidad_proveedor: string | null; box_factor: number | null }) {
     const descNorm = normStr(a.descripcion);
     if (!descNorm) return null;
-    const cod = normCodigo(a.codigo_proveedor);
-    // `[PQ.148]` 1) Si el CÓDIGO del proveedor ya tiene equivalencia, ésa es la que se refuerza, aunque
-    //    la descripción haya cambiado de una factura a otra (que es justo por qué el código va primero).
-    //    Misma regla de refuerzo que la de abajo: en el SET, `veces_confirmado` es el valor ANTERIOR.
-    if (cod) {
-      const porCodigo = await trx.raw(
-        `UPDATE commercial.supplier_item_aliases SET
-           sku = ?,
-           nombre_interno = COALESCE(?, nombre_interno),
-           unidad_proveedor = COALESCE(?, unidad_proveedor),
-           box_factor = COALESCE(?, box_factor),
-           veces_confirmado = veces_confirmado + 1,
-           confianza = LEAST(1.0, 0.6 + 0.1 * (veces_confirmado + 1)),
-           last_seen = now(), updated_at = now()
-         WHERE tenant_id = public.current_tenant_id() AND proveedor_rfc = ? AND codigo_proveedor = ? AND deleted_at IS NULL
-         RETURNING id, sku, veces_confirmado, confianza::numeric AS confianza`,
-        [a.sku, a.nombre_interno, a.unidad_proveedor, a.box_factor, rfc, cod],
-      );
-      if (porCodigo.rows?.length) return porCodigo.rows[0];
-    }
-    // 2) Por descripción, como `[RE.53]`. El código se anota si la fila no tenía uno; uno distinto que
-    //    ya traía NO se pisa (dos presentaciones con el mismo nombre se distinguen por su código).
     const res = await trx.raw(
       `INSERT INTO commercial.supplier_item_aliases
-         (tenant_id, proveedor_rfc, descripcion_norm, descripcion_raw, sku, nombre_interno, unidad_proveedor, box_factor, codigo_proveedor, veces_confirmado, confianza, last_seen, created_by, updated_by)
-       VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, ?, ?, ?, 1, 0.7, now(), NULL, NULL)
+         (tenant_id, proveedor_rfc, descripcion_norm, descripcion_raw, sku, nombre_interno, unidad_proveedor, box_factor, veces_confirmado, confianza, last_seen, created_by, updated_by)
+       VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, ?, ?, 1, 0.7, now(), NULL, NULL)
        ON CONFLICT (tenant_id, proveedor_rfc, descripcion_norm) WHERE deleted_at IS NULL
        DO UPDATE SET
          sku = EXCLUDED.sku,
          nombre_interno = COALESCE(EXCLUDED.nombre_interno, commercial.supplier_item_aliases.nombre_interno),
          unidad_proveedor = COALESCE(EXCLUDED.unidad_proveedor, commercial.supplier_item_aliases.unidad_proveedor),
          box_factor = COALESCE(EXCLUDED.box_factor, commercial.supplier_item_aliases.box_factor),
-         codigo_proveedor = COALESCE(commercial.supplier_item_aliases.codigo_proveedor, EXCLUDED.codigo_proveedor),
          veces_confirmado = commercial.supplier_item_aliases.veces_confirmado + 1,
          confianza = LEAST(1.0, 0.6 + 0.1 * (commercial.supplier_item_aliases.veces_confirmado + 1)),
          last_seen = now(), updated_at = now()
        RETURNING id, sku, veces_confirmado, confianza::numeric AS confianza`,
-      [rfc, descNorm, a.descripcion, a.sku, a.nombre_interno, a.unidad_proveedor, a.box_factor, cod],
+      [rfc, descNorm, a.descripcion, a.sku, a.nombre_interno, a.unidad_proveedor, a.box_factor],
     );
     return res.rows?.[0] ?? null;
   }
@@ -2931,7 +2864,7 @@ export class GoodsReceiptProofsService {
       const a = aprendibles(r);
       if (!rfc || !a.length) return 0;
       await this.tk.run(async (trx) => { for (const x of a) await this.upsertAlias(trx, rfc, x); });
-      this.logger.log(`[RE.53] ${a.length} equivalencia(s) aprendida(s) al validar ${p.sucursal}/${p.folio} (validó ${actor || '?'}): ${a.map((x) => `"${x.descripcion}"${x.codigo_proveedor ? ` [${x.codigo_proveedor}]` : ''} → ${x.sku}`).join(', ')}`);
+      this.logger.log(`[RE.53] ${a.length} equivalencia(s) aprendida(s) al validar ${p.sucursal}/${p.folio} (validó ${actor || '?'}): ${a.map((x) => `"${x.descripcion}" → ${x.sku}`).join(', ')}`);
       return a.length;
     } catch (e: unknown) {
       this.logger.warn(`[RE.53] no se aprendió de la evidencia ${proofId}: ${e instanceof Error ? e.message : String(e)}`);
