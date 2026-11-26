@@ -1502,7 +1502,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 <p-select appendTo="body" [options]="prepOrigenes()" [(ngModel)]="p.origin" (onChange)="prepPartesError.set(null)" optionLabel="label" optionValue="id"
                           placeholder="Cuenta de origen…" [filter]="true" filterBy="label" [fluid]="true" [emptyMessage]="origenVacio()" [ariaLabel]="'Cuenta de origen de la transferencia ' + (i + 1)" />
                 @if (prepPartes.length > 2) {
-                  <button pButton type="button" class="p-button-text p-button-sm p-button-secondary" icon="pi pi-times" (click)="quitarTransferencia(i)" [attr.aria-label]="'Quitar la transferencia ' + (i + 1)"></button>
+                  <!-- [PGP.190.2] En PrimeNG 22 pButton ya no dibuja «icon»: el ícono va DENTRO (como las flechas de semana, pg-ico). -->
+                  <button pButton type="button" class="p-button-text p-button-secondary pg-ico" [iconOnly]="true" (click)="quitarTransferencia(i)" [attr.aria-label]="'Quitar la transferencia ' + (i + 1)"><span class="pi pi-times" aria-hidden="true"></span></button>
                 } @else { <span></span> }
               </div>
             }

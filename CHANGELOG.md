@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos › Preparar pago: la ✕ para quitar una transferencia se ve (PGP.190.2 · 2026-11-26 · en código, sin soltar)
+- Al partir un pago en tres o más transferencias, cada renglón tiene una ✕ para quitarlo. Desde la actualización de PrimeNG salía vacía: se podía tocar, pero no se veía. Ahora se ve, alineada con el importe y la cuenta, y con el dedo mide 44 px.
+- Internal: en PrimeNG 22 `pButton` ya no tiene `icon` ni `label`; el ícono va dentro del botón (`[iconOnly]`). Hay 28 botones más con el mismo defecto en otras pantallas (AUD-UI.5).
 ### Changed — Compras › Entradas: la factura del proveedor se empareja por SU código (PQ.148 · 2026-11-24 · en código, sin soltar)
 - Al conciliar una factura contra la entrada de Kepler, cada renglón se busca primero por el código con que el proveedor timbra su producto, y después por la descripción. Si el proveedor cambia la redacción, el renglón se sigue reconociendo.
 - Al dar por buena una factura, lo que cuadra se aprende con ese código. No se aprenden códigos de 1–2 caracteres (son número de renglón) ni los que la factura repite.
