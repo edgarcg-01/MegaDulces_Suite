@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 449 KB, 6714 líneas, 44 secciones.
+> **Índice navegable** — 450 KB, 6728 líneas, 44 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -50,7 +50,7 @@
 | 5894 | 5998 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
 | 5999 | 6070 | 5 | 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026- |
 | 6071 | 6349 | 16 | 40. ⭐⭐ LA NÓMINA: el dinero está TRES veces en Kepler y la semana no se puede reconstruir (NE, 2026-11-23) |
-| 6350 | 6770 | 25 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
+| 6350 | 6784 | 26 | 41. ⭐⭐ EL COMPLEMENTO DE PAGO: nace del COBRO, no del dinero — y el dinero sin cobro no tiene quién lo timbre  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -6743,10 +6743,24 @@ De los **260 restos de centavos vivos** en la cartera (los que `[GP.R.3]` va a c
 
 ⭐ **El cero de los `UD12`/`UD13` está auditado y es real**: entre todos los CFDI emitidos sólo
 existen las series `UD05`, `UD06` y `UD08` — **no hay ni una `UD12` ni `UD13`**. Sus clientes son en
-buena parte claves internas (`10-00`, `40-00`, `RUTA 21`, `CONTADO`), lo que apunta a cargos entre
-sucursales y a rutas; ⬜ **pero no todos lo son** (hay `C1002`, `10001`), y el tipo 13 mueve **9,262
-documentos por $498.8 M en 2026**. *Eso es un hilo aparte, de Contabilidad, y queda declarado: no se
-midió qué parte de ese universo debería llevar CFDI.*
+claves internas. **Medido el 2026-11-25**, los 9,262 documentos `U-D-13` de 2026 ($498.8 M) se reparten así:
+
+| A quién se le carga | Documentos | Claves | Pesos |
+|---|---:|---:|---:|
+| una **sucursal** (`NN-NN`) — traspaso | 2,689 | 11 | $411.9 M |
+| una **ruta** | 2,302 | 11 | $41.9 M |
+| `CONTADO` o vacío | 33 | 1 | $0.3 M |
+| claves de sistema (`CA*`, `RV*`) | 293 | 5 | $2.9 M |
+| ⬜ **una clave de cliente normal** | **3,390** | **338** | **$41.8 M** |
+
+⭐ **El control que lo acota:** de los **341** pares sucursal+cliente de ese último grupo, **sólo 2 reciben
+también facturas `U-D-8`**, que son las que sí se timbran. O sea que **el `U-D-13` es otro circuito, no la
+misma población que se factura** — lo que hace improbable que sean ventas sin CFDI, y por eso esto se
+declara en vez de denunciarse.
+
+⬜ **Y lo que sigue sin medirse, que es lo que importa: QUÉ ES un `U-D-13` en el negocio.** Sin esa regla de
+dominio no se puede decir si esos $41.8 M deberían llevar comprobante — y el nombre de la columna no la da
+(esa lección ya costó una vez). Es una **pregunta para Contabilidad**, con estas cifras, no una fase.
 
 Un **Ajuste Abono `U-A-30` no emite CFDI** (lo escribe la Suite directo en tres tablas de Kepler). El
 instrumento que **sí** timbra es la **nota de crédito `U-A-21`** —serie `NNUA21SS`, ~1,145 emitidas en

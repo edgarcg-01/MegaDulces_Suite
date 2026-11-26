@@ -11,13 +11,17 @@ import { InputTextModule } from 'primeng/inputtext';
 import {
   aisleOrder,
   describeLocationCode,
+  FIXTURE_KINDS,
   LOCATION_KINDS,
+  nombrePieza,
   parseLocationCode,
   rackFace,
   rackOpuesto,
+  type CroquisResponse,
   type LocationKind,
   type LocationZone,
   type RackFace,
+  type WarehouseFixture,
   type WarehouseLocationRow,
   type WarehouseLocationsResponse,
 } from '@megadulces/contracts';
@@ -67,6 +71,23 @@ export interface PasilloMapa {
   columnas: number;
   nones: Fila;
   pares: Fila;
+}
+
+/**
+ * `[UB.PL]` Una pieza puesta en el croquis: el mueble, el bloque de racks que le corresponde (si
+ * genera ubicaciones) y cómo se dibuja. Una cabecera **no** lleva corredor en medio: es de una cara,
+ * y dibujarle dos frentes es dibujar algo que no existe en la tienda.
+ */
+interface PiezaEnCroquis {
+  pieza: WarehouseFixture;
+  bloque: PasilloMapa | null;
+  nombre: string;
+  dosFrentes: boolean;
+}
+
+interface FilaCroquis {
+  fila: number;
+  piezas: PiezaEnCroquis[];
 }
 
 const ESTADO_LABEL: Record<EstadoRack, string> = {
@@ -182,7 +203,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
           }
 
           @if (enCaptura()) {
-            <app-ubicaciones-captura [warehouse]="d.warehouse" (cambio)="reload()" />
+            <app-ubicaciones-captura [warehouse]="d.warehouse" [ubicaciones]="d.ubicaciones" (cambio)="reload()" />
           } @else if (enCarretas()) {
             <app-ubicaciones-carretas [warehouse]="d.warehouse" [puedeGestionar]="puedeGestionar()" [puedeCoordinar]="puedeCoordinar()" />
           } @else {
@@ -200,6 +221,57 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
                   @if (conProducto()) { <span><b class="num">N</b> productos con lugar ahí</span> }
                 </div>
               </div>
+
+              <!-- [UB.PL] Si la sucursal ya tiene croquis, el mapa dibuja LA TIENDA: cada pieza en su
+                   lugar, y cada una como lo que es. Una cabecera no lleva corredor en medio porque es
+                   de una cara. Sin croquis se dibuja el mapa de siempre, que no desaparece. -->
+              @if (hayCroquis()) {
+                <div class="ub-croquis" role="group" aria-label="Croquis de la sucursal: flechas para moverse, Enter para ver el rack" (keydown)="onGridKey($event)">
+                  @for (f of filasDelCroquis(); track f.fila) {
+                    <div class="ub-cro-fila">
+                      @for (p of f.piezas; track p.pieza.id) {
+                        <section class="ub-pieza ub-pieza-{{ p.pieza.tipo }}" [attr.aria-label]="p.nombre">
+                          <h3 class="ub-ph">{{ p.nombre }}</h3>
+                          @if (p.bloque; as b) {
+                            <div class="ub-corredor" [style.--ub-cols]="b.columnas">
+                              @for (fr of (p.dosFrentes ? [b.nones, b.pares] : [b.nones]); track fr.cara) {
+                                @if (p.dosFrentes && fr.cara === 'pares') { <div class="ub-via" aria-hidden="true"><span>corredor</span></div> }
+                                @if (p.dosFrentes) { <span class="ub-cara">{{ fr.cara }}</span> } @else { <span class="ub-cara">frente</span> }
+                                <div class="ub-frente">
+                                  @if (fr.cara === 'nones') {
+                                    <div class="ub-nums">@for (c of fr.celdas; track c.rack) { <span class="ub-rh num">{{ dos(c.rack) }}</span> }</div>
+                                  }
+                                  <div class="ub-celdas">
+                                    @for (c of fr.celdas; track c.rack; let ci = $index) {
+                                      <button type="button" class="ub-cell ub-c-{{ c.estado }}" [class.sel]="selKey() === fr.pasillo + c.rack"
+                                        [attr.data-pos]="fr.fi + '-' + ci" [attr.tabindex]="esFoco(fr.fi, ci) ? 0 : -1"
+                                        [attr.aria-label]="c.aria" [attr.aria-pressed]="selKey() === fr.pasillo + c.rack" (click)="pickRack(fr.pasillo, c, fr.fi, ci)">
+                                        @if (c.estado === 'bloqueada') { <i class="pi pi-ban" aria-hidden="true"></i> }
+                                        @else if (c.estado === 'contenido') { <i class="pi pi-box" aria-hidden="true"></i> }
+                                        @else if (c.productos) { <span class="ub-cell-n num" aria-hidden="true">{{ c.productos }}</span> }
+                                        @else if (c.estado === 'baja') { <i class="pi pi-minus" aria-hidden="true"></i> }
+                                      </button>
+                                    }
+                                  </div>
+                                  @if (p.dosFrentes && fr.cara === 'pares') {
+                                    <div class="ub-nums">@for (c of fr.celdas; track c.rack) { <span class="ub-rh num">{{ dos(c.rack) }}</span> }</div>
+                                  }
+                                </div>
+                              }
+                            </div>
+                          } @else {
+                            <!-- Una caja o un mostrador estan en el croquis para ubicarse y no guardan codigos. -->
+                            <p class="ub-hint">No guarda mercancía con código.</p>
+                          }
+                        </section>
+                      }
+                    </div>
+                  }
+                </div>
+                @if (piezasSinLugar().length) {
+                  <p class="ub-hint"><b>{{ piezasSinLugar().length }}</b> pieza(s) todavía sin lugar en el croquis: {{ nombresSinLugar() }}. Se ven abajo, en el mapa por pasillos.</p>
+                }
+              }
 
               @if (filas().length) {
                 <!-- [UB.RF.18] Un pasillo es un CORREDOR con dos frentes enfrentados: se dibujan como
@@ -239,6 +311,16 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
                     </section>
                   }
                 </div>
+                <!-- [UB.PL] La salida para que el mapa deje de ser una rejilla: se arma de lo que YA
+                     existe, sin recapturar ni borrar nada. -->
+                @if (!hayCroquis() && puedeGestionar()) {
+                  <p class="ub-note">
+                    <i class="pi pi-info-circle" aria-hidden="true"></i>
+                    <span>Este mapa dibuja todo como pasillos. Si {{ data()?.warehouse?.name }} tiene cabeceras, islas o cajas, el croquis las muestra como son.</span>
+                    <button pButton type="button" class="p-button-sm p-button-text" (click)="configurarCroquis()"><span class="p-button-label">Configurar el croquis</span></button>
+                  </p>
+                }
+                @if (croquisErr(); as e) { <p class="ub-hint ub-bad" role="alert">{{ e }}</p> }
                 <p class="ub-hint">Cada pasillo tiene dos frentes, uno a cada lado del corredor: los racks <b>nones</b> de un lado y los <b>pares</b> del otro, así que el <b class="num">{{ dos(1) }}</b> queda enfrente del <b class="num">{{ dos(2) }}</b>. El número del cuadro es cuántos productos ya tienen su lugar ahí; tócalo para ver sus niveles.</p>
               } @else {
                 <div class="ub-empty"><i class="pi pi-map" aria-hidden="true"></i><span>Todavía no hay ubicaciones de {{ zona() === 'B' ? 'bodega' : 'tienda' }} con el formato nuevo en {{ d.warehouse.code }}.</span>@if (puedeGestionar()) { <span>Da de alta la primera aquí a la derecha, o muchas a la vez con «Captura masiva» (por rango o desde Excel).</span> }</div>
@@ -340,6 +422,14 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-sw { display:inline-flex; align-items:center; justify-content:center; width:1rem; height:1rem; border-radius:3px; }
     .ub-sw .pi { font-size:var(--fs-nano); }
     .ub-grid-wrap { overflow-x:auto; padding:.75rem .85rem .25rem; display:flex; flex-direction:column; gap:var(--sp-5); }
+    /* [UB.PL] El croquis: los renglones de la tienda, y en cada uno sus piezas de izquierda a
+       derecha. Se agrupa con ESPACIO; el borde de 1px es lo unico que delimita cada mueble. */
+    .ub-croquis { display:flex; flex-direction:column; gap:var(--sp-5); padding:.75rem .85rem .25rem; overflow-x:auto; }
+    .ub-cro-fila { display:flex; gap:var(--sp-5); align-items:flex-start; min-width:min-content; }
+    .ub-pieza { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.5rem .6rem; display:flex; flex-direction:column; gap:.3rem; min-width:min-content; }
+    /* Una cabecera es un mueble corto y de una cara: se ve distinta de un anaquel sin usar otro color. */
+    .ub-pieza-cabecera { border-style:dashed; }
+    .ub-pieza-caja, .ub-pieza-mostrador { background:var(--hover-bg); align-self:center; }
     /* [UB.RF.18] Un bloque por pasillo: los dos frentes se agrupan por ESPACIO, no por una caja mas. */
     .ub-pasillo { display:flex; flex-direction:column; gap:.3rem; min-width:min-content; }
     .ub-ph { font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); margin:0; text-transform:uppercase; letter-spacing:.04em; }
@@ -634,6 +724,63 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   /** Los frentes en una sola lista, en el orden en que se recorren: es lo que mueven las flechas. */
   readonly filas = computed<Fila[]>(() => this.pasillos().flatMap((p) => [p.nones, p.pares]));
 
+  // ── `[UB.PL]` El croquis: el mapa dibuja la tienda que es, no una rejilla ──────────────────
+  readonly croquis = signal<CroquisResponse | null>(null);
+  readonly acomodando = signal(false);
+  readonly croquisErr = signal<string | null>(null);
+
+  /** Las piezas de la zona que se está mirando, ya acomodadas en el croquis. */
+  private readonly piezasDeZona = computed(() => (this.croquis()?.piezas ?? []).filter((p) => p.zona === this.zona()));
+  readonly piezasAcomodadas = computed(() => this.piezasDeZona().filter((p) => p.fila != null && p.columna != null));
+  readonly piezasSinLugar = computed(() => this.piezasDeZona().filter((p) => p.fila == null || p.columna == null));
+  /** Hay croquis cuando alguien ya acomodó al menos una pieza: si no, se dibuja el mapa de siempre. */
+  readonly hayCroquis = computed(() => this.piezasAcomodadas().length > 0);
+
+  /**
+   * El croquis en renglones: cada uno con sus piezas en orden de columna, y cada pieza con los
+   * frentes que ya arma `armarPasillos` (por su letra). Así el dibujo sale de **dónde está cada
+   * mueble**, no de suponer que todo es un pasillo.
+   */
+  readonly nombresSinLugar = computed(() => this.piezasSinLugar().map((p) => nombrePieza(p)).join(', '));
+
+  /** `[UB.PL.2]` Configura el croquis a partir de lo que ya existe. No crea ni borra ubicaciones. */
+  configurarCroquis(): void {
+    const w = this.warehouseId();
+    if (!w) return;
+    this.croquisErr.set(null);
+    this.api.derivarPiezas(w).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => this.cargarCroquis(),
+      error: (e: HttpErrorResponse) => {
+        const m = e.error?.message;
+        this.croquisErr.set(typeof m === 'string' ? m : 'No se pudo configurar el croquis.');
+      },
+    });
+  }
+
+  private cargarCroquis(): void {
+    const w = this.warehouseId();
+    if (!w) return;
+    this.api.croquis(w, this.zona()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c) => this.croquis.set(c),
+      // Sin croquis la pantalla sigue sirviendo: se dibuja el mapa por pasillos de siempre.
+      error: () => this.croquis.set(null),
+    });
+  }
+
+  readonly filasDelCroquis = computed<FilaCroquis[]>(() => {
+    const porPasillo = new Map(this.pasillos().map((p) => [p.pasillo, p]));
+    const porFila = new Map<number, PiezaEnCroquis[]>();
+    for (const pieza of this.piezasAcomodadas()) {
+      const bloque = pieza.pasillo ? porPasillo.get(pieza.pasillo) ?? null : null;
+      const lista = porFila.get(pieza.fila as number) ?? [];
+      lista.push({ pieza, bloque, nombre: nombrePieza(pieza), dosFrentes: FIXTURE_KINDS[pieza.tipo]?.dosFrentes ?? false });
+      porFila.set(pieza.fila as number, lista);
+    }
+    return [...porFila.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([fila, piezas]) => ({ fila, piezas: piezas.sort((a, b) => (a.pieza.columna ?? 0) - (b.pieza.columna ?? 0)) }));
+  });
+
   ngOnInit(): void {
     this.reload();
   }
@@ -657,6 +804,7 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
         // abría en «Bodega (0)» con sus 375 en Tienda, y la persona leía «no hay» (medido 2026-11-17).
         const z = zonaConUbicaciones(this.zona(), this.cuentaZona('B'), this.cuentaZona('T'));
         if (z !== this.zona()) this.pickZona(z);
+        this.cargarCroquis();
         this.refrescarSel();
         this.foco.set({ fi: 0, ci: 0 });
         this.loading.set(false);
