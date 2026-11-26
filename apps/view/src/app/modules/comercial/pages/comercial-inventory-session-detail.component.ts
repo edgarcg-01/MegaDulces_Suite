@@ -19,6 +19,7 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import { debounceTime } from 'rxjs/operators';
 import { ComercialService, InventoryCountItem, InventorySupervisorProgress, AssignableUser, InventoryInterruptions, InventoryCountSession } from '../comercial.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { CantidadFisicaDirective } from '../../../shared/directives/cantidad-fisica.directive';
 import { InventoryMonitorSocketService } from '../inventory-monitor-socket.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -46,7 +47,7 @@ interface LiveCountEntry {
     CommonModule, FormsModule, RouterModule,
     ButtonModule, TableModule, TagModule, DialogModule, InputNumberModule, InputTextModule,
     ToastModule, ConfirmDialogModule, SelectButtonModule, MultiSelectModule, SelectModule,
-    MetricStripComponent, TooltipModule,
+    MetricStripComponent, TooltipModule, CantidadFisicaDirective,
   ],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -90,7 +91,7 @@ interface LiveCountEntry {
                       <span class="in-live-prod">{{ e.product_name }}</span>
                       <span class="in-live-meta">{{ e.username }} · {{ e.at | date:'HH:mm:ss' }}</span>
                     </div>
-                    <span class="in-live-qty">{{ e.qty }}</span>
+                    <span class="in-live-qty">{{ e.qty | number: '1.0-3' }}</span>
                     <p-tag [value]="slotLabel(e.slot)" [severity]="e.slot === 'count_2' ? 'success' : (e.slot === 'count_3' ? 'warn' : 'info')"></p-tag>
                   </div>
                 }
@@ -279,13 +280,20 @@ interface LiveCountEntry {
             <td class="in-mono">{{ it.sku || '—' }}</td>
             <td class="in-name">{{ it.product_name || '—' }}</td>
             <td class="in-mono">{{ it.location || '—' }}</td>
-            <td class="in-num num">{{ it.expected_qty }}</td>
-            <td class="in-num num">{{ it.count_1 ?? '·' }}</td>
-            <td class="in-num num">{{ it.count_2 ?? '·' }}</td>
-            <td class="in-num num">{{ it.count_3 ?? '·' }}</td>
-            <td class="in-num num"><b>{{ it.final_qty ?? '·' }}</b></td>
+            <!--
+              [IC.F14] Un SOLO formato para la misma cantidad. Postgres manda el numérico como
+              texto con sus tres decimales ("5.000"), y en México eso se lee CINCO MIL — mientras
+              el campo de captura de abajo escribe "999,999" con coma. Quien veía 5.000 arriba y
+              tecleaba 5,000 abajo metía mil veces más. El pipe deja "5" y "999,999" en los dos
+              lados, y conserva el decimal cuando de verdad lo hay (1.5 sigue siendo 1.5).
+            -->
+            <td class="in-num num">{{ it.expected_qty | number: '1.0-3' }}</td>
+            <td class="in-num num">{{ (it.count_1 | number: '1.0-3') ?? '·' }}</td>
+            <td class="in-num num">{{ (it.count_2 | number: '1.0-3') ?? '·' }}</td>
+            <td class="in-num num">{{ (it.count_3 | number: '1.0-3') ?? '·' }}</td>
+            <td class="in-num num"><b>{{ (it.final_qty | number: '1.0-3') ?? '·' }}</b></td>
             <td class="in-num num" [class.in-var-neg]="+(it.variance ?? 0) < 0" [class.in-var-pos]="+(it.variance ?? 0) > 0">
-              {{ it.variance != null ? (+it.variance > 0 ? '+' : '') + it.variance : '·' }}
+              {{ it.variance != null ? (+it.variance > 0 ? '+' : '') + (it.variance | number: '1.0-3') : '·' }}
             </td>
             <td><p-tag [value]="itemStatusLabel(it.status)" [severity]="itemStatusSeverity(it.status)"></p-tag></td>
             <td>
@@ -324,9 +332,9 @@ interface LiveCountEntry {
         @if (resolveItem()) {
           <div class="in-form">
             <p class="in-resolve-name">{{ resolveItem()?.product_name }}</p>
-            <p class="in-resolve-meta">Teórico: <b>{{ resolveItem()?.expected_qty }}</b> · C1: {{ resolveItem()?.count_1 ?? '—' }} · C2: {{ resolveItem()?.count_2 ?? '—' }} · C3: {{ resolveItem()?.count_3 ?? '—' }}</p>
+            <p class="in-resolve-meta">Teórico: <b>{{ resolveItem()?.expected_qty | number: '1.0-3' }}</b> · C1: {{ (resolveItem()?.count_1 | number: '1.0-3') ?? '—' }} · C2: {{ (resolveItem()?.count_2 | number: '1.0-3') ?? '—' }} · C3: {{ (resolveItem()?.count_3 | number: '1.0-3') ?? '—' }}</p>
             <label>Cantidad física final</label>
-            <p-inputnumber [(ngModel)]="resolveQty" [min]="0" styleClass="in-w-full"></p-inputnumber>
+            <p-inputnumber appCantidadFisica [(ngModel)]="resolveQty" [min]="0" styleClass="in-w-full"></p-inputnumber>
             <label>Motivo de la varianza</label>
             <p-select [options]="reasonCodes()" optionLabel="label" optionValue="code" [(ngModel)]="resolveReason" placeholder="Clasificar (opcional)" [showClear]="true" appendTo="body" styleClass="in-w-full"></p-select>
             <label>Nota (detalle libre)</label>

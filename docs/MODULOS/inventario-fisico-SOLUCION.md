@@ -32,9 +32,9 @@ Eso es una decisión de PM, no técnica.
 |---|---|---|---|
 | **A** | **Identidad del producto al escanear** | **F1, F2** — los dos rojos de la causa raíz | ✅ **Arreglado 2026-11-26**, sin desplegar |
 | **B** | **Catálogo duplicado** | la causa de fondo de A | 🔴 otro dueño (Catálogo) |
-| **C** | **La pantalla ante un 403** | F11, F17, F18, F19 | 🔴 un solo arreglo, cuatro defectos |
+| **C** | **La pantalla ante un 403** | F11, F17, F18 (F19 no) | ✅ **Arreglado 2026-11-26**, sin ver la pantalla |
 | **D** | **El tope de la lista del supervisor** | F5 (y F6, que era el mismo) | 🟡 **Declarado 2026-11-26**; falta paginar |
-| **E** | **Captura del contador** | F7, F8, F9, F10, F14 | 🔴 |
+| **E** | **Captura del contador** | F7, F8, F9, F14 (F10 no) | 🟡 **Arreglado 2026-11-26**; F10 sin mecanismo |
 | **F** | **Rótulos y estados que no dicen la verdad** | F3, F12, F13, F16, F22 | 🟠 |
 | **G** | **`reconcile` con defensa de capa única** | F20 | ✅ **Arreglado 2026-11-26** |
 
@@ -205,20 +205,99 @@ componente con **0 errores semánticos**.
 
 ---
 
-## E · Captura del contador
+## E · Captura del contador — ✅ CUATRO DE CINCO, 2026-11-26
 
-Los cinco son de la misma pantalla y se arreglan juntos:
-
-| | Qué pasa | Arreglo |
+| | Qué pasaba | Estado |
 |---|---|---|
-| **F8** 🟠 | Enfocar la cantidad **no selecciona**: corregir **concatena** (3 sobre 75 → **753**) | seleccionar todo al enfocar |
-| **F9** 🟠 | Las **flechas** cambian la cantidad (5 → ArrowDown → 4) | `preventDefault` |
-| **F7** 🟠 | Tras un código no reconocido el **foco salta a Cantidad**: con pistola, el siguiente disparo entra como cantidad (`00203` → **203**) | devolver el foco al código |
-| **F10** 🟡 | Tope **mudo** de 6 dígitos | declararlo |
-| **F14** 🟡 | El teórico se lee `5.000` (punto) y la captura escribe `999,999` (coma) | un solo formato |
+| **F8** 🟠 | Enfocar la cantidad **no selecciona**: corregir **concatena** (3 sobre 75 → **753**) | ✅ |
+| **F9** 🟠 | Las **flechas** cambian la cantidad (5 → ArrowDown → 4) | ✅ |
+| **F7** 🟠 | Tras un código no reconocido el **foco salta a Cantidad**: con pistola, el siguiente disparo entra como cantidad (`00203` → **203**) | ✅ |
+| **F14** 🟡 | El teórico se lee `5.000` (punto) y la captura escribe `999,999` (coma) | ✅ |
+| **F10** 🟡 | Tope **mudo** de 6 dígitos | ⚠️ **no se arregló** — ver abajo |
 
-⭐ **Hay que probarlo con navegador real, no jsdom**: `ArrowDown` sobre un `input` con 34 da **34 en
-jsdom** y **33 en Chrome**; una prueba en jsdom pasa exista o no el `preventDefault`.
+### F8 y F9 — una directiva, porque el arreglo no cabía en el componente
+
+⭐ **Las dos tienen la misma causa y ninguna se arregla desde la pantalla**, y eso sólo se vio al
+leer PrimeNG 22.1.4:
+
+- **F9** — `onInputKeyDown` manda `ArrowUp`/`ArrowDown` a `spin()` y **emite su `onKeyDown` al
+  final, después**. O sea que un `preventDefault()` escrito en el componente —el arreglo que este
+  mismo plan proponía— **llega tarde: el número ya cambió**. El único lugar que corre antes es la
+  fase de **captura sobre un ancestro**.
+- **F8** — no alcanza con seleccionar al enfocar: `onInputClick()` llama a `initCursor()`, que
+  **deshace la selección en cada clic**. Hay que volver a seleccionar después de él.
+
+⭐⭐ **Y ya estaba resuelto en otra parte de la suite.** `ConteoCajonComponent` (`[LE.6.11]`, el
+conteo de efectivo) escucha en captura por exactamente este motivo, escrito ahí con estas palabras:
+*«con las manos en el efectivo, una flecha que cambia el número en vez de moverse es un error que
+nadie ve»*. Con las manos en la tarima es lo mismo. Siguiendo el **ADR-056** —un primitivo inventado
+dos veces deja de ser de una fase— el mecanismo ahora tiene nombre y vive en
+[`shared/directives/cantidad-fisica.directive.ts`](../../apps/view/src/app/shared/directives/cantidad-fisica.directive.ts),
+aplicado a **los dos** campos de cantidad del módulo: el del contador y el de «Resolver item».
+
+⚠️ **El de efectivo NO se migró y queda como deuda con nombre**: ahí la flecha **mueve entre
+campos** (hay catorce denominaciones), acá no hay a dónde moverse. Son la misma captura y distinto
+gesto; fundirlos es un cambio en Finanzas y no se hace de paso.
+
+No se tocaron los botones `+` y `−`: **un toque es deliberado, una flecha al lado del Enter no**.
+
+### F7 — el foco vuelve al código, con dos condiciones y una excepción
+
+El gesto manda el foco a Cantidad apenas se escanea porque eso es lo que sigue casi siempre. Cuando
+el código no existe **no sigue nada**, y el siguiente disparo de la pistola entra como cantidad.
+
+Sólo se devuelve el foco si la cantidad **sigue vacía** y si **lo tiene el campo de cantidad** —no
+se le arrebata a nadie—. ⛔ Y **sólo con red**: sin conexión «no reconocido» significa «todavía no
+lo sé», el conteo por código de barras es válido y se identifica al subir, así que ahí el foco se
+queda donde está.
+
+### F14 — era toda la tabla, no sólo el diálogo
+
+La causa: Postgres manda el numérico **como texto con sus tres decimales** y la pantalla lo pintaba
+crudo. **`5.000` en México se lee CINCO MIL.** Y no estaba sólo en «Resolver item»: estaba en el
+teórico, los tres conteos, el final, la varianza y el feed en vivo — **toda la columna de cantidades
+del supervisor**. Ahora las siete pasan por el mismo formato y conservan el decimal cuando de verdad
+lo hay.
+
+### ⚠️ F10 — NO se arregló, y la razón importa
+
+El hallazgo dice: *«a partir de `999,999` deja de aceptar teclas sin decir nada»*, medido tecleando
+nueve dígitos. **Al ir a arreglarlo, el mecanismo no apareció.** En las dos pantallas el campo no
+tiene `max` ni `maxlength`, y en PrimeNG 22.1.4 **todo lo que recorta depende de uno de esos dos**
+(`validateValue` mira `max()`; `onInputKeyPress`, `insert`, `onPaste` y `spin` miran `maxlength()`).
+Sin ellos no hay nada en la librería que corte en seis dígitos.
+
+⛔ **Entonces la observación queda y el mecanismo no**, y no se arregla a ciegas: poner un tope de
+seis dígitos «para declararlo» sería **declarar un límite que no se estableció**, que es justo el
+defecto que este módulo tiene por todos lados. Es la misma corrección que ya se hizo con **F19**.
+
+Lo que falta es una medición a mano en Chrome, **tecleando** (no pegando ni con `fill`): PrimeNG
+cancela el `keypress` e inserta el carácter por su cuenta, y un instrumento que escriba el valor de
+golpe recorre otro camino.
+
+### Lo que está NO MEDIDO
+
+⛔ **Nada de esto se vio en pantalla viva.** Su prueba
+([`cantidad-fisica.directive.spec.ts`](../../apps/view/src/app/shared/directives/cantidad-fisica.directive.spec.ts))
+afirma lo que jsdom puede afirmar: que la flecha **nunca llega** al escucha de PrimeNG, que el Enter
+sí, y que el clic de PrimeNG no gana. **No** afirma que el número no cambie en Chrome — `ArrowDown`
+sobre un `input` con 34 deja **34 en jsdom** y **33 en Chrome**—. El doble suplente imita la pieza
+que importa (un `click` que deshace la selección); sin ella, F8 saldría verde sin estar arreglado.
+
+El guion de la verificación, cuando haya navegador y un folio abierto:
+
+1. Contar 75 en un artículo, volver al campo, teclear `3` → tiene que quedar **3**, no 753.
+2. Con 5 en el campo, `ArrowDown` → tiene que seguir en **5**. El botón `−` sí lo baja a 4.
+3. Escanear un código que no exista y disparar el siguiente → el segundo tiene que caer en
+   **Código**, no en Cantidad.
+4. Teclear nueve dígitos → anotar **dónde se detiene** (eso cierra o entierra F10).
+5. Mirar la tabla del supervisor: el teórico de un artículo con 5 piezas tiene que decir **5**.
+
+Compuertas al cerrar: `check:templates` ✅ · `check:tokens` ✅ · `check:estilos` ✅ ·
+`check:templates-types` (`ngc --noEmit` con `strictTemplates`) ✅ **0 errores** en las 4 apps ·
+`check:pantalla -- comercial` ✅ **0 fallas NUEVAS** · **491** pruebas de `comercial` y de la
+directiva en verde, con la prueba negativa ejercida **dos veces**: mutando la directiva (captura →
+burbuja, y sin el `click`) y mutando el componente (sin la llamada ni el atributo) — **5 rojos**.
 
 ---
 

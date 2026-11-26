@@ -17,6 +17,7 @@ import { App as CapApp } from '@capacitor/app';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { ComercialService, InventoryCount, InventoryCounterProgress, ResolvedProduct } from '../comercial.service';
 import { CountFocusService } from '../../../core/services/count-focus.service';
+import { CantidadFisicaDirective } from '../../../shared/directives/cantidad-fisica.directive';
 import { InventoryOfflineService } from '../../../core/services/inventory-offline.service';
 import type { InventoryScanPending } from '../../../core/services/offline-database.service';
 
@@ -47,6 +48,7 @@ interface FeedEntry {
     TagModule,
     ToastModule,
     TooltipModule,
+    CantidadFisicaDirective,
 ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -202,6 +204,7 @@ interface FeedEntry {
             <label class="ic-label" for="ic-qty">Cantidad física</label>
             <p-inputnumber
               #qtyInput
+              appCantidadFisica
               inputId="ic-qty"
               [(ngModel)]="qty"
               [min]="0"
@@ -684,12 +687,36 @@ export class ComercialInventoryCountComponent {
           }
           this.resolving.set(false);
           this.notFound.set(true);
+          this.devolverFocoAlCodigo();
         },
       });
   }
 
   onQtyKey(event: KeyboardEvent) {
     if (event.key === 'Enter') this.submit();
+  }
+
+  /**
+   * `[IC.F7]` **Si el catálogo no reconoció el código, el foco VUELVE al código.**
+   *
+   * El gesto manda el foco a Cantidad apenas se escanea, porque eso es lo que sigue el 99 % de
+   * las veces. Cuando el código no existe no sigue nada: con una pistola —que manda Enter sola—
+   * el siguiente disparo entra **como cantidad**, y el operario mira la tarima, no la pantalla.
+   * Medido el 2026-11-26: tras `NOEXISTE12345`, el código `00203` quedó como cantidad **203**.
+   *
+   * Dos condiciones para no arrebatarle el foco a nadie: sólo si la cantidad **sigue vacía** y
+   * sólo si quien lo tiene es el campo de cantidad.
+   *
+   * ⛔ Y sólo **con red**: sin conexión «no reconocido» significa «todavía no lo sé» —el conteo
+   * por código de barras es válido y se identifica al subir—, así que ahí el foco se queda donde
+   * está y el gesto sigue.
+   */
+  private devolverFocoAlCodigo() {
+    if (!this.offline.online()) return;
+    if (this.qty() !== null && this.qty() !== undefined) return;
+    const campo = this.qtyInput?.nativeElement?.querySelector('input');
+    if (campo && document.activeElement !== campo) return;
+    this.focusCode();
   }
 
   /** Offline-first: el conteo se PERSISTE local primero (cero pérdida) + feed
