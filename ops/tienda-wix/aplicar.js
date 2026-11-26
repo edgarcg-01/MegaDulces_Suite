@@ -18,6 +18,13 @@ const SITE = process.env.LIVE || process.env.WIX_SITE_ID;
 const APLICAR = process.argv.includes('--aplicar');
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > -1 ? Number(process.argv[i + 1]) : d; };
 const LIMITE = arg('--limite', Infinity), TOPE = arg('--tope', 50);
+/** `--skus 95612,17064`: empuja solo esos. Vacio = toda la tienda, como siempre. */
+const SOLO_SKUS = (() => {
+  const i = process.argv.indexOf('--skus');
+  if (i < 0) return null;
+  const lista = String(process.argv[i + 1] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return lista.length ? [...new Set(lista)] : null;
+})();
 const H = { Authorization: K, 'wix-site-id': SITE, 'Content-Type': 'application/json' };
 const r2 = n => Math.round(Number(n) * 100) / 100;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -52,11 +59,31 @@ async function planear() {
   console.log('1) leyendo la tienda viva...');
   const productos = await paginar('https://www.wixapis.com/stores/v3/products/search', 'products');
   const inv = await paginar('https://www.wixapis.com/stores/v3/inventory-items/search', 'inventoryItems');
+
+  // `--skus`: empujar SOLO lo que cambio. Es la forma que necesita el disparo por
+  // evento; releer los 637 productos para mover 3 renglones es el modo caro.
+  // El inventario SI se lee entero: es una sola consulta paginada y de ahi sale la
+  // presentacion de cada variante. Lo caro es el GET por producto, y eso es lo que
+  // se acota. Sin `--skus` se comporta igual que siempre.
+  let aLeer = productos;
+  if (SOLO_SKUS) {
+    const quiero = new Set(SOLO_SKUS);
+    const idsConEseSku = new Set(
+      inv.filter((x) => x.product && quiero.has(String(x.product.variantSku))).map((x) => x.productId),
+    );
+    aLeer = productos.filter((p) => idsConEseSku.has(p.id));
+    console.log(`   --skus: ${SOLO_SKUS.length} pedidos -> ${aLeer.length} productos de ${productos.length}`);
+    const sinUbicar = [...quiero].filter(
+      (s) => !inv.some((x) => x.product && String(x.product.variantSku) === s),
+    );
+    if (sinUbicar.length) console.log('   ⚠️ NO estan publicados en la tienda:', sinUbicar.join(', '));
+  }
+
   // la busqueda no devuelve variantsInfo completo: se relee cada producto
   const full = [];
   let i = 0;
   await Promise.all(Array.from({ length: 6 }, async () => {
-    while (i < productos.length) { const k = i++; full.push(await leerProducto(productos[k].id)); }
+    while (i < aLeer.length) { const k = i++; full.push(await leerProducto(aLeer[k].id)); }
   }));
   console.log('   productos:', full.length, '| items de inventario:', inv.length);
 
