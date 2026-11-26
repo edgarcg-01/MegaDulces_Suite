@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CargoComision, DiaComision, PropuestaComisiones } from '../../bank.service';
-import { cifrasDeComisiones, polizaDelGasto, textoDeAjuste, vistaDeComisiones } from './bancos-comisiones';
+import { cifrasDeComisiones, notaDeAccion, polizaDelGasto, textoDeAjuste, vistaDeComisiones } from './bancos-comisiones';
 
 /**
  * `[CB.62]` La vista «Comisiones»: cada sección cuenta lo mismo que el resumen de la API (si la lista y la cifra de
@@ -106,5 +106,44 @@ describe('[CB.62] los centavos de Finanzas', () => {
   it('exacto o sin pago: nada que decir', () => {
     expect(textoDeAjuste(c('i3', 'iva', 3.54, { kepler_pago: '0000233', kepler_ajuste_centavos: 0 }))).toBeNull();
     expect(textoDeAjuste(c('i4', 'iva', 3.54))).toBeNull();
+  });
+});
+
+/**
+ * `[CB.62.4]` La línea bajo el botón «Generar en Kepler». Lo que se prueba es que **no afirme lo que no sabe**:
+ * desde el navegador no se ve si los cinco diales del servidor están encendidos.
+ */
+describe('[CB.62.4] la nota del botón Generar en Kepler', () => {
+  it('con días listos dice CUÁNTOS y QUÉ va a escribir', () => {
+    expect(notaDeAccion(PROPUESTA, false)).toBe('Escribe 2 días de venta en Kepler: su solicitud, su gasto y un pago por cargo del banco.');
+  });
+
+  it('un solo día va en singular', () => {
+    const uno = { ...PROPUESTA, dias: PROPUESTA.dias.filter((d) => d.estado === 'lista').slice(0, 1) };
+    expect(notaDeAccion(uno, false)).toContain('Escribe 1 día de venta');
+  });
+
+  it('sin días listos dice POR QUÉ no hay nada que hacer, no «apagado»', () => {
+    const vacia = { ...PROPUESTA, resumen: { ...PROPUESTA.resumen, listos: 0 } };
+    const t = notaDeAccion(vacia, false);
+    expect(t).toContain('No hay días listos');
+    expect(t).toContain('espera a la sucursal');
+  });
+
+  it('⛔ NUNCA afirma que la escritura está apagada ni que está encendida: desde aquí no se ven los diales', () => {
+    const textos = [notaDeAccion(PROPUESTA, false), notaDeAccion(PROPUESTA, true), notaDeAccion(null, false),
+      notaDeAccion({ ...PROPUESTA, resumen: { ...PROPUESTA.resumen, listos: 0 } }, false)];
+    for (const t of textos) {
+      expect(t.toLowerCase()).not.toContain('apagad');
+      expect(t.toLowerCase()).not.toContain('encendid');
+    }
+  });
+
+  it('mientras escribe lo dice y pide no cerrar', () => {
+    expect(notaDeAccion(PROPUESTA, true)).toContain('Escribiendo en Kepler');
+  });
+
+  it('sin datos todavía no invita a escribir', () => {
+    expect(notaDeAccion(null, false)).toContain('No hay días listos');
   });
 });

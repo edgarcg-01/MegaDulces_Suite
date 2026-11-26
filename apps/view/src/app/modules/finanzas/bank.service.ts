@@ -581,6 +581,23 @@ export interface PropuestaComisiones {
   resumen: { cargos: number; listos: number; ya_en_kepler: number; gasto_capturado_sin_pago: number; esperando_sucursal: number; por_revisar: number; monto_listo: number };
 }
 
+/**
+ * `[CB.62.4]` Lo que pasó con CADA día al generar en Kepler. ⛔ **Nunca es binario**: un lote donde tres días
+ * se escribieron y dos no, se reporta como tres y dos, con el motivo de cada uno (§3d «fallos parciales»).
+ * `apagado` NO cuenta como intento: el día sigue esperando a que enciendan su dial.
+ */
+export type ResultadoDiaComision =
+  | { estado: 'escrito'; llave: string; sucursal: string; dia_venta: string; solicitud: string; gasto: string; pagos: { cargo: string; folio: string }[]; total: number }
+  | { estado: 'ya_estaba'; llave: string; sucursal: string; dia_venta: string; solicitud: string; nota: string }
+  | { estado: 'apagado'; llave: string; sucursal: string; dia_venta: string; motivo: string }
+  | { estado: 'rechazado'; llave: string; sucursal: string; dia_venta: string; motivo: string }
+  /** El COMMIT salió y la respuesta no volvió. ⛔ No se reintenta sin buscar antes los documentos en Kepler. */
+  | { estado: 'en_duda'; llave: string; sucursal: string; dia_venta: string; motivo: string };
+
+export interface ResultadoGeneracionComisiones {
+  candidatos: number; escritos: number; resultados: ResultadoDiaComision[]; propuesta: PropuestaComisiones;
+}
+
 @Injectable({ providedIn: 'root' })
 export class BankService {
   private readonly http = inject(HttpClient);
@@ -669,6 +686,15 @@ export class BankService {
   /** [CB.62] Las comisiones de la terminal que irían a Kepler, de los últimos `dias` de la descarga. Sólo lee. */
   comisionesKepler(dias?: number): Observable<PropuestaComisiones> {
     return this.http.get<PropuestaComisiones>(`${this.base}/comisiones-kepler${dias ? `?dias=${dias}` : ''}`);
+  }
+
+  /**
+   * `[CB.62.4]` **ESCRIBE en Kepler** los días de comisiones que están listos. ⛔ No se le manda qué escribir,
+   * sólo la ventana: el servidor vuelve a leer la propuesta y a correr sus candados, porque lo que tiene la
+   * pantalla puede llevar minutos y en ese rato Finanzas pudo capturar el día.
+   */
+  generarComisionesKepler(dias?: number): Observable<ResultadoGeneracionComisiones> {
+    return this.http.post<ResultadoGeneracionComisiones>(`${this.base}/comisiones-kepler/generar`, dias ? { dias } : {});
   }
 
   // ── CB.58/CB.59 La descarga del banco ──

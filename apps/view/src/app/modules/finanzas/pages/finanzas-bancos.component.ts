@@ -21,7 +21,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, DescargaEnMovimientos, Concentrado, Reconciliation, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SheetSyncRunResult, PropuestaComisiones } from '../bank.service';
+import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, DescargaEnMovimientos, Concentrado, Reconciliation, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SheetSyncRunResult, PropuestaComisiones, ResultadoGeneracionComisiones } from '../bank.service';
 import { BancosSocketService, BancosEvent, FinanceJobEvent, JobAccepted } from '../bancos-socket.service';
 import { FinanceJobsClient } from '../finance-jobs.client';
 import { AuthService } from '../../../core/services/auth.service';
@@ -230,7 +230,8 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
 
       <!-- ── COMISIONES: las comisiones de la terminal que faltan en Kepler (CB.62, sólo lee) ── -->
       @if (view() === 'comisiones') {
-        <bancos-comisiones [data]="comisiones()" [loading]="comLoading()" [error]="comError()" (reintentar)="cargarComisiones()" />
+        <bancos-comisiones [data]="comisiones()" [loading]="comLoading()" [error]="comError()" (reintentar)="cargarComisiones()"
+                           [generando]="comGenerando()" [resultado]="comResultado()" (generar)="confirmarGenerarComisiones()" />
       }
 
 
@@ -384,6 +385,57 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.comisionesKepler().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (c) => { this.comisiones.set(c); this.comLoading.set(false); },
       error: () => { this.comError.set('No se pudieron leer las comisiones de la descarga del banco.'); this.comLoading.set(false); },
+    });
+  }
+
+  /**
+   * `[CB.62.4]` **Generar las comisiones en Kepler.** Escribe en el ERP, así que se confirma antes y el botón
+   * queda apagado desde el primer clic (`comGenerando`), no al volver la respuesta: el doble clic del pánico no
+   * puede escribir dos veces.
+   *
+   * ⛔ No se le manda al servidor QUÉ escribir, sólo se le pide que genere: él vuelve a leer la propuesta y a
+   * correr sus candados. Lo que tiene la pantalla puede llevar minutos, y en ese rato Finanzas pudo capturar el día.
+   */
+  readonly comGenerando = signal(false);
+  readonly comResultado = signal<ResultadoGeneracionComisiones | null>(null);
+
+  confirmarGenerarComisiones(): void {
+    const d = this.comisiones();
+    const n = d?.dias.filter((x) => x.estado === 'lista').length ?? 0;
+    if (!n || this.comGenerando()) return;
+    this.confirm.confirm({
+      key: 'subir-libro',
+      header: `Generar ${n} ${n === 1 ? 'día' : 'días'} de comisiones en Kepler`,
+      message: `Se capturan en Kepler, por cada día de venta, su solicitud, su gasto y un pago por cada cargo del banco. Queda escrito en el ERP: para deshacerlo hay que cancelar los documentos en Kepler. Sólo se escriben las cuentas que ya pasaron a la Suite.`,
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Generar en Kepler', rejectLabel: 'Cancelar',
+      accept: () => this.generarComisiones(),
+    });
+  }
+
+  private generarComisiones(): void {
+    this.comGenerando.set(true);
+    this.comResultado.set(null);
+    this.api.generarComisionesKepler().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.comGenerando.set(false);
+        this.comResultado.set(r);
+        // ⛔ Nunca binario: un lote con tres escritos y dos frenados se dice así, no «listo» ni «falló».
+        const noEscritos = r.candidatos - r.escritos;
+        this.toast.add({
+          severity: r.escritos ? (noEscritos ? 'warn' : 'success') : 'info',
+          summary: r.escritos ? `${r.escritos} de ${r.candidatos} en Kepler` : 'No se escribió nada',
+          detail: noEscritos ? `${noEscritos} no se ${noEscritos === 1 ? 'escribió' : 'escribieron'}: el detalle está en la lista, día por día.` : 'El detalle está en la lista, día por día.',
+          life: 6000,
+        });
+        this.cargarComisiones();
+      },
+      error: () => {
+        this.comGenerando.set(false);
+        // ⚠️ Un error de red NO dice que no se escribió: la petición pudo llegar. Se recarga y se declara.
+        this.toast.add({ severity: 'error', summary: 'No se supo qué pasó', detail: 'La respuesta no volvió. Revisa la lista antes de volver a intentar: pudo haberse escrito.', life: 9000 });
+        this.cargarComisiones();
+      },
     });
   }
   /**

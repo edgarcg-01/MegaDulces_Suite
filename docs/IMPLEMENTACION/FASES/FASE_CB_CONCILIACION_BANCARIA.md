@@ -678,6 +678,39 @@ pago ya capturado por Finanzas, 163 en días que Finanzas dejó a medias, 262 es
 las migajas. El valor llega con D3 (una cuenta pasa a la Suite y Finanzas deja de capturarla), no con encender el
 botón.
 
+### 9.6 `[CB.62.5]` El botón encendido (2026-11-26)
+
+Las cinco preguntas de [`diseno` §0b](../../../.claude/skills/diseno/SKILL.md), contestadas antes de la plantilla:
+
+| # | Pregunta | Decisión |
+|---|---|---|
+| 1 | Qué ve y en qué orden | Igual que hoy (la respuesta y UN botón). Lo nuevo: **el resultado por día se queda en pantalla** |
+| 2 | Qué NO ve | Los cinco diales ni sus nombres de variable. Una sola línea bajo el botón, en llano |
+| 3 | Accesibilidad | Confirmación antes (escribe en el ERP) · el botón se apaga en el **primer clic** · el resultado es una región `status`, se anuncia sola |
+| 4 | Ligada a otro proceso | Sí: nacen tres folios de Kepler por día, y se ven en la fila de su resultado |
+| 5 | ¿Le toca? | Sí: es la pantalla que ya contesta «qué falta en Kepler»; generar cierra ese acto |
+
+⛔ **La línea bajo el botón no afirma lo que no sabe.** Desde el navegador **no se ven** los cinco diales del
+servidor, así que no dice «apagado» ni «listo para escribir» —las dos podrían mentir—: si hay días listos dice
+cuántos y qué va a escribir, y si no, por qué no hay nada que hacer. Quién puede escribir y qué lo frena lo
+contesta el servidor, día por día, y eso es lo que se pinta debajo. La regla vive en el archivo puro
+(`notaDeAccion`) con **6 pruebas y dos mutantes muertos**: uno que la hace afirmar «apagado» y otro que cuenta
+cargos donde van días.
+
+⛔ **El resultado nunca es binario.** Un lote donde tres días se escribieron y dos no se reporta como tres y dos,
+con el motivo de cada uno (§3d «fallos parciales»), y **se queda**: un aviso que se va solo no puede llevar cinco
+motivos. El día escrito muestra sus tres folios; el que quedó `en_duda` dice que hay que buscarlo en Kepler antes
+de reintentar. ⚠️ Un error de red tampoco se pinta como «no se escribió»: la petición pudo llegar, y eso se dice.
+
+**Medido:** `check:pantalla -- finanzas` → `bancos-comisiones` **tipa 0 errores y cumple las 10 reglas**;
+`check:templates` verde (599 componentes); 16 pruebas de la vista. ⚠️ **Sin validación visual**: no se levanta la
+app en local (regla 3), se ve en prod después de desplegar.
+
+⚠️ **Ajeno, y conviene decirlo:** ese mismo barrido reporta **68 fallas NUEVAS en 26 pantallas de finanzas**,
+ninguna en los cuatro archivos de este cambio (medido: 0 en cada uno). De esas 26, **sólo 5** se tocaron en la
+última semana, así que no las trajo el lote de hoy: el sello de deuda de `check:pantalla` quedó rancio contra el
+árbol. Sellarlas subiría el piso sin arreglar nada, así que se declara y no se sella.
+
 ### 9.3 Lo que falta
 
 | # | Capa | Qué | Criterio |
@@ -686,7 +719,7 @@ botón.
 | CB.62.2 | C1 | ✅ **Firmado por Edgar (2026-11-10): cada pago es idéntico al cargo del banco, al centavo.** No se imita el ajuste de Finanzas (IVA del gasto = 16 % de la base y un pago un centavo distinto). El armador ya lo hace así | — |
 | CB.62.3 | C2 | ✅ **Cerrada el 2026-11-26 sin foto nueva (§9.5):** la lista de tablas la cierran las capturas reales de `[PGP.122]`, `[PGP.123]` y `[PGP.106]`, porque CB.62 usa esos tres escritores y no uno propio. `cb62_comisiones_terminal.sql` quedó sin seguro y como la unión exacta de sus permisos (16 tablas contra 16, verificado) | La lista de tablas cerrada con una captura real |
 | CB.62.4 | C2 | 🧪 **En código (§9.5):** C1 (`comisiones-kepler.escritor.ts`, 14 pruebas, 3 mutantes) + C2 (`comisiones-kepler.escritor.service.ts` encadena los tres escritores, `POST …/generar` con `FINANCE_BANK_GESTIONAR`, reclamo atómico y bitácora `finance.bank_commission_kepler_days`) + migración `20261126095249` con los diales apagados + candado de arranque con dos negativas + `GRANT` cerrado. **Falta para encender:** avisarle a Finanzas, aplicar el `GRANT` en 01–08, la bandera en el secreto, el renglón de la sucursal, la fecha de D3 en BBVA 4885 y **el canario** (un día real, revisado documento por documento) | Canario verde en una sucursal; prueba negativa de cada candado |
-| CB.62.5 | C3 | 🧪 **Construida de sólo lectura (2026-11-10, §9.4):** vista «Comisiones» en Contra Kepler, con el botón apagado. Falta: la línea «esta descarga trae N comisiones → Comisiones» en Estados de cuenta, encender el botón cuando exista CB.62.4, y verla en prod | `diseno` + `check:pantalla` ✅; validación visual en prod |
+| CB.62.5 | C3 | 🧪 **El botón ENCENDIDO (2026-11-26, §9.6).** Llama a `POST …/generar` con confirmación, se apaga en el primer clic y el resultado **se queda en pantalla, día por día**. Falta: la línea «esta descarga trae N comisiones → Comisiones» en Estados de cuenta, y verla en prod | `diseno` + `check:pantalla` ✅; validación visual en prod |
 | CB.62.6 | — | Póliza de ContPAQi: ya existe (`[CP.8.91]`, banco × mes); falta la firma de contabilidad de `comision_bancaria` → 5200650000 | Firma de contabilidad |
 
 Fuera de alcance por ahora: las cuotas fijas sin depósito (renta de terminal, cuota de afiliación de Santander y

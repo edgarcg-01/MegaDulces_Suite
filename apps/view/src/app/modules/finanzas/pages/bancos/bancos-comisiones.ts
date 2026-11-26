@@ -90,6 +90,22 @@ export function cifrasDeComisiones(p: PropuestaComisiones): MetricStripItem[] {
 }
 
 /**
+ * `[CB.62.4]` La línea bajo el botón «Generar en Kepler».
+ *
+ * ⛔ Dice lo que la pantalla SABE, no lo que supone. Desde aquí **no se ve** si los cinco diales del servidor
+ * están encendidos (la bandera, el interruptor de la sucursal, la fecha de D3 de la cuenta, los `GRANT`), así que
+ * no se afirma ni «apagado» ni «listo para escribir»: las dos serían un rótulo que puede mentir. Si hay días
+ * listos, invita y dice qué va a escribir; si no, dice por qué no hay nada que hacer. Quién puede escribir y qué
+ * lo frena lo contesta el servidor, día por día, y eso es lo que se pinta debajo.
+ */
+export function notaDeAccion(p: PropuestaComisiones | null, generando: boolean): string {
+  if (generando) return 'Escribiendo en Kepler: no cierres la pantalla.';
+  if (!p?.resumen.listos) return 'No hay días listos: lo demás ya está en Kepler, lo dejó a medias Finanzas o espera a la sucursal.';
+  const n = p.dias.filter((d) => d.estado === 'lista').length;
+  return `Escribe ${n} ${n === 1 ? 'día de venta' : 'días de venta'} en Kepler: su solicitud, su gasto y un pago por cargo del banco.`;
+}
+
+/**
  * Cuando Finanzas capturó el pago con unos centavos de diferencia (ajusta un pago para que le cuadre el IVA del
  * gasto), el detalle lo dice en vez de esconderlo: «Finanzas capturó $55.29, 1 ¢ menos que el banco». `null` si el
  * pago es exacto o no hay pago.

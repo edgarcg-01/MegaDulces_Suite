@@ -8,8 +8,8 @@ import { MetricStripComponent } from '../../../../shared/components/metric-strip
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { SucursalPipe } from '../../../../shared/pipes/sucursal.pipe';
-import type { CargoComision, DiaComision, PropuestaComisiones } from '../../bank.service';
-import { cifrasDeComisiones, polizaDelGasto, textoDeAjuste, vistaDeComisiones, type SeccionComisiones } from './bancos-comisiones';
+import type { CargoComision, DiaComision, PropuestaComisiones, ResultadoGeneracionComisiones } from '../../bank.service';
+import { cifrasDeComisiones, notaDeAccion, polizaDelGasto, textoDeAjuste, vistaDeComisiones, type SeccionComisiones } from './bancos-comisiones';
 import { dmShort, dmy } from './bancos-shared';
 import { BANCOS_STYLES } from './bancos.styles';
 
@@ -47,12 +47,44 @@ import { BANCOS_STYLES } from './bancos.styles';
                 · descarga hasta el {{ dm(d.descarga.hasta) }} <app-freshness-pill measures="data" [since]="d.descarga.subida_en" label="subida" [staleAfterSec]="86400" /></p>
             </div>
             <div class="cm-act">
-              <button pButton type="button" class="p-button-sm" [disabled]="true" aria-describedby="cm-apagado">
-                <span class="p-button-icon p-button-icon-left pi pi-send" aria-hidden="true"></span><span class="p-button-label">Generar en Kepler</span>
+              <button pButton type="button" class="p-button-sm" [disabled]="generando() || !d.resumen.listos"
+                      (click)="generar.emit()" aria-describedby="cm-nota-accion">
+                <span class="p-button-icon p-button-icon-left" aria-hidden="true"
+                      [class]="generando() ? 'pi pi-spinner pi-spin' : 'pi pi-send'"></span>
+                <span class="p-button-label">{{ generando() ? 'Generando…' : 'Generar en Kepler' }}</span>
               </button>
-              <p id="cm-apagado" class="cm-apagado muted">Apagado: la Suite todavía no escribe en Kepler.</p>
+              <p id="cm-nota-accion" class="cm-apagado muted">{{ notaDeAccion() }}</p>
             </div>
           </section>
+
+          <!-- ⛔ El resultado se QUEDA: un lote nunca es «listo» o «falló», y el motivo de cada día
+               no cabe en un aviso que se va solo. -->
+          @if (resultado(); as r) {
+            <section class="cm-res" aria-labelledby="cm-res-t" role="status">
+              <h4 id="cm-res-t" class="cm-res-t">
+                @if (r.escritos) {
+                  Se escribieron {{ r.escritos }} de {{ r.candidatos }} {{ r.candidatos === 1 ? 'día' : 'días' }} en Kepler
+                } @else {
+                  No se escribió nada en Kepler
+                }
+              </h4>
+              <ul class="cm-res-l">
+                @for (x of r.resultados; track x.llave) {
+                  <li class="cm-res-i" [class.cm-res-ok]="x.estado === 'escrito'" [class.cm-res-duda]="x.estado === 'en_duda'">
+                    <span class="cm-res-d">{{ x.sucursal | sucursal }} · venta del {{ dmLargo(x.dia_venta) }}</span>
+                    @switch (x.estado) {
+                      @case ('escrito') {
+                        <span class="cm-res-q">Solicitud {{ x.solicitud }} · gasto {{ x.gasto }} · {{ x.pagos.length }} {{ x.pagos.length === 1 ? 'pago' : 'pagos' }}</span>
+                      }
+                      @case ('ya_estaba') { <span class="cm-res-q muted">Ya estaba en Kepler ({{ x.solicitud }}): no se escribió otra vez</span> }
+                      @case ('en_duda') { <span class="cm-res-q">Quedó en duda: {{ x.motivo }}. Búscalo en Kepler antes de volver a intentar</span> }
+                      @default { <span class="cm-res-q muted">{{ x.motivo }}</span> }
+                    }
+                  </li>
+                }
+              </ul>
+            </section>
+          }
 
           <!-- secundario: lo que no se escribe, cada cifra abre su lista -->
           <app-metric-strip [items]="cifras()" density="compact" ariaLabel="Comisiones que no se escriben, por motivo" (drill)="abrir($event)" />
@@ -231,6 +263,19 @@ import { BANCOS_STYLES } from './bancos.styles';
     .cm-concepto { font-size: var(--fs-sm); word-break: break-word; }
     .cm-plan { font-size: var(--fs-sm); margin: 0 0 var(--sp-2); }
     .cm-ajuste { font-family: inherit; color: var(--warn-fg); }
+
+    /* [CB.62.4] El resultado del último intento. Se queda: un lote nunca es binario y el motivo de cada día
+       no cabe en un aviso que se va. El borde de 1px lleva la profundidad (en oscuro la sombra desaparece). */
+    .cm-res { border: 1px solid var(--border-color); border-radius: var(--r-md); padding: var(--sp-3); margin-bottom: var(--sp-3); }
+    .cm-res:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .cm-res-t { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
+    .cm-res-l { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+    .cm-res-i { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); font-size: var(--fs-xs); border-left: 2px solid var(--border-color); padding-left: var(--sp-2); }
+    /* El color NO es el único portador: el estado va escrito en el texto de cada renglón. */
+    .cm-res-ok { border-left-color: var(--good-fg); }
+    .cm-res-duda { border-left-color: var(--warn-fg); }
+    .cm-res-d { font-weight: 600; color: var(--text-main); }
+    .cm-res-q { color: var(--text-muted); font-variant-numeric: tabular-nums; }
   `],
 })
 export class BancosComisionesComponent {
@@ -238,6 +283,14 @@ export class BancosComisionesComponent {
   readonly loading = input(false);
   readonly error = input<string | null>(null);
   readonly reintentar = output<void>();
+  /** `[CB.62.4]` Mientras el servidor escribe. El botón se apaga en el primer clic, no al volver la respuesta. */
+  readonly generando = input(false);
+  /** Lo que pasó con cada día del último intento. Se queda en pantalla: no es un aviso que se va. */
+  readonly resultado = input<ResultadoGeneracionComisiones | null>(null);
+  readonly generar = output<void>();
+
+  /** `[CB.62.4]` La línea bajo el botón; la regla vive en el archivo puro, con sus pruebas. */
+  readonly notaDeAccion = computed(() => notaDeAccion(this.data(), this.generando()));
 
   readonly v = computed(() => {
     const d = this.data();
