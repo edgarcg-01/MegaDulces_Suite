@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — Mesa de Servicio › Configuración: «Renombrar» un área (MS.8.5 · 2026-11-26)
+- Cada área trae «Renombrar» junto a su nombre: cambia el nombre que ve la gente; el código no cambia y las solicitudes se quedan donde están. Lo puede hacer quien coordina esa área.
+- Nació de «Operación de sucursales ·», un área creada con un punto de más que no había cómo corregir en pantalla.
 ### Fixed — Almacén › Ubicaciones: lo que acabas de ubicar ya no desaparece (UB.RF.19 · 2026-11-25 · en código, sin soltar)
 ### Added — Compras › Pedido: la etiqueta del freno, con su porqué y el filtro «Con freno» (PQ.95 · 2026-11-26)
 - Cada producto dice qué regla movió su sugerido: «fin de pico» con las sucursales donde aplicó (el motor ya lo hacía y la pantalla no lo decía), o su temporada confirmada en Compras › Temporadas («Navidad y posadas · se repone hasta 24-dic»). Una etiqueta por renglón, la que manda; sin freno, ninguna.
