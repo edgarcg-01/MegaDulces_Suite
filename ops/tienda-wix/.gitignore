@@ -1,0 +1,4 @@
+# El aplicador escribe aqui su foto previa y su plan: son datos del negocio
+# y el repo es PUBLICO. Nunca se versionan.
+plan-*.json
+respaldo-*.json
