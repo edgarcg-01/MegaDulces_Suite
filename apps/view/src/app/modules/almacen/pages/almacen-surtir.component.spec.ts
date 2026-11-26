@@ -25,7 +25,9 @@ import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { UsoService } from '../../../core/services/uso.service';
-import { imprimirTicketPedido } from '../pedido-etiqueta-impresion';
+import { EtiquetaPedidoService } from '../etiqueta-pedido.service';
+/** `[MCP.36]` La impresión pasa por el servicio que pone la liga en el QR. */
+const etq = { imprimir: vi.fn((_d: unknown, _done?: () => void) => Promise.resolve<'con_liga' | 'sin_liga'>('con_liga')) };
 
 // [MCP.32] La impresión real abre el diálogo del navegador: aquí sólo se mira con qué datos se pide.
 vi.mock('../pedido-etiqueta-impresion', async (orig) => ({
@@ -165,6 +167,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
         { provide: AuthService, useValue: { user: () => user } },
         { provide: ClientesNuevosService, useValue: cn },
         { provide: UsoService, useValue: uso },
+        { provide: EtiquetaPedidoService, useValue: etq },
         { provide: AlertsSocketService, useValue: { connect: () => undefined, alert$: new Subject<{ type: string }>() } },
       ],
     })
@@ -762,7 +765,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   });
 
   it('[MCP.32] al terminar un pedido de preventa se ofrece su etiqueta (QR + barras) en la impresora de tickets', async () => {
-    vi.mocked(imprimirTicketPedido).mockClear();
+    etq.imprimir.mockClear();
     await montar();
     clic('Preventa');
     clic('Surtir este');
@@ -772,14 +775,33 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     clic('Terminé de surtir');
     expect(texto()).toContain('Sale en la impresora de tickets la etiqueta de PD-2026-00082');
     clic('Imprimir etiqueta del pedido');
-    expect(imprimirTicketPedido).toHaveBeenCalledWith(
+    expect(etq.imprimir).toHaveBeenCalledWith(
       { folio: 'PD-2026-00082', cliente: 'ABARROTES ROSY', vendedor: 'Vendedora Prueba', entrega: '2026-10-19', productos: 2 },
       expect.any(Function),
     );
   });
 
+  it('[MCP.36] si la liga no llega, la etiqueta sale igual con el folio y se DICE que el celular no la abrirá', async () => {
+    etq.imprimir.mockClear();
+    etq.imprimir.mockResolvedValueOnce('sin_liga');
+    await montar();
+    const add = vi.spyOn(fix.debugElement.injector.get(MessageService), 'add');
+    clic('Preventa');
+    clic('Surtir este');
+    clic('Completo');
+    c.noHabia(c.pendientes()[0]);
+    fix.detectChanges();
+    clic('Terminé de surtir');
+    clic('Imprimir etiqueta del pedido');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(etq.imprimir).toHaveBeenCalledTimes(1);
+    const avisos = (add.mock.calls as unknown as [{ detail?: string }][]).map((x) => x[0].detail ?? '');
+    expect(avisos.some((t) => t.includes('salió sin la liga') && t.includes('la pistola sí'))).toBe(true);
+  });
+
   it('[MCP.33] la etiqueta escaneada en la lista: abre el que se puede surtir, dice lo ya surtido y lo que no está', async () => {
-    vi.mocked(imprimirTicketPedido).mockClear();
+    etq.imprimir.mockClear();
     await montar();
     clic('Preventa');
     const campo = el().querySelector('#sr-etq-in') as HTMLInputElement;
@@ -793,7 +815,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     leer('992026000060');
     expect(texto()).toContain('PD-2026-00060 (YA SURTIDO · Vendedora Prueba): ya se surtió.');
     clic('Reimprimir etiqueta');
-    expect(imprimirTicketPedido).toHaveBeenCalledWith(expect.objectContaining({ folio: 'PD-2026-00060', cliente: 'YA SURTIDO' }), expect.any(Function));
+    expect(etq.imprimir).toHaveBeenCalledWith(expect.objectContaining({ folio: 'PD-2026-00060', cliente: 'YA SURTIDO' }), expect.any(Function));
     expect(campo.value).toBe('');
     // Uno nuevo se abre para surtirlo, igual que tocar su tarjeta.
     leer('PD-2026-00082');

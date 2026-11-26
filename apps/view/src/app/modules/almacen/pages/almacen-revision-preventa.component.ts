@@ -51,7 +51,8 @@ import {
   sePuedeEscanear,
 } from '../revision-caja';
 import { folioDeLectura } from '@megadulces/contracts';
-import { esFolioDeSuite, imprimirTicketPedido } from '../pedido-etiqueta-impresion';
+import { esFolioDeSuite } from '../pedido-etiqueta-impresion';
+import { EtiquetaPedidoService } from '../etiqueta-pedido.service';
 
 /** Cada cuánto se vuelve a pedir la bandeja mientras se ve: así llegan solos los pedidos que el surtidor termina. */
 const REFRESCO_MS = 20_000;
@@ -596,6 +597,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
 })
 export class AlmacenRevisionPreventaComponent implements OnInit {
   private readonly api = inject(PresaleReviewService);
+  /** `[MCP.36]` Imprime la etiqueta con la liga del pedido en el QR (o con el folio solo, si la liga no llegó). */
+  private readonly etiquetas = inject(EtiquetaPedidoService);
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -1001,10 +1004,12 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     if (this.imprimiendo()) return;
     this.imprimiendo.set(true);
     const o = d.order;
-    imprimirTicketPedido(
+    this.etiquetas.imprimir(
       { folio: o.code, cliente: o.customer_name, vendedor: o.seller_name, entrega: o.requested_delivery_date, productos: d.lines.length },
       () => { this.imprimiendo.set(false); this.listoParaEscanear(); },
-    ).catch(() => {
+    ).then((r) => {
+      if (r === 'sin_liga') this.toast.add({ severity: 'warn', summary: 'La etiqueta salió sin la liga: la cámara del celular no abrirá el pedido (la pistola sí). Reimprímela cuando vuelva la red.', life: 8000 });
+    }).catch(() => {
       this.imprimiendo.set(false);
       this.toast.add({ severity: 'error', summary: 'No se pudo armar la etiqueta. Inténtalo otra vez.', life: 6000 });
     });

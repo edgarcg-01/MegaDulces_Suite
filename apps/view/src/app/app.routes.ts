@@ -99,6 +99,13 @@ export const routes: Routes = [
     path: 'deposito/:token',
     loadComponent: () => import('./modules/finanzas/pages/deposito-cliente.component').then(m => m.DepositoClienteComponent),
   },
+  // `[MCP.36]` El pedido desde el QR de su etiqueta (`/pedido/PD-2026-00039?k=…`), en el celular de QUIEN SEA: almacén,
+  // caja, vendedor, chofer o el cliente (David, 2026-11-25, aprobado por Edgar). Mismo molde que `deposito/:token`: al
+  // tope, fuera del layout y sin guard; la autoridad es la firma `k`, que el backend revalida y que vence.
+  {
+    path: 'pedido/:folio',
+    loadComponent: () => import('./modules/almacen/pages/pedido-publico.component').then(m => m.PedidoPublicoComponent),
+  },
   // ⭐⭐ `[CG.84]` **FIRMAR SIN INICIAR SESIÓN.** Edgar, 2026-10-13: *"el no password para
   // firmar"*.
   //

@@ -156,3 +156,19 @@ La pantalla donde la cajera revisa cada pedido de preventa que terminó el surti
   un ticket del cliente que se pueda detectar; afirmarlo erraría en 2 de cada 3.
 - **Límites declarados:** los renglones borrados antes del 29-oct no guardaron copia y sólo admiten «No hay». Cobrar
   sigue en Kepler: la Suite no puede impedir que se cobre sin revisar. Sólo ruta vecinal por ahora.
+
+## Corrección (2026-11-25, `[MCP.36]`): el QR abre el pedido en cualquier celular
+
+**Problema.** David escaneó la etiqueta con la cámara de su celular y no le mostró el pedido: el QR guardaba sólo el
+texto del folio, y un texto no abre nada.
+
+**Solución.** El QR guarda una **liga firmada** (`https://megadulcessuite.com/pedido/PD-…?k=…`). Quien la escanea,
+con o sin usuario (almacén, caja, vendedor, chofer o cliente), ve el pedido: cliente, paso, productos y montos
+(D23, aprobado por Edgar). La liga vence a los 30 días.
+
+**Implementada.** Al imprimir, la pantalla pide la liga al servidor; si no llega en 4 s, la etiqueta sale igual con el
+folio solo y lo dice. Las barras no cambian: la cámara del celular no puede abrir nada con ellas; siguen siendo para la
+pistola. Los lectores de la Suite y de la app del vendedor leen la liga y también las etiquetas viejas.
+
+**Por qué.** «Cuando escaneen cualquiera de los dos códigos debe mostrar el pedido de ese cliente… para todos sin
+excepciones» (David). NO MEDIDO: impresión real y lectura del QR impreso con un celular.

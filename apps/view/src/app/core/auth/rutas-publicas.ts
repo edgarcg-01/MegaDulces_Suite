@@ -21,7 +21,8 @@
  *
  * Se guarda el PRIMER segmento: `captura/:token` y `empleo/liga/:token` cuelgan de él.
  */
-export const RUTAS_PUBLICAS: readonly string[] = ['firmar', 'captura', 'empleo', 'deposito', 'mi-semana'];
+// `[MCP.36]` 'pedido': el pedido desde el QR de su etiqueta, en el celular de quien sea (la autoridad es la firma).
+export const RUTAS_PUBLICAS: readonly string[] = ['firmar', 'captura', 'empleo', 'deposito', 'mi-semana', 'pedido'];
 
 /**
  * ¿Esta URL es una pantalla pública? Acepta lo que venga: con query, con hash o con el outlet del

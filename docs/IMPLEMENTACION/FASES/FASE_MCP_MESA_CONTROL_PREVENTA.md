@@ -263,6 +263,7 @@ documento al entregar. **MCP.7** (liquidación) es el que retira el papel de la 
 | **D20** | **Pasar a venta**: sólo las cotizaciones de la **app del vendedor** (las de telemarketing van a Kepler por COT.7, decisión de Edgar). Un toque **pide el día y manda el pedido** al surtidor. |
 | **D21** | Al pasar a venta, **el precio es el de hoy** («que los precios estén actualizados»); se enseña contra lo cotizado antes de confirmar. |
 | **D22** | El catálogo de cotizar enseña la **existencia** de la sucursal. |
+| **D23** | El **QR de la etiqueta abre el pedido en la cámara de CUALQUIER celular**, con o sin usuario, y **con montos**: almacén, caja, vendedor, chofer y cliente (David, 2026-11-25: «quiero que funcione para todos sin excepciones»; aprobado por Edgar, comunicado por David). La autoridad es una liga **firmada que vence a los 30 días**. Advertencia dicha a David: la liga es una llave al portador; quien vea la bolsa ve lo que compró ese cliente y cuánto. |
 
 Decisiones de implementación de Claude (anunciadas a David el 2026-11-24): los productos sin código de barras
 conservan «Marcar bien a mano» (sin eso el pedido no se podría terminar); el código de barras del pedido codifica
@@ -634,6 +635,34 @@ más recientes de N».
   esa columna); en ese camino la reapertura y el cambio de día tienen la misma hora y su orden en «Por qué cambió»
   puede salir al revés; con `group=true` la búsqueda de la lista sólo ve los renglones del principal (hoy nadie la
   llama así).
+
+### 6.11 MCP.36 — el QR de la etiqueta abre el pedido en cualquier celular (🧪 en código, 2026-11-25)
+
+**Pedido de David (2026-11-25), al probar la etiqueta con la cámara de su celular:** «cuando escaneen cualquiera de
+los dos códigos debe MOSTRAR EL PEDIDO DE ESE CLIENTE», «para todos sin excepciones». Decisión D23 (§4).
+
+**Por qué no funcionaba:** el QR guardaba sólo el texto `PD-2026-00039`. La cámara lo leía, pero un texto no abre
+nada. Las **barras no pueden abrir nada desde la cámara del celular** (la del iPhone no lee CODE128; Lens sólo
+muestra el número): siguen siendo para la pistola y los lectores de la Suite.
+
+| Capa | Estado | Verificado contra / Prueba |
+|---|---|---|
+| C0 | no aplica | Sin tabla ni migración: la liga va firmada (mismo patrón que el enlace del estado de cuenta, `customer-deposits.service.ts`). La consulta pública, corrida contra el Postgres LOCAL en sólo lectura con un pedido real: 17 campos, 3 renglones, la suma de renglones = total |
+| C1 | 🧪 | `pedido-etiqueta.spec.ts` 14: la liga se lee de vuelta, también con el teclado en español de la pistola; un folio que sólo aparece en la firma NO se lee; las etiquetas impresas antes (folio solo y barras) se siguen leyendo; `pasoDelPedido` dice lo que no conoce. **Sabotaje** (quitar la lectura de la liga) → rojo aquí y en la app del vendedor |
+| C2 | 🧪 · arranque no verificado | `GET /api/commercial/etiqueta-pedido/firma/:folio` (`COMMERCIAL_PICKING_GESTIONAR` o `PREVENTA_GUIAS_GESTIONAR`, los de Surtir y Revisión) y `GET /api/commercial/pedido-publico/:folio?k=` (`@Public`, 30 por minuto). `pedido-etiqueta.service.spec.ts` 6: dominio público aunque se imprima desde la IP de la oficina; firma alterada, de OTRO pedido, vacía, de SESIÓN o vencida → 403; un pedido que no existe no se firma. **Sabotaje** (no comparar el folio de la firma) → rojo. Typecheck de `libs/commercial`: 0 errores en lo nuevo. No escribe en la base |
+| C3 | 🧪 · sin validación visual en vivo | `/pedido/:folio`, pública (en `RUTAS_PUBLICAS`): cliente → paso → total y productos; un monto sin dato se dice «—». Surtir y Revisión imprimen con la liga; si no llega en 4 s, la etiqueta sale con el folio solo y lo DICE. Almacén + auth + interceptor 980/980; vendedor 11/11; `check:pantalla -- almacen` 39 → 39; `check:templates-types` OK. **Sabotaje** (quitar `pedido` de las rutas públicas) → rojo. El QR con la liga (254 caracteres), dibujado a 48 mm y 203 ppp, se lee idéntico |
+| C4 | ⬜ | Sin migración. Falta PR, CI, despliegue y **escanear una etiqueta impresa** con un celular sin sesión |
+
+**Decisiones de implementación de Claude:** la liga la arma el **servidor** con el dominio público
+(`origenPublicoParaEnlace`): quien imprime está en la IP de la oficina, que no abre desde datos móviles. La firma usa
+una **clave propia** derivada de la de sesión: una liga de etiqueta nunca sirve como sesión, ni una sesión como liga.
+El folio va a la vista en la liga para que los lectores de la Suite lo sigan sacando. El QR pasa de 38 a **48 mm**
+y con bordes nítidos, porque la liga lo hace más denso.
+
+**Declarado / NO MEDIDO:** la impresión real y la lectura del QR impreso con la cámara de un celular; el arranque
+de la API con los controladores nuevos (no se levanta el backend local); que el permiso de quien imprime esté
+repartido en prod (no se midió hoy). Una etiqueta impresa ANTES de esto no abre con la cámara (se sigue leyendo con
+la pistola); deja de importar en cuanto se entrega su pedido.
 
 ### 6.10 MCP.31 a MCP.35 — revisar escaneando, etiqueta del pedido, lector, pasar a venta y existencia al cotizar (🧪 en código, 2026-11-24)
 
