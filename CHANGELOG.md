@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — Compras › Entradas: la factura del proveedor se empareja por SU código (PQ.148 · 2026-11-24 · en código, sin soltar)
+- Al conciliar una factura contra la entrada de Kepler, cada renglón se busca primero por el código con que el proveedor timbra su producto, y después por la descripción. Si el proveedor cambia la redacción, el renglón se sigue reconociendo.
+- Al dar por buena una factura, lo que cuadra se aprende con ese código. No se aprenden códigos de 1–2 caracteres (son número de renglón) ni los que la factura repite.
+- Lo que ya enseñan sus facturas anteriores también cuenta: si su código cayó siempre en el mismo producto en facturas que Kepler ya aplicó, la conciliación lo propone y la columna dice «Historial». Lo que una persona confirmó manda sobre eso; al dar por buena la factura, lo propuesto queda confirmado. Medido con 30 días que la historia no vio: acierta 99.6 %, y los renglones de factura que encuentran su producto solos pasan de 23.4 % a 67.9 %.
+- En el celular, cada renglón de la conciliación se apila con su cantidad, su origen y su estado rotulados. En el Fold, la columna «Estado» ya no tapa la de «Origen».
+- Internal: columna `codigo_proveedor` en `commercial.supplier_item_aliases` (mig `20261124210829`) y la vista derivada `commercial.v_supplier_item_code_history` (mig `20261124231441`): las dos se aplican antes de soltar. La prueba contra base real de lo aprendido (`[RE.53]`) ya corre en el CI: antes fallaba sin que se viera (`AUD-CI.1`).
 ### Added — Compras: «Costo contra la OC» en Revisión de facturas (PQ.157 C3 · 2026-11-26 · en código, sin soltar)
 - En el panel de cada entrada, antes de los productos: «N de M renglones a otro costo que su OC», cuánto sube y cuánto baja, y sólo los renglones que difieren (el que más pesos mueve primero) con el costo aplicado, el de la OC en la misma unidad (y la OC tal cual si venía en caja) y la diferencia en % y en pesos.
 - Decidir en el mismo renglón —aceptar el costo, reclamar la nota (con el tope ya puesto) o promoción con fecha— y «Aceptar igual» cuando el mismo costo ya se aceptó antes. Sin la clave `COMPRAS_COSTO_DECIDIR`, la decisión se lee pero no hay botón.

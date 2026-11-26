@@ -1167,6 +1167,42 @@ reportaban «al escanear, la Suite captura otro producto».
 
 ---
 
+## Addendum — `AUD-CI.1`: el paso «Servicio real del corte» (job CGP-D.1) sale verde con pruebas en rojo (2026-11-24)
+
+**Estado: ABIERTO. Dueño: Edgar (CI de Caja).** Lo encontró `[PQ.148]` al buscar dónde corría su prueba contra base real.
+
+- **Qué pasa:** en `.github/workflows/ci.yml`, el paso corre `if ! npx vitest run … 2>&1 | tee servicio.log; then … exit 1`. Sin `shell: bash` explícito, GitHub Actions usa `bash -e {0}`, **sin `pipefail`**: el `if` lee el resultado de `tee` (siempre 0), no el de vitest.
+- **Lo medido:** corrida 45495471825 de `main` (`70afdf3bf`, 2026-11-24): el paso imprime `Test Files 7 failed | 12 passed (19)` y `Tests 23 failed | 84 passed (107)`, y el job termina **success**. Una de las 7 es `aprender-alias.servicio-real.spec.ts` (`[RE.53]`): sus 3 pruebas fallan con `relation "commercial.supplier_item_aliases" does not exist`, porque `database/tests/caja/preparar-base-caja.js` no traía esa tabla, desde que la suite entró al job (2026-10-29).
+- **Lo que hizo `[PQ.148]`:** el armador trae la tabla, la migración de PQ.148 y el `USAGE` de `commercial` para `app_runtime` (medido en prod: `has_schema_privilege` = true). Contra Postgres 18 local esa suite pasa 6/6 y sus negativas se ponen rojas. **No toca el `| tee`:** arreglarlo pone rojo el job con las otras 6 suites (20 pruebas), que son de Caja.
+- **Arreglo, sin hacer:** `set -o pipefail` (o `shell: bash`) en ese paso, después de atender esas 20 pruebas para no frenar a todos con un rojo heredado. Los demás pasos del job ya leen `PIPESTATUS`.
+
+---
+
+## Addendum — `AUD-DAT.34`: la conciliación por renglón cruza dos productos con las mismas cajas y dice «Cuadra» (2026-11-25)
+
+**Estado: ABIERTO (motor de Recepción, `[RE.53]`).** Lo encontró la prueba visual de `[PQ.148]`, al conciliar sin la historia una entrada real de la 01.
+
+- **Qué pasa:** en el paso «Cantidad e importe» de `libs/finance/src/lib/goods-receipt-proofs/conciliar-renglones.ts`, dos renglones de la factura con el **mismo número de cajas** e importes a **2.6 %** uno del otro se emparejaron **al revés** con sus dos renglones de Kepler. La cantidad casa porque cada uno se convierte con el factor de caja del producto que le tocó (10 × 3 = 30 PAQ y 10 × 72 = 720 PZA, iguales a Kepler). El importe casa porque `PRICE_TOL` es 5 %. Los dos salen «Cuadra», con `qty_match` y `price_match` en `true`. Cada renglón tenía su pareja exacta al centavo.
+- **Por qué importa:** «Cuadra» sobre un par cruzado afirma lo que no es. Si además pasara el umbral de `aprendibles`, el error se aprendería al dar la factura por buena. Ese umbral pide el nombre ≥ 50 %, y en este caso no lo pasó (medido con `aprendibles`: 12 aprendibles en esa entrada, ninguno de los dos).
+- **Lo medido:** el motor con los datos de prod de esa entrada, sin la historia: 2 de 29 renglones cruzados, los 29 «Cuadra». Con `[PQ.148]` los 2 caen en su producto, porque la historia conoce el código de cada uno, y la entrada pasa de 12 a 26 equivalencias aprendibles.
+- **Arreglo, sin hacer:** cuando dos asignaciones pasan las tolerancias, elegir la de **menor diferencia de importe** (o resolver el reparto global por costo), no la primera que pasa. Probarlo con este par como caso fijo.
+
+---
+
+## Addendum — `AUD-UI.2`: en PrimeNG 22, `styleClass` en `p-table` no hace nada: 302 de 524 tablas pierden sus clases (2026-11-25)
+
+**Estado: ABIERTO. No se tocó a ciegas:** cambia cómo se ve cada una de esas pantallas. Lo encontró `[PQ.148]`, al pasar su tabla de conciliación a `.dt-stack`.
+
+- **Qué pasa:** en PrimeNG 22.1.4 el componente `p-table` ya no declara la entrada `styleClass`: no aparece en `node_modules/primeng/types/primeng-table.d.ts`, y en `fesm2022/primeng-table.mjs` sólo la usa `p-scroller`. El host del componente ES el `.p-datatable`. Un `styleClass="…"` queda como atributo HTML suelto, sin clase. Las clases van en `class`.
+- **Lo medido:**
+  - En la vista, con `styleClass="dt-stack"` el `.p-datatable` de Entradas no trajo la clase. Con `class="… dt-stack"` sí, y el renglón se apiló.
+  - En el repo hay **524 `<p-table>` en 254 archivos**. **302**, en **146 archivos**, pasan clases por `styleClass`. Entre ellas: `p-datatable-sm`, `surf-table`, `surf-table--frozen-first` y `dt-stack`.
+  - **21** creen apilarse en el teléfono (`[UIM.1]`) y no lo hacen. Una es `almacen-existencia`, la pantalla para la que se creó `dense-table.css`.
+  - Esas 21 tampoco escapan de la regla global de `styles.css` para tablas sin `.dt-stack` (`AUD-UI.1`): en el teléfono quedan con columna fija y desplazamiento lateral.
+- **Por qué no lo vio nadie:** `check:tables` mide que exista `.dt-scope` y la palabra `dt-stack`, no que la clase llegue al DOM. Es una compuerta de presencia.
+- **Arreglo, sin hacer:**
+  - Pasar `styleClass` a `class` en `p-table` en los 146 archivos, con prueba visual de los tres perfiles en las pantallas que cambien.
+  - Que `check:tables` rechace `styleClass` en `p-table`, con su prueba negativa.
 ## Addendum — `AUD-DAT.35`: «Por revisar» publica dos cifras distintas en la misma pantalla (2026-11-26)
 
 **Estado: EN CÓDIGO (`[PQ.157]` C3, 2026-11-26, local sin soltar): la tarjeta dice «No cuadra el importe».** Lo encontró la prueba visual de `[PQ.157]` (nivel A, tres perfiles, base de prod en sólo lectura).

@@ -65,6 +65,46 @@ describe.skipIf(!URL)('[RE.53] aprender una equivalencia — base real', () => {
     expect(Number(filas[0].box_factor)).toBe(24);
   });
 
+  // `[PQ.148]` El código del proveedor como segunda llave (mig 20261124210829).
+  type ConCodigo = { descripcion: string; sku: string; nombre_interno: string | null; unidad_proveedor: string | null; box_factor: number | null; codigo_proveedor: string | null };
+  type UpsertCod = { upsertAlias: (trx: Knex.Transaction, rfc: string, x: ConCodigo) => Promise<{ sku: string; veces_confirmado: number }> };
+  const upCod = (x: ConCodigo) => tk.run((trx) => (svc as unknown as UpsertCod).upsertAlias(trx, RFC, x));
+  const filasDe = (where: Record<string, string>) => tk.run((trx) => trx('commercial.supplier_item_aliases')
+    .where({ proveedor_rfc: RFC, ...where }).whereNull('deleted_at').select('descripcion_norm', 'codigo_proveedor', 'sku', 'veces_confirmado'));
+
+  it('[PQ.148] el código refuerza SU equivalencia aunque la descripción cambie de una factura a otra', async () => {
+    const base: ConCodigo = { descripcion: 'RED COLA 24/400 PET', sku: 'S400', nombre_interno: null, unidad_proveedor: 'CJ', box_factor: 24, codigo_proveedor: ' aga-400 ' };
+    expect(await upCod(base)).toMatchObject({ sku: 'S400', veces_confirmado: 1 });
+    const r2 = await upCod({ ...base, descripcion: 'REFRESCO RED COLA 400 ML C/24' });
+    expect(Number(r2.veces_confirmado)).toBe(2);
+    const filas = await filasDe({ codigo_proveedor: 'AGA-400' });
+    expect(filas).toHaveLength(1);
+    // La descripción con que se aprendió se queda: la llave que encontró la fila fue el código.
+    expect(filas[0].descripcion_norm).toBe('red cola 24 400 pet');
+    // CONTROL: la descripción nueva NO creó otra fila.
+    expect(await filasDe({ descripcion_norm: 'refresco red cola 400 ml c 24' })).toHaveLength(0);
+  });
+
+  it('[PQ.148] una equivalencia sin código gana el suyo; uno DISTINTO que ya traía no se pisa', async () => {
+    const x: ConCodigo = { descripcion: 'SQUIRT 9/2.0 TOR', sku: 'Q2L', nombre_interno: null, unidad_proveedor: 'CJ', box_factor: 9, codigo_proveedor: null };
+    await upCod(x);
+    expect((await filasDe({ descripcion_norm: 'squirt 9 2 0 tor' }))[0].codigo_proveedor).toBeNull();
+    await upCod({ ...x, codigo_proveedor: 'AGA-SQ2' });
+    expect((await filasDe({ descripcion_norm: 'squirt 9 2 0 tor' }))[0].codigo_proveedor).toBe('AGA-SQ2');
+    await upCod({ ...x, codigo_proveedor: 'AGA-OTRO' });
+    const f = await filasDe({ descripcion_norm: 'squirt 9 2 0 tor' });
+    expect(f).toHaveLength(1);
+    expect(f[0]).toMatchObject({ codigo_proveedor: 'AGA-SQ2', veces_confirmado: 3 });
+  });
+
+  it('[PQ.148] NEGATIVA: la base no deja dos equivalencias vivas con el mismo código del proveedor', async () => {
+    const ins = (desc: string) => tk.run((trx) => trx.raw(
+      `INSERT INTO commercial.supplier_item_aliases (tenant_id, proveedor_rfc, descripcion_norm, sku, codigo_proveedor)
+       VALUES (public.current_tenant_id(), ?, ?, 'X', 'AGA-DOBLE')`, [RFC, desc]));
+    await ins('doble uno');
+    await expect(ins('doble dos')).rejects.toThrow(/uq_supplier_item_alias_codigo|duplicate|duplicad/i);
+  });
+
   it('el endpoint de confirmar (RE.11.4) ya guarda con el nombre de quien confirma', async () => {
     const r = await svc.confirmLineMatch({ proveedor_rfc: RFC, descripcion: 'SQUIRT 9/2.0', sku: 'Q2L', unidad_proveedor: 'cj', box_factor: 9 }, 'Nombre De Persona');
     expect(r).toMatchObject({ sku: 'Q2L', veces_confirmado: 1 });

@@ -1065,7 +1065,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
         @if (reconLoading()) {
           <div class="cb-recon-load"><i class="pi pi-spin pi-spinner"></i> Conciliando renglones de la remisión…</div>
         } @else if (recon(); as r) {
-          <div class="cb-recon">
+          <div class="cb-recon dt-scope">
             <div class="cb-recon-head">
               <h4>Productos <span class="muted">· {{ r.lectura?.fuente === 'cfdi' ? 'factura (CFDI)' : 'remisión' }} vs Kepler</span></h4>
               @if (r.lectura?.confiable !== false) {
@@ -1112,7 +1112,11 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                  de Kepler con el que se emparejó) en una celda, para que un cruce se lea de un vistazo
                  (en 03/0001088, «RED COLA 24/400 → RED COLA 600 ML»). En 696px las siete columnas
                  doblaban cada renglón a 80px. -->
-            <p-table [value]="r.lines" class="cb-table" size="small">
+            <!-- [PQ.148] dt-stack ([UIM.1]): en el teléfono cada renglón se apila con Cantidad, Origen y Estado
+                 rotulados; en Fold y tableta la tabla queda entera, sin la columna fija de la regla global que
+                 tapaba «Origen» (medido a 750 px: Estado encima de «Historial», encabezados encimados). Cada
+                 celda envuelve su contenido en un solo bloque para que el apilado no lo reparta en pedazos. -->
+            <p-table [value]="r.lines" class="cb-table dt-stack" size="small">
               <ng-template #header>
                 <tr>
                   <th>Remisión → Kepler</th>
@@ -1123,7 +1127,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
               </ng-template>
               <ng-template #body let-l>
                 <tr>
-                  <td>
+                  <td class="dt-id" role="cell"><div>
                     <span class="strong">{{ l.remision.descripcion || '—' }}</span>
                     @if (l.remision.sku_proveedor) { <span class="muted mono"> · {{ l.remision.sku_proveedor }}</span> }
                     <div class="cb-par">
@@ -1136,8 +1140,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                         @if (l.grupo) { <span class="muted"> · junto con {{ l.grupo.renglones - 1 }} renglón(es) más suman la línea de Kepler</span> }
                       } @else { <span class="muted">sin producto de Kepler</span> }
                     </div>
-                  </td>
-                  <td class="ta-r">
+                  </div></td>
+                  <td class="ta-r" data-label="Cantidad" role="cell"><div>
                     {{ (l.remision.cantidad ?? 0) | number:'1.0-2' }}<span class="muted"> {{ l.remision.unidad || '' }}</span>
                     <!-- [RE.72] La cantidad de Kepler está en SU unidad base (PAQ, PZA, KG…), no siempre en piezas: se rotula con ella. -->
                     @if (l.qty_remision_pz != null && l.qty_remision_pz !== l.remision.cantidad) { <span class="muted"> = {{ l.qty_remision_pz | number:'1.0-2' }} {{ l.kepler?.unidad || '' }}</span> }
@@ -1148,17 +1152,17 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                       @if (l.qty_match === null) { <div class="muted xs">No se comparan: {{ l.remision.unidad || 'sin unidad' }} contra {{ l.kepler?.unidad || 'sin unidad' }}{{ l.box_factor ? '' : ', sin factor de caja medido' }}</div> }
                       @else if (l.qty_match === true && l.price_match === null) { <div class="muted xs">La cantidad casa; el importe no se pudo comparar</div> }
                     }
-                  </td>
-                  <td>
+                  </div></td>
+                  <td data-label="Origen" role="cell"><div>
                     @if (l.method !== 'sin_match') {
                       <span class="cb-method" [class.alias]="l.alias_hit">{{ reconMethodLabel(l.method) }}</span>
                       @if (!l.alias_hit && l.method === 'descripcion') { <span class="muted xs"> {{ (l.score * 100) | number:'1.0-0' }}%</span> }
                     } @else { <span class="muted">—</span> }
-                  </td>
+                  </div></td>
                   <!-- [RE.52] Sin «Aprender»: aprender la equivalencia es trabajo del sistema, no un
                        botón por renglón (14 botones naranjas, y uno sobre un par cruzado guardaba el
                        error para siempre). Lo aprendido se ve en «Origen». -->
-                  <td><p-tag [value]="reconStatusLabel(l.status)" [severity]="reconStatusSev(l.status)" /></td>
+                  <td data-label="Estado" role="cell"><p-tag [value]="reconStatusLabel(l.status)" [severity]="reconStatusSev(l.status)" /></td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage><tr><td colspan="4" class="cb-empty">La remisión no trae renglones legibles.</td></tr></ng-template>
@@ -3486,7 +3490,8 @@ export class ComprasEntradasComponent {
     return ({ cuadra: 'success', agrupado: 'success', difiere_cantidad: 'warn', difiere_precio: 'warn', revisar: 'secondary', sin_match: 'danger' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s] || 'secondary';
   }
   reconMethodLabel(m: ReconciledLine['method']): string {
-    return ({ alias: 'Aprendido', barcode: 'Código barras', descripcion: 'Descripción', numeros: 'Cantidad e importe', sin_match: '—' } as Record<string, string>)[m] || m;
+    // `[PQ.148]` «Historial» sin negrita: lo propuso la historia de sus facturas, no lo confirmó una persona.
+    return ({ alias: 'Aprendido', barcode: 'Código barras', historia: 'Historial', descripcion: 'Descripción', numeros: 'Cantidad e importe', sin_match: '—' } as Record<string, string>)[m] || m;
   }
 
   /**
