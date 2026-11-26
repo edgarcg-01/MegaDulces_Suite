@@ -1676,6 +1676,20 @@ export class InventoryCountService {
       let absVarValue = 0;
 
       for (const it of items) {
+        // ⛔⛔ [IC.F20] DEFENSA EN PROFUNDIDAD: un no-contado NUNCA es cero.
+        //
+        // `Number(null)` es **0**. Sin esta línea, un artículo sin valor final entra al bucle
+        // como cero, da `delta = −expected`, NO cae en el `if (delta === 0) continue` de abajo
+        // y **se aplica**: dejaría la existencia del SKU en cero. En un folio total eso es
+        // **el almacén entero a cero**.
+        //
+        // Hoy no ocurre porque `bloqueosParaReconciliar` frena antes por `final_qty == null`,
+        // y ese guard está bien hecho — es lo que cumple la promesa que la pantalla le hace al
+        // usuario: «un no-contado NO se trata como cero». ⚠️ Pero era **una sola capa**: un
+        // camino nuevo, un «reconciliar parcial» o un filtro distinto entre el guard y este
+        // bucle reintroducen el desastre sin que nada avise. La promesa se cumple ahora también
+        // acá, donde se escribe.
+        if (it.final_qty == null) continue;
         const finalQty = Number(it.final_qty);
         const expected = Number(it.expected_qty);
 
