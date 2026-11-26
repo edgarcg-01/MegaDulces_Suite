@@ -47,6 +47,14 @@ const RE = /^[^\S\n]*(?:import|export)\b[^\n;]*?\sfrom\s*['"](\.[^'"]*)['"]/gm;
 /** Y el `import './efecto';` suelto, sin `from`. */
 const RE_SUELTO = /^[^\S\n]*import\s*['"](\.[^'"]*)['"]/gm;
 
+/**
+ *   El prefiltro del `git grep --cached`, en ERE de POSIX. Es una SEGUNDA reja: si ésta no
+ * reconoce una forma, la compuerta la salta en silencio y `colgados()` ni se entera. Por eso el
+ * `--self-test` la ejerce contra los mismos casos  probar sólo la función que decide deja este
+ * filtro sin control, que es la forma de tener una prueba negativa que no prueba nada.
+ */
+const ERE_PREFILTRO = "^[[:space:]]*(import|export)[^;]*['\"]\\.";
+
 const EXT = ['', '.ts', '.tsx', '.d.ts', '.js', '.mjs', '.cjs', '.json', '/index.ts', '/index.js'];
 
 /** Normaliza `a/b/../c` â†’ `a/c` sin tocar el disco. */
@@ -99,6 +107,14 @@ if (process.argv.includes('--self-test')) {
     if (dio !== esperado) { malos++; console.log(`   âœ— ${que}: esperaba ${esperado}, dio ${dio}`); }
   }
   if (malos) { console.log(`\n[X] self-test: ${malos} caso(s) mal.`); process.exit(1); }
+  // CONTROL de la segunda reja: toda linea que `colgados()` marca tiene que pasar el prefiltro.
+  const pre = new RegExp(ERE_PREFILTRO.replace('[[:space:]]', '\\s'), 'm');
+  let ciegos = 0;
+  for (const [f, src, esperado, que] of casos) {
+    if (esperado === 0) continue;
+    if (!pre.test(src)) { ciegos++; console.log(`    CONTROL: el prefiltro del git grep NO ve "${que}"  la compuerta lo saltaria en silencio`); }
+  }
+  if (ciegos) { console.log(`\n[X] self-test: ${ciegos} caso(s) que el prefiltro no ve.`); process.exit(1); }
   console.log(`OK self-test: ${casos.length} casos (4 que marcan, 9 que no â€” incluidos el selector CSS y el comentario).`);
   process.exit(0);
 }
@@ -124,7 +140,7 @@ const hallazgos = [];
 // Un solo proceso para todo el índice: `git grep --cached` en vez de 4,400 lecturas.
 let lineas = [];
 try {
-  lineas = g(['grep', '--cached', '-n', '-E', "^[[:space:]]*(import|export)[^;]*['\"]\\.", '--',
+  lineas = g(['grep', '--cached', '-n', '-E', ERE_PREFILTRO, '--',
     '*.ts', '*.tsx', '*.js', '*.mjs', '*.cjs']).split('\n').filter(Boolean);
 } catch (e) { if (e.status !== 1) throw e; } // 1 = sin coincidencias
 
