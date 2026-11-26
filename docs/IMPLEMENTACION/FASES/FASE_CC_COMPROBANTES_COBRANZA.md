@@ -374,3 +374,48 @@ vence el **5 de diciembre**, así que hay tiempo — pero no se deja así.
 
 `kepler_push` **no puede leer `md.kdfe33pagm1`** («permiso denegado»), así que el propio programa no pudo mirar si
 timbró y hubo que verlo por el ODS. Para que esto se pueda comprobar desde el carril: `GRANT SELECT` en esa tabla.
+
+## CC.26 — ⛔⛔ La Suite NO puede timbrar: lo hace el programa `FE4Cobro` llamando al PAC (2026-11-26)
+
+> Cierra `CC.25`. Lo destapó la **captura de la interfaz de Kepler** que mandó Edgar: la ruta del menú es
+> *Crédito y cobranza › **Operación CFDI** › Factura de recepción de pagos › Alta*, el tipo es **«Cobro CFDI»**, hay
+> una pestaña **«Información SAT pago»** que la Suite nunca llenó — y la barra de dirección dice **`FE4Cobro.kpr`**.
+> Ese nombre fue el hilo.
+
+### Las tres tablas que el programa escribe y la Suite no
+
+| Tabla | Qué guarda |
+|---|---|
+| `kdfe33pagm1` | **el pago del complemento**: forma de pago SAT (`03` = transferencia), fecha y hora, moneda, paridad, monto |
+| `kdfe33pagm2` | **los documentos relacionados**: el **UUID del CFDI de la factura**, su serie y folio, `PPD`, el número de parcialidad, y `ImpSaldoAnt` / `ImpPagado` / `ImpSaldoInsoluto` |
+| `kdfe33m1` | ⛔ **el CFDI TIMBRADO**: el **UUID del timbre fiscal**, los sellos del emisor y del SAT, la ruta del XML, el **PAC (`SMARTERWEB`)**, el certificado usado… y `c66 = 'FE4Cobro'`, el programa que lo hizo |
+
+⭐ **Del alta al timbre: dos minutos** (creado 09:30:13, timbrado 09:32:13 en el caso medido).
+
+### Por qué esto cierra la pregunta
+
+Para timbrar hay que **llamar al PAC con el certificado y la llave privada del CSD**, recibir el UUID y los sellos,
+y guardarlos. **Eso no es escribir en una base: es un acto del programa.** La Suite no puede hacerlo escribiendo
+tablas, y **escribir `kdfe33m1` a mano sería inventar un UUID y unos sellos — falsificar un comprobante fiscal.
+Jamás.**
+
+> **La respuesta a «¿podemos insertar los abonos adecuadamente?» es, completa:**
+> **sí podemos escribir el cobro, y no podemos timbrarlo.** Y como un cobro sin complemento es una obligación
+> fiscal incumplida, **escribir cobros desde la Suite no es un camino** — hasta que exista una vía que dispare el
+> programa.
+
+### ⭐ El camino que sí queda (D-CC2)
+
+**La Suite prepara y la persona confirma en Kepler.** La pantalla de alta ya ofrece «Cobra todo» y «Cobra x
+antigüedad»: lo que la Suite puede quitar del medio es **buscar el depósito, identificar al cliente y encontrar la
+factura que cuadra** — que es donde se pierde el tiempo y donde se quedan los casos sin capturar. El acto de
+guardar, que es el que timbra, sigue siendo de la persona.
+
+### ⛔ Y un defecto de la escritura de CC.25, encontrado comparando
+
+Comparado el cobro `0000886` (SUITE) con el `0000885` (persona, misma sucursal) columna por columna, difieren
+**dos que no deberían**: `c81` y `c82` traen **$459.39**, heredados del cobro que se usó de plantilla. No son de
+este cobro. Clonar un documento hereda lo que no se pisa, y **aquí se pisó sólo lo decidido**.
+
+⚠️ Razón de más para **cancelar el `0000886` y recapturarlo**: no sólo le falta el complemento, además arrastra
+dos importes ajenos.
