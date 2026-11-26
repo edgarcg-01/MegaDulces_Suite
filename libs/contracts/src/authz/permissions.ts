@@ -743,6 +743,10 @@ export enum Permission {
   COMPRAS_CALENDARIO_VER = 'COMPRAS_CALENDARIO_VER',
   COMPRAS_CALENDARIO_GESTIONAR = 'COMPRAS_CALENDARIO_GESTIONAR',
   COMPRAS_CALENDARIO_CICLO = 'COMPRAS_CALENDARIO_CICLO',
+  // `[PQ.157]` Decidir el costo de un renglón aplicado a otro costo que el de su OC: aceptarlo, reclamar la nota
+  // de crédito o marcar promoción (anexo R §3d–§3e). Clave PROPIA: `COMPRAS_ENTRADAS_VALIDAR` la tienen también
+  // los encargados de tienda, Finanzas y Tesorería, y el costo lo decide Compras (Francisco, 2026-11-26).
+  COMPRAS_COSTO_DECIDIR = 'COMPRAS_COSTO_DECIDIR',
   // Descuentos y apoyos (ajustes X-D-40/55) + facturas duplicadas.
   COMPRAS_DESCUENTOS_VER = 'COMPRAS_DESCUENTOS_VER',
   COMPRAS_DESCUENTOS_GESTIONAR = 'COMPRAS_DESCUENTOS_GESTIONAR',

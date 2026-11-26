@@ -9,6 +9,27 @@
 ---
 
 ## [Unreleased]
+### Added — Compras: «Costo contra la OC» en Revisión de facturas (PQ.157 C3 · 2026-11-26 · en código, sin soltar)
+- En el panel de cada entrada, antes de los productos: «N de M renglones a otro costo que su OC», cuánto sube y cuánto baja, y sólo los renglones que difieren (el que más pesos mueve primero) con el costo aplicado, el de la OC en la misma unidad (y la OC tal cual si venía en caja) y la diferencia en % y en pesos.
+- Decidir en el mismo renglón —aceptar el costo, reclamar la nota (con el tope ya puesto) o promoción con fecha— y «Aceptar igual» cuando el mismo costo ya se aceptó antes. Sin la clave `COMPRAS_COSTO_DECIDIR`, la decisión se lee pero no hay botón.
+- El panel se llama «Aplicación» y dice el folio de su orden de entrada (AUD-UI.3); la tarjeta «Por revisar» del resumen pasa a «No cuadra el importe» (AUD-DAT.35). Cerrar con una decisión tecleada pregunta antes de descartarla.
+- Prueba visual 73/73 (escritorio, Fold 7, celular, oscuro y el proceso entero) contra una aplicación real copiada de prod a Docker.
+### Added — Compras: la API para decidir el costo de cada renglón aplicado (PQ.157 C2 · 2026-11-26 · en código, sin soltar)
+- `GET /api/compras/costo-aplicado/aplicaciones/:sucursal/:folio`: los renglones de una aplicación contra su OC (en la misma unidad), con su cadena —el folio de su orden de entrada, el vale y la OC—, lo más que se puede reclamar, la decisión viva y «ya se aceptó antes». La ve quien ve Revisión de facturas.
+- `POST /api/compras/costo-aplicado/decisiones`: aceptar, reclamar nota o promoción. Guarda la foto que lee de la vista (nunca la de la pantalla), reemplaza la decisión viva sin borrar y, si dos personas deciden a la vez, la segunda recibe 409.
+- Clave nueva `COMPRAS_COSTO_DECIDIR`, sólo Compras (gerente_compras, compras, compras_operaciones, auxiliar_compras; DR10 de Francisco): mig `20261126003314` (sólo datos, a mano después de la tabla) y re-login de esas 10 personas.
+- Pruebas: 9 contra Postgres real con el payload de la pantalla (local), 5 mutantes del servicio en rojo, arranque por metadata y `design:paramtypes` del build.
+
+### Internal — Compras: la decisión sobre cada renglón aplicado a otro costo, con quién y por qué (PQ.157 C1 · 2026-11-26 · en código, sin soltar)
+- `commercial.application_cost_decisions` (mig `20261126001925`, antes de soltar; tabla nueva vacía, sin re-login): por renglón de aplicación, **aceptar** el costo (la OC siguiente nace con él), **reclamar** la nota de crédito (sólo si subió y nunca más que la diferencia) o **promoción** con fecha de fin. Una decisión viva por renglón; cambiarla es reemplazarla, nada se borra (`app_runtime` sin DELETE, RLS por tenant).
+- Dominio `libs/commercial/src/lib/application-cost` y contrato `@megadulces/contracts/http/application-cost`: los textos para la persona y «ya se aceptó antes» con el mismo corte de «igual» que la vista de C0. Hoy 1,680 renglones en 60 días cambian de costo sin decisión registrada y el 61 % se vuelve a validar.
+- Pruebas: dominio 25/25; base 34/0/0 contra Postgres real como `app_runtime`, 8 mutantes en rojo (`test-newdb-pq157-decisions.js`). Sigue C2, la API.
+
+### Internal — Compras: el costo de cada renglón aplicado, contra el de su OC (PQ.157 C0 · 2026-11-25 · en código, sin soltar)
+- Todavía no cambia ninguna pantalla. Es la base para validar el costo al aplicar: qué renglones llegaron a un costo distinto del pedido, cuánto y en qué escala.
+- La OC en cajas aplicada por pieza ya no se confunde con un cambio de costo: el factor sale de la ficha del producto en esa sucursal.
+- Medido en 60 días: 17.6 % de los renglones se aplica a un costo distinto al de la OC (+$1.17 M / −$511 mil), y el mismo cambio se vuelve a validar en la siguiente entrada en el 61 % de los casos.
+- Migración `20261125214023`: la vista `commercial.v_application_line_cost` (sólo DDL, sin datos).
 ### Added — Mesa de Servicio › Configuración: «Renombrar» un área (MS.8.5 · 2026-11-26)
 - Cada área trae «Renombrar» junto a su nombre: cambia el nombre que ve la gente; el código no cambia y las solicitudes se quedan donde están. Lo puede hacer quien coordina esa área.
 - Nació de «Operación de sucursales ·», un área creada con un punto de más que no había cómo corregir en pantalla.

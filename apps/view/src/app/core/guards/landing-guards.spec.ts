@@ -34,6 +34,10 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   // `[KR.7]` Cancelar una requisición en Kepler es una ACCIÓN de su ficha. Medido en prod el 2026-11-14:
   // los 6 roles que la reciben tienen COMPRAS_REQUISICIONES_VER.
   { perm: Permission.COMPRAS_REQUISICION_CANCELAR, url: '/compras/requisiciones', motivo: 'llave de acción, no de entrada: la ruta exige COMPRAS_REQUISICIONES_VER (los 6 roles con la llave la tienen)' },
+  // `[PQ.157]` Decidir el costo de un renglón es una ACCIÓN dentro del panel de Revisión de facturas: sin ver la entrada no
+  // hay qué decidir. Medido en prod el 2026-11-26: los 4 roles que la reciben (gerente_compras, compras,
+  // compras_operaciones, auxiliar_compras) tienen COMPRAS_ENTRADAS_VER, así que NINGUNO rebota.
+  { perm: Permission.COMPRAS_COSTO_DECIDIR, url: '/compras/revision-facturas', motivo: 'llave de acción, no de entrada: la ruta exige COMPRAS_ENTRADAS_VER (los 4 roles con la llave la tienen)' },
   // `[ALC]` Escribir la ficha del cliente en Kepler es una ACCIÓN sobre una solicitud ya lista:
   // sin ver el alta no hay nada que escribir. Medido en prod el 2026-11-15: los 42 roles que
   // tienen la llave tienen además una de las tres de entrada, así que NINGUNO rebota.
