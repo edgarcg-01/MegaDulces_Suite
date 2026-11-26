@@ -118,3 +118,46 @@ export async function medir(page: Page): Promise<Medicion & { sin_nombre: number
   const s = await sinNombre(page);
   return { ...m, sin_nombre: s.total, sin_nombre_ejemplos: s.ejemplos };
 }
+
+/**
+ * Los textos con contenido propio cuyo borde derecho cae FUERA de la ventana: se cortan y no se pueden
+ * leer. Medido con la pantalla QUIETA.
+ *
+ * ⛔ Sin esperar a las animaciones el panel lateral se mide a medio deslizar: el 2026-11-18 eso dio 31
+ * elementos «cortados» que un segundo después eran 0, y se reportó como defecto sin serlo.
+ *
+ * ⭐ Vive acá y no en una prueba porque ya se había escrito dos veces. `solicitud-gasto/solicitud.e2e.ts`
+ * conserva su copia local (`fueraDeLaPantalla`) hasta que su fase la pueda tocar: esa es la deuda, con
+ * nombre. El 2026-11-26 esta medición faltaba en `comisiones-kepler` y por eso la prueba dio verde con
+ * «libro importado hace 16 d» cortado por el borde en /finanzas/bancos — lo encontró la captura, no el
+ * instrumento.
+ */
+export async function cortados(page: Page, limite = 12): Promise<string[]> {
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'), undefined, { timeout: 5_000 })
+    .catch(() => undefined);
+  return page.evaluate((n) => {
+    const ancho = window.innerWidth;
+    const out: string[] = [];
+    for (const el of Array.from(document.querySelectorAll<HTMLElement>('body *'))) {
+      const propio = Array.from(el.childNodes).filter((x) => x.nodeType === 3).map((x) => x.textContent ?? '').join('').trim();
+      if (!propio) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) continue;
+      const s = getComputedStyle(el);
+      if (s.visibility === 'hidden') continue;
+      // (a) El texto se sale de la VENTANA.
+      if (r.right > ancho + 1) { out.push(`fuera de la ventana: ${propio.slice(0, 60)} (borde ${Math.round(r.right)} > ${ancho})`); continue; }
+      // (b) El texto no cabe en SU PROPIA CAJA y el contenedor lo recorta sin dejar cómo verlo. Es el caso
+      //     que (a) no puede ver —el padre limita el rect del hijo, así que nunca desborda la ventana— y el
+      //     que de verdad aparece en las capturas. Con `scroll`/`auto` el texto sigue siendo alcanzable.
+      // ⛔ Las cajas de 1 px con clip son `sr-only`: texto puesto a propósito SÓLO para el lector de
+      //    pantalla. Contarlas como «recortado» es el instrumento midiendo la técnica, no un defecto
+      //    (el 2026-11-26 fue el único hallazgo de un barrido, y era «Los datos pueden estar atrasados»).
+      const recorta = (s.overflowX === 'hidden' || s.overflowX === 'clip') && r.width > 24;
+      if (recorta && el.scrollWidth > el.clientWidth + 1) {
+        out.push(`recortado por su caja${s.textOverflow === 'ellipsis' ? ' (con «…»)' : ' SIN aviso'}: ${propio.slice(0, 60)} (${el.scrollWidth} > ${el.clientWidth} px)`);
+      }
+    }
+    return out.slice(0, n);
+  }, limite);
+}
