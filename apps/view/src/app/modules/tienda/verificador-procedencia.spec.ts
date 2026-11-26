@@ -264,8 +264,11 @@ describe('verificador · el mayoreo', () => {
     // Y las columnas TIENEN que venir en las dos consultas: sin ellas el arreglo es un no-op
     // silencioso (`undefined` -> paqueteReal false -> camino viejo). Es el defecto del freno que
     // pregunta por un campo que nadie trajo.
-    const selects = SVC.match(/l\.pack_price,\s+l\.pack_size/g) || [];
-    expect(selects.length).toBe(2);
+    // `[VAC.D1]` (2026-11-25) Las lecturas son de la vista viva (alias `v`) y son TRES: la de un
+    // producto y las dos ramas del lote (con plaza y sin plaza).
+    const selects = SVC.match(/v\.pack_price,\s+v\.pack_size/g) || [];
+    expect(selects.length).toBe(3);
+    expect(SVC).not.toMatch(/l\.pack_price,\s+l\.pack_size/);
   });
 
   /** `[TDA.7]` La unidad del monto viaja con el escalón; estaba cableada a `c/u`. */
@@ -307,7 +310,10 @@ describe('verificador · el mayoreo', () => {
 
   it('el snapshot va compacto, y su inversa vive junto a la compresora', () => {
     // Con nombres largos el snapshot crecía 1,386 KB crudos: los nombres eran el 51 % de los bytes.
-    expect(SVC).toMatch(/et\.mayoreo\.map\(compactarTier\)/);
+    // `[VAC.PAQ.1]` Lo que se comprime es el mayoreo YA filtrado (sin el paquete que Kepler no tiene),
+    // el mismo que contesta el modo en línea.
+    expect(SVC).toMatch(/mayoreoPublicable = this\.sinPaqueteInexistente\(et\?\.mayoreo \?\? \[\], unidades\)/);
+    expect(SVC).toMatch(/mayoreoPublicable\.map\(compactarTier\)/);
     expect(FRONT).toMatch(/\(item\.m \|\| \[\]\)\.map\(expandirTier\)/);
     const CONTRATO = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'libs', 'contracts', 'src', 'http', 'store.contract.ts'), 'utf8');
     expect(CONTRATO).toMatch(/export function compactarTier/);

@@ -72,6 +72,10 @@
   text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2);
 }
 .cc-peek p { margin: 0; }
+/* [PQ.3.17] Los cambios de la regla: una lista, el más nuevo primero; cada uno dice cuándo y quién, y debajo qué. */
+.cc-peek .cc-h4 { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--fg-1); }
+.cc-cambios { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--sp-2); }
+.cc-cambios li { display: flex; flex-direction: column; gap: var(--sp-1); padding-left: var(--sp-2); border-left: 2px solid var(--border-color); }
 /* La baja va APARTE de las acciones diarias (Von Restorff). */
 .cc-peek-baja { margin-top: var(--sp-2); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
 
@@ -119,7 +123,8 @@
 
 /* Táctil: objetivos de 44 px (Fitts gana a la densidad cuando el puntero es el dedo). */
 @media (pointer: coarse) {
-  .cc-acc button, .cc-acc a, .cc-dia, .cc-link, .cc-escalon, .cc-buscar { min-height: var(--tap-min, 44px); }
+  /* [PQ.3.18] (c) .cc-ocasionales vive en el embudo, fuera de .cc-acc: la prueba visual lo midió en 28 px con el dedo. */
+  .cc-acc button, .cc-acc a, .cc-dia, .cc-link, .cc-escalon, .cc-ocasionales, .cc-buscar { min-height: var(--tap-min, 44px); }
   /* Los campos de PrimeNG de los diálogos: su ANFITRIÓN es la caja (host [class]="cx('root')": p-select,
      p-datepicker, p-inputnumber), y el anfitrión sí lleva el atributo de este componente, así que se alcanza
      sin ::ng-deep (check:cascada) y sin tocar la hoja global. El input y el botón se estiran con él (inline-flex). */

@@ -20,11 +20,15 @@ import type {
   WarehouseLocationRow,
   WarehouseLocationsResponse,
   WarehouseFixture,
+  CroquisResponse,
+  CrearPiezaBody,
+  MoverPiezaBody,
+  DerivarPiezasResult,
 } from '@megadulces/contracts';
 import { WarehouseLocationsService } from './warehouse-locations.service';
 import { WarehouseLocationsBulkService } from './warehouse-locations-bulk.service';
 import { WarehouseLocationsAssignService } from './warehouse-locations-assign.service';
-import { WarehouseFixturesService, type CroquisResponse, type CrearPiezaBody, type MoverPiezaBody } from './warehouse-fixtures.service';
+import { WarehouseFixturesService } from './warehouse-fixtures.service';
 
 /**
  * `[UB.1]` Catálogo de ubicaciones (Fase UB, ADR-090) — pantalla `/almacen/ubicaciones`.
@@ -102,7 +106,7 @@ export class WarehouseLocationsController {
   @Post('fixtures/derivar')
   @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
   @ApiOperation({ summary: '[UB.PL.2] Deriva las piezas del catálogo que YA existe y cuelga cada ubicación de la suya. No crea ni borra ubicaciones.' })
-  derivarPiezas(@Body() body: { warehouse_id: string }): Promise<{ piezas: number; ubicaciones: number; ya_tenian: number }> {
+  derivarPiezas(@Body() body: { warehouse_id: string }): Promise<DerivarPiezasResult> {
     return this.fixtures.derivar(body?.warehouse_id);
   }
 

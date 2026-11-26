@@ -1,4 +1,4 @@
-import type { WarehouseLocationRow } from '@megadulces/contracts';
+import { FIXTURE_KINDS, nombrePieza, type WarehouseLocationRow } from '@megadulces/contracts';
 import { ariaDeRack, armarPasillos, cartelesDe, elAlmacenQueSiTieneTrabajo, estadoDeRack, formatoPorZona, productosDeRack, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
 
 const nivel = (p: Partial<WarehouseLocationRow>): WarehouseLocationRow => ({
@@ -147,6 +147,30 @@ describe('[UB.RF.19] mapa · el almacén que sí tiene trabajo', () => {
 
   it('NEGATIVA: sin almacén abierto todavía, no se ofrece nada', () => {
     expect(elAlmacenQueSiTieneTrabajo([cedis, ph], null)).toBeNull();
+  });
+});
+
+/**
+ * `[UB.PL]` El croquis: el mapa dibuja **la tienda**, no una rejilla. Lo que esto cierra, medido el
+ * 2026-11-26: 60 de 315 ubicaciones de Padre Hidalgo eran cabeceras dadas de alta como «pasillos D a
+ * H», y el mapa las dibujaba como pasillos porque los datos decían eso.
+ */
+describe('[UB.PL] mapa · cómo se dibuja cada pieza', () => {
+  it('⭐ un anaquel de pasillo lleva corredor: tiene dos frentes', () => {
+    expect(FIXTURE_KINDS.anaquel.dosFrentes).toBe(true);
+  });
+
+  it('⛔ NEGATIVA: una CABECERA no lleva corredor — es de una cara, y dibujarle dos es dibujar algo que no existe', () => {
+    expect(FIXTURE_KINDS.cabecera.dosFrentes).toBe(false);
+  });
+
+  it('una caja no genera códigos, así que en el croquis va sin racks', () => {
+    expect(FIXTURE_KINDS.caja.generaCodigos).toBe(false);
+  });
+
+  it('⭐ cada pieza se nombra en palabras de la tienda, y su nombre propio manda', () => {
+    expect(nombrePieza({ tipo: 'cabecera', pasillo: 'D', label: null })).toBe('Cabecera D');
+    expect(nombrePieza({ tipo: 'caja', pasillo: null, label: 'Caja 3' })).toBe('Caja 3');
   });
 });
 

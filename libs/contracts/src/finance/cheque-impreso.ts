@@ -10,13 +10,14 @@ import { importeConLetra } from './importe-con-letra';
  *
  * ── El papel (anexo CH, DCH1) ───────────────────────────────────────────────────────────────
  * Chequera de libro, 3 cheques por hoja; se desprende la hoja y después el cheque, que entra **suelto y centrado** en
- * la impresora. Las medidas salen de las fotos con regla que mandó Francisco (2026-11-20): **≈ 160 × 70 mm**. Las
- * posiciones son una medición de foto (±1–3 mm), no una calibración: por eso cada plantilla dice `calibrada: false`
- * hasta que una **hoja de prueba** impresa y puesta sobre un cheque real la confirme, y el desplazamiento de cada
- * impresora (`dx`, `dy`) se corrige aparte.
+ * la impresora. Las medidas salen de las fotos con regla que mandó Francisco (2026-11-20). Las posiciones son una
+ * medición de foto (±0.5 mm), no una calibración: por eso cada plantilla dice `calibrada: false` hasta que una **hoja
+ * de prueba** impresa y puesta sobre un cheque real la confirme, y el desplazamiento de cada impresora (`dx`, `dy`) se
+ * corrige aparte.
  *
- * Sólo BanBajío: es la cuenta de TODOS los cheques del Calendario (39 de 39 con número, `BB 4166`, medido 2026-11-20).
- * Santander 2169 (nómina y gasto) entra con el cheque suelto, `[PGP.172]`.
+ * **Las dos únicas cuentas que pagan con cheque** (Francisco, 2026-11-25): BanBajío 4166 (los cheques a proveedor del
+ * Calendario) y Santander 2169 (nómina y gasto: 131 cheques en 90 días; el Calendario ya arma alguno, como el 17252
+ * del 26-nov). ⚠️ **No son el mismo papel**: el Santander mide 162.3 × 72.1 mm, no 160 × 70.
  */
 
 /** Un renglón del cheque donde la Suite escribe. Medidas en mm desde la esquina de arriba a la izquierda del cheque. */
@@ -71,7 +72,7 @@ export interface GuiaCheque {
   y: number;
 }
 
-export type ClavePlantillaCheque = 'bajio-conecta';
+export type ClavePlantillaCheque = 'bajio-conecta' | 'santander-pyme';
 
 export interface PlantillaCheque {
   clave: ClavePlantillaCheque;
@@ -142,7 +143,68 @@ export const PLANTILLA_CHEQUE_BAJIO: PlantillaCheque = {
   ],
 };
 
-export const PLANTILLAS_CHEQUE: readonly PlantillaCheque[] = [PLANTILLA_CHEQUE_BAJIO];
+/**
+ * **Santander · Cuenta Santander PYME** (cuenta 2169). `[PGP.165]`, 2026-11-25. **Mide 162.3 × 72.1 mm** — ni el
+ * largo ni el alto son los del BanBajío: con su plantilla, todo caería 1–2 mm corrido.
+ *
+ * Cómo se midió (las fotos traen datos del titular: no están en el repo):
+ * - **el alto**, contra la regla puesta A LO ANCHO del cheque (44 marcas de mm, escala proyectiva con error de 0.2 px):
+ *   cada línea se leyó cerca de la regla, porque del lado del logo el papel no estaba plano y las líneas se curvan;
+ * - **el largo**, contra la regla puesta A LO LARGO en la otra foto (136 marcas; la de 16 cm cae a 0.1 px del modelo),
+ *   proyectando cada punto por la dirección de las orillas. Controles: la orilla izquierda da 0 ± 0.6 mm y la derecha
+ *   162.3 ± 0.3 en cinco alturas; con las alturas de la primera foto, la orilla de arriba cae donde se ve en la otra.
+ *
+ * Lo que dicen las líneas impresas, de arriba abajo: «Fecha» (rótulo ENCIMA del principio de su línea: se escribe
+ * después del rótulo) · «Páguese por este cheque a:» arriba y una sola línea, cerrada a la derecha por una barra,
+ * con «EMPIECE A ESCRIBIR AQUÍ» a la izquierda · el recuadro del importe con «INICIE AQUÍ» abajo a su izquierda (el
+ * importe va pegado a la izquierda, no centrado) · «CON LETRA» y su línea larga, con «Moneda Nacional» al final ·
+ * titular, firma, banda magnética. Los rótulos claros («EMPIECE…») marcan dónde se escribe: se escriben encima.
+ */
+export const PLANTILLA_CHEQUE_SANTANDER: PlantillaCheque = {
+  clave: 'santander-pyme',
+  banco: 'SANTANDER',
+  nombre: 'Santander · PYME',
+  anchoMm: 162.3,
+  altoMm: 72.1,
+  medicion: 'dos fotos con regla (a lo largo y a lo ancho) y perfil de oscuridad de cada línea, 2026-11-25 (líneas a ±0.5 mm)',
+  calibrada: false,
+  zonas: {
+    // La línea va de 79.9 a 120.1 y el rótulo «Fecha» ocupa su principio (hasta 86.7): quedan ~32 mm. «30 DE
+    // SEPTIEMBRE DE 2026», el más largo, cabe en 2.2 mm con poca compresión.
+    fecha: { x: 87.6, ancho: 32, base: 24.85, letraMax: 2.6, letraMin: 2.2, alinear: 'izquierda', renglones: 1, interlinea: 0, letraDosRenglones: 0 },
+    beneficiario: { x: 8, ancho: 108, base: 33.1, letraMax: 3.2, letraMin: 2.2, alinear: 'izquierda', renglones: 1, interlinea: 0, letraDosRenglones: 0 },
+    // «INICIE AQUÍ»: pegado a la izquierda del recuadro (123.9), con 1 mm de aire.
+    importe: { x: 125, ancho: 27, base: 31.8, letraMax: 3.6, letraMin: 2.6, alinear: 'izquierda', renglones: 1, interlinea: 0, letraDosRenglones: 0 },
+    // Termina en 124 y no en «Moneda Nacional» (135.4): con dos renglones, el de arriba pisaría «INICIE AQUÍ».
+    letra: { x: 12, ancho: 112, base: 41.2, letraMax: 3, letraMin: 2.4, alinear: 'izquierda', renglones: 2, interlinea: 3.4, letraDosRenglones: 2.7 },
+    // DCH8: en la franja blanca de arriba, entre el banco (46.8) y el número de serie (126.9). Nómina va sin leyenda.
+    leyenda: { x: 50, ancho: 74, base: 14, letraMax: 2.4, letraMin: 1.8, alinear: 'derecha', renglones: 1, interlinea: 0, letraDosRenglones: 0 },
+  },
+  cajaImporte: { x: 123.9, y: 26.46, ancho: 29.1, alto: 6.59 },
+  guias: [
+    { nombre: 'fecha', x1: 79.9, x2: 120.1, y: 25.44 },
+    { nombre: 'beneficiario', x1: 6.1, x2: 117.1, y: 33.68 },
+    { nombre: 'letra', x1: 10.8, x2: 155, y: 41.78 },
+    { nombre: 'firma', x1: 104.2, x2: 156.2, y: 57.74 },
+  ],
+  reservadas: [
+    { nombre: 'logo y banco', x: 5.8, y: 2.6, ancho: 41, alto: 15.5 },
+    { nombre: 'número de serie', x: 126.9, y: 5.9, ancho: 24.9, alto: 5.5 },
+    { nombre: 'rótulo «Páguese…»', x: 5.8, y: 23.4, ancho: 30.6, alto: 3.6 },
+    { nombre: 'rótulo «Fecha»', x: 79.8, y: 22, ancho: 7.2, alto: 3.1 },
+    { nombre: '$', x: 120, y: 27.8, ancho: 3.3, alto: 4.3 },
+    { nombre: 'barra del Páguese', x: 116.7, y: 27.8, ancho: 0.9, alto: 6.1 },
+    { nombre: 'INICIE AQUÍ', x: 124.5, y: 33.5, ancho: 15.8, alto: 2.8 },
+    { nombre: 'CON LETRA', x: 5.5, y: 38.9, ancho: 5.6, alto: 5.4 },
+    { nombre: 'Moneda Nacional', x: 135.4, y: 39.2, ancho: 19.6, alto: 2.6 },
+    { nombre: 'titular y cuenta', x: 7.3, y: 45, ancho: 51.2, alto: 13.8 },
+    { nombre: 'firma', x: 103.5, y: 44.5, ancho: 53.5, alto: 16.3 },
+    { nombre: 'banda magnética', x: 0, y: 61, ancho: 162.3, alto: 11.1 },
+    { nombre: 'margen «0611»', x: 0, y: 45.3, ancho: 3.2, alto: 14.6 },
+  ],
+};
+
+export const PLANTILLAS_CHEQUE: readonly PlantillaCheque[] = [PLANTILLA_CHEQUE_BAJIO, PLANTILLA_CHEQUE_SANTANDER];
 
 /** La plantilla del papel de una cuenta (`finance.bank_accounts.bank`); null = esa chequera todavía no se mide. */
 export function plantillaDeCheque(banco: string | null | undefined): PlantillaCheque | null {
@@ -246,7 +308,7 @@ export type DictamenCheque =
 const TEXTO_SIN_CHEQUE: Record<MotivoSinCheque, string> = {
   no_es_cheque: 'Este pago no es con cheque: cámbialo en «Preparar» si así sale.',
   sin_cuenta: 'El pago no tiene cuenta de origen: elige la cuenta del cheque en «Preparar».',
-  sin_plantilla: 'Esa chequera todavía no está medida para imprimir: por ahora sólo BanBajío.',
+  sin_plantilla: `Esa chequera todavía no está medida para imprimir: hoy, ${PLANTILLAS_CHEQUE.map((p) => p.nombre).join(' y ')}.`,
   sin_numero: 'Falta el número del cheque: escribe en «Preparar» el que trae el cheque que vas a meter a la impresora.',
   no_cuadra: 'El importe del pago no es la suma de sus facturas: revísalo antes de imprimir.',
   importe_invalido: 'El importe del pago no se puede escribir en un cheque (cero, negativo o con más de dos decimales).',

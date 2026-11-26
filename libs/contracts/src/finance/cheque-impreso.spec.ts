@@ -1,6 +1,7 @@
 import {
   PLANTILLAS_CHEQUE,
   PLANTILLA_CHEQUE_BAJIO,
+  PLANTILLA_CHEQUE_SANTANDER,
   cajaDeZona,
   camposDelCheque,
   datosDeChequeDePrueba,
@@ -18,8 +19,9 @@ type Caja = { x: number; x2: number; y: number; y2: number };
 const seEnciman = (a: Caja, b: Caja) => a.x < b.x2 && b.x < a.x2 && a.y < b.y2 && b.y < a.y2;
 
 /**
- * Todo lo que choca en una plantilla: un dato fuera del cheque (margen 1 mm), encima de algo que el banco imprimió, o
- * encima de otro dato. Con dos renglones se mide la caja de los dos. Vacío = la plantilla no pisa nada.
+ * Todo lo que choca en una plantilla: un dato fuera del cheque (margen 1 mm), encima de algo que el banco imprimió,
+ * cruzando una línea impresa que no es la suya, o encima de otro dato. Con dos renglones se mide la caja de los dos.
+ * Vacío = la plantilla no pisa nada.
  */
 function choques(pl: PlantillaCheque): string[] {
   const out: string[] = [];
@@ -32,6 +34,11 @@ function choques(pl: PlantillaCheque): string[] {
     if (c.x < 1 || c.y < 1 || c.x2 > pl.anchoMm - 1 || c.y2 > pl.altoMm - 1) out.push(`${n} fuera del cheque`);
     for (const r of pl.reservadas) {
       if (seEnciman(c, { x: r.x, x2: r.x + r.ancho, y: r.y, y2: r.y + r.alto })) out.push(`${n} × ${r.nombre}`);
+    }
+    // La línea propia sí la toca (las letras se apoyan en ella); la de otro dato, nunca.
+    for (const g of pl.guias) {
+      if (g.nombre === n.split('(')[0]) continue;
+      if (c.x < g.x2 && g.x1 < c.x2 && c.y < g.y && g.y < c.y2) out.push(`${n} × línea ${g.nombre}`);
     }
   }
   for (let i = 0; i < cajas.length; i++) {
@@ -117,11 +124,17 @@ describe('[PGP.165] ¿el pago puede salir en cheque impreso?', () => {
     expect(d.ok && d.plantilla.clave).toBe('bajio-conecta');
   });
 
+  it('control: el cheque 17252 de Santander 2169 (26-nov, el Calendario ya lo armó) sale con el papel de Santander', () => {
+    const d = dictamenCheque(pago({ reference_text: '17252', amount_assigned: '2482.40', banco: 'SANTANDER', items: [{ applied_amount: '2482.40', beneficiary: 'Proveedor SA' }] }));
+    expect(d).toMatchObject({ ok: true, folio: '17252', centavos: 248_240 });
+    expect(d.ok && d.plantilla.clave).toBe('santander-pyme');
+  });
+
   it('cada cosa que falta tiene su motivo y su texto', () => {
     const casos: Array<[Partial<PagoParaCheque>, string]> = [
       [{ payment_method: 'transferencia' }, 'no_es_cheque'],
       [{ banco: null }, 'sin_cuenta'],
-      [{ banco: 'SANTANDER' }, 'sin_plantilla'],
+      [{ banco: 'BANORTE' }, 'sin_plantilla'],
       [{ reference_text: 'POR LLENAR' }, 'sin_numero'],
       [{ amount_assigned: '107446.935' }, 'importe_invalido'],
       [{ amount_assigned: 0 }, 'importe_invalido'],
@@ -194,8 +207,29 @@ describe('[PGP.165] la plantilla no pisa lo que el banco imprimió', () => {
 
   it('la plantilla se elige por el banco de la cuenta; la que no está medida no existe', () => {
     expect(plantillaDeCheque('bbajio')?.clave).toBe('bajio-conecta');
-    expect(plantillaDeCheque('SANTANDER')).toBeNull();
+    expect(plantillaDeCheque(' santander ')?.clave).toBe('santander-pyme');
+    expect(plantillaDeCheque('BANORTE')).toBeNull();
     expect(plantillaDeCheque(null)).toBeNull();
+  });
+
+  it('Santander: el importe empieza donde dice «INICIE AQUÍ» (pegado a la izquierda del recuadro), no centrado', () => {
+    const z = PLANTILLA_CHEQUE_SANTANDER.zonas.importe;
+    expect(z.alinear).toBe('izquierda');
+    expect(z.x - PLANTILLA_CHEQUE_SANTANDER.cajaImporte.x).toBeGreaterThan(0);
+    expect(z.x - PLANTILLA_CHEQUE_SANTANDER.cajaImporte.x).toBeLessThanOrEqual(1.5);
+  });
+
+  it('Santander, prueba negativa: con más interlínea, el renglón de arriba de la cantidad sube a la línea del Páguese', () => {
+    const letra = { ...PLANTILLA_CHEQUE_SANTANDER.zonas.letra, interlinea: 6 };
+    const mala = { ...PLANTILLA_CHEQUE_SANTANDER, zonas: { ...PLANTILLA_CHEQUE_SANTANDER.zonas, letra } };
+    expect(choques(mala)).toContain('letra(2) × línea beneficiario');
+  });
+
+  it('Santander, prueba negativa: la cantidad que llega hasta «Moneda Nacional» pisa «INICIE AQUÍ» con dos renglones', () => {
+    const letra = { ...PLANTILLA_CHEQUE_SANTANDER.zonas.letra, ancho: 123 };
+    const mala = { ...PLANTILLA_CHEQUE_SANTANDER, zonas: { ...PLANTILLA_CHEQUE_SANTANDER.zonas, letra } };
+    expect(choques(mala)).toContain('letra(2) × INICIE AQUÍ');
+    expect(choques(mala)).not.toContain('letra × Moneda Nacional'); // a 135 todavía no: lo que estorba es el rótulo claro
   });
 
   it('ninguna plantilla se declara calibrada sin la hoja de prueba sobre un cheque real', () => {

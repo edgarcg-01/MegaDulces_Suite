@@ -51,6 +51,8 @@ export * from './lib/temporadas/temporadas.module';
 export * from './lib/purchase-calendar/purchase-calendar.module';
 // [PQ.3.8] Compras › Proveedores › Citas: la agenda de reuniones con el proveedor.
 export * from './lib/supplier-meetings/supplier-meetings.module';
+// [PQ.157] Compras › validar el costo al aplicar: cada renglón contra su OC y la decisión de Compras.
+export * from './lib/application-cost/application-cost.module';
 export * from './lib/commercial-picking/picking.service';
 export * from './lib/warehouse-orders/warehouse-orders.module';
 export * from './lib/warehouse-locations/warehouse-locations.module';

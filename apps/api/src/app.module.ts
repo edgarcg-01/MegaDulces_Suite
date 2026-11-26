@@ -23,7 +23,7 @@ import { CatalogsModule } from '@megadulces/trade';
 // Fase K — AI product match en captures wizard paso 5.
 import { AiProductMatcherModule, BusinessDefinitionsModule, ChecklistsModule, WorkOrdersModule } from '@megadulces/platform-core';
 // Fase V — OCR del ticket del vendedor (Claude Haiku vision + matcher).
-import { TicketExtractorModule } from '@megadulces/commercial';
+import { TicketExtractorModule, CommercialCustomersModule, CommercialWarehousesModule, CommercialPricingModule, CommercialProfitabilityModule, CommercialStandardCostModule, CommercialCommissionsModule, CommercialRouteProfitModule, CommercialInventoryModule, CommercialReceivingModule, CommercialExpiryReviewsModule, CommercialStockoutsModule, CommercialPosVoidsModule, CommercialPromoAgreementsModule, CommercialPromoSelloutModule, MktRankingModule, CommercialReplenishmentModule, CommercialMovementsModule, CommercialLabelsModule, CommercialSalesDocumentsModule, CommercialBiAlmacenModule, CommercialTicketsModule, EntityRefModule, CommercialOrdersModule, CommercialPaymentsModule, CommercialHomeDeliveryModule, CommercialRiderLiquidationModule, CommercialPickingModule, WarehouseOrdersModule, WarehouseLocationsModule, PresaleControlModule, PresalePickingModule, NewCustomersKeplerModule, CustomerOnboardingModule, ProductSheetsModule, TemporadasModule, PurchaseCalendarModule, SupplierMeetingsModule, ApplicationCostModule, CommercialCargaModule, CommercialAnalyticsModule, CommercialAlertsModule, CommercialRecommendationsModule, CommercialIntelligenceModule, CommercialPromotionsModule, CommercialProductsModule, PortalAiOrderModule, CommercialCatalogSearchModule, CommercialTeleventaModule, CommercialQuotesModule, CommercialStockReservationModule, CommercialTrustModule, CommercialRouteControlModule, CommercialVendorSalesModule, CommercialVendorRoutesModule, CommercialTrackingModule, CommercialTelemetryModule, CommercialPushModule, CommercialSupplierPaymentObligationsModule } from '@megadulces/commercial';
 import { ScoringModule } from '@megadulces/trade';
 import { ScoringV2Module } from '@megadulces/trade';
 import { ReportsModule } from '@megadulces/trade';
@@ -50,74 +50,29 @@ import { AuthMtModule } from './modules/auth-mt/auth-mt.module';
 import { TenantsAdminModule } from './modules/tenants-admin/tenants-admin.module';
 import { DbHealthModule } from './modules/db-health/db-health.module';
 // Fase B — Core comercial (corre dentro del toggle multi-tenant)
-import { CommercialCustomersModule } from '@megadulces/commercial';
-import { CommercialWarehousesModule } from '@megadulces/commercial';
-import { CommercialPricingModule } from '@megadulces/commercial';
-import { CommercialProfitabilityModule } from '@megadulces/commercial';
 // [CE.2] Costo estandar de Kepler por producto. Recableado: el modulo y su export ya vienen
 // en ESTE commit, que es la condicion que dejo escrita el descableado de las 11:25.
-import { CommercialStandardCostModule } from '@megadulces/commercial';
-import { CommercialCommissionsModule } from '@megadulces/commercial';
 // [RD.57] Rentabilidad de Ruta Directa: utilidad bruta + km del GPS + gasto del dpto.
-import { CommercialRouteProfitModule } from '@megadulces/commercial';
-import { CommercialInventoryModule } from '@megadulces/commercial';
-import { CommercialReceivingModule } from '@megadulces/commercial';
-import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
 // [FLT] Lista de faltantes — el piso reporta la venta que NO ocurrió (ningún feed puede verla).
-import { CommercialStockoutsModule } from '@megadulces/commercial';
 // [BP] Bitácora de retiros en caja — Kepler autentica el retiro con supervisor y no lo guarda.
-import { CommercialPosVoidsModule } from '@megadulces/commercial';
 // [MKT.1] Acuerdos con proveedor (formato MKTN001) + expediente de evidencia por plaza.
-import { CommercialPromoAgreementsModule } from '@megadulces/commercial';
 // [MKT.6] La otra mitad: el expediente prueba que se EJECUTÓ, esto mide si SIRVIÓ (venta del
 // ERP contra una línea base del mismo largo). Sólo lectura y sin permisos nuevos.
-import { CommercialPromoSelloutModule } from '@megadulces/commercial';
 // [MKT.10] Ranking de promociones e incentivos de Marketing (reemplaza el Excel semanal).
-import { MktRankingModule } from '@megadulces/commercial';
-import { CommercialReplenishmentModule, CommercialMovementsModule, CommercialLabelsModule, CommercialSalesDocumentsModule, CommercialBiAlmacenModule, CommercialTicketsModule } from '@megadulces/commercial';
 // Resolvedor universal de refs — "todo es clickeable" (/compras/entradas, /compras/compras-360)
-import { EntityRefModule } from '@megadulces/commercial';
-import { CommercialOrdersModule } from '@megadulces/commercial';
 // Fase LM.1 — cobros sobre pedidos (multi-método)
-import { CommercialPaymentsModule } from '@megadulces/commercial';
 // Fase LM.2 — intake de pedidos a domicilio
-import { CommercialHomeDeliveryModule } from '@megadulces/commercial';
 // Fase LM.5 — corte de caja del repartidor (arqueo)
-import { CommercialRiderLiquidationModule } from '@megadulces/commercial';
-import { CommercialPickingModule, WarehouseOrdersModule, WarehouseLocationsModule, PresaleControlModule, PresalePickingModule, NewCustomersKeplerModule, CustomerOnboardingModule } from '@megadulces/commercial';
 // [NP.7] Catálogo digital: levantamiento de fichas desde el celular.
-import { ProductSheetsModule } from '@megadulces/commercial';
 // [PQ.94] Compras › Temporadas.
-import { TemporadasModule } from '@megadulces/commercial';
 // [PQ.3.4] Compras › Calendario de compras.
-import { PurchaseCalendarModule, SupplierMeetingsModule } from '@megadulces/commercial';
-import { CommercialCargaModule } from '@megadulces/commercial';
-import { CommercialAnalyticsModule } from '@megadulces/commercial';
-import { CommercialAlertsModule } from '@megadulces/commercial';
-import { CommercialRecommendationsModule } from '@megadulces/commercial';
 // Fase M — Motor de Inteligencia: Customer 360 (feature store) + NBA (motor de decisión)
-import { CommercialIntelligenceModule } from '@megadulces/commercial';
-import { CommercialPromotionsModule } from '@megadulces/commercial';
-import { CommercialProductsModule } from '@megadulces/commercial';
-import { PortalAiOrderModule } from '@megadulces/commercial';
-import { CommercialCatalogSearchModule } from '@megadulces/commercial';
 // Fase E — Remote Manager / Televenta
-import { CommercialTeleventaModule } from '@megadulces/commercial';
-import { CommercialQuotesModule } from '@megadulces/commercial';
-import { CommercialStockReservationModule } from '@megadulces/commercial';
-import { CommercialTrustModule } from '@megadulces/commercial';
 // Cierre de ruta — tickets venta/carga/combustible del vendedor (port Automation_RD)
-import { CommercialRouteControlModule } from '@megadulces/commercial';
 // Captura del vendedor — líneas de venta (OCR ticket) ancladas a la tienda
-import { CommercialVendorSalesModule } from '@megadulces/commercial';
-import { CommercialVendorRoutesModule } from '@megadulces/commercial';
-import { CommercialTrackingModule } from '@megadulces/commercial';
 // Observabilidad del Portal B2B (Web Vitals, errores, funnel)
-import { CommercialTelemetryModule } from '@megadulces/commercial';
 // Web Push del Portal B2B (notificaciones de pedido / promos)
-import { CommercialPushModule } from '@megadulces/commercial';
 // Fase TP (ADR-064) — Obligaciones a proveedor de mercancía (Compras), alimenta Calendario de Pagos
-import { CommercialSupplierPaymentObligationsModule } from '@megadulces/commercial';
 // Fase TP.7 (ADR-064) — Catálogo de cuentas de pago a proveedor + workflow de aprobación
 // Fase J — Logística
 import { LogisticsFleetModule } from '@megadulces/logistics';
@@ -231,6 +186,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       PurchaseCalendarModule,
       // [PQ.3.8] Proveedores › Citas: la agenda de reuniones con el proveedor.
       SupplierMeetingsModule,
+      // [PQ.157] Validar el costo al aplicar: la decisión de Compras por renglón.
+      ApplicationCostModule,
       WarehouseOrdersModule,
       // [UB.1] Ubicaciones de mercancía (Fase UB, ADR-090).
       WarehouseLocationsModule,

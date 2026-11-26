@@ -21,7 +21,7 @@ import {
 } from '../calendario-compras-captura';
 import { AuthService } from '../../../core/services/auth.service';
 import {
-  ETIQUETA_MOTIVO_NO_SE_PIDE, MARCA_MAX_ADELANTE_DIAS, MOTIVOS_NO_SE_PIDE, ordenDelEmbudo, proximasRevisiones, sumarDias, validarFueraDeCiclo,
+  ETIQUETA_MOTIVO_NO_SE_PIDE, MARCA_MAX_ADELANTE_DIAS, MOTIVOS_NO_SE_PIDE, OCASIONAL_CADA_N_DIAS, OCASIONAL_FUERA_DE_CICLO_DIAS, OCASIONAL_MOTIVO, ordenDelEmbudo, proximasRevisiones, sumarDias, validarFueraDeCiclo,
   validarMarca, warehouseName,
   type AlcanceRevision, type AvanceDelEmbudo, type CalendarioCompras, type EscalonLlenado, type CorrimientoFinDeSemana, type FueraDeCicloDto, type GuardarReglaDto,
   type MarcarRevisionDto, type MotivoNoSePide, type PatronDeRegla, type PatronRevision, type PropuestaDiaFijo, type PropuestaSinRegla,
@@ -41,8 +41,8 @@ import { Permission } from '../../../core/constants/permissions';
 import { motivoHttp } from '../../almacen/shared/http-motivo';
 import { CalendarioComprasService } from '../calendario-compras.service';
 import {
-  alcanceEnPalabras, atencionEnPalabras, avanceEscalonEnPalabras, avanceTotalEnPalabras, corrimientoEnPalabras, NOMBRE_ESCALON, pesoEnPalabras, diaCorto, diaFijoEnPalabras, diaFijoEvidencia, diaFijoReciente,
-  estadoEnPalabras, fechasEnRango, fichaEnPalabras, paraQuienVe, patronEnPalabras, propuestaEnPalabras, proximasDeLaRegla, relativo, type EstadoVisible, type FechaEnCalendario,
+  alcanceEnPalabras, atencionEnPalabras, avanceEscalonEnPalabras, avisoOcasionales, avanceTotalEnPalabras, corrimientoEnPalabras, NOMBRE_ESCALON, pesoEnPalabras, diaCorto, diaFijoEnPalabras, diaFijoEvidencia, diaFijoReciente,
+  estadoEnPalabras, fechasEnRango, fichaEnPalabras, historialVisible, paraQuienVe, patronEnPalabras, propuestaEnPalabras, proximasDeLaRegla, relativo, type EstadoVisible, type FechaEnCalendario, type HistorialVisible,
 } from '../calendario-compras-reglas';
 
 type Vista = 'revisar' | 'semana' | 'mes' | 'reglas' | 'sin_regla';
@@ -273,6 +273,12 @@ interface ProveedorDelFormulario {
                       <button type="button" class="cc-escalon" [class.is-on]="escalonFiltro() === e.escalon"
                               [attr.aria-pressed]="escalonFiltro() === e.escalon" (click)="filtrarEscalon(e.escalon)">{{ nombreEscalon(e.escalon) }}</button>
                       <span class="cc-sub">{{ avanceEscalon(e) }}</span>
+                      <!-- [PQ.3.18] (c) Los ocasionales se deciden de una vez (DC27): un clic, con lo que hace dicho antes de hacerlo. -->
+                      @if (e.escalon === 3 && ocasionalesSinRegla().length && puedeCiclo()) {
+                        <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary cc-ocasionales" (click)="abrirOcasionales()">
+                          <span class="p-button-label">{{ textoSacarOcasionales() }}</span>
+                        </button>
+                      }
                     </li>
                   }
                 </ul>
@@ -412,7 +418,28 @@ interface ProveedorDelFormulario {
             <section>
               <h3>La regla</h3>
               <p class="cc-sub">Definida por {{ r.definida_por ?? 'alguien sin nombre registrado' }} el {{ dia(r.definida_el) }}.</p>
+              <!-- [PQ.3.17] Quién la cambió y de qué a qué (DC25): «Definida por» ya no se queda como si nadie la hubiera tocado. -->
+              @if (r.ultimo_cambio; as u) {
+                <p class="cc-sub">Último cambio: {{ u.por ?? 'alguien sin nombre registrado' }}, el {{ dia(u.dia) }}.</p>
+              }
               @if (r.note) { <p class="cc-sub">Nota: {{ r.note }}</p> }
+              @if (historial(r); as h) {
+                @if (h.pasos.length) {
+                  <h4 class="cc-h4">Cambios</h4>
+                  <ol class="cc-cambios">
+                    @for (p of h.pasos; track $index) {
+                      <li>
+                        <span class="cc-sub">{{ p.cuando }} · {{ p.quien }}</span>
+                        @for (l of p.lineas; track $index) { <span>{{ l }}</span> }
+                      </li>
+                    }
+                  </ol>
+                  @if (h.mas) { <p class="cc-sub">{{ h.mas }}</p> }
+                }
+                @if (h.sin_historial) { <p class="cc-sub">{{ h.sin_historial }}</p> }
+              } @else if (r.ultimo_cambio && cal()?.historial?.measured === false) {
+                <p class="cc-sub">{{ cal()!.historial!.note }}</p>
+              }
             </section>
 
             <div class="cc-acc cc-peek-acc">
@@ -622,6 +649,27 @@ interface ProveedorDelFormulario {
               </button>
             }
             <button pButton type="button" class="p-button-sm p-button-text" [disabled]="ocupado()" (click)="dlgFuera.set(false)">
+              <span class="p-button-label">Cancelar</span>
+            </button>
+          </div>
+        </div>
+      </p-dialog>
+
+      <!-- ===== [PQ.3.18] (c) Los ocasionales en bloque ===== -->
+      <p-dialog [visible]="dlgOcasionales()" (visibleChange)="dlgOcasionales.set($event)" [modal]="true" [draggable]="false"
+                header="Sacar del ciclo a los ocasionales" [style]="{ width: '34rem' }" appendTo="body">
+        <div class="cc-form">
+          <p>{{ ocasionalesSinRegla().length }} {{ ocasionalesSinRegla().length === 1 ? 'proveedor compró' : 'proveedores compraron' }} una o pocas veces en 12 meses.
+            A cada uno se le define una regla para todas las sucursales «cada {{ cadaNOcasional }} días» y queda <strong>fuera de ciclo hasta el {{ dia(hastaOcasionales()) }}</strong>.</p>
+          <p class="cc-sub">No amanecen rezagados. En esa fecha regresan solos a «Por revisar», para ver si siguen siendo ocasionales. Motivo que queda escrito: «{{ motivoOcasional }}»</p>
+          <p class="cc-sub">{{ muestraOcasionales() }}</p>
+          <p class="cc-sub">Cada regla queda con tu nombre y se puede cambiar o dar de baja después. Los que tengan regla al guardar no se tocan.</p>
+          @if (errorDlg()) { <p class="cc-error" role="alert">{{ errorDlg() }}</p> }
+          <div class="cc-acc">
+            <button pButton type="button" class="p-button-sm" [disabled]="ocupado()" (click)="guardarOcasionales()">
+              <span class="p-button-label">{{ ocupado() ? 'Guardando…' : textoSacarOcasionales() }}</span>
+            </button>
+            <button pButton type="button" class="p-button-sm p-button-text" [disabled]="ocupado()" (click)="dlgOcasionales.set(false)">
               <span class="p-button-label">Cancelar</span>
             </button>
           </div>
@@ -878,6 +926,8 @@ export class ComprasCalendarioComponent implements OnInit {
   estado(r: ReglaCalendario): EstadoVisible { return estadoEnPalabras(r.estado, r, this.cal()?.hoy ?? ''); }
   atencion(r: ReglaCalendario) { return atencionEnPalabras(r.ultima_actividad, r.ultima_marca); }
   dia(f: string | null | undefined): string { return diaCorto(f); }
+  /** `[PQ.3.17]` Los cambios de la regla en palabras; sin historial medido, nada (lo dice el aviso). */
+  historial(r: ReglaCalendario): HistorialVisible | null { return historialVisible(r, this.cal()?.historial?.measured === true); }
   rel(f: string): string { const h = this.cal()?.hoy ?? this.prop()?.hoy; return h ? relativo(f, h) : ''; }
   motivo(m: MotivoNoSePide): string { return ETIQUETA_MOTIVO_NO_SE_PIDE[m]; }
   propuesta(p: PropuestaSinRegla): string { return propuestaEnPalabras(p); }
@@ -1372,6 +1422,53 @@ export class ComprasCalendarioComponent implements OnInit {
       error: (e) => {
         this.ocupado.set(false);
         const m = `No cambió. ${motivoHttp(e, 'cambiar el ciclo de la regla')}`;
+        this.errorDlg.set(m);
+        this.errorAccion.set(m);
+      },
+    });
+  }
+
+  // ── [PQ.3.18] (c) Los ocasionales en bloque (DC27) ─────────────────────────────────────────
+  /** Los ocasionales SIN regla que la pantalla muestra (escalón 3 de «sin regla»): lo que se manda, ni más ni menos. */
+  readonly ocasionalesSinRegla = computed(() => (this.prop()?.sin_regla ?? []).filter((p) => p.peso?.escalon === 3));
+  readonly dlgOcasionales = signal(false);
+  readonly cadaNOcasional = OCASIONAL_CADA_N_DIAS;
+  readonly motivoOcasional = OCASIONAL_MOTIVO;
+  /** La fecha de regreso que se va a escribir (la misma cuenta que el servidor: hoy + 182 días). */
+  hastaOcasionales(): string | null { const h = this.prop()?.hoy; return h ? sumarDias(h, OCASIONAL_FUERA_DE_CICLO_DIAS) : null; }
+  /** «Sacar del ciclo al ocasional» · «Sacar del ciclo a los 94». */
+  textoSacarOcasionales(): string { const n = this.ocasionalesSinRegla().length; return n === 1 ? 'Sacar del ciclo al ocasional' : `Sacar del ciclo a los ${n}`; }
+  /** Unos nombres, para que se vea a quién toca sin una lista de 94. */
+  muestraOcasionales(): string {
+    const xs = this.ocasionalesSinRegla();
+    const nombres = xs.slice(0, 4).map((p) => p.supplier_name ?? p.supplier_code).join(', ');
+    return xs.length > 4 ? `Por ejemplo: ${nombres} y ${xs.length - 4} más.` : `Son: ${nombres}.`;
+  }
+
+  abrirOcasionales(): void {
+    this.errorDlg.set(null);
+    this.errorAccion.set(null);
+    this.aviso.set(null);
+    this.dlgOcasionales.set(true);
+  }
+
+  guardarOcasionales(): void {
+    const codes = this.ocasionalesSinRegla().map((p) => p.supplier_code);
+    if (!codes.length || this.ocupado()) return;
+    this.ocupado.set(true);
+    this.errorDlg.set(null);
+    this.api.definirOcasionales(codes).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.ocupado.set(false);
+        this.dlgOcasionales.set(false);
+        this.escalonFiltro.set(null);
+        this.aviso.set(avisoOcasionales(r));
+        this.cargar();
+        this.cargarPropuestas();
+      },
+      error: (e) => {
+        this.ocupado.set(false);
+        const m = `No se guardó ninguno. ${motivoHttp(e, 'sacar del ciclo a los ocasionales')}`;
         this.errorDlg.set(m);
         this.errorAccion.set(m);
       },

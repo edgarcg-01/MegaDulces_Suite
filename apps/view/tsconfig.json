@@ -46,6 +46,8 @@
       "@megadulces/contracts/http/alta-persona": ["../../libs/contracts/src/http/alta-persona.contract.ts"],
       "@megadulces/contracts/http/arqueo-cajas": ["../../libs/contracts/src/http/arqueo-cajas.contract.ts"],
       "@megadulces/contracts/http/codigo-de-barras": ["../../libs/contracts/src/http/codigo-de-barras.contract.ts"],
+      // [PQ.157] Validar el costo al aplicar: los tipos y las reglas puras de la decisión (las mismas que la API).
+      "@megadulces/contracts/http/application-cost": ["../../libs/contracts/src/http/application-cost.contract.ts"],
       // [PGP.104] El texto de la validación banco + comprobante de un pago (Pagos).
       "@megadulces/contracts/finance/validacion-pago": ["../../libs/contracts/src/finance/validacion-pago.contract.ts"],
       "@megadulces/contracts/finance/aviso-de-pago": ["../../libs/contracts/src/finance/aviso-de-pago.contract.ts"],

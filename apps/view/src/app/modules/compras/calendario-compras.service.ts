@@ -2,8 +2,8 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import type { Observable } from 'rxjs';
 import type {
-  CalendarioCompras, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta, MarcarRevisionDto, PropuestasCalendario,
-  ResponsablesCalendario,
+  CalendarioCompras, DefinirOcasionalesRespuesta, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta, MarcarRevisionDto,
+  PropuestasCalendario, ResponsablesCalendario,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -36,6 +36,11 @@ export class CalendarioComprasService {
    */
   guardarRegla(dto: GuardarReglaDto): Observable<GuardarReglaRespuesta> {
     return this.http.post<GuardarReglaRespuesta>(`${this.base}/reglas`, dto);
+  }
+
+  /** `[PQ.3.18]` (c) Los ocasionales en bloque: las claves que la pantalla muestra; el servidor sólo toca las que hoy lo siguen siendo. */
+  definirOcasionales(supplier_codes: readonly string[]): Observable<DefinirOcasionalesRespuesta> {
+    return this.http.post<DefinirOcasionalesRespuesta>(`${this.base}/reglas/ocasionales`, { supplier_codes });
   }
 
   darDeBaja(id: string): Observable<{ id: string }> {

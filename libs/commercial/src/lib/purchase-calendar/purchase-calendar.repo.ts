@@ -1,12 +1,13 @@
 import type { Knex } from 'knex';
 import {
-  ordenDelEmbudo, reglasDeLaCaptura, sumarDias, validarCaptura, validarFueraDeCiclo, validarMarca, VENTANA_REZAGO_DIAS,
-  type CalendarioCompras, type FueraDeCicloDto, type GuardarReglaDto, type GuardarReglaRespuesta, type MarcaVista,
+  CAMBIOS_POR_REGLA, OCASIONAL_CADA_N_DIAS, OCASIONAL_FUERA_DE_CICLO_DIAS, OCASIONAL_MOTIVO, ordenDelEmbudo, reglasDeLaCaptura, sumarDias, validarCaptura,
+  validarFueraDeCiclo, validarMarca, validarOcasionales, VENTANA_REZAGO_DIAS, type DefinirOcasionalesDto, type DefinirOcasionalesRespuesta,
+  type CalendarioCompras, type CambioDeRegla, type FueraDeCicloDto, type GuardarReglaDto, type GuardarReglaRespuesta, type MarcaVista,
   type MarcarRevisionDto, type PropuestaDiaFijo, type PropuestasCalendario, type PropuestaSinRegla,
 } from '@megadulces/contracts';
 import {
   armarCalendario, armarEmbudo, desdeEntradas, diasFijosPorProveedor, nombreDelAlcance, repartirPropuestas, reglaEnAlcance,
-  type AlmacenPedido, type CompraDoceMeses, type FilaActividad, type ReglaLeida, type SucursalZona,
+  type AlmacenPedido, type CompraDoceMeses, type FilaActividad, type HistorialLeido, type ReglaLeida, type SucursalZona,
 } from './purchase-calendar.domain';
 import { SQL_ACTIVIDAD_KEPLER, SQL_COMPRA_DOCE_MESES, SQL_SUCURSALES_Y_ZONAS } from './purchase-calendar.sql';
 import { isPlatformAdminRole, permisoEfectivoSql } from '@megadulces/platform-core';
@@ -84,6 +85,9 @@ export async function leerReglas(trx: Knex.Transaction, tenant: string): Promise
            s.name AS supplier_name, rv.nombre AS reviewer_name, def.nombre AS definida_por,
            to_char(r.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS definida_el,
            to_char(r.updated_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS vigente_desde,
+           -- [PQ.3.17] El último cambio después de crearla (un alta deja created_at = updated_at: la misma transacción).
+           (r.updated_at > r.created_at + interval '1 second') AS fue_cambiada, upd.nombre AS cambiada_por,
+           to_char(r.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS cambiada_el,
            r.note, ps.id AS pedido_supplier_id
       FROM ${RULES} r
       LEFT JOIN LATERAL (
@@ -102,6 +106,7 @@ export async function leerReglas(trx: Knex.Transaction, tenant: string): Promise
          ORDER BY (x.deleted_at IS NULL) DESC, x.updated_at DESC LIMIT 1) ps ON true
       LEFT JOIN identity.users rv ON rv.id = r.reviewer_user_id
       LEFT JOIN identity.users def ON def.id::text = r.created_by
+      LEFT JOIN identity.users upd ON upd.id::text = r.updated_by
      WHERE r.tenant_id = ? AND r.deleted_at IS NULL`, [tenant]);
   return rows.map((r: Record<string, unknown>) => ({
     ...r,
@@ -144,7 +149,81 @@ export async function leerCalendario(trx: Knex.Transaction, tenant: string, lee:
   const reglas = todas.filter((r) => reglaEnAlcance(r, sucursales, lee));
   const codes = [...new Set(reglas.map((r) => r.supplier_code))];
   const actividad = await leerActividad(trx, { hoy, desde, desde_entradas: desdeEntradas(hoy, reglas), codes });
-  return armarCalendario(hoy, reglas, actividad, marcas, sucursales, await leerAlmacenes(trx, tenant), lee);
+  const historial = await leerCambios(trx, tenant, reglas.map((r) => r.id));
+  return armarCalendario(hoy, reglas, actividad, marcas, sucursales, await leerAlmacenes(trx, tenant), lee, historial);
+}
+
+/** `[PQ.3.17]` El log compartido (VP.3.1) y el disparador que le suma las reglas (migración 20261124231747). */
+const HISTORIAL = 'analytics.master_data_history';
+const DISPARADOR = 'trg_master_data_history';
+
+/**
+ * `[PQ.3.17]` Los cambios de las reglas que se ven (anexo C §10.9, DC25), de `analytics.master_data_history`: los
+ * `CAMBIOS_POR_REGLA` más nuevos de cada una, con quién (`actor` = el usuario que declaró la escritura) y los
+ * nombres de los responsables que aparecen. En un SAVEPOINT: sin el disparador activo, o si la lectura falla, el
+ * historial se DECLARA no medido y el calendario se entrega igual (nunca «sin cambios» por defecto).
+ *
+ * Lo escrito en la MISMA transacción que el alta es parte del alta, no un cambio: la misma regla que `fue_cambiada`
+ * (`updated_at > created_at + 1 s`). Sin eso, «Sacar del ciclo a los N» (que define y luego saca del ciclo, en una
+ * transacción) mostraba «Cambios» sin «Último cambio». La fila se queda en el historial; sólo no se cuenta aquí.
+ */
+export async function leerCambios(trx: Knex.Transaction, tenant: string, ids: readonly string[]): Promise<HistorialLeido> {
+  try {
+    return await trx.transaction(async (sp) => {
+      const activo = (await sp.raw(`
+        SELECT EXISTS (SELECT 1 FROM pg_trigger
+                        WHERE tgrelid = to_regclass(?) AND tgname = ? AND tgenabled <> 'D' AND NOT tgisinternal) AS si`,
+      [RULES, DISPARADOR])).rows[0].si;
+      if (!activo) {
+        return { measured: false, note: 'El historial de cambios de las reglas no está activo en esta base: se sabe quién hizo el último cambio y cuándo, no de qué a qué.', por: new Map() };
+      }
+      if (!ids.length) return { measured: true, note: null, por: new Map() };
+      const { rows } = await sp.raw(`
+        SELECT x.pk, x.el, x.dia, x.por, x.diff, x.total FROM (
+          SELECT h.pk, to_char(h.changed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS el,
+                 to_char(h.changed_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS dia,
+                 -- null SÓLO si la escritura no declaró quién; un usuario sin nombre no es «fuera de la Suite».
+                 CASE WHEN nullif(h.actor, '') IS NULL THEN NULL ELSE coalesce(u.nombre, 'sin nombre registrado') END AS por,
+                 h.diff, h.changed_at, h.id,
+                 count(*) OVER (PARTITION BY h.pk)::int AS total,
+                 row_number() OVER (PARTITION BY h.pk ORDER BY h.changed_at DESC, h.id DESC) AS n
+            FROM ${HISTORIAL} h
+            JOIN ${RULES} r ON r.id::text = h.pk AND r.tenant_id = h.tenant_id
+            LEFT JOIN identity.users u ON u.id::text = h.actor
+           WHERE h.tenant_id = ? AND h.tabla = ? AND h.pk = ANY(?::text[])
+             AND h.changed_at > r.created_at + interval '1 second') x
+         WHERE x.n <= ?
+         ORDER BY x.pk, x.changed_at DESC, x.id DESC`, [tenant, RULES, [...ids], CAMBIOS_POR_REGLA]);
+      // Los responsables que aparecen en los cambios, por nombre (el diff guarda el id).
+      const deResponsable = (d: unknown): string[] => {
+        const c = (d as Record<string, { antes?: unknown; despues?: unknown }> | null)?.['reviewer_user_id'];
+        return c ? [c.antes, c.despues].filter((v): v is string => typeof v === 'string') : [];
+      };
+      const idsResp = [...new Set((rows as { diff: unknown }[]).flatMap((r) => deResponsable(r.diff)))];
+      const nombres = new Map<string, string>(idsResp.length
+        ? (await sp.raw(`SELECT id::text AS id, nombre FROM identity.users WHERE id::text = ANY(?::text[])`, [idsResp])).rows
+          .map((u: { id: string; nombre: string | null }) => [u.id, u.nombre ?? 'sin nombre registrado'] as const)
+        : []);
+      const por = new Map<string, { cambios: CambioDeRegla[]; total: number }>();
+      for (const r of rows as { pk: string; el: string; dia: string; por: string | null; diff: Record<string, { antes: unknown; despues: unknown }>; total: number }[]) {
+        const de = por.get(r.pk) ?? { cambios: [], total: Number(r.total) };
+        const suyos = Object.fromEntries(deResponsable(r.diff).map((id) => [id, nombres.get(id) ?? 'sin nombre registrado']));
+        de.cambios.push({ el: r.el, dia: r.dia, por: r.por, campos: r.diff, nombres: suyos });
+        por.set(r.pk, de);
+      }
+      return { measured: true, note: null, por };
+    });
+  } catch {
+    return { measured: false, note: 'No se pudo leer el historial de cambios de las reglas: se sabe quién hizo el último cambio y cuándo, no de qué a qué.', por: new Map() };
+  }
+}
+
+/**
+ * `[PQ.3.17]` Quién escribe, para el historial: el disparador de `analytics.master_data_history` lo lee de
+ * `app.actor` (VP.3.2). Local a la transacción (`set_config(…, true)`): no se hereda a otra petición.
+ */
+async function declararActor(trx: Knex.Transaction, quien: Quien): Promise<void> {
+  await trx.raw(`SELECT set_config('app.actor', ?, true)`, [quien.userId]);
 }
 
 /**
@@ -353,6 +432,7 @@ async function guardarUna(
     .andWhereRaw('COALESCE(zone_code, \'\') = ? AND COALESCE(branch_code, \'\') = ?', [alcance.zone_code ?? '', alcance.branch_code ?? ''])
     .whereNull('deleted_at').forUpdate().first('id');
   if (viva) {
+    await declararActor(trx, quien);
     await trx(RULES).where({ id: viva.id, tenant_id: tenant })
       .update({ ...patron, updated_by: quien.userId, updated_at: trx.fn.now() });
     return { id: viva.id, accion: 'actualizada' };
@@ -369,6 +449,42 @@ async function guardarUna(
   }
 }
 
+/**
+ * `[PQ.3.18]` (c) `POST /compras/calendario/reglas/ocasionales` (DC27): los ocasionales en bloque. De las claves que mandó
+ * la pantalla, sólo toca las que HOY son ocasionales sin regla (escalón 3 de `leerPropuestas`, la misma cuenta que la
+ * pantalla): a cada una, regla corporativa «cada 180 días» y fuera de ciclo 26 semanas, con motivo. Las demás se
+ * devuelven como omitidas con su motivo. Corporativa = sólo quien escribe en todas las sucursales. Todo en la
+ * transacción de quien llama: o entran todas o ninguna.
+ */
+export async function definirOcasionales(
+  trx: Knex.Transaction, tenant: string, quien: Quien, dto: DefinirOcasionalesDto,
+): Promise<DefinirOcasionalesRespuesta> {
+  if (!quien.userId) throw new CalendarioError('invalida', 'No sabemos quién lo pide: vuelve a entrar.');
+  const motivo = validarOcasionales(dto);
+  if (motivo) throw new CalendarioError('invalida', motivo);
+  await exigirAlcance(trx, quien, { scope: 'corporate', zone_code: null, branch_code: null });
+  const prop = await leerPropuestas(trx, tenant);
+  if (!prop.embudo.measured) {
+    throw new CalendarioError('invalida', 'No se pudo medir quién es ocasional (la compra de 12 meses no se leyó): no se definen en bloque a ciegas.');
+  }
+  const ocasionales = new Set(prop.sin_regla.filter((p) => p.peso?.escalon === 3).map((p) => p.supplier_code));
+  const hasta = sumarDias(prop.hoy, OCASIONAL_FUERA_DE_CICLO_DIAS);
+  const omitidas: { supplier_code: string; motivo: string }[] = [];
+  let definidas = 0;
+  for (const code of [...new Set(dto.supplier_codes.map((c) => c.trim()))]) {
+    if (!ocasionales.has(code)) {
+      omitidas.push({ supplier_code: code, motivo: 'Ya no es un ocasional sin regla (tiene regla o dejó de ser ocasional).' });
+      continue;
+    }
+    const r = await guardarRegla(trx, tenant, quien, {
+      supplier_code: code, scope: 'corporate', pattern: 'every_n_days', every_n_days: OCASIONAL_CADA_N_DIAS, note: OCASIONAL_MOTIVO,
+    });
+    await fueraDeCiclo(trx, tenant, quien, r.id, { hasta, motivo: OCASIONAL_MOTIVO });
+    definidas++;
+  }
+  return { definidas, hasta, omitidas };
+}
+
 /** La regla viva, bloqueada, y SÓLO si cabe en el alcance de escritura de quien la toca (`[PQ.3.6]`). */
 async function reglaViva(trx: Knex.Transaction, tenant: string, id: string, quien: Quien): Promise<{ id: string }> {
   const r = await trx(RULES).where({ id, tenant_id: tenant }).whereNull('deleted_at').forUpdate()
@@ -382,6 +498,7 @@ async function reglaViva(trx: Knex.Transaction, tenant: string, id: string, quie
 export async function darDeBaja(trx: Knex.Transaction, tenant: string, quien: Quien, id: string): Promise<{ id: string }> {
   if (!quien.userId) throw new CalendarioError('invalida', 'No sabemos quién da de baja: vuelve a entrar.');
   await reglaViva(trx, tenant, id, quien);
+  await declararActor(trx, quien);
   await trx(RULES).where({ id, tenant_id: tenant })
     .update({ deleted_at: trx.fn.now(), deleted_by: quien.userId, updated_by: quien.userId, updated_at: trx.fn.now() });
   return { id };
@@ -393,6 +510,7 @@ export async function fueraDeCiclo(trx: Knex.Transaction, tenant: string, quien:
   const motivo = validarFueraDeCiclo(dto, await hoyMx(trx));
   if (motivo) throw new CalendarioError('invalida', motivo);
   await reglaViva(trx, tenant, id, quien);
+  await declararActor(trx, quien);
   await trx(RULES).where({ id, tenant_id: tenant }).update({
     out_of_cycle_until: dto.hasta, out_of_cycle_reason: dto.hasta ? (dto.motivo ?? '').trim() : null,
     updated_by: quien.userId, updated_at: trx.fn.now(),

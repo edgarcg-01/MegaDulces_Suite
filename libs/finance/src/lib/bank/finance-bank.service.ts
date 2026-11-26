@@ -7,6 +7,7 @@ import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInpu
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimFueraDeAlcance, claimVerdict, type ClaimRow } from './recon-claim-key';
 import { elegirEnLaSemana } from './recon-pase-semana';
+import { PASE_GRUPO_ACREEDOR, paseDelGrupo } from './recon-pase-grupo';
 import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
 import { aplicarMotorDeCategoria } from './estado-de-cuenta/motor-de-categoria.aplicar';
 import { coberturaDeCategoria, grupoDeLaFila, leerFila, NOMBRE_DE_GRUPO, type FilaDeCobertura } from './estado-de-cuenta/cobertura-de-categoria';
@@ -1982,7 +1983,7 @@ export class FinanceBankService {
         .where('tenant_id', tenantId).whereNotNull('account_label')
         .andWhere('fecha_efectiva', '>=', iniWide).andWhere('fecha_efectiva', '<', finWide).whereRaw('signo <> 0')
         .select('sucursal', 'doc_tipo', 'folio', 'clave_banco', 'account_label', 'importe', 'signo',
-          'fecha_efectiva', 'fecha_valor', 'fecha_pago_sat', 'fecha_captura', 'beneficiario')
+          'fecha_efectiva', 'fecha_valor', 'fecha_pago_sat', 'fecha_captura', 'beneficiario', 'entidad_code')
         // [CB.74] Orden fijo también del lado Kepler: en un empate (mismo importe, misma distancia) gana el primero.
         .orderBy([{ column: 'fecha_efectiva' }, { column: 'sucursal' }, { column: 'doc_tipo' }, { column: 'folio' },
           { column: 'clave_banco' }, { column: 'account_label' }, { column: 'importe' }, { column: 'signo' }]))
@@ -1997,6 +1998,8 @@ export class FinanceBankService {
             importe: n(p.importe), fecha: p.fecha_efectiva, fecha_poliza: p.fecha_valor,
             fuente_fecha: p.fecha_pago_sat ? 'complemento_sat' : 'poliza',
             fcap: p.fecha_captura, benef: p.beneficiario,
+            // [BFU.7.12] El acreedor de Kepler: con él el pase 4 distingue el grupo de UN acreedor del grupo casual.
+            entidad: p.entidad_code ?? null,
             dir: Number(p.signo) > 0 ? 'in' : 'out', used: false,
             // `dentro` se evalúa con la fecha EFECTIVA: un cobro tecleado en agosto cuyo pago
             // fue el 31-jul pertenece a julio, y con la fecha de la póliza quedaba fuera de los
@@ -2134,7 +2137,9 @@ export class FinanceBankService {
       }
       // Pase 4 (agrupado): 1 movimiento del banco = N docs Kepler de la MISMA cuenta+dir
       // (cobranza: un depósito = varias UA05; SUA en exhibiciones). Suma exacta ≤5, ventana ±10d.
-      let p4 = 0;
+      // [BFU.7.12] El grupo de UN acreedor con todos sus documentos a ≤1 día se guarda con su propio pase: el motor de
+      // categoría sí decide con él. Lo demás sigue débil (`recon-pase-grupo.ts`).
+      let p4 = 0, p4Acreedor = 0;
       for (const mv of bankMovs) {
         if (matchedSet.has(mv.id) || mv.amount < 5000) continue;
         const e = pool.get(`${mv.label}|${mv.dir}`); if (!e) continue;
@@ -2144,7 +2149,9 @@ export class FinanceBankService {
         const idx = subsetSum(cands.map((p) => cents(p.importe)), cents(mv.amount), 5);
         if (!idx) continue;
         p4++;
-        for (const i of idx) emit(mv, cands[i], 0.55, 'motor-tes-group');
+        const g = paseDelGrupo(ymd(mv.date), idx.map((i) => ({ acreedor: cands[i].entidad, fecha: ymd(cands[i].fecha) })));
+        if (g.pase === PASE_GRUPO_ACREEDOR) p4Acreedor++;
+        for (const i of idx) emit(mv, cands[i], g.confianza, g.pase);
       }
 
       // ── CB.46 — pases CRUZADOS de mes (pool ancho) ────────────────────────────────────
@@ -2341,6 +2348,8 @@ export class FinanceBankService {
       return {
         period, engine: 'tesoreria', bank_movements: bankMovs.length, matched: matchedBank,
         second_pass: p2, name_pass: p3, group_pass: p4, rescue_pass: p7,
+        // [BFU.7.12] De los grupos, cuántos son de UN acreedor el mismo día (el motor de categoría sí decide con ellos).
+        group_pass_acreedor: p4Acreedor,
         // CB.46 — cuánto se rescató cruzando el borde de mes, y qué NO se pudo conciliar
         // por fecha porque la fecha no existe (se declara, no se disfraza de faltante).
         batch_pass: p5, cross_month_pass: p6,

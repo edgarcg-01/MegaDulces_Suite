@@ -34,6 +34,24 @@ export const SIM_MIN = 0.34;
  */
 export const SIM_APRENDER = 0.5;
 
+/**
+ * `[PQ.148]` Largo mínimo para que el código del proveedor (`NoIdentificacion` del CFDI) se tome como
+ * llave. Medido en prod (2026-11-24, 60 días, sin CL005): los códigos de 1–2 caracteres son número de
+ * RENGLÓN, no de producto — «1» aparece en 8 proveedores distintos, «2», «3», «4», «18», «19», «20» y
+ * «27» en 4 o 5. Aprenderlos ligaría al primer renglón de cada factura con un producto cualquiera.
+ */
+export const CODIGO_MIN_LEN = 3;
+
+/**
+ * `[PQ.148]` El código del proveedor como llave: mayúsculas y espacios colapsados, **sin tocar los
+ * ceros** (`0012` no es `12`, ver `CfdiParserService`). `null` si viene vacío o es más corto que
+ * `CODIGO_MIN_LEN`.
+ */
+export function normCodigo(s: string | null | undefined): string | null {
+  const t = String(s ?? '').trim().toUpperCase().replace(/\s+/g, ' ');
+  return t.length >= CODIGO_MIN_LEN ? t : null;
+}
+
 export interface RenglonKepler {
   linea: string; sku: string | null; nombre: string | null; unidad: string | null;
   cantidad: number; costo_unitario: number; importe: number;
@@ -45,6 +63,18 @@ export interface EntradaConciliar {
   kepler: RenglonKepler[];
   /** descripción normalizada (`normStr`) → alias aprendido para ESTE proveedor */
   aliases: Map<string, AliasAprendido>;
+  /**
+   * `[PQ.148]` código del proveedor (`normCodigo`) → alias aprendido para ESTE proveedor. Se consulta
+   * ANTES que la descripción. Opcional: sin él, el motor se comporta exactamente como antes.
+   */
+  aliasesPorCodigo?: Map<string, AliasAprendido>;
+  /**
+   * `[PQ.148]` código del proveedor (`normCodigo`) → SKU que enseña la HISTORIA
+   * (`commercial.v_supplier_item_code_history`, sólo las `estable`). Se consulta DESPUÉS de lo que una
+   * persona confirmó (alias) y del código de barras: es una inferencia —acertó 1,054 de 1,058 con
+   * datos que no vio, contra 0 de 1,025 del placebo— no una confirmación. Opcional.
+   */
+  historiaPorCodigo?: Map<string, AliasAprendido>;
   /** código de barras → sku */
   barcodes: Map<string, string>;
   /** sku → piezas por caja */
@@ -59,8 +89,11 @@ export interface ReconciledLine {
   kepler: RenglonKepler | null;
   resolved_sku: string | null;
   resolved_nombre: string | null;
-  /** `[RE.56]` `numeros` = el nombre no alcanzaba, pero la cantidad y el importe cuadran exactos. */
-  method: 'alias' | 'barcode' | 'descripcion' | 'numeros' | 'sin_match';
+  /**
+   * `[RE.56]` `numeros` = el nombre no alcanzaba, pero la cantidad y el importe cuadran exactos.
+   * `[PQ.148]` `historia` = el código del proveedor ya cayó siempre en ese SKU en facturas aplicadas.
+   */
+  method: 'alias' | 'barcode' | 'historia' | 'descripcion' | 'numeros' | 'sin_match';
   score: number;
   /** `[RE.72]` Factor de caja MEDIDO; `null` si no hay (antes se suponía 1). */
   box_factor: number | null;
@@ -239,13 +272,29 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
     (sku && e.boxFactor.get(sku)) || alias?.box_factor || null;
 
   // 1) Lo determinista primero: alias aprendido y código de barras fijan el SKU.
-  const fijo = new Map<number, { sku: string; nombre: string | null; metodo: 'alias' | 'barcode'; alias: AliasAprendido | null }>();
+  const fijo = new Map<number, { sku: string; nombre: string | null; metodo: 'alias' | 'barcode' | 'historia'; alias: AliasAprendido | null }>();
+  const skusEntrada = new Set(kep.map((k) => k.sku).filter((s): s is string => !!s));
   rem.forEach((r, i) => {
+    // `[PQ.148]` El código del proveedor manda sobre la descripción, pero SÓLO si su producto viene en
+    // esta entrada: un código que el proveedor reusó para otra presentación no debe fijar un SKU
+    // ausente y pintar «sin match» sobre algo que sí llegó. Entonces se sigue como antes.
+    const cod = normCodigo(r.sku_proveedor);
+    const porCodigo = cod ? e.aliasesPorCodigo?.get(cod) : undefined;
+    if (porCodigo && skusEntrada.has(porCodigo.sku)) {
+      fijo.set(i, { sku: porCodigo.sku, nombre: porCodigo.nombre_interno, metodo: 'alias', alias: porCodigo });
+      return;
+    }
     const alias = e.aliases.get(normStr(r.descripcion || ''));
     if (alias) { fijo.set(i, { sku: alias.sku, nombre: alias.nombre_interno, metodo: 'alias', alias }); return; }
     const bc = (r.codigo_barras || '').trim();
     const sku = bc.length >= 8 ? e.barcodes.get(bc) : undefined;
-    if (sku) fijo.set(i, { sku, nombre: null, metodo: 'barcode', alias: null });
+    if (sku) { fijo.set(i, { sku, nombre: null, metodo: 'barcode', alias: null }); return; }
+    // `[PQ.148]` Lo que enseña la historia, al último y con la misma condición que el código confirmado:
+    // su producto tiene que venir en esta entrada. Sin alias: su factor no es una caja medida.
+    const porHistoria = cod ? e.historiaPorCodigo?.get(cod) : undefined;
+    if (porHistoria && skusEntrada.has(porHistoria.sku)) {
+      fijo.set(i, { sku: porHistoria.sku, nombre: porHistoria.nombre_interno, metodo: 'historia', alias: null });
+    }
   });
 
   // 2) Candidatos: el SKU fijo contra su renglón de Kepler; el resto, por nombre contra todos.
@@ -482,6 +531,12 @@ function importeCuadra(ri: number, kImporte: number, base: BasePrecio): boolean 
 export interface Aprendible {
   descripcion: string; sku: string; nombre_interno: string | null;
   unidad_proveedor: string | null; box_factor: number | null; refuerza: boolean;
+  /**
+   * `[PQ.148]` El código del proveedor (`normCodigo`) cuando sirve de llave: `null` si no vino, si es
+   * más corto que `CODIGO_MIN_LEN` o si la misma factura lo repite en otro renglón (27 de 2,274
+   * facturas en 60 días lo hacen: ahí el código no distingue productos).
+   */
+  codigo_proveedor: string | null;
 }
 
 /**
@@ -491,11 +546,20 @@ export interface Aprendible {
 export function aprendibles(c: Conciliacion): Aprendible[] {
   const porSku = new Map<string, number>();
   for (const l of c.lines) if (l.resolved_sku) porSku.set(l.resolved_sku, (porSku.get(l.resolved_sku) ?? 0) + 1);
+  // `[PQ.148]` Un código que la factura repite en dos renglones no identifica a ninguno de los dos.
+  const porCodigo = new Map<string, number>();
+  for (const l of c.lines) { const k = normCodigo(l.remision.sku_proveedor); if (k) porCodigo.set(k, (porCodigo.get(k) ?? 0) + 1); }
+  const codigoDe = (l: ReconciledLine): string | null => {
+    const k = normCodigo(l.remision.sku_proveedor);
+    return k && porCodigo.get(k) === 1 ? k : null;
+  };
   return c.lines
     .filter((l) => l.kepler && l.resolved_sku && l.remision.descripcion
       && l.qty_match === true && l.price_match === true
       && porSku.get(l.resolved_sku) === 1
-      && (l.method === 'alias' || l.method === 'barcode' || (l.method === 'descripcion' && l.score >= SIM_APRENDER)))
+      // `[PQ.148]` Lo que propuso la historia y cuadró se vuelve confirmado al dar por buena la factura.
+      && (l.method === 'alias' || l.method === 'barcode' || l.method === 'historia'
+        || (l.method === 'descripcion' && l.score >= SIM_APRENDER)))
     .map((l) => ({
       descripcion: l.remision.descripcion as string,
       sku: l.resolved_sku as string,
@@ -503,5 +567,6 @@ export function aprendibles(c: Conciliacion): Aprendible[] {
       unidad_proveedor: (l.remision.unidad || '').toUpperCase() || null,
       box_factor: esCaja(l.remision.unidad) ? l.box_factor : null,
       refuerza: l.method === 'alias',
+      codigo_proveedor: codigoDe(l),
     }));
 }

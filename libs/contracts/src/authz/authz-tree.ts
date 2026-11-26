@@ -389,7 +389,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // otorgar a un rol nuevo desde `/admin/roles`. Va como `view` junto al otro.
           // `[RE.47]` Antes «Costo por compra» en `/compras/costo-por-compra` (hoy redirect): abre en la
           // cola «Por revisar». El `id` se conserva: lo usan los permisos ya otorgados.
-          { id: 'compras-360', label: 'Revisión de facturas', route: '/compras/revision-facturas', view: [Permission.COMPRAS_ENTRADAS_VER, Permission.COMPRAS_360_VER], manage: [] },
+          { id: 'compras-360', label: 'Revisión de facturas', route: '/compras/revision-facturas', view: [Permission.COMPRAS_ENTRADAS_VER, Permission.COMPRAS_360_VER], manage: [Permission.COMPRAS_COSTO_DECIDIR] },
           { id: 'compras-costo-neto', label: 'Costo por proveedor', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
           { id: 'compras-costo-estandar', label: 'Costo estándar', route: '/compras/costo-estandar', view: [Permission.COMPRAS_COSTO_ESTANDAR_VER], manage: [] },
           { id: 'compras-descuentos', label: 'Descuentos y apoyos', route: '/compras/descuentos', view: [Permission.COMPRAS_DESCUENTOS_VER], manage: [Permission.COMPRAS_DESCUENTOS_GESTIONAR] },

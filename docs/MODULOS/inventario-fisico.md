@@ -261,13 +261,26 @@ CEDIS más las 9 sucursales. Las otras 18 son bodegas de camioneta, y **cinco ru
 distintos (`01-002`…`01-006` y `RUTA-22`…`RUTA-28`); además sigue vivo `MD-32`, que el propio código llama
 «un almacén borrado». Quien abre un folio elige a ciegas entre 28 renglones de los que 18 no tienen anaquel.
 
-**⛔ El guard de congelación quedó CIEGO (medido el 2026-11-25).** El *freeze integrity guard* de `reconcile()`
-—el que impide que un set absoluto borre las ventas ocurridas durante el conteo— pregunta por movimientos a
-`commercial.stock_movements`. Esa tabla tiene **102 filas en toda su historia y la última es del 2026-11-17**:
-nada la escribe. Los movimientos reales viven en el ODS (`kepler_ods.kdil`). O sea que el guard **no puede
-dispararse nunca**: pasa siempre, y pasaría también el día en que hubiera movimientos de verdad. Es una compuerta
-que mide una tabla muerta, no una intención — es peor, porque se lee como verde. Entra al alcance de **D-EX8**: si
-el teórico sale del ODS, el testigo de "se movió" también tiene que salir del ODS.
+**⛔⛔ «Congelar movimientos» congela la Suite, no el almacén (medido el 2026-11-25).** Es el defecto más caro
+del módulo, porque el código **cree lo contrario**: `reconcile()` comenta que con el freeze *«el saldo no se movió
+desde la apertura»* y por eso aplica un **set absoluto** del físico contado.
+
+Lo que el freeze bloquea de verdad son tres caminos de la Suite —apartados de pedido, recepción y movimientos de
+ubicación—, todos a través de `commercial.stock_movements`. Esa tabla tiene **102 filas en toda su historia**
+(37 auditorías de recepción, 23 de pedidos, el resto entradas; última el 2026-11-17). Lo que **no** bloquea, y es
+todo lo que mueve mercancía de verdad, es **la venta del POS y cualquier captura en Kepler**: la Suite no escribe
+en Kepler y la sucursal sigue vendiendo con el folio abierto. Esos movimientos entran por el ODS, y el ODS no se
+congela.
+
+Consecuencia directa: el *freeze integrity guard* —el que debería frenar la reconciliación si hubo movimientos—
+busca en `commercial.stock_movements`, así que **ve los apartados propios y es ciego a las ventas**. Puede
+dispararse, pero no por lo que importa. Y como el teórico es una **foto del ODS** tomada al abrir, mientras se
+cuenta la foto envejece sin que nada lo diga.
+
+⭐ Entra al alcance de **D-EX8**: si el teórico sale del ODS, el testigo de «se movió» tiene que salir del ODS
+también — comparar la existencia del ODS al abrir contra la del momento de reconciliar, por los SKUs del folio.
+Mientras eso no exista, **un conteo total con freeze no debe cerrarse con set absoluto**; el camino relativo
+contra `book_at_count` (el que ya usa el cíclico) es el único defendible.
 
 **La lista no filtra los cancelados**, así que hoy muestra seis folios muertos y nada más.
 
@@ -334,7 +347,270 @@ ajuste todavía cae en una tabla congelada.
 
 ---
 
+## 9c. Modos de falla: luz, red, servidor y el mundo real (2026-11-25)
+
+Recorrido completo a pedido de Edgar. **Nivel B y C**; lo que exige ejercitar el camino contra una
+base real va marcado **NO MEDIDO** — no se da por bueno.
+
+### Lo que YA está resuelto, y bien
+
+| Falla | Qué pasa hoy |
+|---|---|
+| **Se cae la red mientras se cuenta** | La pantalla del contador es **offline-first**: el escaneo se persiste en el navegador (Dexie) **antes** de intentar la red, el catálogo del folio se cachea al iniciar la jornada para resolver códigos sin señal, y un banner dice «sin conexión» y cuántos van pendientes, con botón de reintentar |
+| **Se reenvía la cola dos veces** | Cada escaneo lleva un **UUID generado en el cliente**; el servidor guarda `inventory_count_scan_log` y un replay devuelve `duplicate: true` sin volver a aplicar. La verificación va **antes** de los guards, a propósito: un escaneo ya aplicado no se re-juzga porque el folio avanzó |
+| **Se cierra o cancela el folio con escaneos en cola** | El servidor responde 409, el cliente los marca **descartados con su motivo** (no los reintenta en vano) y la pantalla del contador los lista. Se pierde el conteo, pero **se sabe cuál y por qué** |
+| **Se va la luz del servidor a mitad de la reconciliación** | Todo el cierre corre en **una transacción**: o se aplica entero o no se aplica. El folio queda abierto y se reintenta |
+| **Dos personas cuentan el mismo SKU** | Un renglón por producto (índice único) y tres ranuras de conteo; el segundo pase es otra ranura, no un pisotón |
+| **Se cierra el navegador a media jornada** | La cola vive en el navegador, no en memoria: al volver a entrar sigue ahí |
+| **Caduca la sesión** | El token dura 12 h, más que un turno. Y aunque caduque, lo capturado está en la cola local |
+
+### Lo que NO está resuelto
+
+| # | Falla | Qué pasa hoy | Severidad |
+|---|---|---|---|
+| 1 | **La sucursal sigue vendiendo durante el conteo** | «Congelar movimientos» no frena el POS ni Kepler — ver §9. El teórico es una foto del ODS que envejece mientras se cuenta, y el guard que debería detectarlo mira la tabla equivocada | 🔴 |
+| 2 | **El teléfono se pierde, se formatea o se rompe** | La cola vive **sólo** en ese navegador. Lo contado y no subido se va con el aparato, y **el servidor nunca supo que existía**: no aparece como faltante en ningún lado. Hoy no hay forma de preguntar «¿cuántos escaneos hay sin subir, y en qué aparatos?» | 🔴 |
+| 3 | **El ODS viene atrasado al abrir el folio** | `openCount` **no consulta la frescura del ODS** (`analytics.ods_branch_checks`) ni la declara. Si la ingesta de esa sucursal viene atrasada, el folio nace con un teórico viejo y toda la varianza sale corrida, sin un solo aviso | 🔴 |
+| 4 | **La reconciliación no cabe en su tiempo** | `reconcile()` fija `statement_timeout = 60s` y recorre **renglón por renglón** (bloqueo, actualización, movimiento, estado). Un folio total de Padre Hidalgo son **4,819 SKUs** ≈ 19 mil sentencias en una sola transacción: el presupuesto queda en ~3 ms por sentencia. **NO MEDIDO** — nunca se reconcilió un folio en prod | 🔴 |
+| 5 | ⭐ **El folio abandonado congela el almacén para siempre — y ya pasó** | `INV-2026-00009` congeló **Padre Hidalgo 101 días**, del 19-jun al 28-sep de 2026, con 8 escaneos sobre 2,094 artículos. Se destrabó recién cuando `cancel` se abrió a `CANCELAR_CONTEO`: hasta entonces abandonar exigía la misma llave que aplica el ajuste, y de las 5 personas del Andén **sólo 1** la tenía. No hay caducidad (ni la habrá: no usamos crons), y **quien ve el aviso no siempre puede cancelar** — `encargado_tienda` no tiene esa llave (§9b) | 🔴 |
+| 6 | **El archivo para Kepler se genera y nadie lo captura** | `inventory_kepler_exports` está **vacía**: el lazo se cierra fuera del sistema y nada comprueba que el ajuste llegó al ERP. El mismo hueco que D-EX8 tiene que cerrar | 🟠 |
+| 7 | **Falla la reconciliación a la mitad por un saldo reservado** | Los renglones bloqueados quedan como `discrepancy` con su nota y el resto se aplica. Está bien resuelto, pero **el resumen no dice cuántos quedaron fuera** de forma que se puedan reintentar seleccionados | 🟡 |
+
+⭐ **Los tres primeros comparten causa**: el módulo trata la existencia como si fuera suya, y desde
+`[CANON.7.5]` **no lo es** — vive en el ODS. Un conteo físico contra una fuente que la Suite no
+controla necesita declarar **con qué foto se contó y de cuándo es**, y volver a mirarla al cerrar.
+Eso es exactamente **D-EX8**, y por eso el módulo no debe encenderse antes.
+
+---
+
+## 9d. ⛔⛔ Lo medido EJERCIENDO el módulo en producción (2026-11-25)
+
+> **Nivel de evidencia: A — pantalla viva**, con la suite de producción abierta en un navegador
+> real, sesión iniciada, y cada afirmación verificada contra la respuesta de la API. No es lectura
+> de código: es el módulo funcionando.
+>
+> **Qué se ejerció:** se abrió el folio **`INV-2026-00010`** en Padre Hidalgo (3,363 artículos),
+> **con «Congelar movimientos» APAGADO** para no bloquear la operación en horario hábil (autorizado
+> por Edgar). Se resolvió un artículo desde la pantalla del supervisor y se contó otro desde la
+> pantalla del contador.
+>
+> ⚠️ **Alcance: sólo funcionalidad.** Lo de diseño, accesibilidad y carga visual queda fuera de esta
+> sección por decisión de Edgar; vive en §9b.
+>
+> ⛔⛔ **CON QUÉ USUARIO.** Los defectos de lógica y captura (F1-F14) se ejercieron con **`superoot`,
+> rol `superadmin`**. No dependen del permiso: un conteo que no se guarda no se guarda para nadie.
+>
+> **La capa de permisos SÍ se midió en vivo** (2026-11-25), entrando como una cuenta de rol
+> **`almacenista`** asignada al folio. Resultado:
+
+| Endpoint | almacenista | Correcto |
+|---|---|:---:|
+| `GET /counts` (lista) | **200** (7 filas) | ✅ |
+| `GET /counts/:id/items` (**el teórico**) | **403** | ✅ |
+| `GET /counts/:id/progress` (avance supervisor) | **403** | ✅ |
+| `GET /counts/:id/catalog` (contador) | **200** (sin teórico) | ✅ |
+| `GET /counts/:id/count-progress` | **200** | ✅ |
+| `GET /counts/:id/assignments` · `assignable-users` · `kepler-export` · `interruptions` | **403** | ✅ |
+
+> ⭐⭐ **El conteo ciego se sostiene en el SERVIDOR, no en la interfaz.** El almacenista recibe un
+> **403** al pedir los items (que llevan el teórico) y su único acceso con datos —el catálogo del
+> contador— no trae existencia. No hay camino desde su cuenta hasta el teórico. Ésa es la mejor
+> noticia del módulo.
+>
+**También se midió en vivo `encargado_tienda`** (`monica_mejia`, suc 01 · `VER`+`AJUSTAR`+`ASIGNAR`):
+
+| Endpoint | encargado | Correcto |
+|---|---|:---:|
+| `GET /counts` · `/progress` · `/assignments` · `assignable-users` | **200** | ✅ |
+| `GET /counts/:id/items` (**el teórico**) | **403** | ✅ |
+| `GET /catalog` · `/count-progress` (del contador) | **403** | ✅ |
+| `GET /kepler-export` · `/interruptions` · `/sessions` | **403** | ✅ |
+
+**Y `prevencion_auxiliar`** (`camila_verdines`, **un solo rol**, única llave `VER`): **403 en TODO
+menos la lista de folios** — avance, items, catálogo, asignaciones, asignables, export,
+interrupciones y sesiones. La API es impecable.
+
+> ⛔ **Pero eso deja un hueco de negocio**: el área cuyo oficio ES el descuadre **no puede ver ni un
+> dato del conteo** —ni avance, ni artículos, ni discrepancias, ni quién contó—. Sólo que el folio
+> existe. Es coherente con §6, y ahora está medido en vivo.
+>
+> ⭐⭐ **LA API ACIERTA EN LOS TRES PERFILES MEDIDOS. LO QUE FALLA ES LA INTERFAZ.** El servidor
+> protege bien el módulo —el teórico da 403 a almacenista, encargado y prevención—, pero la
+> pantalla **no condiciona NI UN botón al permiso** (**F11**: hasta quien sólo mira ve «Reconciliar»
+> verde y «Cancelar folio»), pinta el 403 como lista vacía (**F17**) y, lo peor, **lo convierte en
+> ceros que se leen como un inventario cuadrado** (**F18**).
+>
+> **Sigue sin medirse en vivo**: `supervisor` y `marketing`. Y **F4** —si «Resolver item» le aparece
+> a quien no tiene `SUPERVISAR`— **no se pudo comprobar en ninguno de los dos perfiles sin esa
+> llave**, porque a ambos la tabla de artículos les llega vacía por el 403. Queda abierto.
+>
+> ⛔⛔ **HALLAZGO DE SEGURIDAD DE PLATAFORMA, NO DEL MÓDULO — a Dirección, no a este doc.** Al probar
+> permisos se confirmó que al menos una cuenta sin estrenar entra con una contraseña por defecto
+> trivial, sobre un dominio público. No es universal (una cuenta de cliente la rechazó), pero
+> **mientras exista, arreglar los permisos del conteo no protege nada**. El detalle (qué cuenta, qué
+> contraseña) **no se escribe acá: el repo es público.** Se trató verbalmente con Edgar el
+> 2026-11-25.
+
+### ✅ Asignar contadores: funciona
+
+Se asignaron dos contadores desde la pantalla y quedaron en el servidor (`GET :id/assignments` los
+devuelve). **Seleccionar es asignar**, sin paso de confirmación. ⚠️ El sistema **deja asignar a
+cuentas que nunca entraron** sin aviso (ver F15), y asignar no restringe a los demás (ver F16).
+
+### ⭐⭐ El hallazgo que explica todo lo demás: el catálogo duplicado rompe el conteo
+
+> ⚠️ **Esta sección se reescribió el 2026-11-25 tras medir la base.** La primera versión decía que
+> «el conteo no se escribe en el artículo». **El efecto es ése, pero el mecanismo es otro, y el
+> mecanismo es lo que hay que arreglar.** Se deja dicho para que nadie persiga el defecto donde no
+> está.
+
+**El conteo SÍ se escribe — en un artículo NUEVO que él mismo crea, con teórico cero.**
+
+El código actualiza el item correctamente (`patch.status = 'counted'` → `update` sobre
+`inventory_count_items`). Lo que falla es **a cuál item le pega**:
+
+1. El folio se siembra con el producto que **sí tiene SKU** (`eeaf8d47…`, sku `00203`).
+2. El escáner resuelve el código con `GET /counts/resolve`, que devuelve **otra fila del catálogo
+   para el mismo producto** — la que **no tiene SKU** (`39c7d7c4…`, mismo nombre
+   `$330 NESTLE = GRATIS 1 LONCHERA`).
+3. Los `product_id` no coinciden, así que el servicio **no encuentra el artículo en el folio y crea
+   uno nuevo**, con `expected_qty = 0`.
+
+**Medido en prod sobre `INV-2026-00010`:** el folio pasó de 3,363 a **3,364** artículos; el nuevo
+tiene `count_1 = 3`, `expected_qty = 0`, `status = counted`; y el original `00203` quedó en
+`count_1: null`, `status: pending`.
+
+**Las cuatro consecuencias, en cadena:**
+
+- El artículo original **nunca se cuenta** → el folio **no puede cerrarse jamás**.
+- El total **crece con cada escaneo** → el 100 % se aleja a cada paso (ver **F2**).
+- El renglón nuevo tiene **teórico 0**, así que todo lo contado es **sobrante puro**.
+- Si llegara a reconciliarse, **sumaría existencia que no corresponde**.
+
+⛔⛔ **El catálogo está duplicado**, y es lo que habilita el defecto. Medido en prod el 2026-11-25
+sobre `public.products` (14,986 filas): **1,162 filas sin SKU**, **887 SKUs que aparecen en más de
+una fila** y **1,017 nombres con más de un `product_id`**.
+
+### ⭐⭐⭐ El camino SIN CONEXIÓN funciona bien y el camino normal está roto
+
+Medido el 2026-11-26 en el mismo folio, contando un producto con la red cortada y reconectando:
+
+| | conteo **online** | conteo **sin conexión** |
+|---|---|---|
+| Resuelve con | `GET /counts/resolve` → **catálogo GLOBAL** | `resolveLocal` → **catálogo DEL FOLIO** (caché de `/counts/:id/catalog`) |
+| `product_id` | `39c7d7c4` | `a469892b` |
+| **SKU** | **(vacío)** | **`00182`** ✅ |
+| **teórico** | **0.000** ❌ | **19.000** ✅ |
+| Efecto | **crea un renglón nuevo** | **llena el renglón correcto** |
+
+⭐ **El modo degradado acierta y el modo normal falla**, porque la caché offline se arma con
+`/counts/:id/catalog` —que trae los `product_id` **del folio**— mientras el endpoint online busca en
+todo el catálogo y se topa con el duplicado.
+
+> ⭐⭐ **EL ARREGLO ES CHICO Y ESTÁ IDENTIFICADO:** `GET /counts/resolve` **ni siquiera recibe el
+> `count_id`** (su firma es `resolveProduct(barcode?, product_id?)`), así que **no puede acotar la
+> búsqueda al folio**. Pasarle el folio y resolver contra sus artículos —exactamente lo que ya hace
+> la caché offline— elimina F1 y F2 sin tocar el catálogo. **Limpiar los 887 SKUs duplicados sigue
+> siendo necesario**, pero es otro frente y de otro dueño (Catálogo).
+
+Eso explica lo que §2 ya había medido: **seis folios en toda la historia, los seis cancelados, siete
+conteos en total**. ⛔ **No es que la gente no use el módulo: es que contar no avanza el folio, y
+nadie había llegado a contar lo suficiente para verlo.**
+
+> ⭐ El segundo camino de escritura falla aparte: **«Resolver item» sí fija el `final_qty` del
+> artículo correcto, pero no cuenta como conteo** — la cobertura siguió en 0 %. Cerrar exige las dos
+> cosas, así que tampoco por ahí se llega (ver **F3**).
+
+### Los defectos, por severidad
+
+| # | Sev. | Defecto | Cómo se midió |
+|---|:---:|---|---|
+| **F1** | 🔴🔴 | **El conteo crea un artículo NUEVO con teórico 0 en vez de llenar el que existe** — porque el catálogo tiene el producto **dos veces** y el `resolve` del código de barras devuelve la fila **sin SKU**, mientras el folio se sembró con la que **sí lo tiene**. El artículo original queda `pending` para siempre → **el folio no puede cerrarse jamás**, y lo contado entra como **sobrante puro** (teórico 0). ⛔ **La causa raíz es del CATÁLOGO, no del inventario.** Ver la sección de arriba. | Base de prod: el item contado es `39c7d7c4…` (`expected_qty 0`, `count_1 3`, `counted`); el original `00203` es `eeaf8d47…` (`pending`). Los dos se llaman `$330 NESTLE = GRATIS 1 LONCHERA`. En `public.products` (14,986 filas): **1,162 sin SKU**, **887 SKUs repetidos**, **1,017 nombres con más de un `product_id`**. |
+| **F2** | 🔴 | **El total del folio crece con cada escaneo** — consecuencia directa de **F1**: cada conteo agrega un renglón. **El 100 % es inalcanzable**: contando los 3,363 el folio terminaría con 6,726 y la barra se aleja a cada paso. | Antes de contar: `total: 3363`. Después de **un** conteo: `total: 3364, counted: 1, remaining: 3363`. Confirmado en la base: `count(*) = 3364`, de los cuales **1** tiene `count_1`. |
+| **F3** | 🔴 | **«Resolver item» fija la cantidad final sin que exista ningún conteo, y no suma a la cobertura.** Tras resolver un artículo, la pantalla siguió diciendo «0 contados · 0.0 % · 0 discrepancias»; sólo bajó el renglón «sin valor final» (3363 → 3362). Quedan **dos verdades paralelas** sobre el mismo folio. | Se resolvió el SKU `00135` con cantidad 4 contra un teórico de 5. |
+| **F4** | 🔴 | **«Resolver item» está disponible desde el minuto cero y muestra el teórico.** En un folio con **doble conteo ciego activado**, el diálogo imprime `Teórico: 5.000` justo encima del campo de captura. El control que define al módulo tiene al lado una puerta que lo anula, y encima le sopla la respuesta a quien la usa. Debería aparecer sólo para artículos en discrepancia, después de C1 y C2. ⛔ **No es teórico: la puerta la tienen 21 personas y sólo 17 pueden cerrar el inventario** — hay más gente capaz de anular el control que de terminar el proceso. | Visible en el diálogo con 0 conteos registrados. `POST :id/items/:itemId/resolve` exige `COMMERCIAL_INVENTORY_SUPERVISAR`; medido en prod el 2026-11-25: SUPERVISAR 21 personas, RECONCILIAR 17. |
+| **F5** | 🟠 | **`GET /counts/:id/items` se topa en 2,000 y no lo declara.** Devuelve un **array pelado**, sin `total` ni `has_more`: el front no podría avisar del tope ni queriendo. Con 3,363 artículos, **el supervisor no puede ver ni resolver 1,363**. Como la lista va ordenada por nombre, el corte cae en la letra **O**. | Medido sobre la respuesta real: 2,000 elementos exactos; iniciales presentes `$ * 1 2 3 4 5 6 7 A B C D E F G H I J K L M N O`; primero `$330 NESTLE…`, último `OBLEA FIGURA TIRA…`. |
+| **F6** | 🟠 | **El artículo resuelto desaparece de la lista del supervisor.** La consulta trae los primeros 2,000 **pendientes**, así que al resolver uno sale del universo y entra otro por el final. **No hay forma de revisar ni corregir lo ya resuelto.** | Control: el SKU `00135` estaba en la respuesta anterior (era el primero, `final: null`); tras resolverlo **ya no aparece**, y el último pasó de `OBLEA ECONOMICA…` a `OBLEA FIGURA TIRA…`. |
+| **F7** | 🟠 | **Tras un código no reconocido, el foco salta a «Cantidad física».** Con un escáner de pistola —que manda Enter solo— el siguiente disparo entra **como cantidad**, y el operario mira la tarima, no la pantalla. | Se escaneó `NOEXISTE12345` (rechazo correcto) y el código siguiente `00203` cayó en Cantidad quedando **`203`**. El campo de código seguía con el código inválido. |
+| **F8** | 🟠 | **Enfocar el campo de cantidad no selecciona lo que hay: corregir CONCATENA.** Quien quiera cambiar 75 por 3 termina con **753**. | Medido por instrumento: al enfocar, `selectionStart` y `selectionEnd` valen ambos la posición final. Se tecleó `3` sobre `75` → `753`. |
+| **F9** | 🟠 | **Las flechas del teclado cambian la cantidad.** Quien se mueva por la lista con el teclado modifica el conteo en vez de bajar de fila, en silencio. | `5` + `ArrowDown` → `4`. |
+| **F10** | 🟡 | **Tope mudo de 6 dígitos en la cantidad.** El campo es `type=text` con `min=0` y **`max` vacío**; a partir de `999,999` deja de aceptar teclas **sin decir nada**. | Se teclearon nueve dígitos (`999999999`) y quedó `999,999`. |
+| **F11** | 🔴 | **⭐ Cuanto MENOS permiso tenés, más habilitado se te ve el botón.** El estado de «Reconciliar» se calcula de los **bloqueos del folio**, no del permiso. Quien tiene `RECONCILIAR` recibe los datos, ve los 3,363 sin contar y **el botón le sale `disabled`** — correcto ✅. Quien **no** tiene permiso recibe **403 → ceros** (ver **F18**), así que **no hay bloqueos que calcular y el botón se le habilita**: una cuenta con sólo `VER` lo apretó, confirmó el diálogo y mandó el `POST` de verdad. La interfaz tampoco condiciona **«Cancelar folio»** ni los selectores de equipo. El servidor rechaza todo (defensa de fondo correcta ✅), así que no es agujero de seguridad: es que **la pantalla ofrece cerrar el inventario justo a quien no puede**, y se calla al rechazarlo (**F19**). | ⚠️ **Corrige la primera versión de este renglón**, que decía «Reconciliar está habilitado con cero conteos» a secas: **es falso para quien tiene permiso**. Medido el 2026-11-26 con `superoot` (botón `disabled: true`, sin tooltip; la razón sí está en el bloque ámbar de arriba) contra el 2026-11-25 con `monica_mejia` y `camila_verdines` (habilitado y clickeable). |
+| **F19** | 🔴🔴 | **TODAS las acciones rechazadas fallan en silencio.** Quien sólo tiene `VER` aprieta «Reconciliar», recibe un diálogo que le advierte «**No se puede deshacer**», confirma… y **no pasa nada visible**: ni error, ni aviso, ni toast. Lo mismo con «Cancelar folio» y «Calcular discrepancias». **No es el descuido de un botón: es el patrón de las tres.** ⛔ Encadenado con **F18**, la pantalla le sigue mostrando **ceros** —que se leen como «contado y cuadrado»—, así que **la persona puede concluir que reconcilió bien**. Silencio sobre la única acción del módulo que mueve existencia. | Medido en vivo con `camila_verdines`: `POST :id/reconcile` → **403**, `POST :id/cancel` → **403**, «Calcular discrepancias» → sin efecto. Las tres **sin un solo mensaje en pantalla**. El folio quedó intacto (`counting`, `closed_at: null`): **el servidor no escribió nada** ✅. |
+| **F20** | 🟠 | **`reconcile()` trata el no-contado como CERO; lo salva un solo guard.** En el bucle que aplica los ajustes: `const finalQty = Number(it.final_qty)` — y `Number(null)` es **0**, así que un artículo sin contar da `delta = −expected`, **no** entra en el `if (delta === 0) continue` y **se aplica**, dejando la existencia en cero. Hoy no ocurre porque `bloqueosParaReconciliar` frena antes por `count_1 == null` y `final_qty == null` (bien hecho, y es lo que cumple la promesa «un no-contado NO se trata como cero»). Pero es **protección de capa única**: un camino nuevo, un «reconciliar parcial» o un filtro distinto entre guard y bucle pondría el almacén en cero. **Falta la defensa barata**: `if (it.final_qty == null) continue;` dentro del bucle. | Leído en `inventory-count.service.ts` (bucle de aplicación y `bloqueosParaReconciliar`). ⚠️ El guard se verificó por código, **no se ejerció el 409**: hace falta una cuenta con `RECONCILIAR`. |
+| **F18** | 🔴🔴 | **Un 403 se convierte en CEROS: la pantalla dibuja un inventario impecable.** A quien sólo tiene `VER`, el detalle del folio le muestra «COBERTURA **0.0 %** · CONTADOS **0/0** · SIN CONTAR **0** · DISCREPANCIAS **0** · VALOR EN RIESGO **$0**» — sobre un folio con **3,363 artículos sin contar**. No dice «sin permiso» ni «no disponible»: dice **cero**, que se lee como *contado y cuadrado*. El bloque «Falta para poder cerrar este folio» tampoco aparece, así que no queda ni una pista. ⛔ Y le toca justo a **prevención**, cuyo oficio ES el descuadre. Además el título pierde el folio: dice **«Folio»** a secas, porque el número venía de `progress` (403). **Viola la regla 11 del proyecto de frente** (lo no medido se declara, nunca se dibuja como cero). | Medido en vivo el 2026-11-25 con `camila_verdines` (`prevencion_auxiliar`, **un solo rol**, única llave `COMMERCIAL_INVENTORY_VER`). |
+| **F17** | 🔴 | **Un 403 de permisos se pinta como «Sin items para este filtro».** Al encargado, que recibe 403 en `GET :id/items`, la tabla de artículos le muestra el texto de lista vacía — mientras el encabezado de la MISMA pantalla le dice «SIN CONTAR 3,363». Dos afirmaciones contradictorias a la vez, y la causa real (no tiene permiso) no aparece. Quien lo vea concluye que el folio está vacío o que se perdieron los datos. Es el mismo defecto que §9b ya tenía para la lista de folios, agravado: acá es por permisos y en el detalle. ⚠️ El encabezado de la tabla además anuncia la columna **«Teórico»**, que su permiso le niega. | Captura en vivo con `monica_mejia`: `items` → 403, y la tabla pinta «Sin items para este filtro». |
+| **F12** | 🟡 | **El teórico del mismo almacén saltó de 2,094 a 3,363 artículos** entre junio y hoy (+61 %). Puede ser crecimiento real o un cambio de fuente: **no está medido**. Toca directo a **D-EX8**. | `INV-2026-00009` y `00007` (Padre Hidalgo, junio): 2,094 y 2,093. `INV-2026-00010` (Padre Hidalgo, hoy): 3,363. |
+| **F13** | 🟡 | **`GET /counts/resolve` devuelve `product_id: null` y un `brand_name` que vale `"341"`**, y la pantalla del contador pinta ese «341» junto al SKU como si fuera un dato del producto. Es el nombre de la marca en el catálogo. | Respuesta real: `{"product_id":null,"sku":"00203","barcode":"00203","brand_name":"341","location":null,…}`. |
+| **F14** | 🟡 | **Dos formatos numéricos para el mismo dato en la misma pantalla**: el teórico se lee `5.000` (punto) y el campo de captura escribe `999,999` (coma). Quien vea `5.000` arriba y teclee `5,000` abajo mete mil veces más. | Observado en el diálogo «Resolver item». |
+| **F15** | 🟠 | **La lista de contadores asignables no dice sucursal ni rol.** `assignable-users` devuelve sólo `id, username, nombre, role_name`; el desplegable pinta **sólo el nombre**. Quien arma el equipo de un conteo en Padre Hidalgo ve 24 nombres y **no puede distinguir al único almacenista de esa tienda** de los de Zamora, La Piedad o Canindo, ni ve a los que nunca entraron. | Respuesta real de `assignable-users?role=counter`: 24 personas, campos `id, username, nombre, role_name`, **sin sucursal**. En prod sólo `luis_espino` es almacenista de PH; 4 de los 11 nunca entraron. |
+| **F16** | 🟡 | **Asignar restringe lo que se VE, no lo que se PUEDE.** La **lista** del contador (`myCountingFolios`) sí acota bien: sólo muestra el folio a los asignados, o a todos si no hay nadie asignado ✅. Pero el **guard** (`ContarOAsignadoGuard`) deja pasar a cualquiera con la clave `CONTAR` **aunque no esté asignado**. O sea: quien tenga la clave y llegue al folio por otro camino **puede contar igual**, sin aparecer en el equipo. Con doble conteo ciego eso significa que **quién hizo C1 y quién hizo C2 no está garantizado por el candado**, sólo por la navegación. | ⚠️ **Corrige la primera versión**, que decía «asignar no restringe a nadie» — **falso**: la lista sí restringe, y se verificó en vivo (tras asignar a otros dos, el folio desapareció de mi pantalla de conteo). Guard: `if (permissions[CONTAR] === true) return true;` antes de mirar la asignación. 31 personas tienen `CONTAR`. |
+| **F22** | 🟡 | **El contador sin asignación recibe un mensaje que lo manda a pedir algo que ya existe.** La pantalla vacía dice «**No hay ningún folio de inventario abierto para contar. Pedile a tu supervisor que abra uno.**» cuando la causa real es que **no está asignado a ninguno** — el folio existe y está vivo. El supervisor que reciba ese pedido va a ver el folio abierto y no va a entender el reclamo. ⭐ El mensaje correcto **ya está escrito en el backend**: `ContarOAsignadoGuard` dice «No estás asignado a este conteo. Pídele a quien arma el equipo que te agregue como contador». La pantalla no lo usa. | Medido el 2026-11-26: `/counts/mine` devolvió **vacío** con `INV-2026-00010` vivo en `review`, porque la cuenta no figura entre los dos contadores asignados. |
+
+### ✅ Lo que está BIEN, y hay que decirlo
+
+- ⭐⭐ **El conteo ciego es REAL, no una promesa de la interfaz.** Ni `GET /counts/resolve` ni
+  `GET /counts/:id/catalog` devuelven el teórico. El catálogo completo que baja al navegador del
+  contador trae `product_id, sku, barcode, product_name, location` y **ningún campo de existencia**:
+  el teórico nunca llega a esa máquina.
+- ⭐ **El catálogo del contador SÍ trae los 3,363 completos** — el tope de 2,000 es sólo de la
+  pantalla del supervisor. El almacenista llega a cualquier producto escaneándolo.
+- **Un código que no está en el catálogo se rechaza** con «Código no reconocido en el catálogo»,
+  inmediato y claro.
+- **Tras registrar un conteo**, la pantalla limpia los dos campos y devuelve el foco al código.
+- **«Guardar» nace deshabilitado** con el campo vacío, y **los negativos se descartan**.
+- ⭐ **El aviso de cierre dice la regla de la casa en palabras**: «un no-contado **NO** se trata como
+  cero». Y el guard que la cumple (`bloqueosParaReconciliar`) está bien hecho — ver **F20** para su
+  única debilidad.
+- **Reconciliar pide confirmación y advierte que es irreversible**: «Esto ajusta el stock teórico al
+  físico contado y genera los movimientos. **No se puede deshacer.** ¿Continuar?». El diálogo existe
+  y dice lo que corresponde; el problema es a quién se le ofrece (**F11**) y que su rechazo sea mudo
+  (**F19**).
+- ⭐⭐ **El servidor nunca escribió de más en toda la prueba.** Se ejerció `reconcile` desde una
+  cuenta sin permiso: **403**, y el folio quedó intacto (`counting`, `closed_at: null`).
+
+### Lo que queda SIN MEDIR
+
+⛔ Nada de esto se ejerció, y **no se declara como funcionando**:
+
+- **`POST /counts/:id/reconcile` con permiso.** Ya se ejerció **sin** permiso (403, nada escrito) y
+  ya se leyó el código (**F20**: el guard frena por los nulos). Falta el **409 real** desde una
+  cuenta con `RECONCILIAR`, y el camino feliz, que exige un folio contado al 100 % — hoy imposible
+  por **F1** y **F2**.
+- **«Calcular discrepancias»** — por eso **«Discrepancias 0» probablemente sea «no calculado», no
+  «cero medido»**; no se afirma ninguna de las dos cosas sin correrlo.
+- **«Cancelar folio»** y **equipos por pasillo**. (Asignar contadores ✅ ya se ejerció.)
+- **El camino sin conexión** (cola de Dexie, reintento, 409) y el **doble envío**.
+- Los perfiles **`supervisor`** y **`marketing`** en vivo; **F4** depende de ellos.
+
+> ⚠️ **Fuera del módulo, visto al elegir cuentas de prueba:** una persona tiene **35 roles**
+> asignados a la vez, y aparece simultáneamente como `almacenista`, `encargado_tienda`, `prevencion`
+> y `supervisor`. Para esa cuenta cualquier matriz de permisos es decorativa, y **no sirve como
+> caso puro de ningún perfil** al probar. Es de `identity`, no de inventario; se deja apuntado.
+
+### ⚠️ Dos afirmaciones anteriores que se corrigen acá
+
+1. **«`INV-2026-00009` congeló Padre Hidalgo 101 días»** — en pantalla ese folio figura
+   **Cancelado**, con inicio en junio y última actividad hace 126 días. Las dos cosas pueden
+   convivir, pero **la cifra no se vuelve a usar hasta re-medir cuándo se canceló**.
+2. **«Medio catálogo no se puede contar»** — falso, y se dijo en esta misma sesión antes de medir el
+   catálogo. El **contador** llega a los 3,363 escaneando. Lo correcto es **F5**: es el
+   **supervisor** quien no ve 1,363 artículos, y sobre esa lista truncada se arma su tablero.
+
+### Rastro de la prueba
+
+El folio **`INV-2026-00010`** quedó vivo en Padre Hidalgo, **sin congelar** (no bloquea ninguna
+operación), con un artículo resuelto (`00135`) y un conteo huérfano (`00203`, 3 unidades). **Se
+cancela al cerrar las pruebas pendientes.**
+
+---
+
 ## 10. Cómo se prueba
+
+> ⭐ **La lista de verificación para probar con Playwright —95 pruebas, una sección por tipo de
+> usuario, con errores humanos, de causalidad, de diseño y las negativas— vive en
+> [`inventario-fisico-PRUEBAS.md`](inventario-fisico-PRUEBAS.md).** Su §0 trae la decisión
+> pendiente (**D-PW1**): hoy ningún Playwright del repo apunta a la aplicación corriendo.
 
 - **Pruebas de unidad y candados** (vitest, `libs/commercial`): `inventory-count.asignar.spec.ts`,
   `.cancelar.spec.ts`, `.ciclico.spec.ts`, `contar-o-asignado.guard.spec.ts` (24 casos, incluye el candado que

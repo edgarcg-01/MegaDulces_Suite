@@ -9,6 +9,96 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos › Preparar pago: la ✕ para quitar una transferencia se ve (PGP.190.2 · 2026-11-26 · en código, sin soltar)
+- Al partir un pago en tres o más transferencias, cada renglón tiene una ✕ para quitarlo. Desde la actualización de PrimeNG salía vacía: se podía tocar, pero no se veía. Ahora se ve, alineada con el importe y la cuenta, y con el dedo mide 44 px.
+- Internal: en PrimeNG 22 `pButton` ya no tiene `icon` ni `label`; el ícono va dentro del botón (`[iconOnly]`). Hay 28 botones más con el mismo defecto en otras pantallas (AUD-UI.5).
+### Changed — Compras › Entradas: la factura del proveedor se empareja por SU código (PQ.148 · 2026-11-24 · en código, sin soltar)
+- Al conciliar una factura contra la entrada de Kepler, cada renglón se busca primero por el código con que el proveedor timbra su producto, y después por la descripción. Si el proveedor cambia la redacción, el renglón se sigue reconociendo.
+- Al dar por buena una factura, lo que cuadra se aprende con ese código. No se aprenden códigos de 1–2 caracteres (son número de renglón) ni los que la factura repite.
+- Lo que ya enseñan sus facturas anteriores también cuenta: si su código cayó siempre en el mismo producto en facturas que Kepler ya aplicó, la conciliación lo propone y la columna dice «Historial». Lo que una persona confirmó manda sobre eso; al dar por buena la factura, lo propuesto queda confirmado. Medido con 30 días que la historia no vio: acierta 99.6 %, y los renglones de factura que encuentran su producto solos pasan de 23.4 % a 67.9 %.
+- En el celular, cada renglón de la conciliación se apila con su cantidad, su origen y su estado rotulados. En el Fold, la columna «Estado» ya no tapa la de «Origen».
+- Internal: columna `codigo_proveedor` en `commercial.supplier_item_aliases` (mig `20261124210829`) y la vista derivada `commercial.v_supplier_item_code_history` (mig `20261124231441`): las dos se aplican antes de soltar. La prueba contra base real de lo aprendido (`[RE.53]`) ya corre en el CI: antes fallaba sin que se viera (`AUD-CI.1`).
+### Added — Compras: «Costo contra la OC» en Revisión de facturas (PQ.157 C3 · 2026-11-26 · en código, sin soltar)
+- En el panel de cada entrada, antes de los productos: «N de M renglones a otro costo que su OC», cuánto sube y cuánto baja, y sólo los renglones que difieren (el que más pesos mueve primero) con el costo aplicado, el de la OC en la misma unidad (y la OC tal cual si venía en caja) y la diferencia en % y en pesos.
+- Decidir en el mismo renglón —aceptar el costo, reclamar la nota (con el tope ya puesto) o promoción con fecha— y «Aceptar igual» cuando el mismo costo ya se aceptó antes. Sin la clave `COMPRAS_COSTO_DECIDIR`, la decisión se lee pero no hay botón.
+- El panel se llama «Aplicación» y dice el folio de su orden de entrada (AUD-UI.3); la tarjeta «Por revisar» del resumen pasa a «No cuadra el importe» (AUD-DAT.35). Cerrar con una decisión tecleada pregunta antes de descartarla.
+- Prueba visual 73/73 (escritorio, Fold 7, celular, oscuro y el proceso entero) contra una aplicación real copiada de prod a Docker.
+### Added — Compras: la API para decidir el costo de cada renglón aplicado (PQ.157 C2 · 2026-11-26 · en código, sin soltar)
+- `GET /api/compras/costo-aplicado/aplicaciones/:sucursal/:folio`: los renglones de una aplicación contra su OC (en la misma unidad), con su cadena —el folio de su orden de entrada, el vale y la OC—, lo más que se puede reclamar, la decisión viva y «ya se aceptó antes». La ve quien ve Revisión de facturas.
+- `POST /api/compras/costo-aplicado/decisiones`: aceptar, reclamar nota o promoción. Guarda la foto que lee de la vista (nunca la de la pantalla), reemplaza la decisión viva sin borrar y, si dos personas deciden a la vez, la segunda recibe 409.
+- Clave nueva `COMPRAS_COSTO_DECIDIR`, sólo Compras (gerente_compras, compras, compras_operaciones, auxiliar_compras; DR10 de Francisco): mig `20261126003314` (sólo datos, a mano después de la tabla) y re-login de esas 10 personas.
+- Pruebas: 9 contra Postgres real con el payload de la pantalla (local), 5 mutantes del servicio en rojo, arranque por metadata y `design:paramtypes` del build.
+
+### Internal — Compras: la decisión sobre cada renglón aplicado a otro costo, con quién y por qué (PQ.157 C1 · 2026-11-26 · en código, sin soltar)
+- `commercial.application_cost_decisions` (mig `20261126001925`, antes de soltar; tabla nueva vacía, sin re-login): por renglón de aplicación, **aceptar** el costo (la OC siguiente nace con él), **reclamar** la nota de crédito (sólo si subió y nunca más que la diferencia) o **promoción** con fecha de fin. Una decisión viva por renglón; cambiarla es reemplazarla, nada se borra (`app_runtime` sin DELETE, RLS por tenant).
+- Dominio `libs/commercial/src/lib/application-cost` y contrato `@megadulces/contracts/http/application-cost`: los textos para la persona y «ya se aceptó antes» con el mismo corte de «igual» que la vista de C0. Hoy 1,680 renglones en 60 días cambian de costo sin decisión registrada y el 61 % se vuelve a validar.
+- Pruebas: dominio 25/25; base 34/0/0 contra Postgres real como `app_runtime`, 8 mutantes en rojo (`test-newdb-pq157-decisions.js`). Sigue C2, la API.
+
+### Internal — Compras: el costo de cada renglón aplicado, contra el de su OC (PQ.157 C0 · 2026-11-25 · en código, sin soltar)
+- Todavía no cambia ninguna pantalla. Es la base para validar el costo al aplicar: qué renglones llegaron a un costo distinto del pedido, cuánto y en qué escala.
+- La OC en cajas aplicada por pieza ya no se confunde con un cambio de costo: el factor sale de la ficha del producto en esa sucursal.
+- Medido en 60 días: 17.6 % de los renglones se aplica a un costo distinto al de la OC (+$1.17 M / −$511 mil), y el mismo cambio se vuelve a validar en la siguiente entrada en el 61 % de los casos.
+- Migración `20261125214023`: la vista `commercial.v_application_line_cost` (sólo DDL, sin datos).
+### Added — Mesa de Servicio › Configuración: «Renombrar» un área (MS.8.5 · 2026-11-26)
+- Cada área trae «Renombrar» junto a su nombre: cambia el nombre que ve la gente; el código no cambia y las solicitudes se quedan donde están. Lo puede hacer quien coordina esa área.
+- Nació de «Operación de sucursales ·», un área creada con un punto de más que no había cómo corregir en pantalla.
+### Internal — Pagos: el interés de un crédito, calculado y recalculado un día antes (PGP.219 C0–C1 · 2026-11-26 · en código, sin soltar)
+- El interés que el banco cobra de un crédito ya no se programa con lo último que cobró: es saldo × tasa × días, con el periodo del día del contrato al del mes siguiente. La tasa y el saldo salen de la historia del banco (la tasa implícita del último cargo, DCR10) y el importe sigue rotulado «estimado».
+- Medido en prod con los dos créditos de Banorte: cada mes predicho con los anteriores casa ±$0.02 (14 de 14); lo último cobrado erraba hasta $2,662. El IVA usa la inflación del mes anterior y puede errar hasta $1,450 un mes.
+- Un día antes del cargo se vuelve a calcular: si llegó un cobro con otra tasa, el importe programado se corrige y queda el antes y el después. Si no se puede calcular (la tasa cambia cada mes, el capital va por tabla), se queda lo último cobrado y la nota dice por qué.
+- Fixed (PGP.212): dos créditos en la misma cuenta, con los mismos conceptos, ya no se cruzan: el cobro de uno no queda ligado al contrato del otro.
+### Internal — Pagos: el cargo de cada mes de un contrato, programado en el Calendario (PGP.211 C1 · 2026-11-26 · en código, sin soltar)
+- Todavía sin la tarea diaria que lo corre ni pantalla (PGP.213/214). Cada contrato confirmado programa su cargo de este mes y del siguiente: el compromiso y su pago en el día esperado, como cargo automático desde la cuenta del contrato y ya autorizado (la firma es la del contrato, DCR5). Fijo por los cargos del periodo, tabla de amortización o estimado con lo último que cobró el banco.
+- No programa, y dice por qué: lo ya cobrado este mes, lo que tiene acreedor en Kepler (ya está en el Calendario), la nómina semanal (PGP.215), lo que está fuera de vigencia y el estimado sin cobro anterior. Generar dos veces deja las mismas filas.
+- Se cierra con la liga contrato ↔ salida del banco de PGP.212 (no por importe y ±3 días: la arrendadora cobra hasta 9 días tarde). Las salidas que usa quedan ligadas para PGP.121, y el aviso de PGP.218 deja de contarlas por historia.
+- Migración `20261126011012` (4 columnas que admiten vacío y los 10 subtipos en `finance.financial_commitments`, hoy con 0 filas), después de las de PGP.209, 210 y 212.
+### Internal — Pagos: cada cargo que el banco cobra solo, con su contrato o su porqué (PGP.212 C1 · 2026-11-26 · en código, sin soltar)
+- Todavía sin pantalla. La Suite sabe qué cargos automáticos del banco no tienen un contrato que los sustente, y por qué: sin contrato, propuesta sin confirmar o rechazada, fuera de vigencia o importe distinto al del contrato.
+- Medido: 561 cargos automáticos en 12 meses (≈ $24.3 M); en noviembre, 59 por $781,571, ninguno con contrato todavía.
+- DCR11: el PDF del contrato es obligatorio para confirmar arrendamiento, crédito, seguro y FONACOT.
+- Migración `20261126004656` (la vista `finance.v_automatic_bank_charges`, sólo DDL), después de las de PGP.209 y PGP.210.
+### Internal — Pagos: el contrato que sustenta cada cargo del banco (PGP.210 C1 · 2026-11-26 · en código, sin soltar)
+- Todavía sin pantalla ni API (PGP.213/214). La Suite ya puede guardar el contrato de cada cargo que el banco cobra solo: quién cobra, desde qué cuenta, qué días, cuánto (fijo, por tabla de amortización o estimado), su PDF y si ya lo confirmó Tesorería.
+- El sistema propone desde la historia del banco (PGP.209) y Tesorería confirma, corrige o rechaza con motivo. Lo rechazado no se vuelve a proponer; nada se borra.
+- Medido: las 47 series vigentes darían 41 propuestas (2 créditos, 25 cuotas de comisión, 14 por clasificar).
+- Migración `20261126001551` (`finance.charge_contracts`, `_lines`, `_schedule`), aplicar antes de soltar.
+### Added — Pagos › Calendario: antes del programa, el dinero del cargo del banco en su cuenta (PGP.218 · 2026-11-25 · en código, sin soltar)
+- Si una cuenta de origen no alcanza para lo preparado y los cargos que el banco cobra solo en los próximos 7 días (arrendamiento, créditos, seguros, cuotas), la barra de la semana lo dice en una línea: qué cuenta, qué día y cuánto falta. Abre el desglose por cuenta y por cargo.
+- En «Preparar pago» y «Autorizar», bajo la cuenta de origen: qué cargo del banco deja sin cubrir este pago y cuánto falta, o lo que queda. No bloquea.
+- El saldo es el de Bancos (la última descarga o el libro). Sin saldo dice «no medido»; si es de hace más de 2 días, lo dice. Los depósitos por venir no se suman.
+- Reconstruido en prod: Santander 2169 al cierre del 12-nov no cubría los cargos de la arrendadora del 14 (faltaban $48,731.55) y el banco los cobró tarde; hoy le faltan $16,306.09 para dos cargos del 24.
+- Lo que cambió tras la prueba visual del 26-nov (escritorio, Fold 7 y celular):
+  - Si los cargos del banco no se pudieron revisar, la línea igual nombra la cuenta que no cubre lo preparado y aclara que no contó los cargos.
+  - En el Fold y el celular el desglose ya no tapa columnas; en el celular cada cuenta y cada cargo se apilan con sus datos.
+  - Un cargo con más de un mes de atraso ya no se cuenta y se lista aparte.
+  - El aviso «de hace N días» ahora se lee bien en tema claro.
+  - Si la revisión falla, la línea abre el desglose con «Reintentar». Las cifras del desglose van alineadas a la derecha.
+  - En todas las pantallas, el botón «Reintentar» de un error ya no se corta en el celular y mide 44 px al dedo.
+  - En el desglose se ven primero los cargos de las cuentas que no alcanzan; los demás se abren con un toque, con su número y su total. La línea de la semana y el enlace a los estados de cuenta miden 44 px al dedo.
+- Internal: `GET /api/finance/payment-calendar/suficiencia` (sólo lectura). Necesita la vista de PGP.209 (migración `20261125224611`) aplicada antes de soltar.
+### Internal — Pagos: los cargos que el banco cobra solo, propuestos por su historia (PGP.209 C0 · 2026-11-25 · en código, sin soltar)
+- Todavía no cambia ninguna pantalla. Es la propuesta de contratos que Tesorería confirmará (DCR1) y lo que el Calendario apartará del saldo antes de armar el programa (PGP.218, DCR9).
+- Una serie es el mismo cargo en la misma cuenta durante 3 meses o más: al mismo importe (arrendamiento, capital de crédito, cuotas) o con el mismo número de crédito (el interés que baja).
+- Medido en 12 meses: 47 series vigentes, ≈ $512 mil al mes, en 10 cuentas. De los 32 cargos de noviembre propone 19 (≈ $420 mil); lo que no ve se declara.
+- Migración `20261125224611`: la vista `finance.v_recurring_bank_charges` (sólo DDL, sin datos).
+### Added — Compras › Calendario de compras: quién cambió cada regla y de qué a qué (PQ.3.17 · 2026-11-24 · en código, sin soltar)
+- El detalle de una regla dice, además de quién la definió, «Último cambio: quién, el día». Debajo, «Cambios» dice de qué a qué, el más nuevo primero: el patrón entero, el responsable, fuera de ciclo con su motivo, la nota y la baja.
+- De un cambio hecho antes de que se guardara el historial se dice quién y cuándo, no de qué a qué.
+- Una regla definida en bloque («Sacar del ciclo a los N») no dice que se cambió: salir del ciclo es parte de cómo se definió.
+- Internal: sin tabla nueva: las reglas se suman a `analytics.master_data_history` con un disparador (mig `20261124231747`, aplicar antes de soltar); cada escritura declara quién (`app.actor`). Sin el disparador, la API declara el historial no medido.
+### Added — Compras › Calendario de compras: los ocasionales, de una vez (PQ.3.18 · 2026-11-24 · en código, sin soltar)
+- En «Sin regla», el escalón 3 tiene «Sacar del ciclo a los N» (sólo para quien define reglas). A cada proveedor que compró una o pocas veces en 12 meses y sigue sin regla le pone una regla para todas las sucursales «cada 180 días» y lo deja fuera de ciclo 26 semanas, con el motivo escrito. En esa fecha regresa solo a «Por revisar».
+- El diálogo dice qué va a hacer antes de hacerlo. Si alguno ya tiene regla al guardar, no se toca y el aviso lo cuenta.
+- Internal: `POST /compras/calendario/reglas/ocasionales` (`COMPRAS_CALENDARIO_CICLO` y alcance en todas las sucursales); el servidor vuelve a medir quién es ocasional y escribe todo en una transacción. Sin migración. El manual de capacitación quedó al día.
+### Internal — Compras: cada factura del proveedor, ligada a su aplicación en Kepler (PQ.150 · 2026-11-25 · en código, sin soltar)
+- La Suite sabe qué factura del SAT cerró cada aplicación de Kepler. Liga primero por el folio del proveedor que Kepler guarda en la referencia, también cuando a su acreedor le falta el RFC (6 de cada 10 aplicaciones). En 60 días, las aplicaciones con su factura pasan de 28.5 % a 49.6 %, y el dinero de 41 % a 77 %.
+- Todavía no cambia ninguna pantalla. Es la base para que la historia de PQ.148 aprenda de más proveedores y para validar el costo al aplicar (PQ.157).
+- Migración `20261125090951`: la vista `commercial.v_supplier_invoice_application` y su matvista `analytics.mv_supplier_invoice_application`, que se refresca cada hora.
+### Changed — Verificador de precios: el mayoreo sale directo del ODS (VAC.D1, 2026-11-25 · en código, sin soltar)
+- El mayoreo del verificador (y del checador del vendedor y el respaldo del kiosco) se lee de la vista viva sobre el ODS, igual que la etiqueta del anaquel, y ya no de una tabla que recalculaba un importer. Lo que Compras corrige en Kepler llega con el ODS (~5 min). En la tienda 01, 457 productos más muestran su mayoreo (los que Kepler tiene y la tabla no).
+### Fixed — Verificador de precios: ya no muestra un «paquete» que el producto no tiene (VAC.PAQ.1, 2026-11-25 · en código, sin soltar)
+- 620 productos mostraban «desde N paquetes» con un precio de una unidad PAQ que su ficha en Kepler no tiene (p. ej. 18016, cajeta 1 kg: pieza y caja). Ahora ese escalón no se publica, ni en línea ni en el respaldo del kiosco. Los paquetes reales (incluido el de 1 pieza) se quedan.
+### Fixed — Almacén › Ubicaciones: lo que acabas de ubicar ya no desaparece (UB.RF.19 · 2026-11-25 · en código, sin soltar)
 ### Added — Compras › Pedido: la etiqueta del freno, con su porqué y el filtro «Con freno» (PQ.95 · 2026-11-26)
 - Cada producto dice qué regla movió su sugerido: «fin de pico» con las sucursales donde aplicó (el motor ya lo hacía y la pantalla no lo decía), o su temporada confirmada en Compras › Temporadas («Navidad y posadas · se repone hasta 24-dic»). Una etiqueta por renglón, la que manda; sin freno, ninguna.
 - Al abrir el producto, «Qué hacer» lo explica en texto, y cada sucursal frenada dice con cuánto se pide (por ejemplo, ≈5.7 cajas al mes en lugar de 18.7, el 31 %).
@@ -32,6 +122,7 @@
 - El almacén va **en el título** de la pantalla, no en gris chico al lado.
 - Internal: `ubicaciones` y `con_producto` por almacén en `alcance` (consulta agregada, 8 ms). ⚠️ Su primera versión usaba `count(*)` sobre un `LEFT JOIN` que multiplica la ubicación por cada producto y daba 185 en vez de 156: lo cazó el control de la consulta, no una prueba. Va con `count(DISTINCT b.id)`.
 
+### Changed — Almacén › Ubicaciones: cada pasillo es un corredor con sus dos frentes (UB.RF.18 · 2026-11-25 · en código, sin soltar)
 ### Changed — Almacén › Ubicaciones: cada pasillo es un corredor con sus dos frentes (UB.RF.18 · 2026-11-25 · **en producción**)
 - Un pasillo tiene racks de los dos lados. Ahora el mapa lo dibuja así: los **nones** de un lado del corredor y los **pares** del otro, cada frente con su regleta de números pegada a su fila, y el rack 05 exactamente enfrente del 06.
 - El frente **no se escribe en el código**: se deduce del número, como en las calles. `BA053` sigue siendo el mismo código, con el mismo escáner y las mismas etiquetas.
@@ -39,6 +130,7 @@
 - El detalle de un rack dice de qué frente es y qué tiene enfrente.
 - Internal: `rackFace` / `rackOpuesto` en contracts, `defaultPickSequence` en serpentina, migración `20261125131938` que recalcula el recorrido de las 531 ubicaciones existentes (531 de 531 tenían la fórmula vieja: 0 editadas a mano). ⚠️ Sólo hace UPDATE: **aplicar antes de mergear**.
 
+### Changed — Almacén › Ubicaciones: el mapa dice lo que varía, y lo que no se midió se declara (UB.RF.17 · 2026-11-25 · en código, sin soltar)
 ### Changed — Almacén › Ubicaciones: el mapa dice lo que varía, y lo que no se midió se declara (UB.RF.17 · 2026-11-25 · **en producción**)
 - Cada cuadro del mapa muestra ahora **cuántos productos tienen su lugar en ese rack**, que es lo único que cambia de un rack a otro. Antes mostraba cuántos niveles tiene, que es el mismo número en todo el almacén: los 75 racks de CEDIS se veían idénticos, y los 2 racks de Padre Hidalgo que ya tienen producto se veían igual que los otros 37.
 - Al tocar un rack, **«Ver sus N productos»** abre Asignación con ese rack ya filtrado, y la lista avisa que está recortada con «Ver todo el almacén» al lado.
