@@ -29,9 +29,31 @@ import {
  * tenant; mientras no exista, una nota escrita a mano que contenga la misma marca y el mismo
  * número podría confundirse con un pedido de la tienda.
  */
+/** Qué pasó con un pedido de la tienda. Lo que no se pudo hacer viaja en `motivo`, no en un hueco. */
+export interface RegistroPedidoTienda {
+  estado: 'creado' | 'ya_estaba' | 'rechazado';
+  motivo?: string;
+  quote_id?: string;
+  quote_code?: string;
+  kepler_sucursal?: string;
+  kepler_folio?: string;
+}
+
 @Injectable()
 export class TiendaPedidoService {
   private readonly logger = new Logger(TiendaPedidoService.name);
+
+  /**
+   * `[COT.7.50]` Los pedidos que se están registrando AHORA, por número.
+   *
+   * ⛔ La idempotencia por `yaEntro()` es una lectura seguida de una escritura: **dos entregas del
+   * mismo aviso que llegan a la vez pasan las dos** y crean dos pedidos en el ERP. Wix reintenta, y
+   * un proxy lento hace que el reintento alcance al original. Mientras `commercial.quotes` no tenga
+   * una columna `external_ref` con índice único —la deuda ya nombrada arriba—, el segundo que llega
+   * espera al primero y devuelve su resultado. ⚠️ Esto protege **dentro de un proceso**: con varias
+   * réplicas de la API el candado real sigue siendo el índice único que falta.
+   */
+  private readonly enVuelo = new Map<string, Promise<RegistroPedidoTienda>>();
 
   constructor(
     private readonly tk: TenantKnexService,
@@ -85,15 +107,27 @@ export class TiendaPedidoService {
   /**
    * Registra el pedido: cotización + envío a Kepler. Devuelve qué pasó, siempre; lo que no se
    * pudo hacer **se dice**, no se esconde.
+   *
+   * Dos entregas del mismo aviso **a la vez** no se vuelven dos pedidos: la segunda espera a la
+   * primera y devuelve su resultado (ver `enVuelo`).
    */
-  async registrar(pedido: PedidoTienda): Promise<{
-    estado: 'creado' | 'ya_estaba' | 'rechazado';
-    motivo?: string;
-    quote_id?: string;
-    quote_code?: string;
-    kepler_sucursal?: string;
-    kepler_folio?: string;
-  }> {
+  async registrar(pedido: PedidoTienda): Promise<RegistroPedidoTienda> {
+    const numero = (pedido?.numero ?? '').trim();
+    const yaCorriendo = numero ? this.enVuelo.get(numero) : undefined;
+    if (yaCorriendo) {
+      this.logger.warn(`Pedido ${numero} de la tienda: ya se estaba registrando, espero a esa corrida`);
+      return yaCorriendo;
+    }
+    const corrida = this.registrarAhora(pedido);
+    if (numero) {
+      this.enVuelo.set(numero, corrida);
+      // el candado se suelta pase lo que pase: si no, un fallo deja el número trabado para siempre
+      corrida.catch(() => undefined).finally(() => this.enVuelo.delete(numero));
+    }
+    return corrida;
+  }
+
+  private async registrarAhora(pedido: PedidoTienda): Promise<RegistroPedidoTienda> {
     this.tenantCtx.requireTenantId();
     const numero = (pedido?.numero ?? '').trim();
     if (!numero) throw new BadRequestException('El pedido de la tienda no trae número.');

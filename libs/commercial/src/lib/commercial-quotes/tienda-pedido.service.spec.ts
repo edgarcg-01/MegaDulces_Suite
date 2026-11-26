@@ -144,3 +144,36 @@ describe('[COT.7.50] el pedido de la tienda entra por la puerta de siempre', () 
     await expect(svc.registrar(pedido({ numero: '' }))).rejects.toThrow(/número/);
   });
 });
+
+describe('[COT.7.50] ⛔⛔ dos entregas del MISMO aviso a la vez no son dos pedidos', () => {
+  it('⭐ el segundo espera al primero y devuelve SU resultado: una sola cotización', async () => {
+    // Wix reintenta, y un proxy lento hace que el reintento alcance al original. `yaEntro()` es
+    // una lectura seguida de una escritura: sin candado, los dos pasan.
+    const { svc, llamadas } = armar();
+    const [a, b] = await Promise.all([svc.registrar(pedido()), svc.registrar(pedido())]);
+    expect(llamadas.create).toHaveLength(1);
+    expect(llamadas.enviar).toEqual(['q-1']);
+    expect(a).toEqual(b);
+  });
+
+  it('y el candado se SUELTA al terminar: el pedido siguiente no queda trabado', async () => {
+    const { svc, llamadas } = armar();
+    await svc.registrar(pedido());
+    await svc.registrar(pedido({ numero: '11223' }));
+    expect(llamadas.create).toHaveLength(2);
+  });
+
+  it('⭐ se suelta incluso si la corrida FALLA: un error no traba el número para siempre', async () => {
+    const { svc } = armar({ escaleras: new Map() });
+    // sin escalera el productor rechaza; no lanza, pero el candado igual se tiene que soltar
+    await svc.registrar(pedido());
+    const r = await svc.registrar(pedido());
+    expect(r.estado).toBe('rechazado');
+  });
+
+  it('pedidos DISTINTOS no se estorban entre sí', async () => {
+    const { svc, llamadas } = armar();
+    await Promise.all([svc.registrar(pedido()), svc.registrar(pedido({ numero: '11224' }))]);
+    expect(llamadas.create).toHaveLength(2);
+  });
+});

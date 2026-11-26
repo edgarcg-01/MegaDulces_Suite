@@ -7,6 +7,8 @@ import { QuoteKeplerService } from './quote-kepler.service';
 import { KeplerPedidoTlmkSinkAdapter } from './kepler-pedido-tlmk-sink.adapter';
 import { QuoteTrackingController } from './quote-tracking.controller';
 import { QuoteTrackingService } from './quote-tracking.service';
+import { TiendaWebhookController } from './tienda-webhook.controller';
+import { TiendaPedidoService } from './tienda-pedido.service';
 
 /**
  * `[E.12]` — Submódulo de Telemarketing: cotizaciones de mayoreo.
@@ -22,6 +24,12 @@ import { QuoteTrackingService } from './quote-tracking.service';
  *   - DELETE /api/commercial/quotes/:id/lines/:lineId
  *   - POST /api/commercial/quotes/:id/kepler      [COT.7] aceptar → Pedido Telemarketing en Kepler
  *   - GET  /api/commercial/quotes/:id/tracking    [GP.9.1] pasos del pedido hasta la factura (sólo lectura)
+ *   - POST /api/webhooks/tienda/pedido            [COT.7.50] un pedido pagado de la tienda de marca
+ *
+ * `[COT.7.50]` El webhook de la tienda entra acá y no en un módulo propio porque **el pedido en
+ * línea no es un camino aparte**: termina en la misma cotización y en el mismo `QuoteKeplerService`
+ * que usa telemarketing, con su interruptor y su tope. Es `@Public()` (Wix no manda Bearer) y falla
+ * CERRADO sin `TIENDA_WEBHOOK_TOKEN`.
  *
  * `[COT.7]` ⛔ Estar ligado NO es estar encendido: el adapter sólo escribe con conexión
  * (`KEPLER_PUSH_URL_NN`), plantilla (`KEPLER_TLMK_TEMPLATE_FOLIO_NN`), el renglón `telemarketing`
@@ -35,8 +43,8 @@ import { QuoteTrackingService } from './quote-tracking.service';
  * E.12.1–E.12.4 y está declarado como pendiente, no insinuado como hecho.
  */
 @Module({
-  controllers: [CommercialQuotesController, QuoteKeplerController, QuoteTrackingController],
-  providers: [CommercialQuotesService, QuotePricingService, QuoteKeplerService, KeplerPedidoTlmkSinkAdapter, QuoteTrackingService],
+  controllers: [CommercialQuotesController, QuoteKeplerController, QuoteTrackingController, TiendaWebhookController],
+  providers: [CommercialQuotesService, QuotePricingService, QuoteKeplerService, KeplerPedidoTlmkSinkAdapter, QuoteTrackingService, TiendaPedidoService],
   exports: [CommercialQuotesService, QuotePricingService],
 })
 export class CommercialQuotesModule {}

@@ -10231,6 +10231,30 @@ más) — PR aparte para no volver ilegible el diff.
   - **Lo que este item NO es:** publicar el catálogo completo. De 9,053 activos, **5,487 tienen
     precio y existencia hoy**, y **0 tienen imagen** — subir una ficha sin foto es publicar un
     renglón vacío. Eso depende de D3, no de la API.
+  - ⛔⛔ **HALLAZGO del 2026-11-26, y es de cara al cliente: el plan se ejecutó A MEDIAS.** De las
+    cuatro acciones que decide `ops/tienda-wix/resolver.js`, **sólo corrió `SINCRONIZAR`**. Medido
+    hoy con esa misma regla (no con una copia) sobre las 1,642 variantes vivas:
+
+    | Acción | Variantes | **Siguen a la venta hoy** | SKU |
+    |---|---:|---:|---:|
+    | SINCRONIZAR | 1,174 | 977 | — |
+    | **OCULTAR** («Pieza» que el POS no honra) | 337 | **253** | 253 |
+    | **RETIRAR** (sin precio de mostrador en Kepler) | 127 | **66** | 24 |
+    | DECLARAR | 4 | 1 | 1 |
+
+    **320 de 1,642 variantes (19.5 %) están a la venta contra nuestra propia regla**, y como nunca
+    se sincronizaron **publican cantidades que no son nuestras**: `32502` ofrece **13,850 piezas**,
+    `2011` **85,775**, `2021` **39,994**. Eso es la Ley 0 al revés — la tienda afirma lo que no es.
+    - **Y ya costó pedidos:** de los 3 pedidos pagados recientes que `[COT.7.50]` no puede armar,
+      **los 23 renglones que los frenan son exactamente estas variantes** (20 en el pedido 11227).
+      El comprador paga algo que el mostrador no sabe vender así.
+    - ⛔ **No lo ejecuto: apagar 320 variantes de una tienda viva es hacia afuera y es de Edgar**
+      (puede ser venta que hoy se atiende a mano). El mecanismo ya existe y es una corrida; lo que
+      falta es la orden. *Cifra para decidir: la tienda hace ~4 pedidos pagados al mes.*
+    - ⭐ **Cómo se midió, porque el primer intento dio un cero redondo:** mi primera consulta al
+      catálogo devolvió **0 variantes** y con eso «todas estaban retiradas». Era el instrumento —la
+      llamada a `products/search` mal armada—, no la tienda. Se rehízo con la paginación que
+      `aplicar.js` ya usa en producción y dio 1,642. *Un cero redondo se audita antes de publicarse.*
 
 - [ ] **[COT.7.50]** 🔨 **El pedido llega a Kepler solo, venga de donde venga — dos productores para una puerta que ya existe**
   (Edgar, 2026-11-25: *«cuando se genere un pedido se vaya automáticamente a pedido de tlmk»*; al
@@ -10370,15 +10394,65 @@ más) — PR aparte para no volver ilegible el diff.
     y llama al sincronizador con `--skus`. Sin cron, sin trigger nuevo, sin mecanismo nuevo.
     ⚠️ **A decidir:** `drenar_existencia()` **consume** la cola, así que hay que tomar los SKU en el
     aviso (antes del drenado) o aceptar perder un lote. Es la única decisión de diseño que queda.
-  - ⛔ **Lo que falta y es de Edgar, porque son dos cosas suyas:**
-    - **El evento de EXISTENCIA no existe** — y es el que manda: el desfase de 22 h fueron **376
-      renglones de cantidad contra 6 de precio**. Hacerlo es el mismo patrón, pero se escribe
-      **dentro del carril del ODS**, que es el lugar más delicado del sistema (tiene una prueba
-      dedicada a que un aviso no lo tumbe). No lo toco sin autorización.
+  - ⛔ **Lo que falta y es de Edgar:**
+    - ~~**El evento de EXISTENCIA no existe**, y hacerlo obliga a escribir dentro del carril del
+      ODS.~~ **RETIRADO el 2026-11-26:** es la afirmación falsa que se corrige arriba. El evento
+      existe (`existencia_sucia`), está en prod desde `[CANON.6.21]` y **no hay que tocar el carril
+      del ODS para nada**. Se deja tachado y no borrado porque esta línea ya mandó a buscar el
+      defecto donde no estaba.
     - **La llave de Wix como secreto de k3s**, para que la API pueda empujar desde prod.
-  - **Falta:** el webhook HTTP de Wix (firmado y verificado) + dar de alta servicio y controlador
-    en el módulo · **registrar el webhook en Wix, que necesita la llave rotada** · y C3, ver el
-    folio y ver el pedido que no pudo armarse con su porqué.
+  - 🔨 **Construido el 2026-11-26 — el oyente de existencia** (`libs/commercial/src/lib/tienda-marca/
+    tienda-sync-por-evento.service.ts`, 11 pruebas). Escucha `existencia_sucia`: **ni canal, ni
+    disparador, ni reloj nuevos** (*ADR-056*).
+    - **La cola se lee EN EL AVISO**, que era la única decisión de diseño pendiente:
+      `drenar_existencia()` la consume, así que quien llega tarde no encuentra nada.
+    - Junta 60 s (menos que los 2 min del drenado: el empuje **no depende** de ese recálculo) y
+      empuja **200 SKU como mucho** por pasada, para que una ráfaga de ventas no sea una tormenta.
+    - ⛔ **Fail-OPEN, y los SKU siguen PENDIENTES si el empuje falla.** *Prueba negativa:* al soltar
+      los SKU antes del empuje cae exactamente esa prueba; al restaurar, verde.
+    - ⚠️ **Declarado:** el transporte vive detrás del puerto `EmpujeTienda` y **no tiene adaptador**
+      — necesita la llave de Wix como secreto de k3s. Por eso el oyente **no se da de alta todavía**:
+      registrarlo sin proveedor para su puerto **impide arrancar a Nest**.
+  - ✅ **Construido el 2026-11-26 — el camino del pedido, completo y dado de alta** (3 archivos
+    nuevos, 32 pruebas; `nx test commercial`: **3,455 pasan**).
+    - **`pedido-wix.ts`** traduce el pedido de Wix. ⭐ **La forma no se dedujo del manual: se midió**
+      contra la tienda viva sobre **1,228 pedidos reales**. El SKU vive en
+      `lineItems[].physicalProperties.sku` (**2,491 de 2,491 renglones lo traen**) y la presentación
+      en `catalogReference.options.options['Presentación']`, con `descriptionLines` de segundo
+      testigo. El comprador, en `recipientInfo.contactDetails` (**21 de 21 pedidos vivos**).
+    - ⛔⛔ **La medición mató la regla obvia.** Iba a aceptar «si el renglón trae UNA sola opción,
+      esa es la presentación». Medido: de **308 opciones únicas, 209 eran SABORES** —`CHAMOY`,
+      `MANGO`, `FRESA`, `MENTA`—. Con un SKU de unidad única habrían resuelto **por el motivo
+      equivocado**. La presentación sale sólo de un campo que **se llama Presentación**; si no está,
+      es `null` y rechaza quien sabe. Hay prueba de que un sabor **no** entra por la puerta de atrás.
+    - **`tienda-webhook.controller.ts`** — `POST /api/webhooks/tienda/pedido`, `@Public()`.
+      ⛔⛔ **Falla CERRADO siempre:** sin `TIENDA_WEBHOOK_TOKEN` devuelve 503 y **no mira el cuerpo**.
+      Es más estricto que el webhook de WhatsApp (que en dev tolera la falta de secreto) a propósito:
+      esto escribe un pedido en el ERP. Token por encabezado `x-tienda-token`; se acepta `?t=` y se
+      **avisa que queda en los registros**, porque no está medido que el panel de Wix permita
+      encabezados. **200 ante un rechazo de negocio** (un 4xx haría a Wix reintentar en círculos);
+      un error inesperado sí sube, y el reintento es seguro porque el servicio es idempotente.
+    - ⛔⛔ **Candado de reintentos simultáneos.** `yaEntro()` es leer-y-después-escribir: **dos
+      entregas del mismo aviso a la vez pasaban las dos**. Ahora la segunda espera a la primera y
+      devuelve su resultado. ⚠️ Protege **dentro de un proceso**: con varias réplicas el candado
+      real sigue siendo el `external_ref` único que falta.
+    - ⭐ **Dado de alta en `CommercialQuotesModule` con prueba de arranque** (`#414`): verifica la
+      aridad del constructor, que las 3 dependencias sean providers del **mismo** módulo, la ruta,
+      el 200 y la marca de público. *Pruebas negativas:* sacar el controlador del módulo y quitar el
+      fallo-cerrado ponen en rojo exactamente su prueba; al restaurar, verde.
+  - ⭐⭐ **Cuánto de esto entra solo, medido el 2026-11-26 sobre los 1,228 pedidos reales.**
+    277 pagados y vivos · 911 cancelados · 40 sin pagar. **El corte es de FECHA, no de catálogo:**
+    | ventana | pedidos pagados | entran solos | renglones con presentación |
+    |---|---:|---:|---:|
+    | antes de 2026-09 | 265 | 4 (2 %) | **0 %** |
+    | **desde 2026-09** | **12** | **9 (75 %)** | **97–100 %** |
+    O sea: el 87 % de fallas históricas es **tienda vieja**, no un defecto del mapeo. Lo que frena a
+    los 3 pedidos recientes son variantes que `[CV.30]` marcó OCULTAR/RETIRAR y **siguen a la
+    venta** — se arregla en la tienda, no en el código. ⚠️ **Y el volumen es chico:** ~4 pedidos
+    pagados al mes. Automatizar acá vale por el error que quita, no por las horas.
+  - **Falta:** **registrar el disparo en Wix** (automatización del panel u App OAuth: de Edgar) ·
+    `TIENDA_WEBHOOK_TOKEN` como secreto de k3s · el adaptador de `EmpujeTienda` con la llave ·
+    y C3, ver el folio y ver el pedido que no pudo armarse con su porqué.
   - ⚠️ **Contra el cupo:** 10 fases 🔨 contra un tope de 4. Por eso esto entra como **item de COT.7**,
     no como fase nueva.
 
