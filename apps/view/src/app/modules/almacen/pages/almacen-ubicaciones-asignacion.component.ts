@@ -287,11 +287,6 @@ interface FilaPapel { papel: AssignmentRole; etiqueta: string; asignaciones: Pro
                     </section>
                   }
 
-                  <!-- [UB.RF.17] Si se llegó desde un rack del mapa, la lista está recortada: se dice, con
-                       la salida al lado. Una lista filtrada sin avisar se lee como «no hay más». -->
-                  @if (rack(); as rk) {
-                    <div class="ub-note" role="note"><i class="pi pi-filter" aria-hidden="true"></i><span>Sólo los productos con lugar en el rack <b class="mono">{{ rk }}</b>.</span><button type="button" class="ub-link ub-tap" (click)="quitarRack()">Ver todo el almacén</button></div>
-                  }
                   <app-segmented [options]="filtros()" [value]="filtro()" (valueChange)="pickFiltro($any($event))" ariaLabel="Qué productos ver" />
                   <ul class="ub-cards">
                     @for (r of filas(); track r.product_id) {
