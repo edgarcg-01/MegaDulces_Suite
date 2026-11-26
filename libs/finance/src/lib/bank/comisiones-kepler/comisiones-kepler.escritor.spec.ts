@@ -131,3 +131,28 @@ describe('[CB.62.4] fail-closed: un motivo basta', () => {
     expect(motivos(r).join(' ')).toContain('cuenta de tesorería');
   });
 });
+
+/**
+ * `[CB.62.4]` La referencia del pago (`c11`) tiene que CABER. Cuarto defecto del canario del
+ * 2026-11-26: el servicio mandaba `«COMISIONES 05|2026-11-15|GB004»` —30 caracteres contra un
+ * varchar(20)— y el pago reventaba DESPUÉS de que la solicitud y el gasto ya estaban escritos en
+ * Kepler, dejando una CxP abierta (gasto 0000116 de la 05).
+ *
+ * Medido ese día, X-D-26 a acreedor GB% desde septiembre: 1,761 dicen «IVA», 1,713 «COMISIONES», y
+ * de los 3,658 el c11 más largo mide 20.
+ */
+describe('[CB.62.4] la referencia del pago cabe en el c11 de Kepler', () => {
+  const LARGO_C11 = 20;
+  it('es exactamente lo que capturan los pagos reales', () => {
+    expect(referenciaDelCargo('comision')).toBe('COMISIONES');
+    expect(referenciaDelCargo('iva')).toBe('IVA');
+  });
+  it(`y las dos caben en varchar(${LARGO_C11})`, () => {
+    for (const t of ['comision', 'iva'] as const) {
+      expect(referenciaDelCargo(t).length).toBeLessThanOrEqual(LARGO_C11);
+    }
+  });
+  it('⛔ la llave del día NO cabe: por eso no se le concatena', () => {
+    expect(`${referenciaDelCargo('comision')} 05|2026-11-15|GB004`.length).toBeGreaterThan(LARGO_C11);
+  });
+});

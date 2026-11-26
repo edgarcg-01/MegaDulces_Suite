@@ -274,7 +274,15 @@ export class ComisionesKeplerEscritorService {
     for (const p of e.pagos) {
       const rp = await this.pagos.entregar({
         sucursal: d.sucursal, fecha: p.fecha, hora: e.solicitud.capturadaEn.hora,
-        referencia: `${p.referencia} ${e.llave}`, acreedor: e.solicitud.acreedor, importe: p.importe,
+        // ⛔ La referencia va SOLA. Antes se le concatenaba la llave del día y el resultado medía 30
+        //    caracteres («COMISIONES 05|2026-11-15|GB004») contra un `c11` de varchar(20): el pago
+        //    reventaba DESPUÉS de que la solicitud y el gasto ya estaban escritos en Kepler, dejando
+        //    una CxP abierta. Lo encontró el canario del 2026-11-26 (gasto 0000116 de la 05).
+        //    Medido ese día, pagos X-D-26 a acreedor GB% desde septiembre: 1,761 dicen «IVA» y 1,713
+        //    «COMISIONES», que es justo lo que devuelve `referenciaDelCargo`; el c11 más largo de los
+        //    3,658 mide 20. La trazabilidad del día no vive aquí: vive en la bitácora (cargo → folio)
+        //    y en la CxP del gasto contra la que se aplica cada pago.
+        referencia: p.referencia, acreedor: e.solicitud.acreedor, importe: p.importe,
         origen: { bank: p.banco, account_label: p.cuenta }, destino: null,
         facturas: [{ tipo: 10, subtipo: 1, folio: gasto, aplicado: p.importe }],
       });
