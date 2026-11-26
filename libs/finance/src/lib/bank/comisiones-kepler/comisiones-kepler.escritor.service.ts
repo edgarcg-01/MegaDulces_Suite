@@ -51,6 +51,20 @@ import type { DiaPropuesta, PropuestaComisiones } from './comisiones-kepler.quer
 /** El tipo del renglón de `commercial.kepler_push_switch`. */
 export const TIPO_INTERRUPTOR_COMISIONES = 'comisiones_terminal';
 
+/** Los estados desde los que un día SE PUEDE retomar. `escrito` y `en_duda` no están, a propósito. */
+export const ESTADOS_RETOMABLES = ['pendiente', 'reintento', 'rechazado'] as const;
+
+/** Por qué no se pudo reclamar el día, con su estado real. Puro, para probarlo solo. */
+export function motivoDeNoReclamar(estado: string | undefined): string {
+  switch (estado) {
+    case 'escrito': return 'Este día ya se escribió en Kepler';
+    case 'escribiendo': return 'Otro proceso está escribiendo este día ahora mismo';
+    case 'en_duda': return '⛔ Este día quedó EN DUDA: la respuesta de Kepler no volvió. Búscalo en Kepler antes de reintentar';
+    case undefined: return 'No se pudo reclamar el día y su renglón desapareció: no se intentó escribir';
+    default: return `No se pudo reclamar el día (quedó en «${estado}»)`;
+  }
+}
+
 /** El freno global de este proceso. Nace apagado: sin él no se intenta nada. */
 export function escrituraDeComisionesEncendida(env: Readonly<Record<string, string | undefined>>): boolean {
   return (env['KEPLER_COMISIONES_TERMINAL'] ?? '').trim() === 'encendida';
@@ -209,9 +223,8 @@ export class ComisionesKeplerEscritorService {
     }
 
     // ⛔ El reclamo atómico ANTES de hablar con Kepler: dos pestañas o el cron a la vez no escriben dos veces.
-    if (!(await this.reclamar(tenantId, e))) {
-      return this.apagado(d, 'Otro proceso está escribiendo este día (o ya lo escribió)');
-    }
+    const noReclamado = await this.reclamar(tenantId, e);
+    if (noReclamado) return this.apagado(d, noReclamado);
 
     try {
       return await this.escribir(tenantId, d, e, sw.tope_dia);
@@ -281,7 +294,20 @@ export class ComisionesKeplerEscritorService {
   // ── La bitácora ──────────────────────────────────────────────────────────────────────────────────────────
 
   /** `true` si este proceso se quedó con el día. Falla cerrada: si ya está `escribiendo` o `escrito`, no. */
-  private async reclamar(tenantId: string, e: EntregasDelDia): Promise<boolean> {
+  /**
+   * El reclamo atómico del día. Devuelve `null` si quedó reclamado, o **el motivo real** si no.
+   *
+   * ⭐ `rechazado` SE PUEDE RETOMAR, y antes no: un rechazo es «no se escribió nada» (la escritura va en
+   * una transacción y el catch anota el motivo), así que reintentarlo es seguro. Sin esto, el primer
+   * fallo dejaba el día **bloqueado para siempre** — y encima el aviso culpaba a «otro proceso», que no
+   * existía. Lo encontró el canario del 2026-11-26: el día de la 05 falló por el renglón AMPARA, y al
+   * reintentar con el arreglo ya puesto la pantalla seguía diciendo «Otro proceso está escribiendo este
+   * día (o ya lo escribió)».
+   *
+   * ⛔ `en_duda` NO se retoma: ahí el COMMIT pudo salir y la respuesta no volvió, así que hay que buscar
+   * los documentos en Kepler antes de tocar nada. `escrito` tampoco, obviamente.
+   */
+  private async reclamar(tenantId: string, e: EntregasDelDia): Promise<string | null> {
     return this.tk.run(async (trx: Trx) => {
       const llave = { tenant_id: tenantId, sucursal: e.sucursal, dia_venta: e.solicitud.fechaSolicitud, acreedor: e.solicitud.acreedor };
       await trx('finance.bank_commission_kepler_days').insert({
@@ -289,9 +315,13 @@ export class ComisionesKeplerEscritorService {
         total: e.total, iva: e.iva, cargos: e.pagos.length,
       }).onConflict(['tenant_id', 'sucursal', 'dia_venta', 'acreedor']).ignore();
       const n = await trx('finance.bank_commission_kepler_days').where(llave)
-        .whereIn('estado', ['pendiente', 'reintento'])
+        .whereIn('estado', ESTADOS_RETOMABLES)
         .update({ estado: 'escribiendo', intentos: trx.raw('intentos + 1'), updated_at: trx.fn.now() });
-      return n === 1;
+      if (n === 1) return null;
+      // No se pudo reclamar: se dice POR QUÉ, con el estado real. Un aviso que inventa la causa manda
+      // a buscar el problema donde no está.
+      const [fila] = await trx('finance.bank_commission_kepler_days').where(llave).select('estado');
+      return motivoDeNoReclamar(fila?.['estado'] as string | undefined);
     });
   }
 
