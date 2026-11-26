@@ -103,13 +103,37 @@ if (process.argv.includes('--self-test')) {
   process.exit(0);
 }
 
-const versionados = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\0').filter(Boolean);
+const g = (args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28 });
+
+/**
+ * P El universo y el CONTENIDO salen del ÍNDICE, no del disco.
+ *
+ * Medido el 2026-11-26, el mismo día que esta compuerta nació: leyendo el disco marcaba 8
+ * archivos que estaban modificados SÓLO en el árbol de trabajo (` M`, sin preparar) de otras
+ * sesiones, y como `gate-push.js` culpa por NOMBRE de archivo, cualquier push amplio cargaba
+ * con suciedad que no llevaba adentro: frenó nueve refrescos de PR seguidos.
+ *
+ * Y el límite del índice no afloja nada: el defecto que tiró `main` ese día entró por un
+ * COMMIT, no por el disco. Lo que se empuja es el índice; lo que alguien tiene a medias en su
+ * editor no es asunto de esta compuerta.
+ */
+const versionados = g(['ls-files']).split('\n').filter(Boolean);
 const universo = new Set(versionados);
 const hallazgos = [];
-for (const f of versionados) {
-  if (!/\.(ts|tsx|js|mjs|cjs)$/.test(f) || /node_modules/.test(f)) continue;
-  let src; try { src = fs.readFileSync(f, 'utf8'); } catch { continue; }
-  for (const rel of colgados(f, src, universo)) hallazgos.push([f, rel]);
+
+// Un solo proceso para todo el índice: `git grep --cached` en vez de 4,400 lecturas.
+let lineas = [];
+try {
+  lineas = g(['grep', '--cached', '-n', '-E', "^[[:space:]]*(import|export)[^;]*['\"]\\.", '--',
+    '*.ts', '*.tsx', '*.js', '*.mjs', '*.cjs']).split('\n').filter(Boolean);
+} catch (e) { if (e.status !== 1) throw e; } // 1 = sin coincidencias
+
+for (const l of lineas) {
+  const m = l.match(/^([^:]+):\d+:(.*)$/);
+  if (!m) continue;
+  const [, f, txt] = m;
+  if (/node_modules/.test(f)) continue;
+  for (const rel of colgados(f, txt, universo)) hallazgos.push([f, rel]);
 }
 
 if (hallazgos.length) {
