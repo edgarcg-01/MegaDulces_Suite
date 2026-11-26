@@ -167,6 +167,34 @@ export class UsoService {
     this.enviar({ kind: 'error', name: nombre, props });
   }
 
+  /**
+   * `[NP.7.L.19]` Una foto del levantamiento que el medidor RECHAZÓ (borrosa, opaca o ilegible).
+   *
+   * ── Por qué ────────────────────────────────────────────────────────────────────────────────
+   * Medido en prod el 2026-11-26: 7 de 8 personas abandonaron la captura antes de subir su primera
+   * foto, y los umbrales de `calidad-foto.ts` están marcados «PROVISIONALES, NO CALIBRADOS». Un
+   * rechazo no llega al servidor (la foto se repite en el teléfono), así que hoy no se sabe si el
+   * medidor es la causa. Esto deja constancia para poder calibrarlo con datos y no de memoria.
+   *
+   * ── Qué se manda ───────────────────────────────────────────────────────────────────────────
+   * La medición, el motivo, la cara, el tamaño de la foto, la versión del medidor y el modelo del
+   * teléfono si el navegador lo dice. **Nunca la foto ni el producto.** `modelo: null` = no medido
+   * (Safari y Firefox no lo exponen; el `user_agent` ya lo guarda el servidor).
+   */
+  registrarFotoRechazada(datos: {
+    motivo: 'borrosa' | 'opaca' | 'ilegible'; cara: string; version: string;
+    nitidez: number | null; contraste: number | null; ancho: number | null; alto: number | null;
+  }): void {
+    const redondo = (n: number | null) => (n === null ? null : Math.round(n * 10) / 10);
+    void modeloDelTelefono().then((modelo) =>
+      this.enviar({
+        kind: 'event',
+        name: 'foto_rechazada',
+        props: { ...datos, nitidez: redondo(datos.nitidez), contraste: redondo(datos.contraste), modelo },
+      }),
+    );
+  }
+
   private enviar(evento: Record<string, unknown>): void {
     const cuerpo = {
       events: [
@@ -183,5 +211,20 @@ export class UsoService {
       .post(`${environment.apiUrl}/telemetry/suite`, cuerpo)
       .pipe(catchError(() => of(null)))
       .subscribe();
+  }
+}
+
+/**
+ * El modelo del teléfono (p. ej. `SM-A105M`). Chrome en Android ya no lo pone en el `user_agent`
+ * (dice `K`); sólo lo da `userAgentData` cuando se le pide. Nunca falla: sin dato, `null`.
+ */
+async function modeloDelTelefono(): Promise<string | null> {
+  try {
+    const uad = (navigator as unknown as { userAgentData?: { getHighEntropyValues(h: string[]): Promise<{ model?: string }> } }).userAgentData;
+    if (!uad) return null;
+    const v = await uad.getHighEntropyValues(['model']);
+    return v.model ? String(v.model).slice(0, 60) : null;
+  } catch {
+    return null;
   }
 }

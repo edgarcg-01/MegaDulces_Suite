@@ -6,12 +6,12 @@ import type {
   LevantamientoBusquedaFila, LevantamientoDetalle, LevantamientoDetalleTipo, LevantamientoFotoCara, LevantamientoFotoRespuesta, LevantamientoMotivoSalto,
   LevantamientoPeldano, LevantamientoSaltoDto, LevantamientoSugeridosRespuesta,
 } from '@megadulces/contracts';
-import { LEVANTAMIENTO_CARA_OBLIGATORIA, LEVANTAMIENTO_CARAS, LEVANTAMIENTO_DETALLE_TIPOS, LEVANTAMIENTO_MOTIVOS_SALTO } from '@megadulces/contracts';
+import { LEVANTAMIENTO_CARA_OBLIGATORIA, LEVANTAMIENTO_CARAS, LEVANTAMIENTO_DETALLE_TIPOS, LEVANTAMIENTO_ESTADOS_FOTO, LEVANTAMIENTO_MOTIVOS_SALTO, type LevantamientoEstadoFoto } from '@megadulces/contracts';
 import { detectarTipo, ObjectStorageService, quitarMetadatosJpeg, ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { resolverEscaneo, type KdiiFila, type ResultadoEscaneo } from '../shared/kdii-codigo';
 import { kdiiPorCodigo, kdiiPorSku } from '../shared/kdii-lectura';
 import {
-  apartadoVivo, carasRequeridas, decidirEscaneo, ESTADOS_CON_FICHA, ESTADOS_EN_REVISION, estadoTrasFoto, nombreUnidad,
+  apartadoVivo, carasRequeridas, decidirEscaneo, presentacionAFotografiar, presentacionesDisponibles, ESTADOS_CON_FICHA, ESTADOS_EN_REVISION, estadoTrasFoto,
   caraResuelta, esDetalle, notaDetalle, nuevoApartado, peldanoPrincipal, porQueNoDetalle, type AccionEscaneo, type Apartado, type ApartadoDelUsuario, type FotoFicha,
 } from './levantamiento.rules';
 import { CONTEOS_LEVANTAMIENTO_SQL, NO_FISICO_REGEX, SUGERIDOS_LEVANTAMIENTO_SQL } from './levantamiento.sql';
@@ -23,8 +23,17 @@ import { consultaBuscadorCatalogo, ORDEN_BUSCADOR_CATALOGO } from '../shared/cat
  */
 export const AREA_LEVANTAMIENTO = 'compras';
 
-/** De dónde salió la sucursal de la captura (se guarda en la ficha). */
+/**
+ * De dónde salió la sucursal de la captura (se guarda en la ficha). `'elegida'` ya no se produce desde
+ * `[NP.7.L.20]` (nadie elige), pero sigue en fichas viejas: queda en el tipo para leerlas.
+ */
 export type OrigenSucursal = 'perfil' | 'alcance' | 'elegida';
+
+/** `[NP.7.L.22]` «Tiene foto» = con ficha o ya levantada y en revisión: las dos listas de las reglas, sin repetirlas. */
+const CON_FOTO_SQL = [...ESTADOS_CON_FICHA, ...ESTADOS_EN_REVISION].map((e) => `'${e}'`).join(',');
+
+/** Sin sucursal donde levantar: ni en el perfil ni en el alcance. Lo resuelve su encargado, no la pantalla. */
+export const SIN_SUCURSAL = 'Tu usuario no tiene sucursal asignada para levantar fotos. Pídele a tu encargado que te la asigne.';
 
 /** El frente no se salta (`LEVANTAMIENTO_CARA_OBLIGATORIA`): así toda ficha completa trae al menos una foto real. */
 export const FRENTE_OBLIGATORIO = 'El frente siempre se fotografía: es la foto principal del catálogo. Si no se puede tomar, sal sin terminar.';
@@ -56,7 +65,8 @@ export function filaBusqueda(r: Record<string, unknown>): LevantamientoBusquedaF
     name: String(r['name'] ?? ''),
     content: (r['content'] as string | null) ?? null,
     barcode: (r['barcode'] as string | null) ?? null,
-    has_sheet: r['has_sheet'] === true,
+    // Sólo uno de los tres valores conocidos; cualquier otra cosa no se inventa como «tiene foto».
+    photo_status: (LEVANTAMIENTO_ESTADOS_FOTO as readonly string[]).includes(String(r['photo_status'])) ? (r['photo_status'] as LevantamientoEstadoFoto) : 'falta',
   };
 }
 
@@ -85,7 +95,7 @@ const MENSAJE: Record<AccionEscaneo, string> = {
   en_revision: 'Este producto ya se levantó y está en revisión. Escanea el siguiente.',
   apartado_por_otro: 'Alguien más lo está levantando en este momento. Escanea otro.',
   demasiados_apartados: 'Tienes 3 productos a medias. Termina uno antes de empezar otro.',
-  no_registrado: 'Este código no está registrado en esta sucursal. Búscalo por nombre o avísale a tu encargado: puede ser un producto nuevo.',
+  no_registrado: 'Este código no está registrado en tus sucursales. Búscalo por nombre o avísale a tu encargado: puede ser un producto nuevo.',
   codigo_compartido: 'Este código lo tienen varios productos en el sistema y no se puede levantar así. Avísale a tu encargado.',
   otra_unidad: 'Ese código es de otra presentación.',
   sin_unidad_principal: 'Todavía no sabemos qué presentación de este producto se vende más. Escanea otro.',
@@ -112,27 +122,39 @@ export class LevantamientoService {
   // ── Sucursal ────────────────────────────────────────────────────────────────────────────────
 
   /**
-   * La sucursal sobre la que se levanta (D25, 2026-11-02). Todos participan, y 88 de 184 personas activas
-   * no tienen sucursal en su perfil (medido ese día), así que:
-   *  · sin pedir nada → la de su perfil; si no tiene, se le pide elegir (`SUCURSAL_REQUERIDA`);
-   *  · pide la de su perfil → ésa;
-   *  · sin sucursal en el perfil → la que elija, si existe (queda marcada `elegida` en la ficha);
-   *  · CON sucursal en el perfil y pide OTRA → sólo si su alcance de escritura se lo permite.
-   * Es un dato de catálogo (fotos), no de dinero: por eso quien no tiene sucursal puede declarar dónde está.
+   * `[NP.7.L.20]` Las sucursales donde la persona puede levantar (crear o modificar fichas), ordenadas.
+   * Devuelve [] si no puede escribir en ninguna; la pantalla dice «pídela a tu encargado».
+   * Lo escribió un dev como su pieza del modo aprendizaje (2026-11-26); aquí sólo se ajustaron los nombres.
+   *
+   * Se usa el permiso de ESCRIBIR (`modeWrite`/`valuesWrite`), no el de ver: quien ve 9 sucursales puede
+   * escribir sólo en la suya. Sin regla, `ScopeService` ya responde fail-closed (`modeWrite: 'none'`),
+   * así que no hace falta un `if (!w)`. Sin el `filter`, alguien sin perfil y con ['03'] daría ['', '03']:
+   * basura en la consulta y, sin nada, [''] no está vacío y no vería el aviso. El orden fija la decisión A:
+   * la «primera sucursal» es la de código más bajo.
    */
-  async sucursal(quien: Quien, pedida?: string | null): Promise<{ code: string; source: OrigenSucursal }> {
-    const code = String(pedida ?? '').trim();
+  async sucursalesParaLevantar(quien: Quien): Promise<string[]> {
+    const w = (await this.scope.current(AREA_LEVANTAMIENTO)).dims.warehouse;
+    if (w.modeWrite === 'all') return (await this.sucursales()).map((s) => s.code);
     const propia = await this.sucursalDelPerfil(quien.userId);
-    if (!code) {
-      if (propia) return { code: propia, source: 'perfil' };
-      throw new BadRequestException({ code: 'SUCURSAL_REQUERIDA', message: 'Elige la sucursal donde estás.' });
-    }
-    if (code === propia) return { code, source: 'perfil' };
-    const existe = await this.tk.run((trx) => trx('commercial.warehouses').where({ kepler_code: code }).whereNull('deleted_at').first('kepler_code'));
-    if (!existe || !/^[0-9]{2}$/.test(code)) throw new BadRequestException('Esa sucursal no existe.');
-    if (!propia) return { code, source: 'elegida' };
-    await this.scope.assertCanWrite('warehouse', code, AREA_LEVANTAMIENTO);
-    return { code, source: 'alcance' };
+    const codigos = [propia, ...w.valuesWrite].map((c) => String(c).trim()).filter((c) => c !== '');
+    return [...new Set(codigos)].sort();
+  }
+
+  /**
+   * `[NP.7.L.20]` La sucursal sobre la que se levanta: la decide el SERVIDOR, nadie la elige (decisión de
+   * producto del 2026-11-26: «nos ajustamos a las sucursales que tenga su ficha o su usuario»).
+   *  · con sucursal en el perfil → ésa (es su anaquel);
+   *  · sin perfil, con alcance → la de código más bajo de su alcance (decisión A);
+   *  · sin nada → 403 `SIN_SUCURSAL`.
+   * Antes (D25) quien no tenía perfil elegía CUALQUIER sucursal sin pasar por su alcance: ese hueco se cierra.
+   * `permitidas` (la propia primero) viaja para que el escaneo y el buscador prueben las demás de la persona.
+   */
+  async sucursal(quien: Quien): Promise<{ code: string; source: 'perfil' | 'alcance'; permitidas: string[] }> {
+    const permitidas = await this.sucursalesParaLevantar(quien);
+    const propia = await this.sucursalDelPerfil(quien.userId);
+    if (propia) return { code: propia, source: 'perfil', permitidas: [propia, ...permitidas.filter((c) => c !== propia)] };
+    if (!permitidas.length) throw new ForbiddenException({ code: 'SIN_SUCURSAL', message: SIN_SUCURSAL });
+    return { code: permitidas[0], source: 'alcance', permitidas };
   }
 
   /** La sucursal del perfil de la persona (vacío si no tiene). Aparte para que la prueba de integración la fije. */
@@ -179,8 +201,8 @@ export class LevantamientoService {
 
   // ── Pantalla A ──────────────────────────────────────────────────────────────────────────────
 
-  async contexto(quien: Quien, pedida?: string | null): Promise<LevantamientoContexto> {
-    const { code: branch, source } = await this.sucursal(quien, pedida);
+  async contexto(quien: Quien): Promise<LevantamientoContexto> {
+    const { code: branch, source } = await this.sucursal(quien);
     const tenant = this.tenant();
     return this.tk.run(async (trx) => {
       const c = await this.conteos(trx, tenant, branch);
@@ -229,8 +251,8 @@ export class LevantamientoService {
     return { published: Number(r.published ?? 0), in_review: Number(r.in_review ?? 0), rank: r.rank == null ? null : Number(r.rank) };
   }
 
-  async sugeridos(quien: Quien, pedida: string | null | undefined, limit = 30, offset = 0): Promise<LevantamientoSugeridosRespuesta> {
-    const { code: branch } = await this.sucursal(quien, pedida);
+  async sugeridos(quien: Quien, limit = 30, offset = 0): Promise<LevantamientoSugeridosRespuesta> {
+    const { code: branch } = await this.sucursal(quien);
     const tenant = this.tenant();
     const lim = Math.min(Math.max(Math.trunc(Number(limit) || 30), 1), 100);
     const off = Math.max(Math.trunc(Number(offset) || 0), 0);
@@ -258,21 +280,39 @@ export class LevantamientoService {
    * orden, código exacto, lo más vendido sin teclear), con la sucursal resuelta aquí y SIN precio.
    * ⚠️ La fuente es `v_label_prices`: un producto sin precio publicado en esa sucursal no aparece.
    */
-  async buscar(quien: Quien, q: string | null | undefined, pedida?: string | null, limit = 20): Promise<LevantamientoBusquedaFila[]> {
-    const { code: branch } = await this.sucursal(quien, pedida);
+  async buscar(quien: Quien, q: string | null | undefined, limit = 20): Promise<LevantamientoBusquedaFila[]> {
+    const { permitidas } = await this.sucursal(quien);
     const term = String(q ?? '').trim().slice(0, 80);
     const n = Math.min(Math.max(Math.trunc(Number(limit) || 20), 1), 30);
     const tenant = this.tenant();
+    // `[NP.7.L.20]` Con texto, si en su sucursal no aparece, se prueba en las demás de su alcance (en orden)
+    // y se devuelve la primera que tenga resultados. Sin texto («lo más vendido»), sólo la suya.
+    const orden = term ? permitidas : permitidas.slice(0, 1);
+    for (const branch of orden) {
+      const filas = await this.buscarEn(tenant, branch, term, n, quien.userId);
+      if (filas.length) return filas;
+    }
+    return [];
+  }
+
+  private buscarEn(tenant: string, branch: string, term: string, n: number, yo: string): Promise<LevantamientoBusquedaFila[]> {
     return this.tk.run(async (trx) => {
       const inner = consultaBuscadorCatalogo(trx, branch, term, n);
       const { rows } = await trx.raw(
         `SELECT v.sku, v.name, v.content, v.barcode,
-                EXISTS (SELECT 1 FROM catalog.product_sheets ps
-                         WHERE ps.tenant_id = :tenant AND ps.sku = v.sku AND ps.deleted_at IS NULL AND ps.superseded_at IS NULL
-                           AND ps.status IN ('publicada','conciliada','con_diferencias')) AS has_sheet
+                -- \`[NP.7.L.22]\` El estado de las fotos del SKU (cualquier origen, ficha vigente). «en_curso» sólo si
+                -- el apartado vivo es de OTRA persona: el propio se puede retomar.
+                (SELECT CASE
+                          WHEN bool_or(ps.status IN (${CON_FOTO_SQL})) THEN 'tiene_foto'
+                          WHEN bool_or(ps.status = 'en_captura'
+                                 AND coalesce((ps.sheet #>> ARRAY['peldanos', ps.sheet->>'principal', 'apartado', 'until'])::timestamptz > now(), false)
+                                 AND (ps.sheet #>> ARRAY['peldanos', ps.sheet->>'principal', 'apartado', 'by']) IS DISTINCT FROM :yo) THEN 'en_curso'
+                          ELSE 'falta' END
+                   FROM catalog.product_sheets ps
+                  WHERE ps.tenant_id = :tenant AND ps.sku = v.sku AND ps.deleted_at IS NULL AND ps.superseded_at IS NULL) AS photo_status
            FROM :inner v
           ORDER BY ${ORDEN_BUSCADOR_CATALOGO}`,
-        { inner, term, pre: `${term}%`, tenant },
+        { inner, term, pre: `${term}%`, tenant, yo },
       );
       return (rows as Array<Record<string, unknown>>).map(filaBusqueda);
     });
@@ -280,20 +320,29 @@ export class LevantamientoService {
 
   // ── Escaneo (B0) ────────────────────────────────────────────────────────────────────────────
 
-  async escanear(quien: Quien, dto: LevantamientoEscaneoDto, pedida?: string | null): Promise<LevantamientoEscaneoRespuesta> {
+  async escanear(quien: Quien, dto: LevantamientoEscaneoDto): Promise<LevantamientoEscaneoRespuesta> {
     const code = String(dto?.code ?? '').trim();
     const skuBuscado = String(dto?.sku ?? '').trim();
     if (!code && !skuBuscado) throw new BadRequestException('Falta el código escaneado.');
     if (code.length > 64 || skuBuscado.length > 32) throw new BadRequestException('Código demasiado largo.');
-    const { code: branch, source } = await this.sucursal(quien, pedida);
+    const pedida = dto?.rung == null || dto.rung === ('' as never) ? null : String(dto.rung);
+    if (pedida !== null && !(['base', 'dos', 'tres'] as const).includes(pedida as LevantamientoPeldano)) throw new BadRequestException('Presentación inválida.');
+    const { code: casa, source, permitidas } = await this.sucursal(quien);
     const tenant = this.tenant();
     const ahora = new Date();
 
     return this.tk.run(async (trx) => {
       const porBusqueda = !code && !!skuBuscado;
-      const filas: KdiiFila[] = porBusqueda
-        ? await kdiiPorSku(trx, branch, [skuBuscado], { tresCompleta: true })
-        : await kdiiPorCodigo(trx, branch, code, { tresCompleta: true });
+      // `[NP.7.L.20]` Sólo se levanta lo que está en el catálogo de Kepler de SUS sucursales: primero la suya
+      // y, si ahí no está dado de alta, la primera de su alcance donde sí (decisión A). La ficha guarda ésa.
+      let branch = casa;
+      let filas: KdiiFila[] = [];
+      for (const b of permitidas) {
+        filas = porBusqueda
+          ? await kdiiPorSku(trx, b, [skuBuscado], { tresCompleta: true })
+          : await kdiiPorCodigo(trx, b, code, { tresCompleta: true });
+        if (filas.length) { branch = b; break; }
+      }
       const resultado: ResultadoEscaneo = porBusqueda
         ? (filas.length ? { tipo: 'ok', resuelto: { sku: filas[0].sku, nombre: filas[0].nombre, peldano: 'base', unidad: filas[0].u1, factor: 1 } } : { tipo: 'desconocido' })
         : resolverEscaneo(code, filas);
@@ -308,9 +357,16 @@ export class LevantamientoService {
       let resuelto = resultado.resuelto;
       const skuResuelto = resuelto.sku;
       const fila = filas.find((f) => f.sku === skuResuelto)!;
-      const principal = peldanoPrincipal(fila, await this.rungModal(trx, branch, fila.sku));
+      // `[NP.7.L.23]` La persona elige UNA presentación; viene marcada la del código (si es de paquete o caja) o la
+      // que más se vende. `principal` es, desde aquí, la presentación ELEGIDA para esta captura.
+      const disponibles = presentacionesDisponibles(fila);
+      const principal = presentacionAFotografiar({
+        disponibles, pedida: pedida as LevantamientoPeldano | null, escaneada: porBusqueda ? null : resuelto.peldano,
+        masVendida: peldanoPrincipal(fila, await this.rungModal(trx, branch, fila.sku)),
+      });
+      if (pedida && !principal) throw new BadRequestException('Este producto no tiene esa presentación en Kepler.');
       if (porBusqueda && principal) {
-        // Por el buscador no hay código que diga el peldaño: se levanta la unidad principal.
+        // Por el buscador no hay código que diga el peldaño: se levanta la presentación elegida.
         resuelto = { ...resuelto, ...this.unidadDe(fila, principal) };
       }
       const r = resuelto;
@@ -323,7 +379,12 @@ export class LevantamientoService {
       const conFicha = fichas.find((f) => ESTADOS_CON_FICHA.includes(f.status));
       const lev = fichas.find((f) => f.origin === 'levantamiento') ?? null;
       const estadoFicha = conFicha?.status ?? lev?.status ?? null;
-      const apartado = lev && principal ? this.apartadoDe(lev, principal) : null;
+      // Una ficha por producto: si OTRA persona está tomando otra presentación del mismo producto, cuenta como
+      // apartado (si no, elegir otra presentación le quitaría la captura a la mitad).
+      const deLaFicha = lev ? this.apartadoDe(lev, String(lev.sheet?.['principal'] ?? '') as LevantamientoPeldano) : null;
+      const apartado = deLaFicha && apartadoVivo(deLaFicha, ahora) && deLaFicha.by !== quien.userId
+        ? deLaFicha
+        : (lev && principal ? this.apartadoDe(lev, principal) : null);
       const vivos = await this.apartadosVivos(trx, tenant, quien.userId, lev?.id ?? null, ahora);
 
       const decision = decidirEscaneo({
@@ -332,13 +393,12 @@ export class LevantamientoService {
 
       const scanned = { rung: r.peldano as LevantamientoPeldano, label: r.unidad, factor: r.factor };
       const principalDto = principal ? { rung: principal, ...this.etiqueta(fila, principal) } : null;
-      const comun = { ...base, sku: r.sku, name: r.nombre, scanned: porBusqueda ? null : scanned, principal: principalDto };
+      const rungs = disponibles.map((p) => ({ rung: p, ...this.etiqueta(fila, p) }));
+      const comun = { ...base, sku: r.sku, name: r.nombre, scanned: porBusqueda ? null : scanned, principal: principalDto, rungs };
 
       if (decision.accion !== 'capturar') {
-        const message = decision.accion === 'otra_unidad' && principalDto
-          ? `Ese código es de ${nombreUnidad(r.unidad, r.factor)}. Por ahora sólo se fotografía ${nombreUnidad(principalDto.label, principalDto.factor)}: escanea el código de esa presentación.`
-          : MENSAJE[decision.accion];
-        return { ...comun, action: decision.accion, message };
+        // `[NP.7.L.23]` «otra_unidad» ya no sale: la presentación se elige (antes se rechazaba el código de otra).
+        return { ...comun, action: decision.accion, message: MENSAJE[decision.accion] };
       }
 
       if (decision.liberar) await this.soltarEn(trx, tenant, decision.liberar, quien.userId);
@@ -352,14 +412,14 @@ export class LevantamientoService {
       const fotos = lev && lev.status === 'en_captura' && !reiniciar ? (lev.photos ?? []) : [];
       return {
         ...comun, action: 'capturar', message: MENSAJE.capturar, sheet_id: id,
-        faces: [...carasRequeridas()] as LevantamientoCara[], ...this.carasDe(fotos, principal!), reserved_until: nuevo.until,
+        faces: [...carasRequeridas(porBusqueda)] as LevantamientoCara[], ...this.carasDe(fotos, principal!), reserved_until: nuevo.until,
       };
     });
   }
 
   private respuestaVacia(code: string | null): LevantamientoEscaneoRespuesta {
     return {
-      action: 'no_registrado', message: '', code, sku: null, name: null, scanned: null, principal: null,
+      action: 'no_registrado', message: '', code, sku: null, name: null, scanned: null, principal: null, rungs: [],
       sheet_id: null, faces: [], faces_done: [], faces_skipped: [], reserved_until: null, candidates: [],
     };
   }

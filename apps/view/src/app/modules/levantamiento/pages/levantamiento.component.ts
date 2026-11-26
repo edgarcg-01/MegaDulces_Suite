@@ -1,15 +1,17 @@
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal, viewChild } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
+import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import type {
   LevantamientoBusquedaFila, LevantamientoCara, LevantamientoContexto, LevantamientoDetalle, LevantamientoDetalleTipo, LevantamientoEscaneoDto,
-  LevantamientoEscaneoRespuesta, LevantamientoMotivoSalto, LevantamientoSugerido,
+  LevantamientoEscaneoRespuesta, LevantamientoEstadoFoto, LevantamientoMotivoSalto, LevantamientoPeldano, LevantamientoSugerido,
 } from '@megadulces/contracts';
 import { LEVANTAMIENTO_ACERCAMIENTOS, LEVANTAMIENTO_CARA_OBLIGATORIA, LEVANTAMIENTO_DETALLE_NOTA_MAX, LEVANTAMIENTO_DETALLES } from '@megadulces/contracts';
 import { CALIDAD_VERSION, dimensionesDeMedicion, juzgarFoto, medirFoto } from '@megadulces/ui-web';
 import { base64ToBlob } from '../../../core/http/visit-form-data';
 import { AuthService } from '../../../core/services/auth.service';
+import { UsoService } from '../../../core/services/uso.service';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -17,7 +19,7 @@ import { ProductScanFieldComponent } from '../../comercial/components/product-sc
 import { CameraShotComponent } from '../../finanzas/components/camera-shot.component';
 import { LevantamientoService } from '../levantamiento.service';
 
-type Paso = 'sucursal' | 'inicio' | 'buscar' | 'confirmar' | 'captura' | 'repetir' | 'salir' | 'listo' | 'detalle';
+type Paso = 'inicio' | 'buscar' | 'confirmar' | 'captura' | 'repetir' | 'salir' | 'listo' | 'detalle';
 
 interface Pendiente {
   face: LevantamientoCara;
@@ -28,15 +30,48 @@ interface Pendiente {
 }
 
 const CARA: Record<LevantamientoCara, { nombre: string; indicacion: string }> = {
-  frente: { nombre: 'Frente', indicacion: 'Pon el frente del producto dentro del marco.' },
-  reverso: { nombre: 'Reverso', indicacion: 'Gira el producto: la cara de atrás.' },
+  // `[NP.7.L.21]` Cada paso recuerda qué encuadrar y la trampa típica de esa toma (la guía completa sale una vez).
+  frente: { nombre: 'Frente', indicacion: 'El frente derecho, llenando el marco y sin reflejos.' },
+  reverso: { nombre: 'Reverso', indicacion: 'Gira el producto: la cara de atrás, completa y derecha.' },
   lateral_izq: { nombre: 'Lado izq.', indicacion: 'El lado izquierdo del producto.' },
   lateral_der: { nombre: 'Lado der.', indicacion: 'El lado derecho del producto.' },
   base: { nombre: 'Base', indicacion: 'La cara de abajo del producto.' },
   // Acercamientos (primer feedback de quien captura, 2026-11-07): en el reverso entero no se alcanzan a leer.
-  tabla_nutricional: { nombre: 'Tabla nutr.', indicacion: 'Acércate a la tabla nutrimental: que se lean los números.' },
-  informacion: { nombre: 'Información', indicacion: 'Acércate a los ingredientes, alérgenos y datos del fabricante.' },
+  tabla_nutricional: { nombre: 'Tabla nutr.', indicacion: 'Acércate a la tabla nutrimental hasta que se lean los números. Espera a que enfoque.' },
+  informacion: { nombre: 'Información', indicacion: 'Acércate a los ingredientes y los datos del fabricante hasta que se lean.' },
   codigo_barras: { nombre: 'Código', indicacion: 'Acércate al código de barras: que se lean las barras y los números.' },
+};
+
+/** `[NP.7.L.25]` Lo que muestra la tarjeta de un escaneo que no abre la captura. */
+export interface TarjetaEscaneo {
+  tono: 'ok' | 'curso' | 'warn' | 'bad';
+  icono: string;
+  titulo: string;
+  mensaje: string;
+  nombre: string | null;
+  codigo: string | null;
+  candidatos: Array<{ sku: string; name: string | null }>;
+  /** Ofrecer «Buscarlo por nombre» (el código no está en sus sucursales). */
+  buscar: boolean;
+}
+
+/** Cada acción del servidor, con palabras e icono (nunca sólo color). El texto largo es el del servidor. */
+export function tarjetaDe(r: Pick<LevantamientoEscaneoRespuesta, 'action' | 'message' | 'name' | 'code' | 'candidates'>): TarjetaEscaneo {
+  const base = { mensaje: r.message, nombre: r.name, codigo: r.code, candidatos: [] as TarjetaEscaneo['candidatos'], buscar: false };
+  switch (r.action) {
+    case 'ya_esta': return { ...base, tono: 'ok', icono: 'pi-check-circle', titulo: 'Ya tiene fotos' };
+    case 'en_revision': return { ...base, tono: 'ok', icono: 'pi-check-circle', titulo: 'Ya se le tomaron fotos' };
+    case 'apartado_por_otro': return { ...base, tono: 'curso', icono: 'pi-clock', titulo: 'Alguien más lo está tomando' };
+    case 'no_registrado': return { ...base, tono: 'warn', icono: 'pi-exclamation-circle', titulo: 'No está en tus sucursales', buscar: true };
+    case 'codigo_compartido': return { ...base, tono: 'warn', icono: 'pi-clone', titulo: '¿Cuál de estos es?', candidatos: r.candidates ?? [] };
+    case 'demasiados_apartados': return { ...base, tono: 'warn', icono: 'pi-exclamation-circle', titulo: 'Tienes capturas sin terminar' };
+    default: return { ...base, tono: 'warn', icono: 'pi-exclamation-circle', titulo: 'No se puede levantar todavía' };
+  }
+}
+
+/** `[NP.7.L.24]` Nombre completo de cada foto para el título del paso (el corto va en espacios chicos). */
+const CARA_LARGO: Partial<Record<LevantamientoCara, string>> = {
+  lateral_izq: 'Lado izquierdo', lateral_der: 'Lado derecho', tabla_nutricional: 'Tabla nutrimental', informacion: 'Ingredientes y fabricante', codigo_barras: 'Código de barras',
 };
 
 const MOTIVOS: Array<{ id: LevantamientoMotivoSalto; texto: string }> = [
@@ -45,6 +80,11 @@ const MOTIVOS: Array<{ id: LevantamientoMotivoSalto; texto: string }> = [
   { id: 'otro', texto: 'Otro motivo' },
 ];
 
+/** `[NP.7.L.21]` La guía se muestra UNA vez por teléfono: quien ya la vio no la vuelve a leer en cada producto. */
+const CLAVE_GUIA = 'np7-guia-fotos-vista';
+const leerGuiaVista = (): boolean => { try { return localStorage.getItem(CLAVE_GUIA) === '1'; } catch { return false; } };
+const guardarGuiaVista = (): void => { try { localStorage.setItem(CLAVE_GUIA, '1'); } catch { /* sin almacenamiento: se vuelve a mostrar */ } };
+
 /** Un acercamiento no es una cara que se gire: o el empaque no lo trae, o hay otro motivo. */
 const MOTIVOS_ACERCAMIENTO: Array<{ id: LevantamientoMotivoSalto; texto: string }> = [
   { id: 'no_tiene_esa_cara', texto: 'No la trae' },
@@ -52,16 +92,14 @@ const MOTIVOS_ACERCAMIENTO: Array<{ id: LevantamientoMotivoSalto; texto: string 
 ];
 
 const TIPOS_DETALLE: Array<{ id: LevantamientoDetalleTipo; texto: string }> = [
+  // `[NP.7.L.21]` Los lados y la base ya no se piden: si traen algo impreso, van aquí.
+  { id: 'lados', texto: 'Lados o base con algo impreso' },
   { id: 'caducidad', texto: 'Caducidad o lote' },
   { id: 'sellos', texto: 'Sellos o advertencias' },
   { id: 'promocion', texto: 'Promoción impresa' },
   { id: 'otro', texto: 'Otra cosa' },
 ];
 
-/** Comodidad por teléfono: la sucursal que eligió quien no tiene una en su perfil. Si falla, se vuelve a preguntar. */
-const CLAVE_SUCURSAL = 'np7-sucursal-elegida';
-const leerSucursal = (): string | null => { try { return localStorage.getItem(CLAVE_SUCURSAL); } catch { return null; } };
-const guardarSucursal = (v: string | null): void => { try { if (v) localStorage.setItem(CLAVE_SUCURSAL, v); else localStorage.removeItem(CLAVE_SUCURSAL); } catch { /* sin almacenamiento: se pregunta otra vez */ } };
 
 const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'caja', BTO: 'bulto', CUB: 'cubeta', KG: 'kilo', BOL: 'bolsa', DSP: 'exhibidor' };
 
@@ -88,72 +126,77 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
   template: `
     <main class="lv" [attr.aria-busy]="ocupado()">
       @switch (paso()) {
-        @case ('sucursal') {
-          <header class="lv-head"><h1 class="lv-t">¿En qué sucursal estás?</h1>
-            <p class="lv-s">Tu usuario no tiene sucursal asignada. Elige dónde estás levantando productos.</p></header>
-          <section class="lv-body">
-            <ul class="lv-list" aria-label="Sucursales">
-              @for (b of sucursalesDisponibles(); track b.code) {
-                <li><button type="button" class="lv-btn lv-opcion" (click)="elegirSucursal(b.code)">{{ b.name }}</button></li>
-              }
-            </ul>
-            @if (aviso()) { <p class="lv-aviso" role="status">{{ aviso() }}</p> }
-          </section>
-        }
         @case ('inicio') {
-          <header class="lv-head">
-            <h1 class="lv-t">Levantamiento · {{ ctx()?.branch_name ?? ctx()?.branch_code ?? '' }}</h1>
-            <p class="lv-s">{{ ctx()?.user?.name || ctx()?.user?.username || auth.user()?.username }}
-              <button type="button" class="lv-link" (click)="noSoyYo()">No soy yo</button>
-              @if (ctx()?.branch_source === 'elegida') { <button type="button" class="lv-link" (click)="cambiarSucursal()">Cambiar sucursal</button> }</p>
+          <!-- [NP.7.L.24] Pulido (maqueta docs/maquetas/NP7-levantamiento-pulido.html): buscador arriba, avance en el
+               centro, la lista, y «Escanear» fijo abajo donde cae el pulgar. Entradas: 5 → 2. -->
+          <header class="lv-appbar">
+            <!-- [NP.7.L.26] La pantalla va sin el marco de la app: ésta es su salida a la suite. -->
+            <button type="button" class="lv-back" (click)="volverASuite()" aria-label="Volver a Mi trabajo" title="Volver a Mi trabajo"><i class="pi pi-home" aria-hidden="true"></i></button>
+            <div class="lv-grow"><p class="lv-eyebrow">Levantamiento de fotos</p>
+              <h1 class="lv-title">{{ ctx()?.branch_name ?? ctx()?.branch_code ?? '' }}</h1></div>
+            <div class="lv-quien">{{ ctx()?.user?.name || ctx()?.user?.username || auth.user()?.username }}
+              <button type="button" class="lv-link lv-link-sm" (click)="noSoyYo()">No soy yo</button></div>
           </header>
-          <section class="lv-body">
-            <button type="button" class="lv-btn lv-pri lv-lg" [disabled]="ocupado()" (click)="lector()?.abrirCamara()">
-              <i class="pi pi-qrcode" aria-hidden="true"></i> Escanear código</button>
-            <app-product-scan-field [valor]="codigo()" (valorChange)="codigo.set($event)" (buscar)="escanear($event)"
-              (sinCamara)="aviso.set($event)" [ocupado]="ocupado()" [conPie]="false" [autoEnfoque]="false"
-              etiqueta="O escribe el código" placeholder="O escribe el código" />
-            <button type="button" class="lv-link lv-full" (click)="abrirBuscador()">¿No pasa el código? Búscalo</button>
+          <section class="lv-body lv-body-inicio">
+            <button type="button" class="lv-sbar" (click)="abrirBuscador()"><i class="pi pi-search" aria-hidden="true"></i> Buscar por nombre, SKU o código</button>
+            <ng-container [ngTemplateOutlet]="tarjetaTpl" />
             @if (aviso()) { <p class="lv-aviso" role="status">{{ aviso() }}</p> }
 
             <app-load-state [loading]="cargando()" [error]="error()" [isEmpty]="false" (retry)="cargar()">
               @if (ctx(); as c) {
-                <app-metric-strip [items]="kpis()" density="compact" ariaLabel="Tu avance en el levantamiento" />
-                <p class="lv-ter">@if (c.week.rank) { Vas <b>{{ c.week.rank }}.º</b> en tu sucursal esta semana · }
-                  <app-freshness-pill measures="fetch" [since]="cargadoEn()" /></p>
-                @if (!c.ai_enabled) { <p class="lv-ter">Todo lo que levantes lo revisa Catálogo antes de publicarse.</p> }
-                <div class="lv-sug">
-                  <p class="lv-eyebrow">Búscalos en el anaquel y escanéalos</p>
-                  <p class="lv-ter">Los que más se venden primero</p>
-                  <ul class="lv-list">
+                <div class="lv-cov">
+                  <div class="lv-cov-k"><span class="lv-eyebrow">Por fotografiar</span><app-freshness-pill measures="fetch" [since]="cargadoEn()" /></div>
+                  <p class="lv-cov-big"><b>{{ c.missing | number }}</b> <span>productos sin foto</span></p>
+                  <div class="lv-cov-bar" role="progressbar" [attr.aria-valuenow]="cobertura()" aria-valuemin="0" aria-valuemax="100" aria-label="Productos con foto">
+                    <i [style.width.%]="cobertura()"></i></div>
+                  <p class="lv-cov-lg"><span>{{ c.universe - c.missing | number }} de {{ c.universe | number }} con foto · {{ cobertura() | number: '1.0-1' }} %</span>
+                    @if (!c.ai_enabled) { <span>Catálogo revisa cada uno</span> }</p>
+                </div>
+                <app-metric-strip [items]="kpis()" density="compact" ariaLabel="Tu semana en el levantamiento" />
+                @if (c.week.rank) { <p class="lv-ter">Vas <b>{{ c.week.rank }}.º</b> en tu sucursal esta semana</p> }
+                @if (sugeridos().length) {
+                  <div class="lv-sect"><h2>Búscalos en el anaquel: los más vendidos sin foto</h2></div>
+                  <ul class="lv-items" aria-label="Los más vendidos sin foto">
                     @for (s of sugeridos(); track s.sku) {
-                      <li class="lv-row"><span>{{ s.name }}</span><small>{{ unidad(s.unit_label, s.unit_factor) }}</small></li>
+                      <li class="lv-item"><span class="lv-item-ic" aria-hidden="true"><i class="pi pi-camera"></i></span>
+                        <span class="lv-item-tx"><span class="lv-item-nm">{{ s.name }}</span><small>{{ mayuscula(unidad(s.unit_label, s.unit_factor)) }}</small></span></li>
                     }
                   </ul>
                   @if (totalSugeridos() > sugeridos().length) {
-                    <button type="button" class="lv-link lv-full" [disabled]="masCargando()" (click)="masSugeridos()">ver más ({{ totalSugeridos() - sugeridos().length | number }} restantes)</button>
+                    <button type="button" class="lv-btn" [disabled]="masCargando()" (click)="masSugeridos()">Ver más · {{ totalSugeridos() - sugeridos().length | number }} restantes</button>
                   }
-                </div>
+                }
               }
             </app-load-state>
           </section>
+          <footer class="lv-dock">
+            <button type="button" class="lv-btn lv-pri lv-xl" [disabled]="ocupado()" (click)="lector()?.abrirCamara()">
+              <i class="pi pi-qrcode" aria-hidden="true"></i> Escanear código de barras</button>
+          </footer>
         }
 
         @case ('buscar') {
-          <header class="lv-head"><div class="lv-bar"><button type="button" class="lv-back" (click)="paso.set('inicio')" aria-label="Regresar"><i class="pi pi-chevron-left"></i></button>
-            <h1 class="lv-t lv-grow">Buscar el producto</h1></div></header>
+          <header class="lv-appbar"><button type="button" class="lv-back" (click)="paso.set('inicio')" aria-label="Regresar"><i class="pi pi-chevron-left"></i></button>
+            <h1 class="lv-title lv-grow">Buscar producto</h1></header>
           <section class="lv-body">
-            <label class="lv-search"><i class="pi pi-search" aria-hidden="true"></i>
-              <input type="search" [value]="termino()" (input)="alTeclear($any($event.target).value)" placeholder="Código, SKU o nombre"
-                aria-label="Buscar por código, SKU o nombre" autocomplete="off" enterkeyhint="search" /></label>
-            <p class="lv-ter">Palabras en cualquier orden. Sin escribir nada: lo más vendido aquí.</p>
-            <app-load-state [loading]="buscando()" [error]="null" [isEmpty]="!buscando() && resultados().length === 0"
-              emptyTitle="No aparece" emptyHint="Puede ser un producto que el sistema no tiene en esta sucursal. Avísale a tu encargado.">
+            <div class="lv-search"><i class="pi pi-search" aria-hidden="true"></i>
+              <input type="search" [value]="termino()" (input)="alTeclear($any($event.target).value)" placeholder="Nombre, SKU o código"
+                aria-label="Buscar por nombre, SKU o código" autocomplete="off" enterkeyhint="search" />
+              <button type="button" class="lv-search-scan" aria-label="Escanear el código con la cámara" (click)="lector()?.abrirCamara()"><i class="pi pi-qrcode" aria-hidden="true"></i></button></div>
+            <p class="lv-ter">Palabras en cualquier orden. Sin escribir nada: lo más vendido.</p>
+            <ng-container [ngTemplateOutlet]="tarjetaTpl" />
+            <!-- [NP.7.L.22] Una búsqueda que FALLÓ se dice como error, no como «No aparece» (auditoría 2026-11-26). -->
+            <app-load-state [loading]="buscando()" [error]="errorBusqueda()" errorTitle="No se pudo buscar" (retry)="buscarAhora(termino())"
+              [isEmpty]="!buscando() && !errorBusqueda() && resultados().length === 0"
+              emptyTitle="No aparece" emptyHint="Puede ser un producto que el sistema no tiene en tus sucursales. Avísale a tu encargado.">
               <ul class="lv-list" aria-label="Resultados">
                 @for (p of resultados(); track p.sku) {
-                  <li><button type="button" class="lv-res" [disabled]="p.has_sheet || ocupado()" (click)="elegir(p)">
-                    <span>{{ p.name }}</span>
-                    <small>{{ p.has_sheet ? 'Ya tiene ficha' : 'Falta' }}@if (p.content) { · {{ p.content }} }</small>
+                  <!-- Se puede tocar aunque ya tenga foto: el servidor responde «ya tiene fotos, escanea otro». -->
+                  <li><button type="button" class="lv-res" [class.lv-res-hecha]="p.photo_status !== 'falta'" [disabled]="ocupado()" (click)="elegir(p)">
+                    <span class="lv-item-tx"><span class="lv-item-nm">{{ p.name }}</span>
+                      <small>@if (p.content) { <span>{{ p.content }}</span> }
+                        <span class="lv-pill" [class]="'lv-pill lv-pill-' + p.photo_status"><i [class]="'pi ' + estadoFoto[p.photo_status].icono" aria-hidden="true"></i> {{ estadoFoto[p.photo_status].texto }}</span></small></span>
+                    <i class="pi pi-chevron-right lv-chev" aria-hidden="true"></i>
                   </button></li>
                 }
               </ul>
@@ -162,41 +205,64 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
           </section>
         }
         @case ('confirmar') {
-          <header class="lv-head"><div class="lv-bar"><button type="button" class="lv-back" [disabled]="ocupado()" (click)="noEsEste()" aria-label="Regresar"><i class="pi pi-chevron-left"></i></button>
-            <h1 class="lv-t lv-grow">Confirma el código</h1></div></header>
+          <header class="lv-appbar"><button type="button" class="lv-back" [disabled]="ocupado()" (click)="noEsEste()" aria-label="Regresar"><i class="pi pi-chevron-left"></i></button>
+            <h1 class="lv-title lv-grow">¿Es este producto?</h1></header>
           <section class="lv-body">
-            @if (escaneo()?.code) { <p class="lv-code">{{ escaneo()?.code }}</p> } @else { <p class="lv-ter">Elegido por nombre: Catálogo lo revisará antes de publicarse.</p> }
-            <p class="lv-name">{{ escaneo()?.name }}</p>
-            <p class="lv-sec">Vas a fotografiar: <b>{{ unidad(escaneo()?.principal?.label, escaneo()?.principal?.factor) }}</b></p>
-            <p class="lv-q">¿Es lo que tienes en la mano?</p>
-            @if (escaneo()?.scanned; as s) { <p class="lv-ter lv-push">En Kepler: {{ s.label ?? 'sin rótulo' }} · factor {{ s.factor ?? 'sin capturar' }} (tal cual)</p> }
+            <div class="lv-prod">
+              @if (escaneo()?.code) { <p class="lv-prod-code"><i class="pi pi-qrcode" aria-hidden="true"></i> {{ escaneo()?.code }}</p> }
+              @else { <p class="lv-prod-code"><i class="pi pi-search" aria-hidden="true"></i> Elegido por nombre: Catálogo lo revisará</p> }
+              <p class="lv-prod-nm">{{ escaneo()?.name }}</p>
+            </div>
+            <!-- [NP.7.L.23] Elige UNA presentación (viene marcada la del código o la más vendida). Sólo al empezar:
+                 al retomar una captura con fotos, cambiarla dejaría esas fotos en otra presentación. -->
+            @if (puedeElegirPresentacion()) {
+              <p id="lv-pres-q" class="lv-q">¿Qué tienes en la mano?</p>
+              <div class="lv-opts" role="radiogroup" aria-labelledby="lv-pres-q">
+                @for (p of escaneo()?.rungs ?? []; track p.rung) {
+                  <button type="button" role="radio" class="lv-op" [class.lv-op-sel]="p.rung === escaneo()?.principal?.rung" [attr.aria-checked]="p.rung === escaneo()?.principal?.rung"
+                    [disabled]="ocupado()" (click)="cambiarPresentacion(p.rung)">
+                    <span class="lv-op-rd" aria-hidden="true"></span>
+                    <span class="lv-item-tx"><span class="lv-op-nm">{{ mayuscula(unidad(p.label, 1)) }}</span><small>{{ piezas(p.factor) }}</small></span>
+                  </button>
+                }
+              </div>
+            } @else {
+              <p class="lv-q">Vas a fotografiar: {{ unidad(escaneo()?.principal?.label, escaneo()?.principal?.factor) }}</p>
+            }
           </section>
           <footer class="lv-foot">
-            <button type="button" class="lv-btn lv-pri" [disabled]="ocupado()" (click)="empezar()">Sí, tomar fotos</button>
+            <button type="button" class="lv-btn lv-pri lv-cta" [disabled]="ocupado()" (click)="empezar()"><i class="pi pi-camera" aria-hidden="true"></i> {{ textoEmpezar() }}</button>
             <button type="button" class="lv-link lv-full" [disabled]="ocupado()" (click)="noEsEste()">No es éste</button>
           </footer>
         }
 
         @case ('captura') {
-          <header class="lv-head">
-            <div class="lv-bar"><button type="button" class="lv-back" [disabled]="ocupado()" (click)="paso.set('salir')" aria-label="Salir"><i class="pi pi-chevron-left"></i></button>
-              <span class="lv-t lv-grow">{{ escaneo()?.name }}</span><span class="lv-sec">{{ indice() + 1 }} de {{ caras().length }}</span></div>
-            <p class="lv-sec">Fotografías: <b>{{ unidad(escaneo()?.principal?.label, escaneo()?.principal?.factor) }}</b></p>
-          </header>
+          <header class="lv-appbar"><button type="button" class="lv-back" [disabled]="ocupado()" (click)="paso.set('salir')" aria-label="Salir sin terminar"><i class="pi pi-times"></i></button>
+            <div class="lv-grow lv-min0"><p class="lv-eyebrow">{{ mayuscula(unidad(escaneo()?.principal?.label, escaneo()?.principal?.factor)) }}</p>
+              <h1 class="lv-title lv-title-sm">{{ escaneo()?.name }}</h1></div></header>
           <section class="lv-body">
-            <ol class="lv-steps" aria-label="Caras">
+            @if (mostrarGuia()) {
+              <div class="lv-guia" role="note" aria-labelledby="lv-guia-t">
+                <p id="lv-guia-t" class="lv-q0">Para que salgan nítidas</p>
+                <p class="lv-tip"><i class="pi pi-sun" aria-hidden="true"></i><span>Buena luz, sin flash si el empaque brilla.</span></p>
+                <p class="lv-tip"><i class="pi pi-stop" aria-hidden="true"></i><span>El producto solo, sobre fondo liso, llenando el marco.</span></p>
+                <p class="lv-tip"><i class="pi pi-mobile" aria-hidden="true"></i><span>Codos apoyados. Toca el producto para enfocar y espera un segundo.</span></p>
+                <button type="button" class="lv-btn" (click)="cerrarGuia()">Entendido</button>
+              </div>
+            }
+            <!-- Avance: un tramo por foto (verde hecho, naranja la actual). La lista de nombres queda para el lector de pantalla. -->
+            <ol class="lv-progress" aria-label="Fotos">
               @for (c of caras(); track c; let i = $index) {
-                <li [class.hecha]="hechas().has(c)" [class.actual]="i === indice()">
-                  <span class="lv-step-ico" aria-hidden="true">@if (hechas().has(c)) { <i class="pi pi-check"></i> } @else { {{ i + 1 }} }</span>{{ nombreCara(c) }}
-                </li>
+                <li [class.hecha]="hechas().has(c)" [class.actual]="i === indice()"><span class="lv-sr">{{ nombreCara(c) }}@if (hechas().has(c)) { (hecha) }</span></li>
               }
             </ol>
-            <div class="lv-marco" aria-hidden="true"><div class="lv-silueta">{{ nombreCara(caraActual()) }}</div></div>
-            <p class="lv-indic">{{ indicacion() }}</p>
+            <p class="lv-stepline"><b>{{ nombreCaraLargo(caraActual()) }}</b><span>Foto {{ indice() + 1 }} de {{ caras().length }}</span></p>
+            <div class="lv-marco" aria-hidden="true"><span class="lv-esq"></span><span class="lv-esq"></span><span class="lv-esq"></span><span class="lv-esq"></span>
+              <p class="lv-indic">{{ indicacion() }}</p></div>
             @if (aviso()) { <p class="lv-aviso" role="status">{{ aviso() }}</p> }
           </section>
           <footer class="lv-foot">
-            <button type="button" class="lv-btn lv-pri lv-lg" [disabled]="ocupado()" (click)="camara()?.abrir()"><i class="pi pi-camera" aria-hidden="true"></i> Tomar foto</button>
+            <button type="button" class="lv-btn lv-pri lv-xl" [disabled]="ocupado()" (click)="camara()?.abrir()"><i class="pi pi-camera" aria-hidden="true"></i> {{ hechas().size === 0 ? 'Tomar foto · ' + nombreCaraLargo(caraActual()) : 'Tomar foto' }}</button>
             @if (eligiendoMotivo()) {
               <div class="lv-motivos" role="group" aria-labelledby="lv-motivo-q">
                 <p id="lv-motivo-q" class="lv-q0">¿Por qué no se puede tomar esta foto ({{ nombreCara(caraActual()) }})?</p>
@@ -205,8 +271,6 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
               </div>
             } @else if (caraActual() !== caraObligatoria) {
               <button type="button" class="lv-link lv-full" [disabled]="ocupado()" (click)="eligiendoMotivo.set(true)">{{ saltarTexto() }}</button>
-            } @else {
-              <p class="lv-ter lv-center">El frente siempre se fotografía: es la foto principal del catálogo.</p>
             }
             <ng-container [ngTemplateOutlet]="camaraTpl" />
           </footer>
@@ -274,7 +338,7 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
               <!-- «Más detalles»: opcionales y DESPUÉS de terminar (el producto ya está en revisión; no lo frenan). -->
               @if (puedeDetalle()) {
                 <div class="lv-det">
-                  <p class="lv-ter">¿Viste algo más que valga la pena? Caducidad, sellos, una promoción impresa.</p>
+                  <p class="lv-ter">¿Los lados o la base traen algo impreso? ¿Caducidad, sellos, una promoción? Agrégalo aquí.</p>
                   <button type="button" class="lv-btn" [disabled]="ocupado()" (click)="abrirDetalle()">
                     <i class="pi pi-plus" aria-hidden="true"></i> Agregar detalle ({{ detalles().length }} de {{ maxDetalles }})</button>
                 </div>
@@ -298,6 +362,33 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
       <!-- La cámara sólo existe en los dos pasos que toman foto, dentro de su pie. Suelta al final de la pantalla, su
            respaldo sin cámara (permiso negado) se arrastraba a «Enviado» con un «Tomar foto» que ya no tenía qué
            fotografiar, y pegado al borde (prueba visual con la CSP de prod, 2026-11-03). Una sola declaración. -->
+      <!-- [NP.7.L.24] Un solo escáner para toda la pantalla: sólo su cámara (el inicio y el buscador ponen sus botones). -->
+      <app-product-scan-field [soloCamara]="true" [valor]="codigo()" (valorChange)="codigo.set($event)" (buscar)="escanear($event)"
+        (sinCamara)="aviso.set($event)" (pidioTeclear)="abrirBuscador()" [ocupado]="ocupado()" [conPie]="false" [autoEnfoque]="false" />
+      <!-- [NP.7.L.25] El resultado de un escaneo que NO abre la captura, en una tarjeta visible (antes, un renglón de
+           13 px bajo el buscador: en la prueba en celular se leyó como «no hizo nada»). -->
+      <ng-template #tarjetaTpl>
+        @if (resultado(); as t) {
+          <div [class]="'lv-card lv-card-' + t.tono" role="alert">
+            <i [class]="'pi ' + t.icono + ' lv-card-ico'" aria-hidden="true"></i>
+            <div class="lv-card-tx">
+              <p class="lv-card-t">{{ t.titulo }}</p>
+              @if (t.nombre) { <p class="lv-card-nm">{{ t.nombre }}</p> }
+              <p class="lv-card-msg">{{ t.mensaje }}</p>
+              @if (t.codigo) { <p class="lv-card-code"><i class="pi pi-qrcode" aria-hidden="true"></i> {{ t.codigo }}</p> }
+              @if (t.candidatos.length) {
+                <div class="lv-card-acc" role="group" aria-label="¿Cuál de estos es?">
+                  @for (p of t.candidatos; track p.sku) {
+                    <button type="button" class="lv-btn" [disabled]="ocupado()" (click)="elegirCandidato(p.sku)">{{ p.name ?? p.sku }}</button>
+                  }
+                </div>
+              }
+              @if (t.buscar) { <button type="button" class="lv-btn lv-card-btn" (click)="abrirBuscador()"><i class="pi pi-search" aria-hidden="true"></i> Buscarlo por nombre</button> }
+            </div>
+            <button type="button" class="lv-card-x" aria-label="Cerrar aviso" (click)="resultado.set(null)"><i class="pi pi-times" aria-hidden="true"></i></button>
+          </div>
+        }
+      </ng-template>
       <ng-template #camaraTpl>
         <app-camera-shot [etiqueta]="etiquetaCamara()" [maxLado]="4096" [resolucion]="'maxima'" [recodificarSiempre]="true" [indicacion]="indicacionCamara()"
           [guia]="etiquetaCamara()" (tomada)="alTomar($event.dataUri)" />
@@ -330,30 +421,101 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
     .lv-res small { color: var(--fg-3); font-size: var(--fs-xs); }
     .lv-res:disabled { cursor: default; color: var(--fg-3); }
     .lv-res:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-    .lv-opcion { justify-content: flex-start; padding: 0 var(--sp-3); margin-top: var(--sp-1); }
     .lv-back { min-width: var(--tap-min, 44px); min-height: var(--tap-min, 44px); border: 0; background: none; color: var(--fg-1); cursor: pointer; }
     .lv-eyebrow { margin: 0; font-size: var(--fs-micro); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--fg-3); }
     .lv-list { list-style: none; margin: var(--sp-2) 0 0; padding: 0; border-top: 1px solid var(--border-color); }
-    .lv-row { display: flex; flex-direction: column; justify-content: center; min-height: var(--tap-min, 44px); padding: var(--sp-2) 0; border-bottom: 1px solid var(--border-color); font-size: var(--fs-body); }
-    .lv-row small { color: var(--fg-3); font-size: var(--fs-xs); }
     .lv-aviso { margin: 0; font-size: var(--fs-sm); color: var(--fg-1); }
-    .lv-code { margin: var(--sp-2) 0 0; font-family: var(--font-mono, monospace); font-size: var(--fs-h2); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-    .lv-name { margin: 0; font-size: var(--fs-lg); font-weight: 700; }
     .lv-q { margin: var(--sp-3) 0 0; font-weight: 700; }
-    .lv-push { margin-top: auto; }
-    .lv-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-1); }
-    .lv-steps li { display: flex; flex-direction: column; align-items: center; gap: var(--sp-1); font-size: var(--fs-nano); color: var(--fg-3); text-align: center; }
-    .lv-step-ico { display: grid; place-items: center; width: 100%; aspect-ratio: 2 / 1; border: 1px dashed var(--border-color); border-radius: var(--r-sm); }
-    .lv-steps li.hecha .lv-step-ico { border-style: solid; color: var(--ok-fg); }
-    .lv-steps li.actual { color: var(--fg-1); font-weight: 700; }
-    .lv-steps li.actual .lv-step-ico { border: 2px solid var(--fg-1); }
-    .lv-indic { margin: 0; font-weight: 600; text-align: center; }
-    .lv-marco { flex: 1; min-height: 180px; display: grid; place-items: center; border-radius: var(--r-md); background: var(--surface-ground); }
-    .lv-silueta { width: 46%; aspect-ratio: 3 / 4; border: 2px dashed var(--fg-3); border-radius: var(--r-md); display: grid; place-items: center;
-      color: var(--fg-3); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: var(--fs-sm); }
+    /* [NP.7.L.24] Captura: marco con esquinas y el recordatorio dentro, donde esta la vista. */
+    .lv-marco { position: relative; flex: 1; min-height: 200px; border-radius: var(--r-lg); background: var(--surface-ground); }
+    .lv-esq { position: absolute; width: 26px; height: 26px; border: 0 solid var(--fg-1); }
+    .lv-esq:nth-child(1) { top: 16%; left: 16%; border-width: 3px 0 0 3px; border-top-left-radius: 10px; }
+    .lv-esq:nth-child(2) { top: 16%; right: 16%; border-width: 3px 3px 0 0; border-top-right-radius: 10px; }
+    .lv-esq:nth-child(3) { bottom: 22%; left: 16%; border-width: 0 0 3px 3px; border-bottom-left-radius: 10px; }
+    .lv-esq:nth-child(4) { bottom: 22%; right: 16%; border-width: 0 3px 3px 0; border-bottom-right-radius: 10px; }
+    .lv-indic { position: absolute; left: var(--sp-3); right: var(--sp-3); bottom: var(--sp-3); margin: 0; font-size: var(--fs-sm); font-weight: 600; text-align: center; color: var(--fg-1); }
+    .lv-progress { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+    .lv-progress li { height: 4px; border-radius: 2px; background: var(--border-color); }
+    .lv-progress li.hecha { background: var(--ok-fg); }
+    .lv-progress li.actual { background: var(--action); }
+    .lv-stepline { margin: calc(-1 * var(--sp-1)) 0 0; display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2); }
+    .lv-stepline b { font-size: var(--fs-h3); }
+    .lv-stepline span { font-size: var(--fs-xs); color: var(--fg-3); white-space: nowrap; }
+    .lv-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .lv-tip { margin: 0; display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--fs-sm); color: var(--fg-2); line-height: 1.35; }
+    .lv-tip .pi { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--r-sm); background: var(--card-bg); border: 1px solid var(--border-color); color: var(--fg-1); font-size: var(--fs-xs); }
     .lv-q0 { margin: 0 0 var(--sp-1); font-weight: 700; }
     .lv-motivos { display: grid; gap: var(--sp-1); }
     .lv-sel { border: 2px solid var(--fg-1); font-weight: 700; }
+    /* [NP.7.L.24] Encabezado de app: sobretitulo chico y titulo grande; la accion de salir a la izquierda. */
+    .lv-appbar { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4) var(--sp-2); }
+    .lv-appbar .lv-back { margin-left: calc(-1 * var(--sp-2)); }
+    .lv-title { margin: 2px 0 0; font-size: var(--fs-h2); font-weight: 700; letter-spacing: -.01em; }
+    .lv-title-sm { font-size: var(--fs-h3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lv-min0 { min-width: 0; }
+    .lv-quien { text-align: right; font-size: var(--fs-xs); color: var(--fg-3); line-height: 1.3; }
+    .lv-link-sm { min-height: var(--tap-min, 32px); padding: 0; font-size: var(--fs-xs); display: block; margin-left: auto; }
+    .lv-body-inicio { gap: var(--sp-3); padding-top: var(--sp-1); }
+    .lv-sbar { display: flex; align-items: center; gap: var(--sp-2); min-height: 48px; padding: 0 var(--sp-4); width: 100%; border: 1px solid var(--border-color); border-radius: var(--r-pill); background: var(--surface-ground); color: var(--fg-3); font-size: var(--fs-body); text-align: left; cursor: pointer; }
+    .lv-sbar:focus-visible, .lv-search-scan:focus-visible, .lv-op:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .lv-cov { border: 1px solid var(--border-color); border-radius: var(--r-lg); padding: var(--sp-4); background: var(--surface-ground); }
+    .lv-cov-k { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+    .lv-cov-big { margin: var(--sp-2) 0 0; display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-2); }
+    .lv-cov-big b { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-size: var(--fs-display); line-height: 1; letter-spacing: -.02em; }
+    .lv-cov-big span { font-size: var(--fs-body); color: var(--fg-2); }
+    .lv-cov-bar { height: 6px; margin-top: var(--sp-3); border-radius: 3px; background: var(--border-color); overflow: hidden; }
+    .lv-cov-bar i { display: block; height: 100%; min-width: 6px; border-radius: 3px; background: var(--ok-fg); }
+    .lv-cov-lg { margin: var(--sp-1) 0 0; display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); font-size: var(--fs-xs); color: var(--fg-3); }
+    .lv-sect h2 { margin: var(--sp-1) 0 0; font-size: var(--fs-sm); font-weight: 700; }
+    .lv-items { list-style: none; margin: 0; padding: 0; }
+    .lv-item { display: flex; align-items: center; gap: var(--sp-3); min-height: 60px; padding: var(--sp-2) 0; border-bottom: 1px solid var(--border-color); }
+    .lv-item:last-child { border-bottom: 0; }
+    .lv-item-ic { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: var(--r-sm); background: var(--surface-ground); border: 1px solid var(--border-color); color: var(--fg-2); }
+    .lv-item-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+    .lv-item-nm { font-size: var(--fs-body); font-weight: 600; overflow-wrap: anywhere; }
+    .lv-item-tx small { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--fg-3); }
+    .lv-dock { padding: var(--sp-3) var(--sp-4) max(var(--sp-4), env(safe-area-inset-bottom, 0)); border-top: 1px solid var(--border-color); background: var(--card-bg); position: sticky; bottom: 0; }
+    .lv-xl { min-height: 60px; font-size: var(--fs-lg); font-weight: 700; border-radius: var(--r-lg); }
+    .lv-cta { min-height: 52px; font-size: var(--fs-h3); font-weight: 700; }
+    .lv-search { min-height: 52px; padding-right: var(--sp-1); }
+    .lv-search input { font-size: 16px; }
+    .lv-search-scan { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--r-sm); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--fg-1); cursor: pointer; }
+    .lv-res { flex-direction: row; align-items: center; gap: var(--sp-2); min-height: 60px; }
+    .lv-res-hecha .lv-item-nm { color: var(--fg-2); }
+    .lv-chev { color: var(--fg-3); }
+    .lv-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--r-pill); font-size: var(--fs-micro); font-weight: 700; white-space: nowrap; }
+    .lv-pill-falta { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .lv-pill-tiene_foto { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+    .lv-pill-en_curso { background: var(--surface-ground); color: var(--fg-2); border: 1px solid var(--border-color); }
+    .lv-prod { border: 1px solid var(--border-color); border-radius: var(--r-lg); padding: var(--sp-4); background: var(--surface-ground); }
+    .lv-prod-code { margin: 0; display: flex; align-items: center; gap: var(--sp-1); font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-size: var(--fs-sm); color: var(--fg-2); overflow-wrap: anywhere; }
+    .lv-prod-nm { margin: var(--sp-2) 0 0; font-size: var(--fs-lg); font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+    .lv-opts { display: grid; gap: var(--sp-2); }
+    .lv-op { display: flex; align-items: center; gap: var(--sp-3); min-height: 60px; padding: var(--sp-2) var(--sp-3); width: 100%; border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--fg-1); font: inherit; cursor: pointer; }
+    .lv-op-sel { border-color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
+    .lv-op-rd { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--fg-3); }
+    .lv-op-sel .lv-op-rd { border-color: var(--action); background: var(--action); box-shadow: inset 0 0 0 4px var(--card-bg); }
+    .lv-op-nm { font-weight: 700; font-size: var(--fs-body); }
+    .lv-op:disabled { opacity: .6; cursor: not-allowed; }
+    .lv-card { display: flex; align-items: flex-start; gap: var(--sp-3); padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-4); border-radius: var(--r-lg); border: 1px solid var(--border-color); background: var(--surface-ground); }
+    .lv-card-ok { background: var(--ok-soft-bg); }
+    .lv-card-warn { background: var(--warn-soft-bg); }
+    .lv-card-bad { background: var(--bad-soft-bg); }
+    .lv-card-ico { flex: none; margin-top: 2px; font-size: var(--fs-lg); }
+    .lv-card-ok .lv-card-ico { color: var(--ok-soft-fg); }
+    .lv-card-warn .lv-card-ico { color: var(--warn-soft-fg); }
+    .lv-card-bad .lv-card-ico { color: var(--bad-soft-fg); }
+    .lv-card-curso .lv-card-ico { color: var(--fg-2); }
+    .lv-card-tx { flex: 1; min-width: 0; display: grid; gap: 2px; }
+    .lv-card-t { margin: 0; font-size: var(--fs-h3); font-weight: 700; color: var(--fg-1); }
+    .lv-card-nm { margin: 0; font-size: var(--fs-body); font-weight: 600; color: var(--fg-1); overflow-wrap: anywhere; }
+    .lv-card-msg { margin: 0; font-size: var(--fs-sm); color: var(--fg-1); }
+    .lv-card-code { margin: 2px 0 0; display: flex; align-items: center; gap: var(--sp-1); font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); color: var(--fg-2); }
+    .lv-card-acc { display: grid; gap: var(--sp-1); margin-top: var(--sp-2); }
+    .lv-card-btn { margin-top: var(--sp-2); width: auto; justify-self: start; padding: 0 var(--sp-3); }
+    .lv-card-x { flex: none; width: var(--tap-min, 36px); height: var(--tap-min, 36px); margin: calc(-1 * var(--sp-1)) calc(-1 * var(--sp-1)) 0 0; display: grid; place-items: center; border: 0; background: none; color: var(--fg-2); border-radius: var(--r-md); cursor: pointer; }
+    .lv-card-x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .lv-guia { display: grid; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface-ground); }
     .lv-det { display: grid; gap: var(--sp-2); width: 100%; margin-top: var(--sp-3); }
     .lv-mal { margin: 0; font-weight: 600; display: flex; gap: var(--sp-2); }
     .lv-mal .pi { color: var(--bad-fg); }
@@ -365,6 +527,9 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
 export class LevantamientoComponent implements OnInit {
   protected readonly auth = inject(AuthService);
   private readonly api = inject(LevantamientoService);
+  private readonly router = inject(Router);
+  /** `[NP.7.L.19]` Cada foto rechazada deja constancia, para calibrar el medidor con datos. */
+  private readonly uso = inject(UsoService);
   protected readonly camara = viewChild(CameraShotComponent);
   /** El lector de códigos: el botón grande «Escanear código» abre su cámara. */
   protected readonly lector = viewChild(ProductScanFieldComponent);
@@ -380,9 +545,8 @@ export class LevantamientoComponent implements OnInit {
   protected readonly ocupado = signal(false);
   protected readonly aviso = signal<string | null>(null);
   protected readonly ctx = signal<LevantamientoContexto | null>(null);
-  /** La sucursal ELEGIDA (sólo si el perfil no trae una, D25); null = la del perfil. */
-  private readonly sucursal = signal<string | null>(leerSucursal());
-  protected readonly sucursalesDisponibles = signal<Array<{ code: string; name: string }>>([]);
+  /** `[NP.7.L.25]` El último escaneo que no abrió la captura, como tarjeta (null = ninguno). */
+  protected readonly resultado = signal<TarjetaEscaneo | null>(null);
   /** Cuándo se leyó el conteo (se deriva en vivo del ODS; la pastilla dice su edad). */
   protected readonly cargadoEn = signal<Date | null>(null);
   /** Answer-first (Q.1): cuánto falta, y lo que lleva la persona esta semana. Lo que está en revisión no suma. */
@@ -390,10 +554,23 @@ export class LevantamientoComponent implements OnInit {
     const c = this.ctx();
     if (!c) return [];
     return [
-      { label: 'Sin fotos', value: c.missing, format: 'number', sub: 'productos de esta sucursal' },
-      { label: 'Publicadas esta semana', value: c.week.published, format: 'number' },
-      { label: 'En revisión', value: c.week.in_review, format: 'number', sub: 'no suman hasta publicarse' },
+      // [NP.7.L.24] «Sin fotos» pasó a la tarjeta de avance; aquí queda sólo la semana de la persona.
+      { label: 'Tus publicadas esta semana', value: c.week.published, format: 'number' },
+      { label: 'Tuyas en revisión', value: c.week.in_review, format: 'number', sub: 'no suman hasta publicarse' },
     ];
+  });
+  /** `[NP.7.L.24]` % del universo de la sucursal que ya tiene ficha: sale de lo que manda el servidor, no se calcula aparte. */
+  protected readonly cobertura = computed(() => {
+    const c = this.ctx();
+    if (!c || !(c.universe > 0)) return 0;
+    return Math.max(0, Math.min(100, ((c.universe - c.missing) / c.universe) * 100));
+  });
+  /** El botón de confirmar dice qué va a pasar: «Tomar 4 fotos del paquete». */
+  protected readonly textoEmpezar = computed(() => {
+    if (this.hechas().size > 0) return 'Seguir tomando fotos';
+    const n = this.caras().length;
+    const quien = this.unidad(this.escaneo()?.principal?.label, 1);
+    return 'Tomar ' + n + (n === 1 ? ' foto' : ' fotos') + (quien && quien !== 'presentación' ? (quien.endsWith('a') ? ' de la ' : ' del ') + quien : '');
   });
   protected readonly sugeridos = signal<LevantamientoSugerido[]>([]);
   protected readonly totalSugeridos = signal(0);
@@ -415,6 +592,13 @@ export class LevantamientoComponent implements OnInit {
   protected readonly caraActual = computed<LevantamientoCara>(() => this.caras()[this.indice()] ?? 'frente');
   protected readonly indicacion = computed(() => CARA[this.caraActual()]?.indicacion ?? '');
   private readonly esAcercamiento = computed(() => LEVANTAMIENTO_ACERCAMIENTOS.includes(this.caraActual()));
+  /** `[NP.7.L.21]` La guía de fotos: sólo antes de la primera foto, y sólo hasta que la persona la cierra una vez. */
+  private readonly guiaVista = signal(leerGuiaVista());
+  protected readonly mostrarGuia = computed(() => !this.guiaVista() && this.hechas().size === 0);
+  protected cerrarGuia(): void {
+    this.guiaVista.set(true);
+    guardarGuiaVista();
+  }
   protected readonly motivosActuales = computed(() => (this.esAcercamiento() ? MOTIVOS_ACERCAMIENTO : MOTIVOS));
   protected readonly saltarTexto = computed(() => (this.esAcercamiento() ? 'No la trae: saltar' : 'Saltar esta cara'));
 
@@ -452,42 +636,19 @@ export class LevantamientoComponent implements OnInit {
     this.cargando.set(true);
     this.error.set(null);
     try {
-      const [c, s] = await Promise.all([firstValueFrom(this.api.contexto(this.sucursal())), firstValueFrom(this.api.sugeridos(this.sucursal(), 3, 0))]);
+      const [c, s] = await Promise.all([firstValueFrom(this.api.contexto()), firstValueFrom(this.api.sugeridos(3, 0))]);
       this.ctx.set(c);
       this.cargadoEn.set(new Date());
       this.sugeridos.set(s.rows);
       this.totalSugeridos.set(s.total);
     } catch (e) {
-      if (e instanceof HttpErrorResponse && (e.error as { code?: string } | null)?.code === 'SUCURSAL_REQUERIDA') {
-        await this.pedirSucursal();
-        return;
-      }
+      // `[NP.7.L.20]` Sin sucursal en el perfil ni en el alcance, el servidor responde 403 `SIN_SUCURSAL` con el
+      // aviso «pídele a tu encargado»: se muestra tal cual. Ya no hay paso para elegirla.
       this.error.set(this.mensajeDe(e, 'No se pudo cargar el levantamiento.'));
     } finally {
       this.cargando.set(false);
     }
   }
-
-  private async pedirSucursal(): Promise<void> {
-    guardarSucursal(null);
-    this.sucursal.set(null);
-    try {
-      this.sucursalesDisponibles.set(await firstValueFrom(this.api.sucursales()));
-    } catch (e) {
-      this.aviso.set(this.mensajeDe(e, 'No se pudo cargar la lista de sucursales.'));
-    }
-    this.paso.set('sucursal');
-  }
-
-  protected elegirSucursal(code: string): void {
-    this.sucursal.set(code);
-    guardarSucursal(code);
-    this.aviso.set(null);
-    this.paso.set('inicio');
-    void this.cargar();
-  }
-
-  protected cambiarSucursal(): void { void this.pedirSucursal(); }
 
   protected readonly masCargando = signal(false);
 
@@ -496,7 +657,7 @@ export class LevantamientoComponent implements OnInit {
     if (this.masCargando()) return;
     this.masCargando.set(true);
     try {
-      const s = await firstValueFrom(this.api.sugeridos(this.sucursal(), 30, this.sugeridos().length));
+      const s = await firstValueFrom(this.api.sugeridos(30, this.sugeridos().length));
       this.sugeridos.update((xs) => [...xs, ...s.rows]);
       this.totalSugeridos.set(s.total);
     } catch (e) {
@@ -513,17 +674,32 @@ export class LevantamientoComponent implements OnInit {
   }
 
   protected nombreCara(c: LevantamientoCara): string { return CARA[c]?.nombre ?? c; }
+  /** El nombre completo (sin abreviar) para el título del paso y el botón. */
+  protected nombreCaraLargo(c: LevantamientoCara): string { return CARA_LARGO[c] ?? this.nombreCara(c); }
+  protected mayuscula(t: string): string { return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; }
+  protected piezas(f: number | null | undefined): string { return f != null && f > 1 ? f + ' piezas' : '1 pieza'; }
 
   protected noSoyYo(): void { this.auth.logout(); }
+  /** `[NP.7.L.26]` Volver a la suite (Mi trabajo): esta pantalla no lleva el marco ni el menú lateral. */
+  protected volverASuite(): void { void this.router.navigate(['/projects']); }
 
   protected readonly termino = signal('');
   protected readonly resultados = signal<LevantamientoBusquedaFila[]>([]);
   protected readonly buscando = signal(false);
+  /** `[NP.7.L.22]` La búsqueda falló (red, servidor): distinto de «no aparece». */
+  protected readonly errorBusqueda = signal<string | null>(null);
+  /** `[NP.7.L.22]` Cómo se dice el estado de las fotos en cada resultado: palabra + icono, nunca sólo color. */
+  protected readonly estadoFoto: Record<LevantamientoEstadoFoto, { texto: string; icono: string }> = {
+    tiene_foto: { texto: 'Tiene foto', icono: 'pi-check' },
+    en_curso: { texto: 'Alguien la está tomando', icono: 'pi-clock' },
+    falta: { texto: 'Falta foto', icono: 'pi-camera' },
+  };
   private espera: ReturnType<typeof setTimeout> | null = null;
   private consulta = 0;
 
   protected abrirBuscador(): void {
     this.aviso.set(null);
+    this.resultado.set(null);
     this.termino.set('');
     this.paso.set('buscar');
     void this.buscarAhora('');
@@ -536,18 +712,24 @@ export class LevantamientoComponent implements OnInit {
     this.espera = setTimeout(() => void this.buscarAhora(v), 250);
   }
 
-  private async buscarAhora(q: string): Promise<void> {
+  protected async buscarAhora(q: string): Promise<void> {
     const yo = ++this.consulta;
     this.buscando.set(true);
     try {
-      const filas = await firstValueFrom(this.api.buscar(this.sucursal(), q.trim()));
-      if (yo === this.consulta) this.resultados.set(filas);
+      const filas = await firstValueFrom(this.api.buscar(q.trim()));
+      if (yo === this.consulta) {
+        this.resultados.set(filas);
+        this.errorBusqueda.set(null); // y el «Sin conexión» de un intento anterior ya no aplica
+      }
     } catch (e) {
-      if (yo === this.consulta) { this.resultados.set([]); this.aviso.set(this.mensajeDe(e, 'No se pudo buscar. Intenta de nuevo.')); }
+      if (yo === this.consulta) { this.resultados.set([]); this.errorBusqueda.set(this.mensajeDe(e, 'No se pudo buscar. Intenta de nuevo.')); }
     } finally {
       if (yo === this.consulta) this.buscando.set(false);
     }
   }
+
+  /** `[NP.7.L.25]` Código compartido: la persona elige cuál de los productos tiene en la mano. */
+  protected elegirCandidato(sku: string): void { void this.resolver({ sku }); }
 
   protected elegir(p: LevantamientoBusquedaFila): void { void this.resolver({ sku: p.sku }); }
 
@@ -562,8 +744,9 @@ export class LevantamientoComponent implements OnInit {
     if (this.ocupado()) return;
     this.ocupado.set(true);
     this.aviso.set(null);
+    this.resultado.set(null);
     try {
-      const r = await firstValueFrom(this.api.escanear(this.sucursal(), dto));
+      const r = await firstValueFrom(this.api.escanear(dto));
       this.codigo.set('');
       if (r.action === 'capturar') {
         this.escaneo.set(r);
@@ -576,10 +759,14 @@ export class LevantamientoComponent implements OnInit {
         this.detallesCerrados.set(false);
         this.paso.set('confirmar');
       } else {
-        this.aviso.set(r.message);
+        this.resultado.set(tarjetaDe(r));
+        if (navigator.vibrate) navigator.vibrate([60, 60, 60]); // distinto del zumbido corto de «leído»
       }
     } catch (e) {
-      this.aviso.set(this.mensajeDe(e, 'No se pudo revisar el código. Intenta de nuevo.'));
+      this.resultado.set({
+        tono: 'bad', icono: 'pi-exclamation-triangle', titulo: 'No se pudo revisar el código',
+        mensaje: this.mensajeDe(e, 'Intenta de nuevo.'), nombre: null, codigo: dto.code ?? null, candidatos: [], buscar: false,
+      });
     } finally {
       this.ocupado.set(false);
     }
@@ -589,6 +776,26 @@ export class LevantamientoComponent implements OnInit {
     this.aviso.set(null);
     this.eligiendoMotivo.set(false);
     this.paso.set(this.hechas().size >= this.caras().length ? 'listo' : 'captura');
+  }
+
+  /** `[NP.7.L.23]` Hay de dónde elegir y la captura no ha empezado (sin fotos ni saltos todavía). */
+  protected readonly puedeElegirPresentacion = computed(() => (this.escaneo()?.rungs?.length ?? 0) > 1 && this.hechas().size === 0);
+
+  /**
+   * `[NP.7.L.23]` Cambiar la presentación marcada: se suelta el apartado de la propuesta y se vuelve a pedir con la
+   * elegida (el servidor valida que el producto la tenga y que nadie más esté tomando ese producto). Si no se puede
+   * apartar, se regresa al inicio con el aviso del servidor: nada queda apartado a medias.
+   */
+  protected async cambiarPresentacion(rung: LevantamientoPeldano): Promise<void> {
+    const r = this.escaneo();
+    if (!r || this.ocupado() || r.principal?.rung === rung) return;
+    const dto: LevantamientoEscaneoDto = r.code ? { code: r.code, rung } : { sku: r.sku ?? '', rung };
+    if (r.sheet_id) await firstValueFrom(this.api.soltar(r.sheet_id)).catch(() => undefined);
+    await this.resolver(dto);
+    if (this.escaneo() === r) {
+      this.escaneo.set(null);
+      this.paso.set('inicio');
+    }
   }
 
   async noEsEste(): Promise<void> {
@@ -620,15 +827,19 @@ export class LevantamientoComponent implements OnInit {
       const { blob, ancho, alto, medicion } = await this.medir(dataUri);
       const veredicto = juzgarFoto(medicion);
       if (!veredicto.ok) {
+        this.uso.registrarFotoRechazada({ motivo: veredicto.motivo, cara: face, version: CALIDAD_VERSION, nitidez: medicion.nitidez, contraste: medicion.contraste, ancho, alto });
         this.aviso.set(veredicto.mensaje);
         this.paso.set('repetir');
         return;
       }
       this.aviso.set(null);
+      if (!this.guiaVista()) this.cerrarGuia(); // ya tomó una buena: la guía cumplió
       this.paso.set('captura');
       await this.subir(r.sheet_id, { face, blob, ancho, alto, calidad: { sharpness: medicion.nitidez, contrast: medicion.contraste, version: CALIDAD_VERSION } });
     } catch {
       // medir() no pudo leer la imagen (un archivo que el navegador no decodifica): se dice, no se pierde.
+      // (`subir()` atrapa sus propias fallas: lo que llega aquí es de la medición.)
+      this.uso.registrarFotoRechazada({ motivo: 'ilegible', cara: face, version: CALIDAD_VERSION, nitidez: null, contraste: null, ancho: null, alto: null });
       this.aviso.set('No se pudo leer esa foto. Tómala otra vez con la cámara.');
       this.paso.set('repetir');
     } finally {
@@ -747,7 +958,11 @@ export class LevantamientoComponent implements OnInit {
     try {
       const { blob, ancho, alto, medicion } = await this.medir(dataUri);
       const veredicto = juzgarFoto(medicion);
-      if (!veredicto.ok) { this.aviso.set(veredicto.mensaje); return; }
+      if (!veredicto.ok) {
+        this.uso.registrarFotoRechazada({ motivo: veredicto.motivo, cara: face, version: CALIDAD_VERSION, nitidez: medicion.nitidez, contraste: medicion.contraste, ancho, alto });
+        this.aviso.set(veredicto.mensaje);
+        return;
+      }
       const nota = tipo === 'otro' ? this.detalleNota().trim() || null : null;
       const res = await firstValueFrom(this.api.subirFoto(r.sheet_id, face, blob,
         { sharpness: medicion.nitidez, contrast: medicion.contraste, version: CALIDAD_VERSION }, ancho, alto, { tipo, nota }));

@@ -19,7 +19,7 @@ import { createRequire } from 'node:module';
 import { resolve as resolvePath } from 'node:path';
 import knexFactory, { type Knex } from 'knex';
 import { LevantamientoService, type ArchivoSubido, type Quien } from './levantamiento.service';
-import { LEVANTAMIENTO_CARAS, type CoberturaLevantamiento } from '@megadulces/contracts';
+import { LEVANTAMIENTO_CARAS_REQUERIDAS, type CoberturaLevantamiento } from '@megadulces/contracts';
 import { RevisionService } from './revision.service';
 import { CONTEOS_LEVANTAMIENTO_SQL, EN_CURSO_SQL, NO_FISICO_REGEX } from './levantamiento.sql';
 import { nuevoApartado } from './levantamiento.rules';
@@ -63,7 +63,8 @@ const jpeg = (): ArchivoSubido => {
 /** Los campos de FormData, como texto (así llegan del navegador). */
 const meta = (face: string) => ({ face, sharpness: '812.4', contrast: '61.2', quality_version: 'lap4-v1-provisional', width: '3024', height: '4032' });
 /** Las 5 caras y los 3 acercamientos (tabla nutrimental, información, código de barras; 2026-11-07). */
-const CARAS: string[] = [...LEVANTAMIENTO_CARAS];
+/** `[NP.7.L.21]` Lo que se pide al ESCANEAR (4); por el buscador se agrega el código de barras. */
+const CARAS: string[] = [...LEVANTAMIENTO_CARAS_REQUERIDAS];
 
 class Prueba extends LevantamientoService {
   rungs = new Map<string, number>();
@@ -117,7 +118,8 @@ suite(titulo, () => {
     svc = new Prueba(
       { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) } as never,
       { requireTenantId: () => M } as never,
-      { assertCanWrite: async () => { throw new Error('sin alcance'); } } as never,
+      // `[NP.7.L.20]` Sin regla de alcance (fail-closed): cada quien levanta sólo en la sucursal de su perfil.
+      { current: async () => ({ dims: { warehouse: { modeWrite: 'none', valuesWrite: [] } } }), assertCanWrite: async () => { throw new Error('sin alcance'); } } as never,
       {
         putBuffer: async (b: Buffer, _t: string, folder: string) => { const key = `${folder}/${subidas.length + 1}.jpg`; subidas.push(key); bytes.set(key, b); return { key }; },
         remove: async (key: string) => { borradas.push(key); },
@@ -144,7 +146,7 @@ suite(titulo, () => {
 
   let sheet = '';
 
-  it('escanear el código de la pieza → aparta la ficha y pide las 8 fotos (5 caras + 3 acercamientos)', async () => {
+  it('escanear el código de la pieza → aparta la ficha y pide las 4 fotos (NP.7.L.21)', async () => {
     const r = await svc.escanear(ANA, { code: '7622210571403' });
     expect(r).toMatchObject({ action: 'capturar', sku: 'NP7IT1', faces: CARAS, faces_done: [], scanned: { rung: 'base' }, principal: { rung: 'base' } });
     sheet = String(r.sheet_id);
@@ -157,10 +159,15 @@ suite(titulo, () => {
     expect((await svc.escanear(LUIS, { code: '7622210571403' })).action).toBe('apartado_por_otro');
   });
 
-  it('⭐ D23: el código del paquete cuando la unidad principal es la pieza → otra_unidad, sin apartar', async () => {
+  it('⭐ [NP.7.L.23] el código del paquete propone el paquete, pero NO le quita a otra persona la captura de la pieza', async () => {
+    // ANA está tomando la pieza de NP7IT1 (prueba anterior). Una ficha por producto: elegir otra presentación no la roba.
     const r = await svc.escanear(LUIS, { code: '7501056960216' });
-    expect(r.action).toBe('otra_unidad');
+    expect(r.action).toBe('apartado_por_otro');
     expect(r.sheet_id).toBeNull();
+    expect(r.principal?.rung).toBe('dos');
+    expect(r.rungs.map((x) => x.rung)).toEqual(['base', 'dos', 'tres']);
+    // Elegir una presentación que el producto no tiene → 400 (NP7IT5 sólo tiene la pieza).
+    await expect(svc.escanear(LUIS, { code: '9990000000100', rung: 'tres' })).rejects.toThrow(/no tiene esa presentación/);
   });
 
   it('código compartido y código que nadie tiene → no se captura ni se crea ficha', async () => {
@@ -186,15 +193,15 @@ suite(titulo, () => {
     expect(borradas).toEqual([subidas[subidas.length - 1]]);
   });
 
-  it('⭐ las 8 fotos con el payload de FormData → fotos_tomadas, con sha256 y la medición de calidad', async () => {
+  it('⭐ las 4 fotos (NP.7.L.21) con el payload de FormData → fotos_tomadas, con sha256 y la medición de calidad', async () => {
     let ultima = null as Awaited<ReturnType<Prueba['foto']>> | null;
     for (const c of CARAS) ultima = await svc.foto(ANA, sheet, jpeg(), meta(c));
     expect(ultima).toMatchObject({ status: 'fotos_tomadas', complete: true });
     const fila = await trx('catalog.product_sheets').where({ id: sheet }).first('status', 'photos', 'sheet');
     expect(fila.status).toBe('fotos_tomadas');
-    expect(fila.photos).toHaveLength(8);
+    expect(fila.photos).toHaveLength(CARAS.length);
     expect(fila.photos[0]).toMatchObject({ peldano: 'base', captured_by: ANA.userId, saltada_motivo: null, calidad: { nitidez: 812.4, contraste: 61.2 }, ancho: 3024, alto: 4032 });
-    expect(new Set(fila.photos.map((p: { sha256: string }) => p.sha256)).size).toBe(8);
+    expect(new Set(fila.photos.map((p: { sha256: string }) => p.sha256)).size).toBe(CARAS.length);
     expect(fila.sheet.peldanos.base.apartado).toBeNull();
     // [NP.7.0.9] El peso se mide en el servidor, sobre lo que de verdad llegó al bucket (sin metadatos),
     // y la llave lleva el tenant.
@@ -213,17 +220,17 @@ suite(titulo, () => {
     await expect(svc.saltar(ANA, sheet, { face: 'detalle_1' as never, reason: 'otro' })).rejects.toThrow(/no se salta/);
     const r1 = await svc.foto(ANA, sheet, jpeg(), det('otro', '  hecho en\nColombia  '));
     expect(r1).toMatchObject({ face: 'detalle_1', status: 'fotos_tomadas', complete: true, details_done: ['detalle_1'] });
-    expect(r1.faces_done).toHaveLength(8); // el detalle no cuenta como cara
+    expect(r1.faces_done).toHaveLength(CARAS.length); // el detalle no cuenta como cara
     const fila = await trx('catalog.product_sheets').where({ id: sheet }).first('status', 'photos', 'sheet');
     expect(fila.status).toBe('fotos_tomadas');
-    expect(fila.photos).toHaveLength(9);
+    expect(fila.photos).toHaveLength(CARAS.length + 1);
     expect(fila.photos.find((p: { cara: string }) => p.cara === 'detalle_1')).toMatchObject({ detalle: { tipo: 'otro', nota: 'hecho en Colombia' }, captured_by: ANA.userId });
     // Fuera de la ventana de 30 min: 409 (se restaura `capturo.at` para las pruebas que siguen).
     const at = fila.sheet.capturo.at;
     await trx('catalog.product_sheets').where({ id: sheet }).update({ sheet: JSON.stringify({ ...fila.sheet, capturo: { ...fila.sheet.capturo, at: '2026-01-01T00:00:00.000Z' } }) });
     await expect(svc.foto(ANA, sheet, jpeg(), det('sellos'))).rejects.toThrow(/Pasaron más de 30 minutos/);
     await trx('catalog.product_sheets').where({ id: sheet }).update({ sheet: JSON.stringify({ ...fila.sheet, capturo: { ...fila.sheet.capturo, at } }) });
-    expect((await trx('catalog.product_sheets').where({ id: sheet }).first('photos')).photos).toHaveLength(9);
+    expect((await trx('catalog.product_sheets').where({ id: sheet }).first('photos')).photos).toHaveLength(CARAS.length + 1);
   });
 
   it('volver a escanear un producto ya levantado → «en revisión», no se duplica', async () => {
@@ -237,11 +244,13 @@ suite(titulo, () => {
     await expect(svc.saltar(LUIS, String(r.sheet_id), { face: 'base', reason: 'porque si' as never })).rejects.toThrow(/Elige por qué/);
     // A media captura no se agregan detalles (van al final).
     await expect(svc.foto(LUIS, String(r.sheet_id), jpeg(), { ...meta('detalle_1'), detail_kind: 'sellos' })).rejects.toThrow(/Termina primero/);
-    for (const c of CARAS.slice(0, 7)) await svc.foto(LUIS, String(r.sheet_id), jpeg(), meta(c));
-    const fin = await svc.saltar(LUIS, String(r.sheet_id), { face: 'codigo_barras', reason: 'no_tiene_esa_cara' });
-    expect(fin).toMatchObject({ status: 'fotos_tomadas', complete: true, faces_skipped: ['codigo_barras'] });
+    for (const c of CARAS.slice(0, -1)) await svc.foto(LUIS, String(r.sheet_id), jpeg(), meta(c));
+    // [NP.7.L.21] Al escanear ya no se pide el código de barras: la última pedida es la que se salta.
+    const ULTIMA = CARAS[CARAS.length - 1];
+    const fin = await svc.saltar(LUIS, String(r.sheet_id), { face: ULTIMA as never, reason: 'no_tiene_esa_cara' });
+    expect(fin).toMatchObject({ status: 'fotos_tomadas', complete: true, faces_skipped: [ULTIMA] });
     const fila = await trx('catalog.product_sheets').where({ id: r.sheet_id }).first('photos');
-    expect(fila.photos.find((p: { cara: string }) => p.cara === 'codigo_barras')).toMatchObject({ storage_key: null, saltada_motivo: 'no_tiene_esa_cara' });
+    expect(fila.photos.find((p: { cara: string }) => p.cara === ULTIMA)).toMatchObject({ storage_key: null, saltada_motivo: 'no_tiene_esa_cara' });
   });
 
   it('⭐ un cuarto apartado libera el más viejo SIN fotos', async () => {
@@ -309,9 +318,9 @@ suite(titulo, () => {
     expect(await svc.foto(PEPE, id, jpeg(), meta('frente'))).toMatchObject({ status: 'fotos_tomadas', complete: true });
   });
 
-  it('D25: sin sucursal en el perfil y sin elegir → SUCURSAL_REQUERIDA', async () => {
+  it('[NP.7.L.20] sin sucursal en el perfil ni alcance → 403 SIN_SUCURSAL (ya no se elige)', async () => {
     const sinSucursal: Quien = { userId: '00000000-0000-0000-0000-0000000c0c0c', username: 'np7_it_sin' };
-    await expect(svc.escanear(sinSucursal, { code: '7622210571403' })).rejects.toMatchObject({ response: { code: 'SUCURSAL_REQUERIDA' } });
+    await expect(svc.escanear(sinSucursal, { code: '7622210571403' })).rejects.toMatchObject({ response: { code: 'SIN_SUCURSAL' } });
   });
 
   // ── `[NP.7.L.3b]` La bandeja «por revisar»: las decisiones también ESCRIBEN (regla 13) ──────────────
@@ -327,9 +336,9 @@ suite(titulo, () => {
     const f = b.rows.find((x) => x.sku === 'NP7IT1')!;
     expect(f).toMatchObject({ status: 'fotos_tomadas', rung: 'base', scanned_code: '7622210571403', captured_by: ANA.username });
     expect(f.reasons).toContain('sin_analizar');
-    expect(f.photos).toHaveLength(9); // 8 fotos + el detalle que agregó Ana
+    expect(f.photos).toHaveLength(CARAS.length + 1); // las fotos pedidas + el detalle que agregó Ana
     expect(f.photos.map((p) => p.face)).toEqual([...CARAS, 'detalle_1']);
-    expect(f.photos[8].detail).toEqual({ kind: 'otro', note: 'hecho en Colombia' });
+    expect(f.photos[CARAS.length].detail).toEqual({ kind: 'otro', note: 'hecho en Colombia' });
     expect(String(f.photos[0].url).startsWith('https://firmada.invalid/')).toBe(true);
     expect(b.counts.sin_analizar).toBeGreaterThanOrEqual(2);
     expect(b.counts.caras_saltadas).toBeGreaterThanOrEqual(1);
@@ -535,7 +544,7 @@ suite(titulo, () => {
         scanned_code: '7622210571403', captured_by: ANA.username,
         published_by: CATALOGO.username, published_at: '2026-11-02T10:00:00.000Z', ai_reading: 'apagada',
       });
-      expect(f.photos).toHaveLength(9);
+      expect(f.photos).toHaveLength(CARAS.length + 1);
       expect(f.photos.every((p) => String(p.url).startsWith('https://firmada.invalid/levantamiento/'))).toBe(true);
       // La de la 05 sale con el nombre de Kepler de SU sucursal y quien la publicó.
       expect(r.rows.find((x) => x.sku === 'NP7IT11')).toMatchObject({ branch_code: '05', name: 'PRODUCTO NP7IT11 (IT)', published_by: 'np7_it_catalogo05' });

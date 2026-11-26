@@ -25,7 +25,7 @@ const CARA: Record<string, string> = {
   tabla_nutricional: 'Tabla nutrimental', informacion: 'Información', codigo_barras: 'Código de barras',
 };
 /** Qué muestra un detalle (`detalle_n`), como lo eligió quien lo tomó. */
-const DETALLE: Record<string, string> = { caducidad: 'Caducidad o lote', sellos: 'Sellos o advertencias', promocion: 'Promoción impresa', otro: 'Otra cosa' };
+const DETALLE: Record<string, string> = { lados: 'Lados o base', caducidad: 'Caducidad o lote', sellos: 'Sellos o advertencias', promocion: 'Promoción impresa', otro: 'Otra cosa' };
 const ACERCAMIENTOS: readonly string[] = ['tabla_nutricional', 'informacion', 'codigo_barras'];
 const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'caja', BTO: 'bulto', CUB: 'cubeta', KG: 'kilo' };
 const MOTIVOS: RevisionMotivo[] = ['sin_analizar', 'caras_saltadas', 'entro_por_busqueda', 'foto_repetida'];

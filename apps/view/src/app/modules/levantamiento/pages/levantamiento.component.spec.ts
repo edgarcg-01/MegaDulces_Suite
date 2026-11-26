@@ -3,6 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { of, throwError } from 'rxjs';
 import { LEVANTAMIENTO_CARAS, type LevantamientoCara, type LevantamientoFotoRespuesta } from '@megadulces/contracts';
 import { AuthService } from '../../../core/services/auth.service';
+import { UsoService } from '../../../core/services/uso.service';
 import { LevantamientoService } from '../levantamiento.service';
 import { LevantamientoComponent } from './levantamiento.component';
 
@@ -45,7 +46,7 @@ describe('[NP.7.L.18] Levantamiento: «Enviado» no arrastra avisos ya resueltos
     };
     await TestBed.configureTestingModule({
       imports: [LevantamientoComponent],
-      providers: [{ provide: LevantamientoService, useValue: api }, { provide: AuthService, useValue: {} }],
+      providers: [{ provide: LevantamientoService, useValue: api }, { provide: AuthService, useValue: {} }, { provide: UsoService, useValue: { registrarFotoRechazada: vi.fn() } }],
     }).overrideComponent(LevantamientoComponent, { set: { template: '', imports: [] } }).compileComponents();
     const c = TestBed.createComponent(LevantamientoComponent).componentInstance as unknown as Estado;
     c.escaneo.set({ sheet_id: 'ficha-1', faces: CARAS });
