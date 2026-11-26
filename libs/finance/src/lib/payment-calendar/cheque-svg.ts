@@ -3,8 +3,9 @@ import type { CamposDelCheque, PlantillaCheque, ZonaCheque } from '@megadulces/c
 
 /**
  * `[PGP.165]` **El cheque, dibujado en milímetros.** Lo arma el servidor y lo pasa a PDF del tamaño exacto del cheque
- * (puppeteer, igual que el Preliminar): un PDF de 160 × 70 mm se imprime a escala real con más fidelidad que una regla
- * `@page` del navegador, que cada impresora interpreta a su manera.
+ * (puppeteer, igual que el Preliminar): un PDF del tamaño del papel de SU banco (BanBajío 160 × 70 mm, Santander
+ * 162.3 × 72.1) se imprime a escala real con más fidelidad que una regla `@page` del navegador, que cada impresora
+ * interpreta a su manera.
  *
  * Es SVG porque `<text y>` pone la **línea base** exactamente donde se le dice (en un `<div>` la base depende de la
  * fuente), y el `viewBox` hace que 1 unidad sea 1 mm.
@@ -33,6 +34,11 @@ function esc(s: unknown): string {
 /** Un número de mm para un atributo: sin notación científica ni 15 decimales. */
 function mm(n: number): string {
   return String(Math.round(n * 100) / 100);
+}
+
+/** mm → cm a un decimal, para una persona con regla: 160 → «16», 162.3 → «16.2». */
+function cm(n: number): string {
+  return String(Math.round(n) / 10);
 }
 
 /** El corrimiento acotado. Un valor que no es número cuenta como 0, no como error: es un parámetro de la URL. */
@@ -182,7 +188,7 @@ export function hojaDePruebaHtml(pl: PlantillaCheque, c: CamposDelCheque, o?: Op
     + `<li>Pon encima un cheque <b>cancelado</b>, alineado al recuadro punteado, y míralo a contraluz.</li>`
     + `<li>Cada dato debe quedar <b>sobre su línea</b> (fecha, beneficiario, cantidad con letra) y el importe dentro de su recuadro, sin tocar el logo, la firma, el titular ni la banda de números de abajo.</li>`
     + `<li>Si todo cae corrido hacia un mismo lado, mide cuántos milímetros y hacia dónde, y anótalo: es el ajuste de tu impresora.</li>`
-    + `<li>Después imprime un cheque en una hoja <b>recortada a 16 × 7 cm</b>, metida centrada como el cheque de verdad, para comprobar que la impresora la deja en su lugar.</li>`
+    + `<li>Después imprime un cheque en una hoja <b>recortada a ${cm(pl.anchoMm)} × ${cm(pl.altoMm)} cm</b> (el tamaño de este cheque), metida centrada como el cheque de verdad, para comprobar que la impresora la deja en su lugar.</li>`
     + `</ol>`
     + `<div class="no">ESTA HOJA NO ES UN CHEQUE</div>`
     + `</div><script>${AJUSTAR_CHEQUE_JS}</script></body></html>`;

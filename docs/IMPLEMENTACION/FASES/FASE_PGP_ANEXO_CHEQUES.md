@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 44 KB, 364 líneas, 13 secciones.
+> **Índice navegable** — 46 KB, 377 líneas, 13 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_CHEQUES.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -8,18 +8,18 @@
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
 | 25 | 57 | 2 | Fase PGP — Anexo CH: el cheque nace, se imprime y se sigue en la Suite |
-| 58 | 79 | 6 | 0. El pedido |
-| 80 | 113 | 5 | 1. En una pantalla |
-| 114 | 124 | 1 | 2. El universo y el trabajo |
-| 125 | 143 | 3 | 3. Lo que creíamos y cayó |
-| 144 | 177 | 9 | 4. Decisiones a firmar |
-| 178 | 190 | 1 | 5. Qué NO incluye |
-| 191 | 212 | 3 | 6. El orden |
-| 213 | 305 | 7 | 7. Las capas |
-| 306 | 319 | 1 | 8. Riesgos y bloqueos |
-| 320 | 344 | 2 | 9. NO MEDIDO — preguntas para Tesorería |
-| 345 | 354 | 1 | 10. DoD |
-| 355 | 389 | 3 | 11. Bitácora |
+| 58 | 80 | 6 | 0. El pedido |
+| 81 | 114 | 5 | 1. En una pantalla |
+| 115 | 125 | 1 | 2. El universo y el trabajo |
+| 126 | 145 | 3 | 3. Lo que creíamos y cayó |
+| 146 | 179 | 9 | 4. Decisiones a firmar |
+| 180 | 192 | 1 | 5. Qué NO incluye |
+| 193 | 214 | 3 | 6. El orden |
+| 215 | 307 | 7 | 7. Las capas |
+| 308 | 321 | 1 | 8. Riesgos y bloqueos |
+| 322 | 346 | 2 | 9. NO MEDIDO — preguntas para Tesorería |
+| 347 | 356 | 1 | 10. DoD |
+| 357 | 402 | 5 | 11. Bitácora |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP — Anexo CH: el cheque nace, se imprime y se sigue en la Suite
@@ -70,6 +70,7 @@ Control: los mismos números del Calendario desplazados +1000 y +5000 casan **0*
 | 9 | Respuestas de Francisco a §9 (mismo día): *«1) cancelados; 2) la póliza hoy se llena con papel pasante, y se pone a mano el número de cheque en la póliza; 3) todos los cheques ya registrados en el calendario están entregados; la llamada la recibe Tesorería o en su ausencia Analista de egresos o Caja General»* | Los 6 cheques físicos que se pagaron por SPEI están **cancelados**. La póliza se imprime **aparte, con el número de cheque ya puesto** (una impresora láser no pasa a través del papel carbón). Los cheques fechados en diciembre **ya están en manos del proveedor**: sólo la liberación los detiene. «Confirmado» lo marcan Tesorería, Analista de Egresos o Caja General (DCH9); libera Caja General |
 | 10 | Francisco, mismo día: *«se canceló el cheque 5399; sí, se acomodan en la impresora centrados: cheque, y 2 hojas de póliza en blanco para que reimprima el cheque, anexe los documentos pagados, el nombre de quien firma»*; el puesto de Analista de Egresos quedó **vacante** la semana pasada | Los 7 cheques pagados por SPEI están cancelados. **Se imprime cheque por cheque, centrado** (no la hoja de 3), seguido de **2 pólizas** en hoja blanca: cada una repite el cheque, lista los documentos pagados y lleva el nombre de **quien recibe el cheque** (aclarado por Francisco). Mientras el puesto esté vacante, la llamada la reciben Tesorería o Caja General |
 | 11 | Francisco, 2026-11-20: *«aquí están las medidas de cheques y pólizas»* — fotos con regla del cheque de BAJÍO 4166 («Conecta»), del de SANTANDER 2169 y de la póliza | **Cheques ≈ 160 × 70 mm** los dos. Las posiciones de BAJÍO se midieron sobre la foto con el perfil de oscuridad de cada línea (±0.5 mm; §7 C1) y quedan en la plantilla, **sin calibrar** hasta la hoja de prueba. ⚠️ **La póliza no es hoja blanca: es un talonario preimpreso de media carta** (≈ 14 × 21.5 cm) con recuadro en blanco para la copia del cheque, casillas de banco, concepto, referencia, firma y nombre de quien recibe, una tabla de ~6 renglones (cuenta, subcuenta, nombre, parcial, cargo, abono), sumas iguales y hecho/revisado/sello/número: DCH10. Las fotos (con datos del titular y de la cuenta) **no entran al repo** |
+| 12 | Francisco, 2026-11-25: *«avanzamos para los cheques de Santander cuenta 2169»* · *«son las únicas 2 cuentas que se pagan cheque»* | `[PGP.165.1]`: la plantilla de SANTANDER 2169, medida sobre sus dos fotos. **Mide 162.3 × 72.1 mm, no 160 × 70** (§3 fila 13). Con ella sale impreso todo pago del Calendario con cheque de 2169 (medido ese día: 1, el 17252 del 26-nov). La nómina (121 de los 131 cheques de 2169 en 90 días) no pasa por el Calendario: sigue siendo el cheque suelto, `[PGP.172]` |
 
 **Lo que este anexo cambia de D7** (anexo C): D7 decía que la Suite «asigna el número al autorizar» y que «la `BAJÍO
 4166` queda bloqueada para cheques hasta revisarla». Se proponen DCH4 (el folio se confirma al imprimir) y DCH6
@@ -138,6 +139,7 @@ efectivo, E-22), y las cuentas sin chequera.
 | 8 | (primera versión de este plan) «No se entrega un cheque sin liberar» | Al revés: se entrega, el proveedor llama antes de depositar y **entonces** Caja General libera (§0 fila 8) |
 | 11 | (versión anterior) «2 pólizas en hoja blanca carta» | Es un **talonario preimpreso de media carta** con ~6 renglones (§0 fila 11). Medido 2026-11-20: los pagos con cheque llevan **mediana 1 documento, 90 % ≤ 3, máximo 7**; sólo 1 de 34 pasa de 6 renglones. DCH10 |
 | 12 | `[PGP.168]`: «❌ un pago no autorizado no imprime» | Medido 2026-11-20: de 29 pagos con cheque numerado vigentes **sólo 1 tiene la autorización de la Suite**, y los **13 pagados salieron sin ella**. La autorización de un cheque es **la firma de Dirección en el papel** (`[PGP.169]` la registra). Exigirla para imprimir frenaría 14 de 15 cheques pendientes: la impresión no la pide (lo confirma Edgar) |
+| 13 | (§0 fila 11) «Cheques ≈ 160 × 70 mm los dos» | **El SANTANDER mide 162.3 × 72.1 mm** (2026-11-25): el alto contra la regla puesta a lo ancho (44 marcas, error 0.2 px) y el largo contra la regla a lo largo de la otra foto (136 marcas). Con la plantilla de BanBajío, cada dato caería 1–2 mm corrido. Y su diseño es otro: el importe va **pegado a la izquierda** del recuadro («INICIE AQUÍ»), la fecha **después** de su rótulo, en una línea de 40 mm |
 
 ---
 
@@ -386,3 +388,14 @@ esperar al papel ni a ninguna firma.
   2.3 mm arriba de donde está (35.8 contra 38.1) y el renglón de arriba de una letra larga pisaba «PÁGUESE…»: la prueba
   negativa de la geometría reproduce ese choque. PDF de 160.19 × 69.85 mm (Chrome redondea a píxeles), una página.
   Botón «Imprimir cheque» en la fila del pago y «Hoja de prueba» en Preparar. Sin calibrar con papel real.
+- **2026-11-25** — `[PGP.165.1]` SANTANDER 2169 (Francisco: *«son las únicas 2 cuentas que se pagan cheque»*). Medido
+  en prod, sólo lectura: la cuenta es `bank = 'SANTANDER'`; 131 cheques vivos en 90 días, 121 de nómina (`GN001`); en
+  el Calendario, un pago con cheque de 2169 (el 17252, $2,482.40, del 26-nov). El papel **no es el de BanBajío: 162.3
+  × 72.1 mm**. Cómo se midió: la foto que no tiene la regla encima del cheque da el alto (regla a lo ancho, escala
+  proyectiva de 44 marcas); la otra, el largo (regla a lo largo, 136 marcas, la de 16 cm a 0.1 px del modelo). Del lado
+  del logo el papel no estaba plano (las líneas se curvan 1–2 mm): cada línea se leyó cerca de la regla. Controles: la
+  orilla izquierda da 0 ± 0.6 mm y la derecha 162.3 ± 0.3; la orilla de arriba que predicen las alturas de una foto cae
+  donde se ve en la otra; una perspectiva ajustada a 24 puntos de la parte plana deja todo a ≤ 0.47 mm. ⚠️ A ojo, la
+  primera lectura salió corrida 1.4 mm en la línea de la fecha y hasta 4 mm en el recuadro del importe (la búsqueda
+  caía en el rótulo; el recuadro es una línea CLARA, no oscura). La hoja de prueba sale de la chequera de la cuenta elegida en
+  Preparar (antes, siempre BanBajío). Sin calibrar con papel real.

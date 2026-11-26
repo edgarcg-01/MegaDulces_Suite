@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
 import { todayMx } from '@megadulces/platform-core';
-import { camposDelCheque, datosDeChequeDePrueba, dictamenCheque, plantillaDeCheque, warehouseName, type PlantillaCheque } from '@megadulces/contracts';
+import { PLANTILLAS_CHEQUE, camposDelCheque, datosDeChequeDePrueba, dictamenCheque, plantillaDeCheque, warehouseName, type PlantillaCheque } from '@megadulces/contracts';
 import { chequeHtml, hojaDePruebaHtml, opcionesPdfCheque, type OpcionesCheque } from './cheque-svg';
 import { PaymentCalendarService, type ExpedienteLinea } from './payment-calendar.service';
 import { lineasDeDescuento, rotuloDescuentos } from './descuento-al-pagar';
@@ -229,7 +229,7 @@ export class PaymentCalendarDocumentService {
   /** `[PGP.165]` La hoja de prueba sin pago, con un nombre y una cantidad largos a propósito: para calibrar cuando sea. */
   async renderChequePrueba(banco: string, o: OpcionesCheque): Promise<Buffer> {
     const pl = plantillaDeCheque(banco);
-    if (!pl) throw new NotFoundException(`No hay plantilla de cheque para «${banco}»: por ahora sólo BanBajío (BBAJIO).`);
+    if (!pl) throw new NotFoundException(`No hay plantilla de cheque para «${banco}»: hoy, ${PLANTILLAS_CHEQUE.map((p) => `${p.nombre} (${p.banco})`).join(' y ')}.`);
     return this.renderPdfCheque(hojaDePruebaHtml(pl, camposDelCheque(datosDeChequeDePrueba(todayMx())), o), pl, true, 'hoja de prueba');
   }
 
