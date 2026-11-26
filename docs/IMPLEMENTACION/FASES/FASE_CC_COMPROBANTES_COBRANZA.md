@@ -236,3 +236,186 @@ abono inatribuible en una obligación fiscal con dueño y con fecha**. De los 4,
 
 **Lo que esta nota NO midió:** cuántos de los 4,445 abonos sin cobro son pagos de factura PPD —sin
 atribución no hay cifra, y no se estima—; y los 14 complementos de octubre con importe cero.
+
+## CC.23 — ⭐⭐ SÍ se puede insertar el abono en Kepler: probado escribiendo y deshecho (2026-11-26, a pedido de Edgar)
+
+> Edgar, sobre el caso real de `CC.22`: *«sería el primer paso para probar que podemos insertar los abonos
+> adecuadamente»*. Esto es la respuesta, medida escribiendo contra el Kepler vivo. El ensayo vive en
+> [`ops/prod/ensayo-cobro-kepler/`](../../../ops/prod/ensayo-cobro-kepler/README.md).
+
+### La respuesta: sí, y aquí está la huella
+
+**Pasó de punta a punta, dos veces**, sobre el depósito del 23-nov que cuadra con el banco y no tiene cobro:
+folio del contador real (`KFUA0701.06`) · `kdm1` + `kdue` + `kdm5` (1 fila cada uno) · **póliza de 2 renglones con
+cargo = abono** · y **el saldo de la factura pasó de $15,539.63 a $0.00** dentro de la transacción. Deshecho:
+0 documentos con la referencia del ensayo, saldos iguales.
+
+⭐ El caso es limpio porque **el cliente pagó una factura completa al peso**: el depósito y la factura del 18-nov
+son por el mismo importe exacto. No hubo que decidir a qué aplicarlo.
+
+| Tabla | Cobro `U-A-7` | Ajuste Abono `U-A-30` |
+|---|---|---|
+| `kdm1` · `kdue` · `kdm5` | sí — **el mismo carril ya probado** | sí |
+| `kdm2` | no | no |
+| **la póliza** `kdc2AAMM` | ⛔ **sí**: cargo a `102` (bancos), abono a `115` (clientes) | **no** |
+| **CFDI** | ⛔⛔ **sí, y solo**: 783 de 785 cobros de noviembre tienen su complemento timbrado | no |
+
+### ⛔⛔ Lo que esto cambia, y por eso no se enciende nada todavía
+
+**En cuanto el cobro existe, el comprobante fiscal sale solo.** Un cobro mal escrito no se corrige: se cancela.
+Eso lo vuelve distinto de todo lo que la Suite escribe hoy en Kepler —el Ajuste Abono, la autorización, el
+teléfono—, donde un error se arregla. **Antes de encender una escritura de cobros hay que ver qué mueve el
+programa de Kepler al postear uno**, y eso no se ve escribiendo desde afuera: las tablas tienen cero disparadores.
+
+### Tres cosas que aparecieron midiendo
+
+1. ⭐ **La caja (`kdm1.c12`) no se puede adivinar.** Es un código por sucursal (la 06 usa `30003` y `30004`; la 08,
+   `20003`–`20006`) y **decide a qué cuenta entra el dinero**. El ensayo la **deriva del cobro anterior del mismo
+   cliente** y se niega si no hay uno: elegir por omisión habría metido el dinero en la caja equivocada.
+2. ⛔ **El primer control del ensayo estaba mal y salió rojo con todo bien.** Comparaba el contador de folios
+   antes/después, pero era jueves por la tarde y **Crédito seguía capturando**. La prueba de que el `ROLLBACK`
+   funcionó fue otra: el folio que el ensayo reservó **lo tomó una persona minutos después**. Un control que
+   parpadea enseña a ignorarlo; ahora mira sólo lo que es del ensayo.
+3. ⚠️ **Y de ahí sale una regla para el adaptador, cuando exista:** entre reservar el folio y escribir, una persona
+   puede tomar el mismo. La llave primaria lo impide, así que **el choque es reintentable, no un error de negocio**.
+
+### Lo que esto cierra y lo que no
+
+- ✅ **`CC.22.c` cerrado**: «Marcar el abono como suyo» ya dice qué hace y qué no. La bandeja avisa que falta
+  capturar el cobro en Kepler y qué pasa mientras no se haga (`[CC.22]`, con su prueba negativa).
+- ⬜ Siguen abiertos `CC.22.a` (la fila no dice qué factura cuadra, aunque el importe coincide al centavo) y
+  `CC.22.b` (no se declara la obligación fiscal ni su fecha).
+- ⬜ Y el caso de la captura **sigue sin cobro en Kepler**: esto prueba que se puede escribir, no lo escribe.
+
+## CC.24 — ⛔⛔ Ingeniería inversa del timbrado: si la Suite inserta el cobro, el complemento NO sale (2026-11-26)
+
+> Edgar: *«apliquemos ingeniería inversa»*. En vez de esperar a que alguien capture un cobro para ver qué mueve
+> Kepler, se dedujo de los **1,489 cobros que ya existen**. Y el resultado **corrige lo que `CC.23` afirmaba**.
+
+### Lo que decía CC.23, y por qué estaba al revés
+
+CC.23 advertía: *«en cuanto el cobro existe, el comprobante fiscal sale solo, y uno mal escrito se vuelve un CFDI
+mal timbrado»*. **Es al revés, y es peor.**
+
+### Las cuatro evidencias
+
+| | Lo medido | Qué prueba |
+|---|---|---|
+| 1 | **1,489 de 1,489** cobros de más de 7 días tienen su complemento: **100.00 %** | no falla nunca |
+| 2 | Del cobro al timbre: **mediana medio minuto, máximo 1 minuto** (785 casos) | es **al guardar**, no un barrido |
+| 3 | ⭐ De 27 cobros **cancelados**, sólo **1** tiene complemento | si bastara con que la fila exista, los 27 lo tendrían |
+| 4 | ⭐ En todo 2026, **cero capturistas que no sean personas** (`0CYC`, `42MAVH`, `VIVIANA`…) | **nunca entró un cobro por otra vía** |
+
+⛔ **Y las tablas tienen cero disparadores.** O sea que el timbre **lo pone el programa de Kepler en el acto de
+guardar**, no la base de datos.
+
+### La consecuencia, que cambia el diseño
+
+**Si la Suite inserta el cobro directamente en las tablas, el programa no se entera y el complemento no se
+timbra.** El cobro existiría, la factura se vería pagada, la cartera cuadraría… y **la obligación fiscal quedaría
+incumplida en silencio**. Eso es peor que no capturarlo: un cobro que falta se ve en la bandeja; un complemento
+que nunca salió **no se ve en ningún lado** hasta que lo busca el SAT.
+
+⭐ Por eso **el ensayo de `CC.23` sigue valiendo, pero contesta otra pregunta**: probó que la Suite puede escribir
+un cobro **mecánicamente bien** (folio, documento, cartera, aplicación, póliza cuadrada, saldo a cero). Lo que
+ahora sabemos es que **eso no alcanza**: escribir bien las tablas no es capturar un cobro.
+
+### Lo que se decide antes de seguir
+
+| | Pregunta | De quién |
+|---|---|---|
+| **D-CC1** | ¿Kepler tiene una vía de importación que **sí** dispare su flujo (y por lo tanto el timbre)? Si la hay, el camino es ésa, no escribir las tablas | ⬜ Sistemas / el proveedor de Kepler |
+| **D-CC2** | Si no la hay: ¿la Suite **prepara** el cobro (lo deja listo, con su factura ya cuadrada) y una persona sólo confirma en Kepler? Eso quita el trabajo de buscar y teclear, sin tocar el timbre | ⬜ Edgar |
+
+⬜ **NO MEDIDO**: si existe esa vía de importación. Es lo único que falta para cerrar la pregunta, y **no se
+contesta midiendo la base**: se le pregunta a quien conoce el programa.
+
+## CC.25 — ⛔⛔ Se insertó un cobro real en Kepler: la escritura funcionó, el TIMBRE no (2026-11-26)
+
+> Edgar, después de leer `CC.24`: *«insertémoslo y veamos qué pasa»*. Era la única forma de contestarlo: no se
+> deduce. **Se hizo, en producción, sobre el caso real** — y la predicción se cumplió.
+
+### Qué se escribió
+
+El cobro del depósito del 23-nov que cuadra con el banco: **`06 / U-A-7 / 0000886`**, fecha del **depósito** (no de
+hoy: el complemento declara cuándo se pagó), capturista **`SUITE`**, con su referencia propia en `kdm1.c11`.
+
+| Lo que se escribió | Resultado |
+|---|---|
+| `kdm1` · `kdue` · `kdm5` | 1 fila cada uno ✓ |
+| póliza `kdc22611` nº 513 | 2 renglones, **cargo = abono = $15,539.63** ✓ |
+| el efecto | **el saldo de la factura `8-1-0001446` pasó a $0.00** ✓ |
+| ⛔ **el complemento de pago** | **NO SE TIMBRÓ** |
+
+### ⛔ La prueba de que no timbró, con su control
+
+El testigo es **`kdfe33pagm1` dentro de Kepler**, no `fiscal.cfdis` (ésa es la descarga del SAT, ~3 días).
+
+- El cobro `0000886` **no aparece** ahí.
+- ⭐ **Control del instrumento**: de los **24 cobros capturados HOY por una persona** en esa misma sucursal,
+  **los 24 sí aparecen**. El instrumento ve lo de hoy; lo que falta es el timbre del nuestro.
+
+**Confirma `CC.24` midiendo en vez de deduciendo: el timbre lo pone el programa de Kepler al guardar, y escribir
+las tablas lo saltea.** Escribir bien las tablas **no es** capturar un cobro.
+
+### ⛔ Lo que queda abierto AHORA, y hay que cerrar
+
+Hay **un cobro real en producción sin complemento de pago**. El plazo del complemento de un cobro de noviembre
+vence el **5 de diciembre**, así que hay tiempo — pero no se deja así.
+
+| | Camino | Qué se aprende |
+|---|---|---|
+| **A** ⭐ | Que alguien de Crédito **abra el cobro `0000886` en Kepler y lo guarde**. Si eso lo timbra, la respuesta al diseño es **D-CC2**: la Suite prepara y la persona confirma — sin teclear nada | mucho: define el diseño |
+| **B** | Cancelarlo (`c43='C'`) y que Crédito lo capture normal | nada nuevo, pero deja todo limpio |
+
+⛔ **No se hace ninguno sin que Edgar lo diga**: hay dinero y un documento de por medio.
+
+### Y un permiso que faltó
+
+`kepler_push` **no puede leer `md.kdfe33pagm1`** («permiso denegado»), así que el propio programa no pudo mirar si
+timbró y hubo que verlo por el ODS. Para que esto se pueda comprobar desde el carril: `GRANT SELECT` en esa tabla.
+
+## CC.26 — ⛔⛔ La Suite NO puede timbrar: lo hace el programa `FE4Cobro` llamando al PAC (2026-11-26)
+
+> Cierra `CC.25`. Lo destapó la **captura de la interfaz de Kepler** que mandó Edgar: la ruta del menú es
+> *Crédito y cobranza › **Operación CFDI** › Factura de recepción de pagos › Alta*, el tipo es **«Cobro CFDI»**, hay
+> una pestaña **«Información SAT pago»** que la Suite nunca llenó — y la barra de dirección dice **`FE4Cobro.kpr`**.
+> Ese nombre fue el hilo.
+
+### Las tres tablas que el programa escribe y la Suite no
+
+| Tabla | Qué guarda |
+|---|---|
+| `kdfe33pagm1` | **el pago del complemento**: forma de pago SAT (`03` = transferencia), fecha y hora, moneda, paridad, monto |
+| `kdfe33pagm2` | **los documentos relacionados**: el **UUID del CFDI de la factura**, su serie y folio, `PPD`, el número de parcialidad, y `ImpSaldoAnt` / `ImpPagado` / `ImpSaldoInsoluto` |
+| `kdfe33m1` | ⛔ **el CFDI TIMBRADO**: el **UUID del timbre fiscal**, los sellos del emisor y del SAT, la ruta del XML, el **PAC (`SMARTERWEB`)**, el certificado usado… y `c66 = 'FE4Cobro'`, el programa que lo hizo |
+
+⭐ **Del alta al timbre: dos minutos** (creado 09:30:13, timbrado 09:32:13 en el caso medido).
+
+### Por qué esto cierra la pregunta
+
+Para timbrar hay que **llamar al PAC con el certificado y la llave privada del CSD**, recibir el UUID y los sellos,
+y guardarlos. **Eso no es escribir en una base: es un acto del programa.** La Suite no puede hacerlo escribiendo
+tablas, y **escribir `kdfe33m1` a mano sería inventar un UUID y unos sellos — falsificar un comprobante fiscal.
+Jamás.**
+
+> **La respuesta a «¿podemos insertar los abonos adecuadamente?» es, completa:**
+> **sí podemos escribir el cobro, y no podemos timbrarlo.** Y como un cobro sin complemento es una obligación
+> fiscal incumplida, **escribir cobros desde la Suite no es un camino** — hasta que exista una vía que dispare el
+> programa.
+
+### ⭐ El camino que sí queda (D-CC2)
+
+**La Suite prepara y la persona confirma en Kepler.** La pantalla de alta ya ofrece «Cobra todo» y «Cobra x
+antigüedad»: lo que la Suite puede quitar del medio es **buscar el depósito, identificar al cliente y encontrar la
+factura que cuadra** — que es donde se pierde el tiempo y donde se quedan los casos sin capturar. El acto de
+guardar, que es el que timbra, sigue siendo de la persona.
+
+### ⛔ Y un defecto de la escritura de CC.25, encontrado comparando
+
+Comparado el cobro `0000886` (SUITE) con el `0000885` (persona, misma sucursal) columna por columna, difieren
+**dos que no deberían**: `c81` y `c82` traen **$459.39**, heredados del cobro que se usó de plantilla. No son de
+este cobro. Clonar un documento hereda lo que no se pisa, y **aquí se pisó sólo lo decidido**.
+
+⚠️ Razón de más para **cancelar el `0000886` y recapturarlo**: no sólo le falta el complemento, además arrastra
+dos importes ajenos.

@@ -1,409 +1,415 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 1347 KB, 16187 líneas, 397 secciones.
+> **Índice navegable** — 1358 KB, 16288 líneas, 403 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/03_LOG_REVISIONES.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 410 | 415 | 1 | Log de Revisiones |
-| 416 | 451 | 2 | 2026-11-24 — `[PQ.3.15]` `[PQ.3.21]` `[PQ.3.22]` Las primeras mejoras que pidieron los usuarios del Calendario |
-| 452 | 458 | 1 | 2026-11-24 — `[PGP.208]` El aviso de pago lleva la clave de rastreo aunque no haya PDF de la transferencia |
-| 459 | 464 | 2 | 2026-11-24 — `[PQ.112.1]` `[PQ.112.2]` ✅ La recepción en Kepler, medida: vale, orden de entrada y aplicación |
-| 465 | 498 | 3 | 2026-11-24 — `[MSP.5]` `[MSP.5.0]` La reposición de un equipo pasa de TI o Mantenimiento a Presupuestos |
-| 499 | 526 | 2 | 2026-11-23 — `[PQ.3.20]` El manual de capacitación del Calendario de compras vive en la pantalla |
-| 527 | 532 | 1 | 2026-11-23 — `[CSU.25]` Cortes/Sucursales: los arqueos a un clic, varios a la vez, y la auditoría del paso 1 |
-| 533 | 538 | 1 | 2026-11-23 — `[CSU.24]` Cortes/Sucursales: el efectivo, parte por parte (cajero contra Kepler) |
-| 539 | 551 | 1 | 2026-11-23 — `[PGP.204]` La liberación vuelve a esperar la semana: el día siguiente soltaba pagos ya pagados |
-| 552 | 569 | 3 | 2026-11-23 — `[PGP.202]` Lo que no se pagó sale del Calendario al día siguiente, y la revisión de los pagos he |
-| 570 | 581 | 1 | 2026-11-23 — `[PGP.199]` `[PGP.201]` Que no se repitan los pagos dobles: no cancelar con el dinero fuera, y el |
-| 582 | 615 | 3 | 2026-11-23 — Anexo CL: el cuadre de los libros del pago (Calendario, Kepler, banco y SAT), y por qué no se vio |
-| 616 | 633 | 2 | 2026-11-23 — `[PGP.197]` `[PGP.161]` `[PGP.164]` Un pago doble y su causa: el Calendario no medía contra Keple |
-| 634 | 669 | 2 | 2026-11-22 — `[PQ.3.14]` ✅ y `[PQ.3.18]` el embudo de llenado del Calendario de compras: dinero y operaciones  |
-| 670 | 674 | 1 | 2026-11-21 — `[PGP.157]` `[PGP.165]` `[PGP.176]` `[PGP.190]` `[ECA.9]` `[PQ.3.2]`–`[PQ.3.6]` `[PQ.132]` Nueve  |
-| 675 | 685 | 2 | 2026-11-21 — `[PQ.3.2]`–`[PQ.3.6]` Calendario de compras en prod: la prueba visual por puesto encontró una fug |
-| 686 | 702 | 4 | 2026-11-20 — `[P2.9 paso 4]` Caducidades: FEFO fechaba 45 cajas como 45 paquetes |
-| 703 | 708 | 2 | 2026-11-21 — `[MSH.4]` #539 destrabado sin fusionar `main`, un rojo propio que nadie vio, y protocolo §8.0b 12 |
-| 709 | 714 | 1 | 2026-11-21 — `[MSP]` Presupuestos y Requerimientos en prod, con la cola apagada |
-| 715 | 719 | 1 | 2026-11-20 — `[CSU.23]` Cortes/Sucursales: los arqueos del cajero, conteo por conteo |
-| 720 | 735 | 2 | 2026-11-20 — `[PGP.131]` `[PGP.179]` `[PGP.180]` La Suite escribe en Kepler los pagos de las 9 sucursales y lo |
-| 736 | 745 | 1 | 2026-11-20 — `[PGP.178]` La factura pagada que el proveedor canceló se pide en el siguiente pago |
-| 746 | 760 | 2 | 2026-11-20 — `[PGP.164]` `[PGP.163]` Lo que esperaba a un departamento, hecho desde aquí |
-| 761 | 770 | 1 | 2026-11-20 — `[PGP.161]` `[PGP.177]` La lista del SAT al día no sirve si se cruza contra el universo equivocad |
-| 771 | 780 | 1 | 2026-11-20 — `[PGP.122.8]` Kepler borra los renglones al cancelar una solicitud; el ODS no lo ve |
-| 781 | 788 | 1 | 2026-11-20 — `[BFU.3.2]` `[BFU.3.4]` Pasar 15 cuentas al banco destapó 18 depósitos repetidos |
-| 789 | 800 | 2 | 2026-11-19 — `[PGP.122.7]` El canario de la solicitud de gasto: la prueba se ejerció en 4 minutos, se deshizo  |
-| 801 | 804 | 1 | 2026-11-19 — `[PGP.158]` `[PGP.161]` `[PGP.163]` El error fiscal del pago se avisa donde se comete |
-| 805 | 828 | 3 | 2026-11-20 — `[LE.6.38]` Estado de cuenta de Caja General |
-| 829 | 835 | 1 | 2026-11-19 — `[RE.83]` La factura devuelta le llega a la sucursal |
-| 836 | 842 | 1 | 2026-11-19 — `[RE.82]` La hoja de Kepler sola ya no pasa como factura |
-| 843 | 861 | 2 | 2026-11-19 — `[ETQ-FUENTE.3]` La espera de tipografías dejó sin imprimir a todas las tiendas, y destapó la cau |
-| 862 | 892 | 5 | 2026-11-18 — `[MSP]` Mesa de Servicio: área «Presupuestos y Requerimientos» por capas (C0–C3 🧪 el 2026-11-19; |
-| 893 | 901 | 1 | 2026-11-19 — `[P2.9 pasos 1–3]` Caducidades: el uso real confirma las 7 unidades; pasos 1 y 2 a ✅, paso 3 en p |
-| 902 | 941 | 3 | 2026-11-19 — `[RE.ETQ]` Etiquetas de caja en prod; el candado de GP.4 dependía de la versión de jsbarcode (#57 |
-| 942 | 987 | 3 | 2026-11-19 — `[RE.ETQ]` Etiquetas de caja: prueba en local con capturas y PR #571 |
-| 988 | 1031 | 3 | 2026-11-19 — `[RE.ETQ]` Etiquetas de caja: C0–C3 construidos y probados en local (🧪, sin push) |
-| 1032 | 1039 | 2 | 2026-11-19 — `[VAC.D3]` `[VAC.D4]` `[VAC.H1]` Verificador: las decisiones pendientes, contestadas y medidas |
-| 1040 | 1052 | 2 | 2026-11-19 — `[CANON.7.1]` La existencia del ODS se lee directo: aplicada en prod y medida con RLS |
-| 1053 | 1073 | 2 | 2026-11-18 — `[MS.8.4]` Ubaldo no aparecía para coordinar Mantenimiento: le falta el permiso, y la pantalla no |
-| 1074 | 1089 | 2 | 2026-11-18 — `[PQ]` Revisión del plan de Pedido: 25 items a ✅, 4 cerrados sin hacerse, y dos sucursales que no |
-| 1090 | 1103 | 1 | 2026-11-18 — `[CB.86]` Lo pendiente del Cuadre, y la paridad que encontró un error |
-| 1104 | 1122 | 1 | 2026-11-18 — `[CB.85]` El Cuadre 3 vías usa el banco de verdad |
-| 1123 | 1140 | 1 | 2026-11-17 — `[CB.82]` El Cuadre 3 vías compara los mismos días |
-| 1141 | 1166 | 2 | 2026-11-18 — Soltado: Cartera (CXC.41–44, CXC.21b) y la ficha de depósito del cliente (CC.20–21.1) en prod |
-| 1167 | 1180 | 1 | 2026-11-18 — `[CB.86]` Lo pendiente del Cuadre, y la paridad que encontró un error |
-| 1181 | 1199 | 1 | 2026-11-18 — `[CB.85]` El Cuadre 3 vías usa el banco de verdad |
-| 1200 | 1218 | 1 | 2026-11-17 — `[CB.82]` El Cuadre 3 vías compara los mismos días |
-| 1219 | 1234 | 2 | 2026-11-17 — `[CB.74]`–`[CB.77]` Auditoría de `/finanzas/bancos`: el motor que se reescribía solo y lo que la  |
-| 1235 | 1246 | 1 | 2026-11-17 — `[CXC.44]` Cartera: cuatro botones de un mismo acto, uno solo |
-| 1247 | 1266 | 2 | 2026-11-17 — `[CC.21.1]` Lo que le faltaba al cruce con el banco: aviso en vivo, lectura real y la prueba en e |
-| 1267 | 1285 | 2 | 2026-11-17 — `[CC.21]` La ficha del cliente se valida contra el banco: el monto propone, el cliente decide |
-| 1286 | 1302 | 1 | 2026-11-17 — `[CC.20]` El cliente sube su ficha de depósito: un enlace, una foto y listo |
-| 1303 | 1320 | 1 | 2026-11-17 — `[CXC.21b]` La cartera por evento: de 4 s por consulta a recalcular sólo la cuenta que cambió |
-| 1321 | 1343 | 2 | 2026-11-17 — `[CXC.42]`–`[CXC.43]` La fluidez de Cartera: dejar de esperar en cada gesto, y saber a quién ya s |
-| 1344 | 1362 | 1 | 2026-11-17 — `[CXC.41]` Auditoría de `/finanzas/cartera`: lo que cobranza veía primero no era lo suyo |
-| 1363 | 1391 | 4 | 2026-11-17 — `[RE.ETQ]` Etiquetas de caja en la TSC TE200: D1–D6 respondidas, análisis medido y plan corregido |
-| 1392 | 1416 | 3 | 2026-11-14 — `[RE.70]`–`[RE.77]` Auditoría de `/compras/entradas`: lo que la pantalla afirmaba sin ser cierto |
-| 1417 | 1446 | 2 | 2026-11-14 — `[CB.68]`–`[CB.70]` Auditoría del Cierre de Bancos (nov-2026): cuatro hallazgos rojos, corregidos |
-| 1447 | 1485 | 3 | 2026-11-14 — `[MDT]` Entrega del núcleo: dos defectos que sólo aparecen al soltar, y el vale de servicio |
-| 1486 | 1516 | 2 | 2026-11-14 — `[MDT]` Revisión de diseño de las tareas por puesto, y tres frentes que no eran lo que el plan su |
-| 1517 | 1537 | 2 | 2026-11-13 — `[MDT]` Migración de MDTask: el plan, el parche de seguridad y el núcleo (manual por puesto) en  |
-| 1538 | 1560 | 3 | 2026-11-11 — `[MS.8.1]`–`[MS.8.3]` La Mesa suma Compras, se pueden crear áreas desde la pantalla, y una confid |
-| 1561 | 1573 | 1 | 2026-11-11 — Cierre de `[VAC.P1]`: el índice del verificador, medido en prod después del despliegue |
-| 1574 | 1598 | 3 | 2026-11-11 — `[ETQ-OFERTA.1]` `[ETQ-FUENTE.2]` La oferta que se encimaba y el código que se cortaba en el pape |
-| 1599 | 1634 | 3 | 2026-11-11 — `[CE]` Toda entrada con caducidad: el vale no cierra sin fecha y lo vencido no entra en verde |
-| 1635 | 1641 | 1 | 2026-11-11 — `[CGA-A.73]` La cola, uno por uno: el Control sí había saldado lo que la cola seguía ofreciendo |
-| 1642 | 1649 | 1 | 2026-11-11 — `[CGA-A.72]` Ligar, usado en prod: los depósitos ya capturados quedaron con su cobro |
-| 1650 | 1674 | 2 | 2026-11-11 — `[CE]` Toda entrada con caducidad: el vale no cierra sin fecha y lo vencido no entra en verde |
-| 1675 | 1681 | 1 | 2026-11-11 — `[CGA-A.72]` Ligar, usado en prod: los depósitos ya capturados quedaron con su cobro |
-| 1682 | 1701 | 2 | 2026-11-11 — `[CB.60b]` Una cuenta deja el libro con un botón, y la conciliación se entera cuando llega el ban |
-| 1702 | 1707 | 2 | 2026-11-10 — `[RE.68]` `[RE.69]` Sin importer y sin cron: las notas de crédito y el apareo salen del ODS |
-| 1708 | 1715 | 2 | 2026-11-10 — `[RE.67]` Costo por proveedor: el descuento por nota sale de Kepler, y una categoría inventada |
-| 1716 | 1722 | 1 | 2026-11-10 — `[RE.65]` `[RE.66]` El cuadre en netos y el blanqueo que no era rebaja |
-| 1723 | 1728 | 1 | 2026-11-10 — `[RE.64]` Revisión de facturas: Ajuste y Neto salen de Kepler, no del importer |
-| 1729 | 1737 | 1 | 2026-11-11 — `[MKT.9]`–`[MKT.14]` Ranking de promociones e incentivos: el Excel semanal de Mercadotecnia sale  |
-| 1738 | 1744 | 1 | 2026-11-10 — `[RE.63]` La nota de crédito: en el CFDI, en Kepler, en los dos o en ninguno |
-| 1745 | 1751 | 2 | 2026-11-10 — `[RE.62]` Revisión de facturas: la nota de crédito se liga por su relación en el CFDI |
-| 1752 | 1758 | 1 | 2026-11-09 — `[CGA-A.72]` Ligar: el depósito ya capturado dice qué cobro es |
-| 1759 | 1765 | 1 | 2026-11-09 — `[CGA-A.71]` La cola de Captura: 21 de 88 «pendientes» ya estaban en el libro |
-| 1766 | 1805 | 4 | 2026-11-07 — `[DN.6–DN.8, DN.11a]` En código, sin desplegar: el vendedor captura lo que no hay y el servidor l |
-| 1806 | 1820 | 3 | 2026-11-08 — `[PGP.97]` `[PGP.97.1]` Salidas del banco: lo que salió a proveedores, contra Kepler y contra el  |
-| 1821 | 1835 | 2 | 2026-11-07 — `[P2.9 paso 3]` Caducidades: el selector ofrece sólo las unidades del producto |
-| 1836 | 1843 | 2 | 2026-11-07 — `[VAC.U16]` `[VAC.P1]` Verificador: ajustes del mostrador y un escaneo que ya no barre `kdii` |
-| 1844 | 1861 | 2 | 2026-11-07 — `[MS.AVISO.2]` La notificación de Windows sale con la Suite detrás de otro programa |
-| 1862 | 1888 | 2 | 2026-11-07 — `[NP.7.L.18]` Primer feedback de quien captura: acercamientos y detalles |
-| 1889 | 1902 | 2 | 2026-11-07 — `[ETQ-AVISOS.0]` Las mediciones de los avisos de precio, con el sistema ya andando |
-| 1903 | 1908 | 2 | 2026-11-06 — `[NP.7]` El lector de IA y «Publicadas»: construidos y medidos, con la IA apagada |
-| 1909 | 1920 | 3 | 2026-11-06 — `[PGP.94–PGP.96]` El día que ya pasó lee lo que Kepler pagó |
-| 1921 | 1934 | 3 | 2026-11-06 — `[COT.26–COT.37]` El cotizador de Telemarketing después del primer día de uso real |
-| 1935 | 1944 | 2 | 2026-11-06 — `[CANON.5]` Retiro de importers: finanzas y ventas al ODS, y cuatro errores que contaban doble o  |
-| 1945 | 1963 | 2 | 2026-11-04 — Checkpoint `[MS.AVISO]`: la notificación de Windows funciona, y por qué en prod «no avisaba» |
-| 1964 | 1973 | 1 | 2026-11-06 — `[P2.9 pasos 1–2]` Caducidades: las 7 unidades llegan a prod |
-| 1974 | 1980 | 1 | 2026-11-05 — `[CGA-A.70]` La hoja de gastos de Morelia: lo «pendiente» ya estaba pagado en papel |
-| 1981 | 1986 | 1 | 2026-11-05 — `[LE.CU]` El Cuadre de Caja General: del día que no cuadra al peso sin explicación |
-| 1987 | 1993 | 1 | 2026-11-05 — `[LE.6.9]` La Ventanilla entra a la ruta de Caja General, persona por persona |
-| 1994 | 2000 | 2 | 2026-11-04 — `[FCT]` La hoja «RENTABILIDAD TLMKT»: el viaje y su venta salen de Kepler, el costo de Logística |
-| 2001 | 2007 | 2 | 2026-11-04 — `[LE]` Libro de efectivo: lo que encontramos y el plan para operar como un banco |
-| 2008 | 2015 | 1 | 2026-11-04 — `[DP]` Definiciones de negocio: en prod, y comisiones dice qué regla le falta |
-| 2016 | 2044 | 2 | 2026-11-04 — `[ETQ]` Checkpoint de Etiquetas: qué está en prod, qué falta y qué espera a Edgar |
-| 2045 | 2055 | 2 | 2026-11-02 — `[P2.9 pasos 0–2]` Caducidades: se mide la unidad y entran «paquete», «250 g» y «500 g» |
-| 2056 | 2063 | 1 | 2026-11-04 — `[DP]` Definiciones de negocio: en prod, y comisiones dice qué regla le falta |
-| 2064 | 2081 | 2 | 2026-10-30 — `[COT.20]` El cotizador: Dirección en las 8 sucursales, cada jefe de zona sólo en las suyas |
-| 2082 | 2118 | 3 | 2026-10-30 — `[CGA-A.66]`–`[CGA-A.69]` Auditoría de Caja: el Cuadre se parte y se muda a Caja |
-| 2119 | 2126 | 2 | 2026-11-03 — `[NP.7]` La primera captura en prod: seis defectos que en local no se veían |
-| 2127 | 2134 | 2 | 2026-11-03 — `[NP.7]` Catálogo digital: el primer corte aterriza en prod |
-| 2135 | 2147 | 1 | 2026-11-02 — `[CSU.22]` Cortes/Sucursales: la consulta del mes 3× más rápida, mismas cifras |
-| 2148 | 2160 | 1 | 2026-11-02 — `[CSU.21]` Auditoría de diseño de Cortes/Sucursales, y lo que decía algo falso |
-| 2161 | 2173 | 1 | 2026-11-02 — `[CSU.20]` Lo contado fuera de un corte, a la vista |
-| 2174 | 2186 | 1 | 2026-11-02 — `[CSU.19]` Tarjeta y transferencia juntas; los créditos del cajón no son faltante |
-| 2187 | 2199 | 1 | 2026-11-02 — `[CSU.17]` La lista de cortes dice de quién es cada número |
-| 2200 | 2244 | 3 | 2026-10-30 — `[CSU.16]` Cortes/Sucursales: Esperado lo pone el sistema, Declarado lo pone el cajero |
-| 2245 | 2274 | 2 | 2026-10-30 — `[CGA-A.65]` «Reponer» de Canindo: el servidor decía por qué y el aviso se lo tragaba |
-| 2275 | 2303 | 2 | 2026-10-30 — `[CGS.60]` Un movimiento que se hace con cheque o con papel (crédito) |
-| 2304 | 2330 | 2 | 2026-10-30 — `[CGS.59]` Cheques y papeles, uno por uno, en el arqueo de la caja |
-| 2331 | 2338 | 1 | 2026-10-29 — `[AX.18]` Embarques de telemarketing que salieron sin factura |
-| 2339 | 2346 | 1 | 2026-10-29 — `[AX.17]` La factura de telemarketing con su embarque |
-| 2347 | 2353 | 1 | 2026-10-29 — `[AX.16]` Facturación TM se muda a `/telemarketing/documentos` |
-| 2354 | 2381 | 2 | 2026-10-29 — `[CGA-A.65]` La ventana de Reposición: la más sencilla, sin perder nada |
-| 2382 | 2413 | 2 | 2026-10-29 — `[CGA-A.65]` El fin de la reposición: UN retiro de CAOS explica la hoja entera, y sólo si está ap |
-| 2414 | 2440 | 2 | 2026-10-29 — `[CGA-A.65]` La hoja de gastos de zona: del Excel en papel a la Suite |
-| 2441 | 2462 | 3 | 2026-10-29 — `[PQ.23–PQ.29]` Compras sin clics de más: la OC sale sola, se asocia sola, se recibe sola, y todo |
-| 2463 | 2478 | 2 | 2026-10-29 — `[P2.9.3]` Caducidades: escanear busca solo, sin tocar la lupa |
-| 2479 | 2485 | 1 | 2026-10-28 — `[ETQ-HISTORIAL.5]` «Imprimir etiqueta» desde el historial de precios (H.3.2) |
-| 2486 | 2505 | 2 | 2026-11-02 — `[ETQ-CODIGO.2]` El código tampoco se corta en las etiquetas en oferta · `[ETQ-HISTORIAL]` a ✅ ·  |
-| 2506 | 2533 | 5 | 2026-10-28 — `[ETQ-CODIGO]` La etiqueta imprimió «Código: 207» en vez de «20750» |
-| 2534 | 2556 | 1 | 2026-10-29 — `[CGA-A.63]` Caja General: la reposición pasa a un botón de la barra, y la prueba de la página vu |
-| 2557 | 2586 | 4 | 2026-10-28 — `[ETQ-HISTORIAL]` Buscar un producto y ver su historial de cambios de precio (9 plazas) |
-| 2587 | 2602 | 2 | 2026-10-28 — `[P2.9.2]` Caducidades: un producto con varios códigos de barras solo resolvía el primero |
-| 2603 | 2630 | 5 | 2026-10-22 — `[MS.ADJ]` Adjuntos de la Mesa de Servicio: arrastrar desde el escritorio y enlaces de Google |
-| 2631 | 2645 | 1 | 2026-10-29 — Checkpoint `[MS.AVISO]` `[MS.ADJ]`: la Mesa de Servicio aterriza dos items en producción |
-| 2646 | 2673 | 4 | 2026-10-28 — `[MS.AVISO]` Una solicitud nueva avisa en pantalla — y las de prioridad media/baja ya no pasan en |
-| 2674 | 2686 | 1 | 2026-10-26 — `[PF.12]` Catálogo de productos en dos vistas: lo que más se pregunta (unidad y precio) a la vist |
-| 2687 | 2713 | 4 | 2026-10-26 — `[OBS.15]` Cabecera y renglones en menos de 1 s: el carril buscaba filas por posición, y la posic |
-| 2714 | 2741 | 2 | 2026-10-23 — `[RA-MED]` El comprador sube el sugerido y acierta en la dirección; el sugerido dejaba 1.6 días;  |
-| 2742 | 2753 | 2 | 2026-10-23 — `[CGS.52]` Los cortes 12–22-oct se recalculan: lo que quedó en caja y la diferencia, por separado |
-| 2754 | 2782 | 2 | 2026-10-23 — `[CGA-A.15c]` La caja general no decía de qué ruta era cada cobro: la API nunca pidió la columna |
-| 2783 | 2815 | 2 | 2026-10-22 — `[CP.8.82]` Por qué el armado difería de ContPAQi: dos reglas del puente y $6.46 M de doble regis |
-| 2816 | 2849 | 2 | 2026-10-22 — `[CP.8.81]` Prueba A/B del armado contra ContPAQi, ene–sep 2026: 87.3 % → 89.0 % iguales |
-| 2850 | 2877 | 2 | 2026-10-22 — `[CP.8.80]` «Categorizar en Bancos» llevaba a una pantalla donde no se puede categorizar |
-| 2878 | 2900 | 6 | 2026-10-22 — `[ETQ-PROMO.2]` El verificador avisa «promoción» y el buscador de la etiquetera las marca |
-| 2901 | 2917 | 4 | 2026-10-22 — `[ETQ-PROMO.1]` «Precio 0, ponle precio»: el mensaje de la etiquetera mandaba a arreglar algo que |
-| 2918 | 2951 | 3 | 2026-10-21 — `[CSU.15]` La lupa invisible y el NG0955 eran un renglón copiado: barrido en 36 archivos y dos co |
-| 2952 | 2977 | 2 | 2026-10-22 — `[CP.8.75]`–`[CP.8.76]` El puente ContPAQi: lento y difícil de entender, los dos con causa medida |
-| 2978 | 2991 | 1 | 2026-10-22 — `[RA-NEG.3]` El detalle de la negociación se abre dentro del pedido, y la requisición ya no se pi |
-| 2992 | 3014 | 2 | 2026-10-22 — `[AB.23]`–`[AB.24]` «Mi pedido» resta lo que ya viene: la sucursal no vuelve a pedir lo que está  |
-| 3015 | 3039 | 2 | 2026-10-22 — `[RA-NEG.1]`–`[RA-NEG.2]` Costo y negociación en el pedido, y el desglose que cabe en una pantall |
-| 3040 | 3070 | 2 | 2026-10-21 — `[RA-UX.1]`–`[RA-UX.8]` Auditoría de interacción de `/compras/pedido`: la pantalla generaba lotes |
-| 3071 | 3097 | 2 | 2026-10-21 — `[CP.8.60]`–`[CP.8.71]` El pago a proveedor del puente ContPAQi, medido de punta a punta antes de |
-| 3098 | 3137 | 3 | 2026-10-22 — `[E.29]` Diseño de las cotizaciones: PrimeNG, vendedor derivado, responsividad, tema y la hoja VE |
-| 3138 | 3163 | 2 | 2026-10-22 — `[E.28]` Kepler cobra la presentación capturada: el prorrateo de E.23/E.24 era un artefacto del i |
-| 3164 | 3181 | 1 | 2026-10-22 — `[E.27]` La cotización contra Kepler HOY: aviso, re-cotizar, existencia y descuento desglosado |
-| 3182 | 3203 | 1 | 2026-10-22 — `[E.25]``[E.26]` El impuesto de cada producto y el padrón entero |
-| 3204 | 3226 | 2 | 2026-10-22 — `[E.24]` Las verdades que faltaban: la promo es la de la unidad cobrada y el precio va por preced |
-| 3227 | 3250 | 2 | 2026-10-21 — `[E.23]` La cotización contra el pedido real de Kepler: de 55 % a 90 % de renglones al centavo |
-| 3251 | 3268 | 1 | 2026-10-21 — `[E.22]` La cotización cobra el tramo de volumen que Kepler cobra (y el decode tenía media razón) |
-| 3269 | 3281 | 1 | 2026-10-21 — `[E.21]` El alta de cotización es atómica (en código, sin ejercer) |
-| 3282 | 3297 | 1 | 2026-10-21 — `[E.20]` El botón que no se habilitaba, los kilos que se multiplicaban por 10, y una compuerta ci |
-| 3298 | 3318 | 1 | 2026-10-21 — `[E.18]` `[E.19]` Auditoría de Cotizaciones, y el papel que se le manda al cliente ya cierra |
-| 3319 | 3338 | 1 | 2026-10-21 — `[E.17]` Dos auditorías de diseño que se saltaron el inventario de piezas |
-| 3339 | 3352 | 1 | 2026-10-21 — `[E.16]` La cifra que denuncia lleva a sus facturas, y la cola sale del Resumen |
-| 3353 | 3375 | 2 | 2026-10-21 — `[E.15]` El descuento de telemarketing como cuenta que cierra al centavo, y una tabla «por operad |
-| 3376 | 3402 | 2 | 2026-10-21 — `[E.14]` El resumen de Telemarketing: una cola «priorizada» sin `ORDER BY` y un vencido que cubrí |
-| 3403 | 3456 | 5 | 2026-10-21 — `[CSU.13]` Cortes: un buscador que entiende los folios como se escriben, y lo cancelado se ve sin |
-| 3457 | 3494 | 4 | 2026-10-21 — `[CSU.12]` Proveedores: los $13.3 M de pagos cancelados no los sumaba nadie — el daño estaba en l |
-| 3495 | 3510 | 4 | 2026-10-16 — `[THR.1]` El nombre del tier decide si un tope existe: cuatro endpoints y dos controladores lo te |
-| 3511 | 3532 | 2 | 2026-10-21 — `[RE.42.1]` `[RE.43.1]` `[RE.44]` `[RE.45]` Los pendientes de RE.42/43, y un 500 latente que sali |
-| 3533 | 3556 | 2 | 2026-10-21 — `[RE.43]` La factura correcta, en la entrada equivocada: se buscaba el folio del proveedor en NUE |
-| 3557 | 3610 | 5 | 2026-10-21 — `[CSU.11]` Un cobro cancelado en Kepler seguía contando: la regla pasa a vivir en una vista, con  |
-| 3611 | 3649 | 4 | 2026-10-21 — `[CSU.10]` Cortes/Sucursales no cargaba: la vista de cobros se recalculaba por cada corte |
-| 3650 | 3678 | 2 | 2026-10-21 — `[CB.53]` La conciliación corre al llegar el dato, y el cron que yo mismo propuse era la respuest |
-| 3679 | 3679 | 1 | 2026-10-20 — `[CB.52]` La comisión de terminal dejaba de ser comisión porque el banco dice «CREDITO» |
-| 3680 | 3750 | 5 | 2026-10-21 — `[RE.42]` «Este PDF ya está subido» y era otro proveedor con el mismo número |
-| 3751 | 3772 | 1 | 2026-10-20 — `[CGA-A.35]` S4: a Control no le falta nada; el Cuadre pedía capturar lo ya capturado |
-| 3773 | 3809 | 3 | 2026-10-20 — `[CGA-A.33]` S2: el saldo de CAOS se prueba por billete, no por peso — y todavía no tiene arqueo |
-| 3810 | 3831 | 4 | 2026-10-20 — `[TP.21]` O6: el libro de Tesorería y el Calendario son una sola línea de tiempo, y entre los dos |
-| 3832 | 3853 | 5 | 2026-10-19 — `[TP.20.5]` La información de una factura vive junta: la ficha de la obligación |
-| 3854 | 3874 | 5 | 2026-10-19 — `[RA-FIX.1/3/4]` El flujo de compra guardaba el desglose ya destruido, y redondeaba en dos motore |
-| 3875 | 3888 | 2 | 2026-10-16 — `[MOS.1–MOS.3]` El buscador del mostrador encuentra por cuatro campos, y lo que Kepler no tiene l |
-| 3889 | 3904 | 3 | 2026-10-16 — `[VAC]` #414 tiró la API en producción con los checks requeridos del CI en verde — post-mortem y  |
-| 3905 | 4026 | 7 | 2026-10-16 — `[CG.189–CG.191]` El libro de caja se llena solo, y la mitad del trabajo fue descubrir que ya est |
-| 4027 | 4061 | 5 | 2026-10-16 — `[P2.8.1]` `[P2.6.12]` Caducidades: «Capturas por día», el CEDIS que captura cada mes y el «4 de  |
-| 4062 | 4239 | 10 | 2026-10-16 — `[CGA]` Caja General: el ingreso ya tenía vehículo, y dos documentos del repo decían lo contrario |
-| 4240 | 4263 | 5 | 2026-10-16 — Revisión de pendientes de `[PRV.2]` y `[MS.DICTADO]` (#389 mergeado, #406 abierto) |
-| 4264 | 4281 | 2 | 2026-10-14 — `[PRV.2]` y `[MS.DICTADO]`: el consentimiento del aviso de privacidad y el dictado por voz de la  |
-| 4282 | 4366 | 5 | 2026-10-16 — `[K.VEC.1]` Incidente prod: el corpus vectorial no existía, y «sin match» lo tapó 24 días |
-| 4367 | 4402 | 3 | 2026-10-16 — `[CG.183–CG.186]` Auditoría front-end de Caja General: 4 corregidos, 2 como deuda |
-| 4403 | 4415 | 1 | 2026-10-16 — `[TP.16]` La semana completa y «Ordenar y pagar» |
-| 4416 | 4429 | 1 | 2026-10-16 — `[CAT-PRECIO.2–5]` Catálogo: Mantenimiento y el catálogo de Precios con su historia |
-| 4430 | 4444 | 1 | 2026-10-16 — `[CAT-PRECIO.1]` Precios: la ficha de venta, campo por campo, entre sucursales |
-| 4445 | 4458 | 1 | 2026-10-16 — `[TP.15]` El Calendario de Pagos no tenía por dónde recibir una factura |
-| 4459 | 4514 | 3 | 2026-10-15 — `[U.VA]` Verdad absoluta de las UNIDADES: son tres, no una, y el 2.2 % que no cierra mueve $8.73M |
-| 4515 | 4637 | 8 | 2026-10-15 — `[RA.VA]` Verdad absoluta de `/compras/pedido`: el motor no veía un canal entero, y la pantalla l |
-| 4638 | 4660 | 5 | 2026-10-14 — `[VAC]` El verificador de mostrador entra al estándar, y una auditoría de diseño encuentra que el |
-| 4661 | 4693 | 6 | 2026-10-12 — `[CPA.10]` La bandeja «Mi cierre»: contabilidad no ignoraba la Suite, ignoraba SU módulo |
-| 4694 | 4713 | 4 | 2026-10-15 — `[ETQ-CAMBIOS.11]` Cambios de precio con las columnas del PDF de Compras |
-| 4714 | 4726 | 2 | 2026-10-14 — `[ETQ-CAMBIOS.10]` Cambios de precio: la pantalla sube, y lo que costó hacerlo bien |
-| 4727 | 4740 | 3 | 2026-10-10 — `[ETQ-CAMBIOS.8–9]` y `[ETQ-ESTADO.1]` + lo que costó llevar tres PR de etiquetas a verde |
-| 4741 | 4783 | 3 | 2026-10-09 — `[ETQ-AVISOS.1–3]` Avisar a las sucursales que cambió un precio, y que Compras comparta la lista |
-| 4784 | 4823 | 3 | 2026-10-09 — `[WMS-REC.22]` Llegadas al andén y el producto sin caducidad |
-| 4824 | 4864 | 3 | 2026-10-08 — `[WMS-REC.18–21]` El Andén no pierde vales, se queda con las caducidades y sigue sin internet |
-| 4865 | 4874 | 2 | 2026-10-07 — `[AB.13]` Reporte PDF del almacenista, restringido a su almacén |
-| 4875 | 4889 | 2 | 2026-10-07 — `[AB.12]` Autoabasto: el reparto del sobrante de red, y un resumen que llevaba 4 semanas muerto |
-| 4890 | 4971 | 5 | 2026-10-07 — `[PU.VA]` El supuesto de crecimiento gana árbitro, y el mes en curso deja de ser base |
-| 4972 | 4996 | 2 | 2026-10-06 — `[GP.1]` Revisión de PM (Edgar) al PR #271 |
-| 4997 | 5020 | 2 | 2026-10-06 — `[GP.1]` Tablero de pedidos: revisión con el usuario, acceso y estándares |
-| 5021 | 5037 | 1 | 2026-10-06 — `[GP.1]` Tablero de pedidos del almacén |
-| 5038 | 5047 | 1 | 2026-10-06 — Ubicaciones: bodega y piso de venta en un solo almacén (ADR-087) |
-| 5048 | 5065 | 1 | 2026-10-06 — `[GP.0]` Gestión de pedidos en almacén: el pedido se queda en Kepler, el piso se va a la Suite |
-| 5066 | 5131 | 4 | 2026-10-06 — `[IC.23]` El encargado de sucursal asigna quién cuenta (y los tres gates mal partidos que apareci |
-| 5132 | 5208 | 5 | 2026-10-06 — `[IC.13]` Folios de inventario: el «cíclico» no era parcial y «estancado» medía la apertura |
-| 5209 | 5249 | 3 | 2026-10-06 — `[WMS-REC.17]` El traspaso entra al Andén por su embarque, y se puede cambiar de camión |
-| 5250 | 5272 | 2 | 2026-10-05 — `[CSU.0–CSU.2]` Cortes/Sucursales: el corte es lo contado, y el cuadre va por turno |
-| 5273 | 5307 | 9 | 2026-10-03 — Checkpoint: la Mesa de Servicio construida de punta a punta, lo que ya está en `main` y lo que fa |
-| 5308 | 5408 | 6 | 2026-10-03 — `[VPR.1/VPR.2]` El precio del vendedor: no era desactualización, era una columna en disputa |
-| 5409 | 5565 | 9 | 2026-10-02 — `[RA-DYN.U7]` El cumplimiento cableado al pedido: el grano lo decidió la medición |
-| 5566 | 5653 | 5 | 2026-10-02 — `[RA-DYN.U4–U6]` El cumplimiento del proveedor: la herramienta era un índice |
-| 5654 | 5730 | 5 | 2026-10-01 — `[RA-DYN.U1]` Unir lo que ya sabíamos: las señales del margen, al lado del pedido |
-| 5731 | 5788 | 4 | 2026-10-01 — `[RA-DYN.P4]` El motor de pedido deja de leer `.env` (y el importer deja de ser necesario) |
-| 5789 | 5861 | 4 | 2026-10-01 — Operación: prod se mudó a k3s mientras yo buscaba por qué no desplegaba |
-| 5862 | 5897 | 3 | 2026-10-02 — Mesa de Servicio, capa 1 (base de datos): construida y probada, con tres cosas que se apartan de  |
-| 5898 | 5999 | 5 | 2026-10-01 — DM.19.1-3: cablear el origen a la pantalla, y una retractación |
-| 6000 | 6102 | 6 | 2026-10-01 — DM.19: las órdenes de entrada del CEDIS eran de SIETE plazas, y el ERP ya lo decía |
-| 6103 | 6147 | 3 | 2026-10-01 — DM.18: el mapa `TI### → sucursal` lo dice Kepler; dejamos de adivinarlo |
-| 6148 | 6190 | 3 | 2026-10-01 — DM.17: el traspaso que decía salir del CEDIS y salió de Morelia Abastos |
-| 6191 | 6269 | 5 | 2026-10-01 — Checkpoint: la Mesa de Servicio diseñada por capas, y una base de desarrollo que ya no existe (`[ |
-| 6270 | 6313 | 3 | 2026-10-01 — El hueco más grande de VERDAD_ABSOLUTA.md estaba cerrado y nadie lo sabía |
-| 6314 | 6354 | 3 | 2026-09-30 — IC.CEDIS.2: la compuerta del CEDIS mandaba a corregir un documento que estaba bien |
-| 6355 | 6425 | 4 | 2026-10-01 — EXP.3: los doctypes que el motor no contaba, arbitrados |
-| 6426 | 6495 | 4 | 2026-09-30 — EXP.2: el expediente del renglón (el renglón deja de ser un callejón) |
-| 6496 | 6590 | 5 | 2026-09-30 — EXP.1: las señales que explican el descuadre (la llave que faltaba) |
-| 6591 | 6633 | 3 | 2026-09-30 — DM.15: el traspaso que decía haberse hecho a otra sucursal |
-| 6634 | 6646 | 1 | 2026-09-30 — TK.14 + TK.a3: sin leyenda fiscal en los papeles, y main vuelve a verde en `view:test` |
-| 6647 | 6659 | 1 | 2026-09-30 — TK.12 + TK.13: bandeja de tickets por filtros, y desglose por pieza y partida |
-| 6660 | 6752 | 5 | 2026-09-30 — EXP.0: el equipo de Prevención no podía abrir su propio módulo |
-| 6753 | 6809 | 3 | 2026-09-30 — CNT.1: nadie cerró un conteo nunca, y el software no decía por qué |
-| 6810 | 6861 | 3 | 2026-09-30 — IRA.1: la pantalla de exactitud no decía que el proceso nunca corrió |
-| 6862 | 6928 | 4 | 2026-09-30 — ABC.6: el conteo cíclico decía «2,000 pendientes» cuando eran 39,480, y la letra no decía por qué |
-| 6929 | 7054 | 7 | 2026-09-29 — IC.12: la pantalla de Diferencias publicaba piezas a precio de caja, y tardaba 2.2 s en hacerlo |
-| 7055 | 7097 | 3 | 2026-09-30 — CE.11: «no explicas por qué», y la explicación que yo tenía en la cabeza era falsa |
-| 7098 | 7149 | 3 | 2026-09-30 — CE.9/CE.10: la pregunta «¿a qué te refieres?» encontró una decisión de negocio escondida en una c |
-| 7150 | 7288 | 10 | 2026-09-29 — Fase CE: el costo estándar de Kepler, y por qué su pantalla de utilidad miente |
-| 7289 | 7342 | 3 | 2026-09-28 — Revisión de diseño móvil: la tabla densa, y una regla del propio DESIGN.md que era falsa (`[UIM.0 |
-| 7343 | 7376 | 3 | 2026-09-28 — Auditoría de la capa de datos: el resolvedor del corte de ERP tiene una llave que no resuelve (`[ |
-| 7377 | 7421 | 4 | 2026-09-28 — Auditoría de la capa de datos: la venta mensual por producto se DERIVA de la diaria (`[AUD-DAT.10 |
-| 7422 | 7442 | 2 | 2026-09-28 — Cotizaciones: Desbloqueo de Crear cotización, asignación de folio y retorno a mesa (`[COT.15]`) |
-| 7443 | 7608 | 10 | 2026-09-28 — La tienda mayorista publicaba catálogo de una prod congelada (`[PUB.1]`) |
-| 7609 | 7841 | 15 | 2026-09-25 → 2026-09-28 — Auditoría de CPU del servidor `md` (`[CPU.1]` · `[CPU.2]` · `[CPU.3]`) |
-| 7842 | 7935 | 6 | 2026-09-28 — `[WMS-REC.16]` Abandonar un conteo deja de exigir el poder de vaciar un almacén |
-| 7936 | 8028 | 5 | 2026-09-25 — `[GX.19]` El número de egresos estaba bien; lo que faltaba era decir con qué se calculó |
-| 8029 | 8106 | 3 | 2026-09-24 — `[CB.48]` El dato que dimos por inexistente llevaba meses en la base |
-| 8107 | 8170 | 3 | 2026-09-24 — `[CB.47]` El traspaso interno se reportaba como «depósito sin origen» |
-| 8171 | 8243 | 5 | 2026-09-24 — `[CB.46]` `/finanzas/bancos`: tres indicadores que apuntaban al verde, y dos universos |
-| 8244 | 8324 | 4 | 2026-09-24 — La base equivocada: medí medio día contra una prod que dejó de serlo hace dos |
-| 8325 | 8442 | 7 | 2026-09-24 — `[CXC.25]` El 46% de la cartera no son clientes, y por eso contabilidad decía otra cifra |
-| 8443 | 8596 | 9 | 2026-09-24 — `[CXC.20]` `/finanzas/cartera`: dos saldos del mismo universo, y el 78.6% sin forma de filtrarlo |
-| 8597 | 8689 | 5 | 2026-09-24 — `[WMS-REC.15]` El Andén arranca por la sucursal, y el día se mide en hora de México |
-| 8690 | 8758 | 4 | 2026-09-24 — `[CAT.7]` El catálogo imprime: reporte de precios por proveedor |
-| 8759 | 8834 | 4 | 2026-09-23 — `[ZN.0]` Zona, sucursal y ruta eran la misma columna |
-| 8835 | 8965 | 8 | 2026-09-23 — `[ID.37]`/`[ID.38]` El login tenía dos reglas, y la sesión no se podía cerrar |
-| 8966 | 9049 | 5 | 2026-09-23 — `[SB.1]` El corte Wincaja→Kepler deja de ser un literal: Morelia Abastos faltaba en el fact de ve |
-| 9050 | 9089 | 4 | 2026-09-22 — `[CRM.0]` Decode del CRM de Kepler: el prospecto es `kdudp` y la cotización es un doctype, no un  |
-| 9090 | 9150 | 5 | 2026-09-22 — `[COT.1]` El motor de precio de cotizaciones: el vendedor deja de poder inventar descuentos |
-| 9151 | 9194 | 4 | 2026-09-23 — `[WMS-REC.12→14]` Rediseño del Andén: una sola pasada por caja |
-| 9195 | 9249 | 6 | 2026-09-22 — `[WMS-REC.11]` Ubicaciones: por qué fallaba el alta, y el rack que ya se puede escanear |
-| 9250 | 9326 | 6 | 2026-09-21 — Fase CDRP: re-verificar lo pendiente antes de seguir, y descubrir que la mitad ya no era cierto |
-| 9327 | 9407 | 4 | 2026-09-21 — `[WMS-REC.10]` La pantalla de Ubicaciones se vuelve el mapa de la bodega — y deja de estar oculta |
-| 9408 | 9488 | 5 | 2026-09-21 — `[WMS-REC.9b]` Varias caducidades por renglón — y la corrección de un "sin 403" que era falso |
-| 9489 | 9797 | 22 | 2026-09-19 — Fase TDA.A · El análisis de ventas de tienda pasa a cuatro secciones, y la fotografía aprende a r |
-| 9798 | 9877 | 5 | 2026-09-18 — Fase NX · Nx Cloud a prod, y dos gates que estaban verdes o rojos por el motivo equivocado |
-| 9878 | 9951 | 5 | 2026-09-18 — `[WMS-REC.9]` El Andén se reordena, y el reordenamiento destapa que el put-away acomodaba un lote |
-| 9952 | 10029 | 5 | 2026-09-18 — `[PV.4]` La premisa era falsa, el error estaba en el doctype de al lado, y el aviso no habría lle |
-| 10030 | 10092 | 4 | 2026-09-18 — Fase TK: Tickets de venta, y el descuento que no estaba donde el patrón decía |
-| 10093 | 10134 | 3 | 2026-09-17 — `[DB-MEM.17]` Deuda declarada: 50 crons sin candado entre procesos, y el helper NO los cubre a to |
-| 10135 | 10180 | 6 | 2026-09-17 — `[TO.1]`–`[TO.6]`: auditoría del flujo `/vendor/take-order` |
-| 10181 | 10265 | 8 | 2026-09-17 — `[DB-MEM.9]`–`[DB-MEM.13]`: el estándar deja de ser la RAM y pasa a ser el segundo |
-| 10266 | 10301 | 3 | 2026-09-17 — `[AU.32]`: «hay que revisar más a profundidad el trabajo que generas» |
-| 10302 | 10351 | 5 | 2026-09-15 — `[AU.23]`–`[AU.26]`: el organigrama pasa a ser el de MDTask, y el cruce destapa un `superadmin` |
-| 10352 | 10541 | 21 | 2026-09-15 — Memoria de Postgres en prod: estaba en **configuración de fábrica**. Tuneada en caliente + un rei |
-| 10542 | 10566 | 4 | 2026-09-14 — Auditoría de las bases PROPIAS (prod `railway`): CERRADA al 100% — la limpieza declarada YA ocurr |
-| 10567 | 10594 | 5 | 2026-09-14 — Auditoría del Kepler crudo + ruta al ODS: CERRADA al 100% (censo, causa raíz, sobrantes durables) |
-| 10595 | 10662 | 5 | 2026-09-14 — Fase TP cerrada: Calendario de Pagos (ADR-064) |
-| 10663 | 10702 | 7 | 2026-09-11 — Auditoría de `/comercial/sell-out`: la venta no-caja se declaraba en el back pero no en el front, |
-| 10703 | 10748 | 7 | 2026-09-11 — `[OR.0]`+`[OR.1]` El usuario era una credencial; pasa a ser una persona con un puesto |
-| 10749 | 10816 | 6 | 2026-09-11 — `[GX.9]` El desempeño de egresos no contaba dos cajones de dinero que sale |
-| 10817 | 10847 | 5 | 2026-09-10 — `[SN]` La landing deja de ser un catálogo de tarjetas — y la puerta que abre ya no rebota |
-| 10848 | 10905 | 7 | 2026-09-09 — `[RD.2c]` El latido estaba verde y la venta no llegaba: $1.27M parados entre el runner y la plata |
-| 10906 | 10981 | 8 | 2026-09-08 — `[RD]` Automatizar el tablero con el que se paga la Ruta Directa, y el bug que apareció al entend |
-| 10982 | 11023 | 5 | 2026-09-08 — `[ETQ.1]` La etiqueta de anaquel: ocho hallazgos de diseño y el noveno que sólo se ve renderizado |
-| 11024 | 11134 | 7 | 2026-09-07 — `[WR.7][WR.8]` La réplica cruda de Wincaja perdía filas por dos mecanismos, ninguno visible |
-| 11135 | 11178 | 3 | 2026-09-07 — `[W4.3]` La barrida del sesgo de 6 h en el tablero de salud |
-| 11179 | 11259 | 5 | 2026-09-07 — El factor de caja de Wincaja: uno se arregló, dos se declararon (y por qué no los tres) |
-| 11260 | 11321 | 4 | 2026-09-07 — El reconciliador de Wincaja que NO hace falta (y los dos instrumentos que mintieron al medirlo) |
-| 11322 | 11401 | 5 | 2026-09-07 — El ledger doble de knex: 4 migraciones aplicadas que el próximo deploy iba a re-aplicar |
-| 11402 | 11526 | 9 | 2026-09-05 — AX.9: auditoría de `/comercial/documentos` y los tres números que mentían |
-| 11527 | 11617 | 6 | 2026-09-05 — Fase VP: auditoría de procedencia, y por qué "los números cambian" (ADR-056) |
-| 11618 | 12012 | 26 | 2026-09-05 — Réplica cruda Wincaja 2025–2026 + purga de higiene (21.8 GB) y lo que NO se purgó |
-| 12013 | 12089 | 5 | 2026-09-03 — AUDITORÍA de la implementación de la BD + el filtro de tenant deja de ser condicional |
-| 12090 | 12166 | 5 | 2026-09-03 — ADR-055: la cantidad se muestra en la unidad más grande, con el divisor del ERP dueño del almacén |
-| 12167 | 12233 | 4 | 2026-09-02 — Fase AUTHZ: CASL se retira (y el retiro deja un cabo en el módulo de usuarios) |
-| 12234 | 12267 | 2 | 2026-08-31 — MR.7: el margen no se estaba midiendo (dos costos, una unidad descartada) |
-| 12268 | 12330 | 3 | 2026-08-31 — RA-PRO.46: el costo de caja se leía mal porque lo calculábamos en vez de leerlo |
-| 12331 | 12351 | 1 | 2026-08-31 — WR.7: la réplica Wincaja estuvo 4 días en cero diciendo "online" |
-| 12352 | 12402 | 6 | 2026-08-29 — MR.5: auditoría de `/comercial/rentabilidad` y corrección de la cascada |
-| 12403 | 12437 | 5 | 2026-08-28 — RE.17: las 6 pantallas de facturas de entrada contra los 18 puntos de DESIGN.md |
-| 12438 | 12484 | 4 | 2026-08-29 — RA-PRO.45: el tránsito se pesa por la probabilidad de que llegue |
-| 12485 | 12517 | 4 | 2026-08-28 — RA-PRO.41: el pedido aprende de la historia (estacionalidad, colchón cuantílico, lead derivado, r |
-| 12518 | 12557 | 4 | 2026-08-28 — Incidente prod: el pedido restaba inventario fantasma (RA.5, ~$5.9M de compra suprimida) |
-| 12558 | 12635 | 10 | 2026-08-27 — WMS-REC.5: el alta de inventario pasa al cierre del vale, y Caducidades se vuelve la bandeja del  |
-| 12636 | 12678 | 5 | 2026-08-27 — Fase ID: el sistema de usuarios sale de la era rutas (ID.13–ID.15, 47 roles → 28, cero pérdidas) |
-| 12679 | 12768 | 12 | 2026-08-26 — Réplica de pruebas en .245 (estructura de prod) + espejo del sink · y el CDC del ODS llevaba 2 dí |
-| 12769 | 12797 | 4 | 2026-08-26 — FKJ: dónde SÍ y dónde NO puede morir un paso del nightly (gate de costo medido) |
-| 12798 | 12821 | 3 | 2026-08-25 — Compras 360: auditoría de la pantalla + 12 arreglos (atribución, buscador, carrera) |
-| 12822 | 12841 | 4 | 2026-08-20 — FKJ: integridad referencial + JOINs correctos + copias→vista |
-| 12842 | 12865 | 5 | 2026-08-18 — COMM.5 (P0 Finanzas): los motores largos salen del request |
-| 12866 | 12885 | 3 | 2026-08-18 — Auditoría de transportes de comunicación (ADR-045): 4 huecos cerrados |
-| 12886 | 12905 | 4 | 2026-08-17 — Fase CH.0: base de datos de checadores (asistencia) desde cero |
-| 12906 | 12921 | 3 | 2026-08-17 — SYNC "al momento" (producto/stock/ventas) + arranque normalización Fase 0 |
-| 12922 | 12935 | 3 | 2026-08-05 — DM.12: Cuadre de traspasos en /almacen/movimientos (pestaña + reporte PDF) |
-| 12936 | 12943 | 1 | 2026-07-31 — Thot: memoria persistente (thot_remember / thot_forget + recall) |
-| 12944 | 12951 | 2 | 2026-07-30 — Thot/Maat: 3 tools + auto-routing de modelo + cierre forzado (mejoras percibidas) |
-| 12952 | 12963 | 2 | 2026-07-30 — Agentes AI: transporte compartido + prompt caching + Think→Sonnet 5 |
-| 12964 | 12982 | 4 | 2026-07-27 — RR: venta en ruta del PUSH (.249) → reporte (cierra cutover PH) |
-| 12983 | 13002 | 3 | 2026-07-27 — Fase CP (Conector ContPAQi): CP.0–CP.4 en código (local), ADR-040 |
-| 13003 | 13020 | 2 | 2026-07-27 — Auditoría del módulo `/compras` (Fase RA): 4 correcciones + doc al día |
-| 13021 | 13041 | 4 | 2026-07-24 — Fase F (Comercio Conversacional WhatsApp): F.0–F.3 en código, camino comercial cerrado |
-| 13042 | 13062 | 3 | 2026-07-20 — DM.11: destino del traspaso a sucursal (¿a quién va dirigido?) |
-| 13063 | 13070 | 1 | 2026-07-07 — Maat: dimensión Departamento (centro de costos) |
-| 13071 | 13086 | 3 | 2026-07-07 — MAAT 3.0: CFO virtual (5 pilares) sobre el ReAct 2.0 |
-| 13087 | 13102 | 3 | 2026-07-07 — MAAT.2: motor de patrones (10 detectores) + bandeja de hallazgos + aprendizaje L2 |
-| 13103 | 13119 | 3 | 2026-07-07 — MAAT.3.1: Maat navegable + proactiva + visual + confiable |
-| 13120 | 13133 | 3 | 2026-07-07 — MAAT.1: balanza completa + cadena de aprovisionamiento (Maat ya contesta ingresos/P&L) |
-| 13134 | 13145 | 2 | 2026-07-06 — MAAT.3 (adelantado): chat "Pregúntale a Maat" con diseño de /thot-chat |
-| 13146 | 13160 | 2 | 2026-07-06 — MAAT.0: fundación de la AI de Finanzas (ADR-028 aceptado) |
-| 13161 | 13177 | 2 | 2026-06-18 — CV.5: promoción activa como señal de empuje en Thot (CIERRE del sprint CV) |
-| 13178 | 13198 | 3 | 2026-06-18 — CV.4: extracción `OrderStockService` del god service de pedidos (con red) |
-| 13199 | 13216 | 4 | 2026-06-13 — Mapa Comercial (CM): exhibidores propios vs competencia en mapa + historial por tienda |
-| 13217 | 13259 | 6 | 2026-06-10 — Fase M: Motor de Inteligencia Comercial — rebanada vertical V1 (cierre) |
-| 13260 | 13302 | 6 | 2026-06-08 — Offline-first en `/vendor-capture` (option A del análisis devex) |
-| 13303 | 13321 | 3 | 2026-06-03 — Sprint aislamiento de módulos (`[iso.0]`–`[iso.5]`) |
-| 13322 | 13344 | 5 | 2026-06-02 — Corrección módulo de roles (admin) + seeds antiguos |
-| 13345 | 13376 | 4 | 2026-06-02 — Sprint Embarques · J.10: Tracking de shipments desde Comercial |
-| 13377 | 13421 | 6 | 2026-06-02 — Cierre formal Comercial (Fases B + C + D + E) + estabilización regression suite |
-| 13422 | 13445 | 3 | 2026-05-27 — Sprint UX/UI paso 3 + paso 3.5 (codemod inline TS styles) |
-| 13446 | 13475 | 2 | 2026-05-27 — Sprint UX/UI paso 2 + cleanup scoring legacy |
-| 13476 | 13521 | 4 | 2026-05-27 — K-debt cerrado: refactor servicios legacy (activo → deleted_at) |
-| 13522 | 13582 | 5 | 2026-05-27 — Fase E cerrada (beta scope) — Remote Manager (Televenta) |
-| 13583 | 13668 | 8 | 2026-05-27 — Sprint J.8 cerrado: Migración desde repo `_imported/logistica/` |
-| 13672 | 13692 | 1 | YYYY-MM-DD — <Tipo: PR review / Sprint review / Phase checkpoint / Bug postmortem> |
-| 13693 | 13761 | 6 | 2026-05-27 — Fase K cerrada (beta scope) — AI product match en captures wizard |
-| 13762 | 13791 | 2 | 2026-05-27 — Sprint J.7.1 cerrado — Bandeja "pedidos pendientes de programar" + columna delivery_type en admin |
-| 13792 | 13820 | 2 | 2026-05-27 — Sprint J.6.6 + J.6.7 cerrados — Tipo de entrega + visibilidad de stock al tomar pedido |
-| 13821 | 13865 | 4 | 2026-05-27 — Sprint J.6 cerrado — Fixes flow end-to-end Trade→Comercial→Logística |
-| 13866 | 13929 | 5 | 2026-05-27 — Checkpoint Fase J cerrado — Logística (embarques, flotilla, costos) completo (beta scope) |
-| 13930 | 14063 | 8 | 2026-05-26 — Checkpoint Fase D cerrado — Catálogo + Portal B2B + Pedidos completo (beta scope) |
-| 14064 | 14110 | 3 | 2026-05-26 — Sprint D.2 MVP cerrado — App vendedor mobile-first (ADR-005) |
-| 14111 | 14177 | 6 | 2026-05-26 — Sprint D.4 cerrado — Canasta estratégica v1 (heurística sin ML) |
-| 14178 | 14256 | 7 | 2026-05-26 — Sprint D.3 MVP cerrado — Portal Web B2B (Angular) |
-| 14257 | 14330 | 6 | 2026-05-26 — Sprint D.1 cerrado — Portal B2B base (link users↔customers + audit trail) |
-| 14331 | 14446 | 6 | 2026-05-26 — Checkpoint Fase C cerrado — Sales Intelligence ampliado completo (beta scope) |
-| 14447 | 14508 | 5 | 2026-05-26 — Sprint C.4 cerrado — Alertas WS realtime |
-| 14509 | 14555 | 3 | 2026-05-26 — Sprint C.3 MVP cerrado — Frontend Command Center |
-| 14556 | 14621 | 5 | 2026-05-26 — Sprint C.1 cerrado — Capa analítica con materialized views |
-| 14622 | 14670 | 4 | 2026-05-26 — Sprint C.0 cerrado — Analytics core comercial (pivot vs plan original) |
-| 14671 | 14733 | 4 | 2026-05-26 — Verificación E2E HTTP Fase B + wiring multi-tenant final |
-| 14734 | 14773 | 2 | 2026-05-26 — Fase B cerrada (beta scope) — Carga de testdata + smoke E2E |
-| 14774 | 14814 | 3 | 2026-05-26 — Sprint B.3.1 cerrado — Importer CLI comercial |
-| 14815 | 14867 | 4 | 2026-05-26 — Sprint B.2 cerrado — Módulo de pedidos (sin payments en beta) |
-| 14868 | 14904 | 3 | 2026-05-26 — Sprint B.1 cerrado — Módulos NestJS comerciales |
-| 14905 | 14943 | 3 | 2026-05-26 — Sprint B.0 cerrado — Core comercial schema base (pivot Kepler) |
-| 14944 | 14960 | 1 | 2026-05-26 — Inicialización del sistema de tracking |
-| 14961 | 14995 | 2 | 2026-05-26 — Auditoría profunda de la base existente (Sprint A.-1) |
-| 14996 | 15026 | 2 | 2026-05-26 — Setup del modo de trabajo + decisión multi-tenant |
-| 15027 | 15066 | 3 | 2026-05-26 — Sub-sprint A.0mt.1 cerrado: aprovisionamiento + schema base nueva DB |
-| 15067 | 15117 | 3 | 2026-05-26 — Sub-sprint A.0mt.2 cerrado: schema multi-tenant completo |
-| 15118 | 15147 | 2 | 2026-05-26 — Sub-sprint A.0mt.3 cerrado: integración NestJS multi-tenant |
-| 15148 | 15190 | 2 | 2026-05-26 — Sub-sprint A.0mt.4 cerrado: migración data legacy → nueva DB |
-| 15191 | 15215 | 1 | 2026-05-26 — Sub-sprint A.0mt.5 parte LOCAL cerrada |
-| 15216 | 15246 | 2 | 2026-05-26 — Sprint A.0bis residual cerrado (cleanup + hardening) |
-| 15247 | 15294 | 3 | 2026-06-02 — Sesión QA + caza de bugs internos (Trade Marketing + Comercial) |
-| 15295 | 15385 | 6 | 2026-09-21 — Checkpoint: el build de prod, de ~5m 17s a ~1m 44s (Fase NX · `[NX.10]` → `[NX.11]`) |
-| 15386 | 15518 | 9 | 2026-09-23 — La capa de datos de `md`: un carril en ciclo de reinicio y el 92.8% del CPU en un normalizador (` |
-| 15519 | 15555 | 2 | `[IC.CEDIS.12]` — El CEDIS vuelve a la existencia publicada, arbitrado (2026-10-01) |
-| 15556 | 15654 | 6 | `[DM.20]` — La recepción existía y la pantalla decía que no (2026-10-06) |
-| 15655 | 15729 | 5 | 2026-10-06 — `[VE.1]` + `[VE.2]` El egreso gana testigo, y Presupuestos gana a quien lo use |
-| 15730 | 15792 | 3 | 2026-10-06 — `[VE.3]` El presupuesto se mantiene solo |
-| 15793 | 15849 | 3 | 2026-10-07 — `[VE.4]` El quinto motor, y el bug que el primero se cobró en su primera noche |
-| 15850 | 15915 | 4 | 2026-10-07 — `[VE.5]` Folio, procedencia y la compuerta de lo vacío (opciones A · D · F) |
-| 15916 | 15990 | 4 | 2026-10-07 — `[VE.6]` El presupuesto deja de partir canales que el negocio une |
-| 15991 | 16114 | 6 | 2026-10-08/09 — `[CP.8]` El puente a ContPAQi, y el formato que escribíamos mal desde el principio |
-| 16115 | 16170 | 3 | 2026-10-15 — `[PF.10]` «Última modificación» en el catálogo: la columna obvia era la equivocada |
-| 16171 | 16224 | 3 | 2026-10-15 — `[PF.11]` Ordenar por columna en los dos sentidos, y qué hacer con los nulos |
-| 16225 | 16323 | 6 | 2026-10-15 — `[CG.162]`/`[CG.163]` Auditoría de `/finanzas/caos`: la pantalla acusaba a la gente de $18.5 M |
-| 16324 | 16383 | 4 | 2026-10-16 — `[CGA-A.9]` El descuento por glosa escondía $1,325,687.43: 157 cobros invisibles en la bandeja |
-| 16384 | 16452 | 5 | 2026-10-16 — `[TP.17]`/`[TP.18]` O1: el Calendario ve la deuda completa, y el techo que casi la vuelve a escon |
-| 16453 | 16529 | 5 | 2026-10-19 — `[VEC.23]`…`[VEC.33]` La ruta vecinal: tres cifras falsas publicadas, $3.2 M escondidos, y una ba |
-| 16530 | 16596 | 5 | 2026-10-19 — Cierre del tramo de unificación de Pagos: O2, O3, O5 y dos defectos que medían de menos |
+| 416 | 421 | 1 | Log de Revisiones |
+| 422 | 448 | 2 | 2026-11-25 — `[PQ.3.17]` Prueba visual: quién cambió cada regla, con dos personas de verdad |
+| 449 | 469 | 2 | 2026-11-24 — `[PQ.3.17]` Quién definió, quién cambió y de qué a qué en el Calendario de compras |
+| 470 | 487 | 1 | 2026-11-24 — `[PQ.3.18]` (c) Los ocasionales del Calendario de compras, de una vez |
+| 488 | 496 | 2 | 2026-11-25 — `[VAC.D1]` El mayoreo del verificador, directo del ODS |
+| 497 | 505 | 1 | 2026-11-25 — `[VAC.PAQ.1]` El verificador publicaba un «paquete» que el producto no tiene |
+| 506 | 522 | 2 | 2026-11-25 — `[DOCS]` Los restos de `merge=union`: 32 filas del tracker y 21 secciones del CHANGELOG que su au |
+| 523 | 558 | 2 | 2026-11-24 — `[PQ.3.15]` `[PQ.3.21]` `[PQ.3.22]` Las primeras mejoras que pidieron los usuarios del Calendario |
+| 559 | 565 | 1 | 2026-11-24 — `[PGP.208]` El aviso de pago lleva la clave de rastreo aunque no haya PDF de la transferencia |
+| 566 | 571 | 2 | 2026-11-24 — `[PQ.112.1]` `[PQ.112.2]` ✅ La recepción en Kepler, medida: vale, orden de entrada y aplicación |
+| 572 | 605 | 3 | 2026-11-24 — `[MSP.5]` `[MSP.5.0]` La reposición de un equipo pasa de TI o Mantenimiento a Presupuestos |
+| 606 | 633 | 2 | 2026-11-23 — `[PQ.3.20]` El manual de capacitación del Calendario de compras vive en la pantalla |
+| 634 | 639 | 1 | 2026-11-23 — `[CSU.25]` Cortes/Sucursales: los arqueos a un clic, varios a la vez, y la auditoría del paso 1 |
+| 640 | 645 | 1 | 2026-11-23 — `[CSU.24]` Cortes/Sucursales: el efectivo, parte por parte (cajero contra Kepler) |
+| 646 | 658 | 1 | 2026-11-23 — `[PGP.204]` La liberación vuelve a esperar la semana: el día siguiente soltaba pagos ya pagados |
+| 659 | 676 | 3 | 2026-11-23 — `[PGP.202]` Lo que no se pagó sale del Calendario al día siguiente, y la revisión de los pagos he |
+| 677 | 688 | 1 | 2026-11-23 — `[PGP.199]` `[PGP.201]` Que no se repitan los pagos dobles: no cancelar con el dinero fuera, y el |
+| 689 | 722 | 3 | 2026-11-23 — Anexo CL: el cuadre de los libros del pago (Calendario, Kepler, banco y SAT), y por qué no se vio |
+| 723 | 740 | 2 | 2026-11-23 — `[PGP.197]` `[PGP.161]` `[PGP.164]` Un pago doble y su causa: el Calendario no medía contra Keple |
+| 741 | 776 | 2 | 2026-11-22 — `[PQ.3.14]` ✅ y `[PQ.3.18]` el embudo de llenado del Calendario de compras: dinero y operaciones  |
+| 777 | 781 | 1 | 2026-11-21 — `[PGP.157]` `[PGP.165]` `[PGP.176]` `[PGP.190]` `[ECA.9]` `[PQ.3.2]`–`[PQ.3.6]` `[PQ.132]` Nueve  |
+| 782 | 792 | 2 | 2026-11-21 — `[PQ.3.2]`–`[PQ.3.6]` Calendario de compras en prod: la prueba visual por puesto encontró una fug |
+| 793 | 809 | 4 | 2026-11-20 — `[P2.9 paso 4]` Caducidades: FEFO fechaba 45 cajas como 45 paquetes |
+| 810 | 815 | 2 | 2026-11-21 — `[MSH.4]` #539 destrabado sin fusionar `main`, un rojo propio que nadie vio, y protocolo §8.0b 12 |
+| 816 | 821 | 1 | 2026-11-21 — `[MSP]` Presupuestos y Requerimientos en prod, con la cola apagada |
+| 822 | 826 | 1 | 2026-11-20 — `[CSU.23]` Cortes/Sucursales: los arqueos del cajero, conteo por conteo |
+| 827 | 842 | 2 | 2026-11-20 — `[PGP.131]` `[PGP.179]` `[PGP.180]` La Suite escribe en Kepler los pagos de las 9 sucursales y lo |
+| 843 | 852 | 1 | 2026-11-20 — `[PGP.178]` La factura pagada que el proveedor canceló se pide en el siguiente pago |
+| 853 | 867 | 2 | 2026-11-20 — `[PGP.164]` `[PGP.163]` Lo que esperaba a un departamento, hecho desde aquí |
+| 868 | 877 | 1 | 2026-11-20 — `[PGP.161]` `[PGP.177]` La lista del SAT al día no sirve si se cruza contra el universo equivocad |
+| 878 | 887 | 1 | 2026-11-20 — `[PGP.122.8]` Kepler borra los renglones al cancelar una solicitud; el ODS no lo ve |
+| 888 | 895 | 1 | 2026-11-20 — `[BFU.3.2]` `[BFU.3.4]` Pasar 15 cuentas al banco destapó 18 depósitos repetidos |
+| 896 | 907 | 2 | 2026-11-19 — `[PGP.122.7]` El canario de la solicitud de gasto: la prueba se ejerció en 4 minutos, se deshizo  |
+| 908 | 911 | 1 | 2026-11-19 — `[PGP.158]` `[PGP.161]` `[PGP.163]` El error fiscal del pago se avisa donde se comete |
+| 912 | 935 | 3 | 2026-11-20 — `[LE.6.38]` Estado de cuenta de Caja General |
+| 936 | 942 | 1 | 2026-11-19 — `[RE.83]` La factura devuelta le llega a la sucursal |
+| 943 | 949 | 1 | 2026-11-19 — `[RE.82]` La hoja de Kepler sola ya no pasa como factura |
+| 950 | 968 | 2 | 2026-11-19 — `[ETQ-FUENTE.3]` La espera de tipografías dejó sin imprimir a todas las tiendas, y destapó la cau |
+| 969 | 999 | 5 | 2026-11-18 — `[MSP]` Mesa de Servicio: área «Presupuestos y Requerimientos» por capas (C0–C3 🧪 el 2026-11-19; |
+| 1000 | 1008 | 1 | 2026-11-19 — `[P2.9 pasos 1–3]` Caducidades: el uso real confirma las 7 unidades; pasos 1 y 2 a ✅, paso 3 en p |
+| 1009 | 1048 | 3 | 2026-11-19 — `[RE.ETQ]` Etiquetas de caja en prod; el candado de GP.4 dependía de la versión de jsbarcode (#57 |
+| 1049 | 1094 | 3 | 2026-11-19 — `[RE.ETQ]` Etiquetas de caja: prueba en local con capturas y PR #571 |
+| 1095 | 1138 | 3 | 2026-11-19 — `[RE.ETQ]` Etiquetas de caja: C0–C3 construidos y probados en local (🧪, sin push) |
+| 1139 | 1146 | 2 | 2026-11-19 — `[VAC.D3]` `[VAC.D4]` `[VAC.H1]` Verificador: las decisiones pendientes, contestadas y medidas |
+| 1147 | 1159 | 2 | 2026-11-19 — `[CANON.7.1]` La existencia del ODS se lee directo: aplicada en prod y medida con RLS |
+| 1160 | 1180 | 2 | 2026-11-18 — `[MS.8.4]` Ubaldo no aparecía para coordinar Mantenimiento: le falta el permiso, y la pantalla no |
+| 1181 | 1196 | 2 | 2026-11-18 — `[PQ]` Revisión del plan de Pedido: 25 items a ✅, 4 cerrados sin hacerse, y dos sucursales que no |
+| 1197 | 1210 | 1 | 2026-11-18 — `[CB.86]` Lo pendiente del Cuadre, y la paridad que encontró un error |
+| 1211 | 1229 | 1 | 2026-11-18 — `[CB.85]` El Cuadre 3 vías usa el banco de verdad |
+| 1230 | 1247 | 1 | 2026-11-17 — `[CB.82]` El Cuadre 3 vías compara los mismos días |
+| 1248 | 1273 | 2 | 2026-11-18 — Soltado: Cartera (CXC.41–44, CXC.21b) y la ficha de depósito del cliente (CC.20–21.1) en prod |
+| 1274 | 1287 | 1 | 2026-11-18 — `[CB.86]` Lo pendiente del Cuadre, y la paridad que encontró un error |
+| 1288 | 1306 | 1 | 2026-11-18 — `[CB.85]` El Cuadre 3 vías usa el banco de verdad |
+| 1307 | 1325 | 1 | 2026-11-17 — `[CB.82]` El Cuadre 3 vías compara los mismos días |
+| 1326 | 1341 | 2 | 2026-11-17 — `[CB.74]`–`[CB.77]` Auditoría de `/finanzas/bancos`: el motor que se reescribía solo y lo que la  |
+| 1342 | 1353 | 1 | 2026-11-17 — `[CXC.44]` Cartera: cuatro botones de un mismo acto, uno solo |
+| 1354 | 1373 | 2 | 2026-11-17 — `[CC.21.1]` Lo que le faltaba al cruce con el banco: aviso en vivo, lectura real y la prueba en e |
+| 1374 | 1392 | 2 | 2026-11-17 — `[CC.21]` La ficha del cliente se valida contra el banco: el monto propone, el cliente decide |
+| 1393 | 1409 | 1 | 2026-11-17 — `[CC.20]` El cliente sube su ficha de depósito: un enlace, una foto y listo |
+| 1410 | 1427 | 1 | 2026-11-17 — `[CXC.21b]` La cartera por evento: de 4 s por consulta a recalcular sólo la cuenta que cambió |
+| 1428 | 1450 | 2 | 2026-11-17 — `[CXC.42]`–`[CXC.43]` La fluidez de Cartera: dejar de esperar en cada gesto, y saber a quién ya s |
+| 1451 | 1469 | 1 | 2026-11-17 — `[CXC.41]` Auditoría de `/finanzas/cartera`: lo que cobranza veía primero no era lo suyo |
+| 1470 | 1498 | 4 | 2026-11-17 — `[RE.ETQ]` Etiquetas de caja en la TSC TE200: D1–D6 respondidas, análisis medido y plan corregido |
+| 1499 | 1523 | 3 | 2026-11-14 — `[RE.70]`–`[RE.77]` Auditoría de `/compras/entradas`: lo que la pantalla afirmaba sin ser cierto |
+| 1524 | 1553 | 2 | 2026-11-14 — `[CB.68]`–`[CB.70]` Auditoría del Cierre de Bancos (nov-2026): cuatro hallazgos rojos, corregidos |
+| 1554 | 1592 | 3 | 2026-11-14 — `[MDT]` Entrega del núcleo: dos defectos que sólo aparecen al soltar, y el vale de servicio |
+| 1593 | 1623 | 2 | 2026-11-14 — `[MDT]` Revisión de diseño de las tareas por puesto, y tres frentes que no eran lo que el plan su |
+| 1624 | 1644 | 2 | 2026-11-13 — `[MDT]` Migración de MDTask: el plan, el parche de seguridad y el núcleo (manual por puesto) en  |
+| 1645 | 1667 | 3 | 2026-11-11 — `[MS.8.1]`–`[MS.8.3]` La Mesa suma Compras, se pueden crear áreas desde la pantalla, y una confid |
+| 1668 | 1680 | 1 | 2026-11-11 — Cierre de `[VAC.P1]`: el índice del verificador, medido en prod después del despliegue |
+| 1681 | 1705 | 3 | 2026-11-11 — `[ETQ-OFERTA.1]` `[ETQ-FUENTE.2]` La oferta que se encimaba y el código que se cortaba en el pape |
+| 1706 | 1741 | 3 | 2026-11-11 — `[CE]` Toda entrada con caducidad: el vale no cierra sin fecha y lo vencido no entra en verde |
+| 1742 | 1748 | 1 | 2026-11-11 — `[CGA-A.73]` La cola, uno por uno: el Control sí había saldado lo que la cola seguía ofreciendo |
+| 1749 | 1756 | 1 | 2026-11-11 — `[CGA-A.72]` Ligar, usado en prod: los depósitos ya capturados quedaron con su cobro |
+| 1757 | 1781 | 2 | 2026-11-11 — `[CE]` Toda entrada con caducidad: el vale no cierra sin fecha y lo vencido no entra en verde |
+| 1782 | 1788 | 1 | 2026-11-11 — `[CGA-A.72]` Ligar, usado en prod: los depósitos ya capturados quedaron con su cobro |
+| 1789 | 1808 | 2 | 2026-11-11 — `[CB.60b]` Una cuenta deja el libro con un botón, y la conciliación se entera cuando llega el ban |
+| 1809 | 1814 | 2 | 2026-11-10 — `[RE.68]` `[RE.69]` Sin importer y sin cron: las notas de crédito y el apareo salen del ODS |
+| 1815 | 1822 | 2 | 2026-11-10 — `[RE.67]` Costo por proveedor: el descuento por nota sale de Kepler, y una categoría inventada |
+| 1823 | 1829 | 1 | 2026-11-10 — `[RE.65]` `[RE.66]` El cuadre en netos y el blanqueo que no era rebaja |
+| 1830 | 1835 | 1 | 2026-11-10 — `[RE.64]` Revisión de facturas: Ajuste y Neto salen de Kepler, no del importer |
+| 1836 | 1844 | 1 | 2026-11-11 — `[MKT.9]`–`[MKT.14]` Ranking de promociones e incentivos: el Excel semanal de Mercadotecnia sale  |
+| 1845 | 1851 | 1 | 2026-11-10 — `[RE.63]` La nota de crédito: en el CFDI, en Kepler, en los dos o en ninguno |
+| 1852 | 1858 | 2 | 2026-11-10 — `[RE.62]` Revisión de facturas: la nota de crédito se liga por su relación en el CFDI |
+| 1859 | 1865 | 1 | 2026-11-09 — `[CGA-A.72]` Ligar: el depósito ya capturado dice qué cobro es |
+| 1866 | 1872 | 1 | 2026-11-09 — `[CGA-A.71]` La cola de Captura: 21 de 88 «pendientes» ya estaban en el libro |
+| 1873 | 1912 | 4 | 2026-11-07 — `[DN.6–DN.8, DN.11a]` En código, sin desplegar: el vendedor captura lo que no hay y el servidor l |
+| 1913 | 1927 | 3 | 2026-11-08 — `[PGP.97]` `[PGP.97.1]` Salidas del banco: lo que salió a proveedores, contra Kepler y contra el  |
+| 1928 | 1942 | 2 | 2026-11-07 — `[P2.9 paso 3]` Caducidades: el selector ofrece sólo las unidades del producto |
+| 1943 | 1950 | 2 | 2026-11-07 — `[VAC.U16]` `[VAC.P1]` Verificador: ajustes del mostrador y un escaneo que ya no barre `kdii` |
+| 1951 | 1968 | 2 | 2026-11-07 — `[MS.AVISO.2]` La notificación de Windows sale con la Suite detrás de otro programa |
+| 1969 | 1995 | 2 | 2026-11-07 — `[NP.7.L.18]` Primer feedback de quien captura: acercamientos y detalles |
+| 1996 | 2009 | 2 | 2026-11-07 — `[ETQ-AVISOS.0]` Las mediciones de los avisos de precio, con el sistema ya andando |
+| 2010 | 2015 | 2 | 2026-11-06 — `[NP.7]` El lector de IA y «Publicadas»: construidos y medidos, con la IA apagada |
+| 2016 | 2027 | 3 | 2026-11-06 — `[PGP.94–PGP.96]` El día que ya pasó lee lo que Kepler pagó |
+| 2028 | 2041 | 3 | 2026-11-06 — `[COT.26–COT.37]` El cotizador de Telemarketing después del primer día de uso real |
+| 2042 | 2051 | 2 | 2026-11-06 — `[CANON.5]` Retiro de importers: finanzas y ventas al ODS, y cuatro errores que contaban doble o  |
+| 2052 | 2070 | 2 | 2026-11-04 — Checkpoint `[MS.AVISO]`: la notificación de Windows funciona, y por qué en prod «no avisaba» |
+| 2071 | 2080 | 1 | 2026-11-06 — `[P2.9 pasos 1–2]` Caducidades: las 7 unidades llegan a prod |
+| 2081 | 2087 | 1 | 2026-11-05 — `[CGA-A.70]` La hoja de gastos de Morelia: lo «pendiente» ya estaba pagado en papel |
+| 2088 | 2093 | 1 | 2026-11-05 — `[LE.CU]` El Cuadre de Caja General: del día que no cuadra al peso sin explicación |
+| 2094 | 2100 | 1 | 2026-11-05 — `[LE.6.9]` La Ventanilla entra a la ruta de Caja General, persona por persona |
+| 2101 | 2107 | 2 | 2026-11-04 — `[FCT]` La hoja «RENTABILIDAD TLMKT»: el viaje y su venta salen de Kepler, el costo de Logística |
+| 2108 | 2114 | 2 | 2026-11-04 — `[LE]` Libro de efectivo: lo que encontramos y el plan para operar como un banco |
+| 2115 | 2122 | 1 | 2026-11-04 — `[DP]` Definiciones de negocio: en prod, y comisiones dice qué regla le falta |
+| 2123 | 2151 | 2 | 2026-11-04 — `[ETQ]` Checkpoint de Etiquetas: qué está en prod, qué falta y qué espera a Edgar |
+| 2152 | 2162 | 2 | 2026-11-02 — `[P2.9 pasos 0–2]` Caducidades: se mide la unidad y entran «paquete», «250 g» y «500 g» |
+| 2163 | 2170 | 1 | 2026-11-04 — `[DP]` Definiciones de negocio: en prod, y comisiones dice qué regla le falta |
+| 2171 | 2188 | 2 | 2026-10-30 — `[COT.20]` El cotizador: Dirección en las 8 sucursales, cada jefe de zona sólo en las suyas |
+| 2189 | 2225 | 3 | 2026-10-30 — `[CGA-A.66]`–`[CGA-A.69]` Auditoría de Caja: el Cuadre se parte y se muda a Caja |
+| 2226 | 2233 | 2 | 2026-11-03 — `[NP.7]` La primera captura en prod: seis defectos que en local no se veían |
+| 2234 | 2241 | 2 | 2026-11-03 — `[NP.7]` Catálogo digital: el primer corte aterriza en prod |
+| 2242 | 2254 | 1 | 2026-11-02 — `[CSU.22]` Cortes/Sucursales: la consulta del mes 3× más rápida, mismas cifras |
+| 2255 | 2267 | 1 | 2026-11-02 — `[CSU.21]` Auditoría de diseño de Cortes/Sucursales, y lo que decía algo falso |
+| 2268 | 2280 | 1 | 2026-11-02 — `[CSU.20]` Lo contado fuera de un corte, a la vista |
+| 2281 | 2293 | 1 | 2026-11-02 — `[CSU.19]` Tarjeta y transferencia juntas; los créditos del cajón no son faltante |
+| 2294 | 2306 | 1 | 2026-11-02 — `[CSU.17]` La lista de cortes dice de quién es cada número |
+| 2307 | 2351 | 3 | 2026-10-30 — `[CSU.16]` Cortes/Sucursales: Esperado lo pone el sistema, Declarado lo pone el cajero |
+| 2352 | 2381 | 2 | 2026-10-30 — `[CGA-A.65]` «Reponer» de Canindo: el servidor decía por qué y el aviso se lo tragaba |
+| 2382 | 2410 | 2 | 2026-10-30 — `[CGS.60]` Un movimiento que se hace con cheque o con papel (crédito) |
+| 2411 | 2437 | 2 | 2026-10-30 — `[CGS.59]` Cheques y papeles, uno por uno, en el arqueo de la caja |
+| 2438 | 2445 | 1 | 2026-10-29 — `[AX.18]` Embarques de telemarketing que salieron sin factura |
+| 2446 | 2453 | 1 | 2026-10-29 — `[AX.17]` La factura de telemarketing con su embarque |
+| 2454 | 2460 | 1 | 2026-10-29 — `[AX.16]` Facturación TM se muda a `/telemarketing/documentos` |
+| 2461 | 2488 | 2 | 2026-10-29 — `[CGA-A.65]` La ventana de Reposición: la más sencilla, sin perder nada |
+| 2489 | 2520 | 2 | 2026-10-29 — `[CGA-A.65]` El fin de la reposición: UN retiro de CAOS explica la hoja entera, y sólo si está ap |
+| 2521 | 2547 | 2 | 2026-10-29 — `[CGA-A.65]` La hoja de gastos de zona: del Excel en papel a la Suite |
+| 2548 | 2569 | 3 | 2026-10-29 — `[PQ.23–PQ.29]` Compras sin clics de más: la OC sale sola, se asocia sola, se recibe sola, y todo |
+| 2570 | 2585 | 2 | 2026-10-29 — `[P2.9.3]` Caducidades: escanear busca solo, sin tocar la lupa |
+| 2586 | 2592 | 1 | 2026-10-28 — `[ETQ-HISTORIAL.5]` «Imprimir etiqueta» desde el historial de precios (H.3.2) |
+| 2593 | 2612 | 2 | 2026-11-02 — `[ETQ-CODIGO.2]` El código tampoco se corta en las etiquetas en oferta · `[ETQ-HISTORIAL]` a ✅ ·  |
+| 2613 | 2640 | 5 | 2026-10-28 — `[ETQ-CODIGO]` La etiqueta imprimió «Código: 207» en vez de «20750» |
+| 2641 | 2663 | 1 | 2026-10-29 — `[CGA-A.63]` Caja General: la reposición pasa a un botón de la barra, y la prueba de la página vu |
+| 2664 | 2693 | 4 | 2026-10-28 — `[ETQ-HISTORIAL]` Buscar un producto y ver su historial de cambios de precio (9 plazas) |
+| 2694 | 2709 | 2 | 2026-10-28 — `[P2.9.2]` Caducidades: un producto con varios códigos de barras solo resolvía el primero |
+| 2710 | 2737 | 5 | 2026-10-22 — `[MS.ADJ]` Adjuntos de la Mesa de Servicio: arrastrar desde el escritorio y enlaces de Google |
+| 2738 | 2752 | 1 | 2026-10-29 — Checkpoint `[MS.AVISO]` `[MS.ADJ]`: la Mesa de Servicio aterriza dos items en producción |
+| 2753 | 2780 | 4 | 2026-10-28 — `[MS.AVISO]` Una solicitud nueva avisa en pantalla — y las de prioridad media/baja ya no pasan en |
+| 2781 | 2793 | 1 | 2026-10-26 — `[PF.12]` Catálogo de productos en dos vistas: lo que más se pregunta (unidad y precio) a la vist |
+| 2794 | 2820 | 4 | 2026-10-26 — `[OBS.15]` Cabecera y renglones en menos de 1 s: el carril buscaba filas por posición, y la posic |
+| 2821 | 2848 | 2 | 2026-10-23 — `[RA-MED]` El comprador sube el sugerido y acierta en la dirección; el sugerido dejaba 1.6 días;  |
+| 2849 | 2860 | 2 | 2026-10-23 — `[CGS.52]` Los cortes 12–22-oct se recalculan: lo que quedó en caja y la diferencia, por separado |
+| 2861 | 2889 | 2 | 2026-10-23 — `[CGA-A.15c]` La caja general no decía de qué ruta era cada cobro: la API nunca pidió la columna |
+| 2890 | 2922 | 2 | 2026-10-22 — `[CP.8.82]` Por qué el armado difería de ContPAQi: dos reglas del puente y $6.46 M de doble regis |
+| 2923 | 2956 | 2 | 2026-10-22 — `[CP.8.81]` Prueba A/B del armado contra ContPAQi, ene–sep 2026: 87.3 % → 89.0 % iguales |
+| 2957 | 2984 | 2 | 2026-10-22 — `[CP.8.80]` «Categorizar en Bancos» llevaba a una pantalla donde no se puede categorizar |
+| 2985 | 3007 | 6 | 2026-10-22 — `[ETQ-PROMO.2]` El verificador avisa «promoción» y el buscador de la etiquetera las marca |
+| 3008 | 3024 | 4 | 2026-10-22 — `[ETQ-PROMO.1]` «Precio 0, ponle precio»: el mensaje de la etiquetera mandaba a arreglar algo que |
+| 3025 | 3058 | 3 | 2026-10-21 — `[CSU.15]` La lupa invisible y el NG0955 eran un renglón copiado: barrido en 36 archivos y dos co |
+| 3059 | 3084 | 2 | 2026-10-22 — `[CP.8.75]`–`[CP.8.76]` El puente ContPAQi: lento y difícil de entender, los dos con causa medida |
+| 3085 | 3098 | 1 | 2026-10-22 — `[RA-NEG.3]` El detalle de la negociación se abre dentro del pedido, y la requisición ya no se pi |
+| 3099 | 3121 | 2 | 2026-10-22 — `[AB.23]`–`[AB.24]` «Mi pedido» resta lo que ya viene: la sucursal no vuelve a pedir lo que está  |
+| 3122 | 3146 | 2 | 2026-10-22 — `[RA-NEG.1]`–`[RA-NEG.2]` Costo y negociación en el pedido, y el desglose que cabe en una pantall |
+| 3147 | 3177 | 2 | 2026-10-21 — `[RA-UX.1]`–`[RA-UX.8]` Auditoría de interacción de `/compras/pedido`: la pantalla generaba lotes |
+| 3178 | 3204 | 2 | 2026-10-21 — `[CP.8.60]`–`[CP.8.71]` El pago a proveedor del puente ContPAQi, medido de punta a punta antes de |
+| 3205 | 3244 | 3 | 2026-10-22 — `[E.29]` Diseño de las cotizaciones: PrimeNG, vendedor derivado, responsividad, tema y la hoja VE |
+| 3245 | 3270 | 2 | 2026-10-22 — `[E.28]` Kepler cobra la presentación capturada: el prorrateo de E.23/E.24 era un artefacto del i |
+| 3271 | 3288 | 1 | 2026-10-22 — `[E.27]` La cotización contra Kepler HOY: aviso, re-cotizar, existencia y descuento desglosado |
+| 3289 | 3310 | 1 | 2026-10-22 — `[E.25]``[E.26]` El impuesto de cada producto y el padrón entero |
+| 3311 | 3333 | 2 | 2026-10-22 — `[E.24]` Las verdades que faltaban: la promo es la de la unidad cobrada y el precio va por preced |
+| 3334 | 3357 | 2 | 2026-10-21 — `[E.23]` La cotización contra el pedido real de Kepler: de 55 % a 90 % de renglones al centavo |
+| 3358 | 3375 | 1 | 2026-10-21 — `[E.22]` La cotización cobra el tramo de volumen que Kepler cobra (y el decode tenía media razón) |
+| 3376 | 3388 | 1 | 2026-10-21 — `[E.21]` El alta de cotización es atómica (en código, sin ejercer) |
+| 3389 | 3404 | 1 | 2026-10-21 — `[E.20]` El botón que no se habilitaba, los kilos que se multiplicaban por 10, y una compuerta ci |
+| 3405 | 3425 | 1 | 2026-10-21 — `[E.18]` `[E.19]` Auditoría de Cotizaciones, y el papel que se le manda al cliente ya cierra |
+| 3426 | 3445 | 1 | 2026-10-21 — `[E.17]` Dos auditorías de diseño que se saltaron el inventario de piezas |
+| 3446 | 3459 | 1 | 2026-10-21 — `[E.16]` La cifra que denuncia lleva a sus facturas, y la cola sale del Resumen |
+| 3460 | 3482 | 2 | 2026-10-21 — `[E.15]` El descuento de telemarketing como cuenta que cierra al centavo, y una tabla «por operad |
+| 3483 | 3509 | 2 | 2026-10-21 — `[E.14]` El resumen de Telemarketing: una cola «priorizada» sin `ORDER BY` y un vencido que cubrí |
+| 3510 | 3563 | 5 | 2026-10-21 — `[CSU.13]` Cortes: un buscador que entiende los folios como se escriben, y lo cancelado se ve sin |
+| 3564 | 3601 | 4 | 2026-10-21 — `[CSU.12]` Proveedores: los $13.3 M de pagos cancelados no los sumaba nadie — el daño estaba en l |
+| 3602 | 3617 | 4 | 2026-10-16 — `[THR.1]` El nombre del tier decide si un tope existe: cuatro endpoints y dos controladores lo te |
+| 3618 | 3639 | 2 | 2026-10-21 — `[RE.42.1]` `[RE.43.1]` `[RE.44]` `[RE.45]` Los pendientes de RE.42/43, y un 500 latente que sali |
+| 3640 | 3663 | 2 | 2026-10-21 — `[RE.43]` La factura correcta, en la entrada equivocada: se buscaba el folio del proveedor en NUE |
+| 3664 | 3717 | 5 | 2026-10-21 — `[CSU.11]` Un cobro cancelado en Kepler seguía contando: la regla pasa a vivir en una vista, con  |
+| 3718 | 3756 | 4 | 2026-10-21 — `[CSU.10]` Cortes/Sucursales no cargaba: la vista de cobros se recalculaba por cada corte |
+| 3757 | 3785 | 2 | 2026-10-21 — `[CB.53]` La conciliación corre al llegar el dato, y el cron que yo mismo propuse era la respuest |
+| 3786 | 3786 | 1 | 2026-10-20 — `[CB.52]` La comisión de terminal dejaba de ser comisión porque el banco dice «CREDITO» |
+| 3787 | 3857 | 5 | 2026-10-21 — `[RE.42]` «Este PDF ya está subido» y era otro proveedor con el mismo número |
+| 3858 | 3879 | 1 | 2026-10-20 — `[CGA-A.35]` S4: a Control no le falta nada; el Cuadre pedía capturar lo ya capturado |
+| 3880 | 3916 | 3 | 2026-10-20 — `[CGA-A.33]` S2: el saldo de CAOS se prueba por billete, no por peso — y todavía no tiene arqueo |
+| 3917 | 3938 | 4 | 2026-10-20 — `[TP.21]` O6: el libro de Tesorería y el Calendario son una sola línea de tiempo, y entre los dos |
+| 3939 | 3960 | 5 | 2026-10-19 — `[TP.20.5]` La información de una factura vive junta: la ficha de la obligación |
+| 3961 | 3981 | 5 | 2026-10-19 — `[RA-FIX.1/3/4]` El flujo de compra guardaba el desglose ya destruido, y redondeaba en dos motore |
+| 3982 | 3995 | 2 | 2026-10-16 — `[MOS.1–MOS.3]` El buscador del mostrador encuentra por cuatro campos, y lo que Kepler no tiene l |
+| 3996 | 4011 | 3 | 2026-10-16 — `[VAC]` #414 tiró la API en producción con los checks requeridos del CI en verde — post-mortem y  |
+| 4012 | 4133 | 7 | 2026-10-16 — `[CG.189–CG.191]` El libro de caja se llena solo, y la mitad del trabajo fue descubrir que ya est |
+| 4134 | 4168 | 5 | 2026-10-16 — `[P2.8.1]` `[P2.6.12]` Caducidades: «Capturas por día», el CEDIS que captura cada mes y el «4 de  |
+| 4169 | 4346 | 10 | 2026-10-16 — `[CGA]` Caja General: el ingreso ya tenía vehículo, y dos documentos del repo decían lo contrario |
+| 4347 | 4370 | 5 | 2026-10-16 — Revisión de pendientes de `[PRV.2]` y `[MS.DICTADO]` (#389 mergeado, #406 abierto) |
+| 4371 | 4388 | 2 | 2026-10-14 — `[PRV.2]` y `[MS.DICTADO]`: el consentimiento del aviso de privacidad y el dictado por voz de la  |
+| 4389 | 4473 | 5 | 2026-10-16 — `[K.VEC.1]` Incidente prod: el corpus vectorial no existía, y «sin match» lo tapó 24 días |
+| 4474 | 4509 | 3 | 2026-10-16 — `[CG.183–CG.186]` Auditoría front-end de Caja General: 4 corregidos, 2 como deuda |
+| 4510 | 4522 | 1 | 2026-10-16 — `[TP.16]` La semana completa y «Ordenar y pagar» |
+| 4523 | 4536 | 1 | 2026-10-16 — `[CAT-PRECIO.2–5]` Catálogo: Mantenimiento y el catálogo de Precios con su historia |
+| 4537 | 4551 | 1 | 2026-10-16 — `[CAT-PRECIO.1]` Precios: la ficha de venta, campo por campo, entre sucursales |
+| 4552 | 4565 | 1 | 2026-10-16 — `[TP.15]` El Calendario de Pagos no tenía por dónde recibir una factura |
+| 4566 | 4621 | 3 | 2026-10-15 — `[U.VA]` Verdad absoluta de las UNIDADES: son tres, no una, y el 2.2 % que no cierra mueve $8.73M |
+| 4622 | 4744 | 8 | 2026-10-15 — `[RA.VA]` Verdad absoluta de `/compras/pedido`: el motor no veía un canal entero, y la pantalla l |
+| 4745 | 4767 | 5 | 2026-10-14 — `[VAC]` El verificador de mostrador entra al estándar, y una auditoría de diseño encuentra que el |
+| 4768 | 4800 | 6 | 2026-10-12 — `[CPA.10]` La bandeja «Mi cierre»: contabilidad no ignoraba la Suite, ignoraba SU módulo |
+| 4801 | 4820 | 4 | 2026-10-15 — `[ETQ-CAMBIOS.11]` Cambios de precio con las columnas del PDF de Compras |
+| 4821 | 4833 | 2 | 2026-10-14 — `[ETQ-CAMBIOS.10]` Cambios de precio: la pantalla sube, y lo que costó hacerlo bien |
+| 4834 | 4847 | 3 | 2026-10-10 — `[ETQ-CAMBIOS.8–9]` y `[ETQ-ESTADO.1]` + lo que costó llevar tres PR de etiquetas a verde |
+| 4848 | 4890 | 3 | 2026-10-09 — `[ETQ-AVISOS.1–3]` Avisar a las sucursales que cambió un precio, y que Compras comparta la lista |
+| 4891 | 4930 | 3 | 2026-10-09 — `[WMS-REC.22]` Llegadas al andén y el producto sin caducidad |
+| 4931 | 4971 | 3 | 2026-10-08 — `[WMS-REC.18–21]` El Andén no pierde vales, se queda con las caducidades y sigue sin internet |
+| 4972 | 4981 | 2 | 2026-10-07 — `[AB.13]` Reporte PDF del almacenista, restringido a su almacén |
+| 4982 | 4996 | 2 | 2026-10-07 — `[AB.12]` Autoabasto: el reparto del sobrante de red, y un resumen que llevaba 4 semanas muerto |
+| 4997 | 5078 | 5 | 2026-10-07 — `[PU.VA]` El supuesto de crecimiento gana árbitro, y el mes en curso deja de ser base |
+| 5079 | 5103 | 2 | 2026-10-06 — `[GP.1]` Revisión de PM (Edgar) al PR #271 |
+| 5104 | 5127 | 2 | 2026-10-06 — `[GP.1]` Tablero de pedidos: revisión con el usuario, acceso y estándares |
+| 5128 | 5144 | 1 | 2026-10-06 — `[GP.1]` Tablero de pedidos del almacén |
+| 5145 | 5154 | 1 | 2026-10-06 — Ubicaciones: bodega y piso de venta en un solo almacén (ADR-087) |
+| 5155 | 5172 | 1 | 2026-10-06 — `[GP.0]` Gestión de pedidos en almacén: el pedido se queda en Kepler, el piso se va a la Suite |
+| 5173 | 5238 | 4 | 2026-10-06 — `[IC.23]` El encargado de sucursal asigna quién cuenta (y los tres gates mal partidos que apareci |
+| 5239 | 5315 | 5 | 2026-10-06 — `[IC.13]` Folios de inventario: el «cíclico» no era parcial y «estancado» medía la apertura |
+| 5316 | 5356 | 3 | 2026-10-06 — `[WMS-REC.17]` El traspaso entra al Andén por su embarque, y se puede cambiar de camión |
+| 5357 | 5379 | 2 | 2026-10-05 — `[CSU.0–CSU.2]` Cortes/Sucursales: el corte es lo contado, y el cuadre va por turno |
+| 5380 | 5414 | 9 | 2026-10-03 — Checkpoint: la Mesa de Servicio construida de punta a punta, lo que ya está en `main` y lo que fa |
+| 5415 | 5515 | 6 | 2026-10-03 — `[VPR.1/VPR.2]` El precio del vendedor: no era desactualización, era una columna en disputa |
+| 5516 | 5672 | 9 | 2026-10-02 — `[RA-DYN.U7]` El cumplimiento cableado al pedido: el grano lo decidió la medición |
+| 5673 | 5760 | 5 | 2026-10-02 — `[RA-DYN.U4–U6]` El cumplimiento del proveedor: la herramienta era un índice |
+| 5761 | 5837 | 5 | 2026-10-01 — `[RA-DYN.U1]` Unir lo que ya sabíamos: las señales del margen, al lado del pedido |
+| 5838 | 5895 | 4 | 2026-10-01 — `[RA-DYN.P4]` El motor de pedido deja de leer `.env` (y el importer deja de ser necesario) |
+| 5896 | 5968 | 4 | 2026-10-01 — Operación: prod se mudó a k3s mientras yo buscaba por qué no desplegaba |
+| 5969 | 6004 | 3 | 2026-10-02 — Mesa de Servicio, capa 1 (base de datos): construida y probada, con tres cosas que se apartan de  |
+| 6005 | 6106 | 5 | 2026-10-01 — DM.19.1-3: cablear el origen a la pantalla, y una retractación |
+| 6107 | 6209 | 6 | 2026-10-01 — DM.19: las órdenes de entrada del CEDIS eran de SIETE plazas, y el ERP ya lo decía |
+| 6210 | 6254 | 3 | 2026-10-01 — DM.18: el mapa `TI### → sucursal` lo dice Kepler; dejamos de adivinarlo |
+| 6255 | 6297 | 3 | 2026-10-01 — DM.17: el traspaso que decía salir del CEDIS y salió de Morelia Abastos |
+| 6298 | 6376 | 5 | 2026-10-01 — Checkpoint: la Mesa de Servicio diseñada por capas, y una base de desarrollo que ya no existe (`[ |
+| 6377 | 6420 | 3 | 2026-10-01 — El hueco más grande de VERDAD_ABSOLUTA.md estaba cerrado y nadie lo sabía |
+| 6421 | 6461 | 3 | 2026-09-30 — IC.CEDIS.2: la compuerta del CEDIS mandaba a corregir un documento que estaba bien |
+| 6462 | 6532 | 4 | 2026-10-01 — EXP.3: los doctypes que el motor no contaba, arbitrados |
+| 6533 | 6602 | 4 | 2026-09-30 — EXP.2: el expediente del renglón (el renglón deja de ser un callejón) |
+| 6603 | 6697 | 5 | 2026-09-30 — EXP.1: las señales que explican el descuadre (la llave que faltaba) |
+| 6698 | 6740 | 3 | 2026-09-30 — DM.15: el traspaso que decía haberse hecho a otra sucursal |
+| 6741 | 6753 | 1 | 2026-09-30 — TK.14 + TK.a3: sin leyenda fiscal en los papeles, y main vuelve a verde en `view:test` |
+| 6754 | 6766 | 1 | 2026-09-30 — TK.12 + TK.13: bandeja de tickets por filtros, y desglose por pieza y partida |
+| 6767 | 6859 | 5 | 2026-09-30 — EXP.0: el equipo de Prevención no podía abrir su propio módulo |
+| 6860 | 6916 | 3 | 2026-09-30 — CNT.1: nadie cerró un conteo nunca, y el software no decía por qué |
+| 6917 | 6968 | 3 | 2026-09-30 — IRA.1: la pantalla de exactitud no decía que el proceso nunca corrió |
+| 6969 | 7035 | 4 | 2026-09-30 — ABC.6: el conteo cíclico decía «2,000 pendientes» cuando eran 39,480, y la letra no decía por qué |
+| 7036 | 7161 | 7 | 2026-09-29 — IC.12: la pantalla de Diferencias publicaba piezas a precio de caja, y tardaba 2.2 s en hacerlo |
+| 7162 | 7204 | 3 | 2026-09-30 — CE.11: «no explicas por qué», y la explicación que yo tenía en la cabeza era falsa |
+| 7205 | 7256 | 3 | 2026-09-30 — CE.9/CE.10: la pregunta «¿a qué te refieres?» encontró una decisión de negocio escondida en una c |
+| 7257 | 7395 | 10 | 2026-09-29 — Fase CE: el costo estándar de Kepler, y por qué su pantalla de utilidad miente |
+| 7396 | 7449 | 3 | 2026-09-28 — Revisión de diseño móvil: la tabla densa, y una regla del propio DESIGN.md que era falsa (`[UIM.0 |
+| 7450 | 7483 | 3 | 2026-09-28 — Auditoría de la capa de datos: el resolvedor del corte de ERP tiene una llave que no resuelve (`[ |
+| 7484 | 7528 | 4 | 2026-09-28 — Auditoría de la capa de datos: la venta mensual por producto se DERIVA de la diaria (`[AUD-DAT.10 |
+| 7529 | 7549 | 2 | 2026-09-28 — Cotizaciones: Desbloqueo de Crear cotización, asignación de folio y retorno a mesa (`[COT.15]`) |
+| 7550 | 7715 | 10 | 2026-09-28 — La tienda mayorista publicaba catálogo de una prod congelada (`[PUB.1]`) |
+| 7716 | 7948 | 15 | 2026-09-25 → 2026-09-28 — Auditoría de CPU del servidor `md` (`[CPU.1]` · `[CPU.2]` · `[CPU.3]`) |
+| 7949 | 8042 | 6 | 2026-09-28 — `[WMS-REC.16]` Abandonar un conteo deja de exigir el poder de vaciar un almacén |
+| 8043 | 8135 | 5 | 2026-09-25 — `[GX.19]` El número de egresos estaba bien; lo que faltaba era decir con qué se calculó |
+| 8136 | 8213 | 3 | 2026-09-24 — `[CB.48]` El dato que dimos por inexistente llevaba meses en la base |
+| 8214 | 8277 | 3 | 2026-09-24 — `[CB.47]` El traspaso interno se reportaba como «depósito sin origen» |
+| 8278 | 8350 | 5 | 2026-09-24 — `[CB.46]` `/finanzas/bancos`: tres indicadores que apuntaban al verde, y dos universos |
+| 8351 | 8431 | 4 | 2026-09-24 — La base equivocada: medí medio día contra una prod que dejó de serlo hace dos |
+| 8432 | 8549 | 7 | 2026-09-24 — `[CXC.25]` El 46% de la cartera no son clientes, y por eso contabilidad decía otra cifra |
+| 8550 | 8703 | 9 | 2026-09-24 — `[CXC.20]` `/finanzas/cartera`: dos saldos del mismo universo, y el 78.6% sin forma de filtrarlo |
+| 8704 | 8796 | 5 | 2026-09-24 — `[WMS-REC.15]` El Andén arranca por la sucursal, y el día se mide en hora de México |
+| 8797 | 8865 | 4 | 2026-09-24 — `[CAT.7]` El catálogo imprime: reporte de precios por proveedor |
+| 8866 | 8941 | 4 | 2026-09-23 — `[ZN.0]` Zona, sucursal y ruta eran la misma columna |
+| 8942 | 9072 | 8 | 2026-09-23 — `[ID.37]`/`[ID.38]` El login tenía dos reglas, y la sesión no se podía cerrar |
+| 9073 | 9156 | 5 | 2026-09-23 — `[SB.1]` El corte Wincaja→Kepler deja de ser un literal: Morelia Abastos faltaba en el fact de ve |
+| 9157 | 9196 | 4 | 2026-09-22 — `[CRM.0]` Decode del CRM de Kepler: el prospecto es `kdudp` y la cotización es un doctype, no un  |
+| 9197 | 9257 | 5 | 2026-09-22 — `[COT.1]` El motor de precio de cotizaciones: el vendedor deja de poder inventar descuentos |
+| 9258 | 9301 | 4 | 2026-09-23 — `[WMS-REC.12→14]` Rediseño del Andén: una sola pasada por caja |
+| 9302 | 9356 | 6 | 2026-09-22 — `[WMS-REC.11]` Ubicaciones: por qué fallaba el alta, y el rack que ya se puede escanear |
+| 9357 | 9433 | 6 | 2026-09-21 — Fase CDRP: re-verificar lo pendiente antes de seguir, y descubrir que la mitad ya no era cierto |
+| 9434 | 9514 | 4 | 2026-09-21 — `[WMS-REC.10]` La pantalla de Ubicaciones se vuelve el mapa de la bodega — y deja de estar oculta |
+| 9515 | 9595 | 5 | 2026-09-21 — `[WMS-REC.9b]` Varias caducidades por renglón — y la corrección de un "sin 403" que era falso |
+| 9596 | 9904 | 22 | 2026-09-19 — Fase TDA.A · El análisis de ventas de tienda pasa a cuatro secciones, y la fotografía aprende a r |
+| 9905 | 9984 | 5 | 2026-09-18 — Fase NX · Nx Cloud a prod, y dos gates que estaban verdes o rojos por el motivo equivocado |
+| 9985 | 10058 | 5 | 2026-09-18 — `[WMS-REC.9]` El Andén se reordena, y el reordenamiento destapa que el put-away acomodaba un lote |
+| 10059 | 10136 | 5 | 2026-09-18 — `[PV.4]` La premisa era falsa, el error estaba en el doctype de al lado, y el aviso no habría lle |
+| 10137 | 10199 | 4 | 2026-09-18 — Fase TK: Tickets de venta, y el descuento que no estaba donde el patrón decía |
+| 10200 | 10241 | 3 | 2026-09-17 — `[DB-MEM.17]` Deuda declarada: 50 crons sin candado entre procesos, y el helper NO los cubre a to |
+| 10242 | 10287 | 6 | 2026-09-17 — `[TO.1]`–`[TO.6]`: auditoría del flujo `/vendor/take-order` |
+| 10288 | 10372 | 8 | 2026-09-17 — `[DB-MEM.9]`–`[DB-MEM.13]`: el estándar deja de ser la RAM y pasa a ser el segundo |
+| 10373 | 10408 | 3 | 2026-09-17 — `[AU.32]`: «hay que revisar más a profundidad el trabajo que generas» |
+| 10409 | 10458 | 5 | 2026-09-15 — `[AU.23]`–`[AU.26]`: el organigrama pasa a ser el de MDTask, y el cruce destapa un `superadmin` |
+| 10459 | 10648 | 21 | 2026-09-15 — Memoria de Postgres en prod: estaba en **configuración de fábrica**. Tuneada en caliente + un rei |
+| 10649 | 10673 | 4 | 2026-09-14 — Auditoría de las bases PROPIAS (prod `railway`): CERRADA al 100% — la limpieza declarada YA ocurr |
+| 10674 | 10701 | 5 | 2026-09-14 — Auditoría del Kepler crudo + ruta al ODS: CERRADA al 100% (censo, causa raíz, sobrantes durables) |
+| 10702 | 10769 | 5 | 2026-09-14 — Fase TP cerrada: Calendario de Pagos (ADR-064) |
+| 10770 | 10809 | 7 | 2026-09-11 — Auditoría de `/comercial/sell-out`: la venta no-caja se declaraba en el back pero no en el front, |
+| 10810 | 10855 | 7 | 2026-09-11 — `[OR.0]`+`[OR.1]` El usuario era una credencial; pasa a ser una persona con un puesto |
+| 10856 | 10923 | 6 | 2026-09-11 — `[GX.9]` El desempeño de egresos no contaba dos cajones de dinero que sale |
+| 10924 | 10954 | 5 | 2026-09-10 — `[SN]` La landing deja de ser un catálogo de tarjetas — y la puerta que abre ya no rebota |
+| 10955 | 11012 | 7 | 2026-09-09 — `[RD.2c]` El latido estaba verde y la venta no llegaba: $1.27M parados entre el runner y la plata |
+| 11013 | 11088 | 8 | 2026-09-08 — `[RD]` Automatizar el tablero con el que se paga la Ruta Directa, y el bug que apareció al entend |
+| 11089 | 11130 | 5 | 2026-09-08 — `[ETQ.1]` La etiqueta de anaquel: ocho hallazgos de diseño y el noveno que sólo se ve renderizado |
+| 11131 | 11241 | 7 | 2026-09-07 — `[WR.7][WR.8]` La réplica cruda de Wincaja perdía filas por dos mecanismos, ninguno visible |
+| 11242 | 11285 | 3 | 2026-09-07 — `[W4.3]` La barrida del sesgo de 6 h en el tablero de salud |
+| 11286 | 11366 | 5 | 2026-09-07 — El factor de caja de Wincaja: uno se arregló, dos se declararon (y por qué no los tres) |
+| 11367 | 11428 | 4 | 2026-09-07 — El reconciliador de Wincaja que NO hace falta (y los dos instrumentos que mintieron al medirlo) |
+| 11429 | 11508 | 5 | 2026-09-07 — El ledger doble de knex: 4 migraciones aplicadas que el próximo deploy iba a re-aplicar |
+| 11509 | 11633 | 9 | 2026-09-05 — AX.9: auditoría de `/comercial/documentos` y los tres números que mentían |
+| 11634 | 11724 | 6 | 2026-09-05 — Fase VP: auditoría de procedencia, y por qué "los números cambian" (ADR-056) |
+| 11725 | 12119 | 26 | 2026-09-05 — Réplica cruda Wincaja 2025–2026 + purga de higiene (21.8 GB) y lo que NO se purgó |
+| 12120 | 12196 | 5 | 2026-09-03 — AUDITORÍA de la implementación de la BD + el filtro de tenant deja de ser condicional |
+| 12197 | 12273 | 5 | 2026-09-03 — ADR-055: la cantidad se muestra en la unidad más grande, con el divisor del ERP dueño del almacén |
+| 12274 | 12340 | 4 | 2026-09-02 — Fase AUTHZ: CASL se retira (y el retiro deja un cabo en el módulo de usuarios) |
+| 12341 | 12374 | 2 | 2026-08-31 — MR.7: el margen no se estaba midiendo (dos costos, una unidad descartada) |
+| 12375 | 12437 | 3 | 2026-08-31 — RA-PRO.46: el costo de caja se leía mal porque lo calculábamos en vez de leerlo |
+| 12438 | 12458 | 1 | 2026-08-31 — WR.7: la réplica Wincaja estuvo 4 días en cero diciendo "online" |
+| 12459 | 12509 | 6 | 2026-08-29 — MR.5: auditoría de `/comercial/rentabilidad` y corrección de la cascada |
+| 12510 | 12544 | 5 | 2026-08-28 — RE.17: las 6 pantallas de facturas de entrada contra los 18 puntos de DESIGN.md |
+| 12545 | 12591 | 4 | 2026-08-29 — RA-PRO.45: el tránsito se pesa por la probabilidad de que llegue |
+| 12592 | 12624 | 4 | 2026-08-28 — RA-PRO.41: el pedido aprende de la historia (estacionalidad, colchón cuantílico, lead derivado, r |
+| 12625 | 12664 | 4 | 2026-08-28 — Incidente prod: el pedido restaba inventario fantasma (RA.5, ~$5.9M de compra suprimida) |
+| 12665 | 12742 | 10 | 2026-08-27 — WMS-REC.5: el alta de inventario pasa al cierre del vale, y Caducidades se vuelve la bandeja del  |
+| 12743 | 12785 | 5 | 2026-08-27 — Fase ID: el sistema de usuarios sale de la era rutas (ID.13–ID.15, 47 roles → 28, cero pérdidas) |
+| 12786 | 12875 | 12 | 2026-08-26 — Réplica de pruebas en .245 (estructura de prod) + espejo del sink · y el CDC del ODS llevaba 2 dí |
+| 12876 | 12904 | 4 | 2026-08-26 — FKJ: dónde SÍ y dónde NO puede morir un paso del nightly (gate de costo medido) |
+| 12905 | 12928 | 3 | 2026-08-25 — Compras 360: auditoría de la pantalla + 12 arreglos (atribución, buscador, carrera) |
+| 12929 | 12948 | 4 | 2026-08-20 — FKJ: integridad referencial + JOINs correctos + copias→vista |
+| 12949 | 12972 | 5 | 2026-08-18 — COMM.5 (P0 Finanzas): los motores largos salen del request |
+| 12973 | 12992 | 3 | 2026-08-18 — Auditoría de transportes de comunicación (ADR-045): 4 huecos cerrados |
+| 12993 | 13012 | 4 | 2026-08-17 — Fase CH.0: base de datos de checadores (asistencia) desde cero |
+| 13013 | 13028 | 3 | 2026-08-17 — SYNC "al momento" (producto/stock/ventas) + arranque normalización Fase 0 |
+| 13029 | 13042 | 3 | 2026-08-05 — DM.12: Cuadre de traspasos en /almacen/movimientos (pestaña + reporte PDF) |
+| 13043 | 13050 | 1 | 2026-07-31 — Thot: memoria persistente (thot_remember / thot_forget + recall) |
+| 13051 | 13058 | 2 | 2026-07-30 — Thot/Maat: 3 tools + auto-routing de modelo + cierre forzado (mejoras percibidas) |
+| 13059 | 13070 | 2 | 2026-07-30 — Agentes AI: transporte compartido + prompt caching + Think→Sonnet 5 |
+| 13071 | 13089 | 4 | 2026-07-27 — RR: venta en ruta del PUSH (.249) → reporte (cierra cutover PH) |
+| 13090 | 13109 | 3 | 2026-07-27 — Fase CP (Conector ContPAQi): CP.0–CP.4 en código (local), ADR-040 |
+| 13110 | 13127 | 2 | 2026-07-27 — Auditoría del módulo `/compras` (Fase RA): 4 correcciones + doc al día |
+| 13128 | 13148 | 4 | 2026-07-24 — Fase F (Comercio Conversacional WhatsApp): F.0–F.3 en código, camino comercial cerrado |
+| 13149 | 13169 | 3 | 2026-07-20 — DM.11: destino del traspaso a sucursal (¿a quién va dirigido?) |
+| 13170 | 13177 | 1 | 2026-07-07 — Maat: dimensión Departamento (centro de costos) |
+| 13178 | 13193 | 3 | 2026-07-07 — MAAT 3.0: CFO virtual (5 pilares) sobre el ReAct 2.0 |
+| 13194 | 13209 | 3 | 2026-07-07 — MAAT.2: motor de patrones (10 detectores) + bandeja de hallazgos + aprendizaje L2 |
+| 13210 | 13226 | 3 | 2026-07-07 — MAAT.3.1: Maat navegable + proactiva + visual + confiable |
+| 13227 | 13240 | 3 | 2026-07-07 — MAAT.1: balanza completa + cadena de aprovisionamiento (Maat ya contesta ingresos/P&L) |
+| 13241 | 13252 | 2 | 2026-07-06 — MAAT.3 (adelantado): chat "Pregúntale a Maat" con diseño de /thot-chat |
+| 13253 | 13267 | 2 | 2026-07-06 — MAAT.0: fundación de la AI de Finanzas (ADR-028 aceptado) |
+| 13268 | 13284 | 2 | 2026-06-18 — CV.5: promoción activa como señal de empuje en Thot (CIERRE del sprint CV) |
+| 13285 | 13305 | 3 | 2026-06-18 — CV.4: extracción `OrderStockService` del god service de pedidos (con red) |
+| 13306 | 13323 | 4 | 2026-06-13 — Mapa Comercial (CM): exhibidores propios vs competencia en mapa + historial por tienda |
+| 13324 | 13366 | 6 | 2026-06-10 — Fase M: Motor de Inteligencia Comercial — rebanada vertical V1 (cierre) |
+| 13367 | 13409 | 6 | 2026-06-08 — Offline-first en `/vendor-capture` (option A del análisis devex) |
+| 13410 | 13428 | 3 | 2026-06-03 — Sprint aislamiento de módulos (`[iso.0]`–`[iso.5]`) |
+| 13429 | 13451 | 5 | 2026-06-02 — Corrección módulo de roles (admin) + seeds antiguos |
+| 13452 | 13483 | 4 | 2026-06-02 — Sprint Embarques · J.10: Tracking de shipments desde Comercial |
+| 13484 | 13528 | 6 | 2026-06-02 — Cierre formal Comercial (Fases B + C + D + E) + estabilización regression suite |
+| 13529 | 13552 | 3 | 2026-05-27 — Sprint UX/UI paso 3 + paso 3.5 (codemod inline TS styles) |
+| 13553 | 13582 | 2 | 2026-05-27 — Sprint UX/UI paso 2 + cleanup scoring legacy |
+| 13583 | 13628 | 4 | 2026-05-27 — K-debt cerrado: refactor servicios legacy (activo → deleted_at) |
+| 13629 | 13689 | 5 | 2026-05-27 — Fase E cerrada (beta scope) — Remote Manager (Televenta) |
+| 13690 | 13775 | 8 | 2026-05-27 — Sprint J.8 cerrado: Migración desde repo `_imported/logistica/` |
+| 13779 | 13799 | 1 | YYYY-MM-DD — <Tipo: PR review / Sprint review / Phase checkpoint / Bug postmortem> |
+| 13800 | 13868 | 6 | 2026-05-27 — Fase K cerrada (beta scope) — AI product match en captures wizard |
+| 13869 | 13898 | 2 | 2026-05-27 — Sprint J.7.1 cerrado — Bandeja "pedidos pendientes de programar" + columna delivery_type en admin |
+| 13899 | 13927 | 2 | 2026-05-27 — Sprint J.6.6 + J.6.7 cerrados — Tipo de entrega + visibilidad de stock al tomar pedido |
+| 13928 | 13972 | 4 | 2026-05-27 — Sprint J.6 cerrado — Fixes flow end-to-end Trade→Comercial→Logística |
+| 13973 | 14036 | 5 | 2026-05-27 — Checkpoint Fase J cerrado — Logística (embarques, flotilla, costos) completo (beta scope) |
+| 14037 | 14170 | 8 | 2026-05-26 — Checkpoint Fase D cerrado — Catálogo + Portal B2B + Pedidos completo (beta scope) |
+| 14171 | 14217 | 3 | 2026-05-26 — Sprint D.2 MVP cerrado — App vendedor mobile-first (ADR-005) |
+| 14218 | 14284 | 6 | 2026-05-26 — Sprint D.4 cerrado — Canasta estratégica v1 (heurística sin ML) |
+| 14285 | 14363 | 7 | 2026-05-26 — Sprint D.3 MVP cerrado — Portal Web B2B (Angular) |
+| 14364 | 14437 | 6 | 2026-05-26 — Sprint D.1 cerrado — Portal B2B base (link users↔customers + audit trail) |
+| 14438 | 14553 | 6 | 2026-05-26 — Checkpoint Fase C cerrado — Sales Intelligence ampliado completo (beta scope) |
+| 14554 | 14615 | 5 | 2026-05-26 — Sprint C.4 cerrado — Alertas WS realtime |
+| 14616 | 14662 | 3 | 2026-05-26 — Sprint C.3 MVP cerrado — Frontend Command Center |
+| 14663 | 14728 | 5 | 2026-05-26 — Sprint C.1 cerrado — Capa analítica con materialized views |
+| 14729 | 14777 | 4 | 2026-05-26 — Sprint C.0 cerrado — Analytics core comercial (pivot vs plan original) |
+| 14778 | 14840 | 4 | 2026-05-26 — Verificación E2E HTTP Fase B + wiring multi-tenant final |
+| 14841 | 14880 | 2 | 2026-05-26 — Fase B cerrada (beta scope) — Carga de testdata + smoke E2E |
+| 14881 | 14921 | 3 | 2026-05-26 — Sprint B.3.1 cerrado — Importer CLI comercial |
+| 14922 | 14974 | 4 | 2026-05-26 — Sprint B.2 cerrado — Módulo de pedidos (sin payments en beta) |
+| 14975 | 15011 | 3 | 2026-05-26 — Sprint B.1 cerrado — Módulos NestJS comerciales |
+| 15012 | 15050 | 3 | 2026-05-26 — Sprint B.0 cerrado — Core comercial schema base (pivot Kepler) |
+| 15051 | 15067 | 1 | 2026-05-26 — Inicialización del sistema de tracking |
+| 15068 | 15102 | 2 | 2026-05-26 — Auditoría profunda de la base existente (Sprint A.-1) |
+| 15103 | 15133 | 2 | 2026-05-26 — Setup del modo de trabajo + decisión multi-tenant |
+| 15134 | 15173 | 3 | 2026-05-26 — Sub-sprint A.0mt.1 cerrado: aprovisionamiento + schema base nueva DB |
+| 15174 | 15224 | 3 | 2026-05-26 — Sub-sprint A.0mt.2 cerrado: schema multi-tenant completo |
+| 15225 | 15254 | 2 | 2026-05-26 — Sub-sprint A.0mt.3 cerrado: integración NestJS multi-tenant |
+| 15255 | 15297 | 2 | 2026-05-26 — Sub-sprint A.0mt.4 cerrado: migración data legacy → nueva DB |
+| 15298 | 15322 | 1 | 2026-05-26 — Sub-sprint A.0mt.5 parte LOCAL cerrada |
+| 15323 | 15353 | 2 | 2026-05-26 — Sprint A.0bis residual cerrado (cleanup + hardening) |
+| 15354 | 15401 | 3 | 2026-06-02 — Sesión QA + caza de bugs internos (Trade Marketing + Comercial) |
+| 15402 | 15492 | 6 | 2026-09-21 — Checkpoint: el build de prod, de ~5m 17s a ~1m 44s (Fase NX · `[NX.10]` → `[NX.11]`) |
+| 15493 | 15625 | 9 | 2026-09-23 — La capa de datos de `md`: un carril en ciclo de reinicio y el 92.8% del CPU en un normalizador (` |
+| 15626 | 15662 | 2 | `[IC.CEDIS.12]` — El CEDIS vuelve a la existencia publicada, arbitrado (2026-10-01) |
+| 15663 | 15761 | 6 | `[DM.20]` — La recepción existía y la pantalla decía que no (2026-10-06) |
+| 15762 | 15836 | 5 | 2026-10-06 — `[VE.1]` + `[VE.2]` El egreso gana testigo, y Presupuestos gana a quien lo use |
+| 15837 | 15899 | 3 | 2026-10-06 — `[VE.3]` El presupuesto se mantiene solo |
+| 15900 | 15956 | 3 | 2026-10-07 — `[VE.4]` El quinto motor, y el bug que el primero se cobró en su primera noche |
+| 15957 | 16022 | 4 | 2026-10-07 — `[VE.5]` Folio, procedencia y la compuerta de lo vacío (opciones A · D · F) |
+| 16023 | 16097 | 4 | 2026-10-07 — `[VE.6]` El presupuesto deja de partir canales que el negocio une |
+| 16098 | 16221 | 6 | 2026-10-08/09 — `[CP.8]` El puente a ContPAQi, y el formato que escribíamos mal desde el principio |
+| 16222 | 16277 | 3 | 2026-10-15 — `[PF.10]` «Última modificación» en el catálogo: la columna obvia era la equivocada |
+| 16278 | 16331 | 3 | 2026-10-15 — `[PF.11]` Ordenar por columna en los dos sentidos, y qué hacer con los nulos |
+| 16332 | 16430 | 6 | 2026-10-15 — `[CG.162]`/`[CG.163]` Auditoría de `/finanzas/caos`: la pantalla acusaba a la gente de $18.5 M |
+| 16431 | 16490 | 4 | 2026-10-16 — `[CGA-A.9]` El descuento por glosa escondía $1,325,687.43: 157 cobros invisibles en la bandeja |
+| 16491 | 16559 | 5 | 2026-10-16 — `[TP.17]`/`[TP.18]` O1: el Calendario ve la deuda completa, y el techo que casi la vuelve a escon |
+| 16560 | 16636 | 5 | 2026-10-19 — `[VEC.23]`…`[VEC.33]` La ruta vecinal: tres cifras falsas publicadas, $3.2 M escondidos, y una ba |
+| 16637 | 16703 | 5 | 2026-10-19 — Cierre del tramo de unificación de Pagos: O2, O3, O5 y dos defectos que medían de menos |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -412,6 +418,107 @@
 > Audit log: cada vez que se revisa código, se cierra un checkpoint, o se valida una fase completa, queda registrado aquí.
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
+
+## 2026-11-25 — `[PQ.3.17]` Prueba visual: quién cambió cada regla, con dos personas de verdad
+
+**Qué pasó.**
+- Contra la API local y el Postgres de Docker (migración aplicada por su `up()` real, usuarios de prueba locales), dos
+  gerencias escribieron por pantalla sobre la misma regla: una corrigió el patrón y puso responsable, la otra la sacó
+  del ciclo. La base guardó dos filas escritas por `app_runtime`, cada una con su actor, y el detalle dice las dos, el
+  más nuevo primero, con de qué a qué. Escritorio, Fold 7, celular y oscuro: **40/40**.
+- Negativa en la pantalla viva: sin el disparador, la API declara el historial no medido y la pantalla dice el aviso
+  en vez de una lista «Cambios» vacía; al reponerlo, los cambios vuelven.
+- Con (c) en la misma corrida apareció lo que ninguna de las dos pruebas veía por separado: «Sacar del ciclo a los N»
+  define la regla y la saca del ciclo en una transacción, y el detalle mostraba «Cambios» (la salida del ciclo) sin
+  «Último cambio». Ahora lo escrito en la misma transacción del alta es parte del alta; la fila se queda en el log.
+  `test-newdb-pq3-17` 14 ✓ y su mutante (sin el filtro) en rojo.
+- La revisión independiente (otra sesión) no encontró bloqueantes. Sí encontró que un usuario sin nombre salía «sin
+  nombre declarado» (en la pantalla: «escrito fuera de la Suite»); ahora dice «sin nombre registrado», con 15 ✓ y su
+  mutante en rojo. Cinco hallazgos de borde quedaron como deuda con nombre (anexo §10.13).
+
+**Lecciones:**
+- **Dos piezas de la misma pantalla que contestan «¿se cambió?» usan la MISMA regla.** «Último cambio» ignoraba lo
+  escrito en el mismo segundo del alta y «Cambios» no: la pantalla se contradecía. La regla vive en un lugar y la
+  otra pieza la repite con la misma cifra (`> created_at + 1 s`), con su prueba.
+- **`fill` de Playwright no lo toma el `p-datepicker`.** El campo muestra la fecha y el modelo sigue en `null`:
+  «Guardar» se queda apagado y parece un defecto de la pantalla. Se teclea carácter por carácter, como una persona.
+- **Con `showOnFocus=false`, `Escape` cierra el DIÁLOGO, no el calendario** (no hay calendario abierto). Un robot que
+  «cierra el calendario» antes de seguir pierde el formulario entero.
+- **El `node_modules` local puede ir atrás del lock:** `qrcode-generator` (lo trae `package.json` desde #610) no estaba
+  instalado y la vista no compilaba. Se instaló el mismo paquete del lock, verificando su `integrity`.
+## 2026-11-24 — `[PQ.3.17]` Quién definió, quién cambió y de qué a qué en el Calendario de compras
+
+**Qué pasó.**
+- El detalle de la regla decía «Definida por X» aunque otra persona la hubiera cambiado, y el patrón anterior se
+  perdía al reemplazarlo. Medido en prod: 16 reglas de 2 personas, ninguna cambiada por otra todavía.
+- Sin tabla de historial propia (ADR-056): las reglas se suman a `analytics.master_data_history` (VP.3.1), que ya vigila
+  14 tablas, con un disparador (mig `20261124231747`). Cada escritura de la API declara quién es (`app.actor`).
+- La pantalla dice «Último cambio: quién, el día» y, en «Cambios», de qué a qué: el patrón entero, el responsable por
+  nombre, fuera de ciclo con su motivo, la nota y la baja.
+- `test-newdb-pq3-17` 13 ✓ contra Postgres real y 8 mutantes en rojo. Viaja en el mismo PR que (c): tocan los mismos
+  archivos y apilar dos PR está prohibido.
+
+**Lecciones:**
+- **Antes de crear una tabla de historial, buscar la que ya existe.** El tracker lo pedía («candidato a primitivo») y
+  el primitivo ya estaba: un log genérico con su disparador, al que una tabla nueva se suma con un `CREATE TRIGGER`.
+- **Si no se vigila `updated_at`, «sin fila en el historial» no significa nada.** Guardar lo mismo mueve la regla y no
+  deja rastro; con `updated_at` vigilado, toda escritura deja su fila y un último cambio sin fila sólo puede ser de antes.
+- **En una transacción `now()` no avanza.** La prueba contra Postgres tuvo que correr las fechas hacia atrás con los
+  disparadores apagados; sin eso ninguna regla «se cambió después».
+- **El actor declarado se queda en la transacción.** Por eso cada escritura lo vuelve a declarar, y la prueba hace que
+  dos personas escriban en la misma transacción: si una escritura no lo declara, el nombre de la otra se le pega.
+## 2026-11-24 — `[PQ.3.18]` (c) Los ocasionales del Calendario de compras, de una vez
+
+**Qué pasó.**
+- (c) estaba hecho y probado desde el 22-nov (DC27 🟡: regla «cada 180 días» y fuera de ciclo 26 semanas, con motivo),
+  pero no podía ir apilado sobre #602. Mientras esperaba, `main` recibió PQ.3.15, PQ.3.21 y PQ.3.22 (#617), que tocan
+  los mismos archivos.
+- Se rearmó encima de `main` sin cambiar su código: los choques eran métodos nuevos uno junto a otro e importaciones
+  reacomodadas.
+- El manual enseña el botón «Sacar del ciclo a los N» y el diálogo «Sacar del ciclo a los ocasionales», y ya no los
+  lista entre lo que todavía no está en la Suite.
+- Re-probado con todo junto contra Postgres real: `test-newdb-pq3-4` 50 ✓, `test-newdb-pq3-21` 23 ✓ y `test-newdb-pq3-6` 18 ✓.
+
+**Lecciones:**
+- **El candado del manual cobró lo que prometía.** El diálogo nuevo lo puso en rojo en el árbol local hasta que el
+  manual lo enseñó. Sin él, el manual habría seguido diciendo «viene un botón» junto a un botón que ya estaba.
+- **Un trabajo que espera a otro PR envejece.** En dos días `main` tocó los mismos archivos. Fusionar a 3 vías
+  archivo por archivo y comparar contra el árbol local, donde (c) ya convivía con las mejoras, dijo que el código de
+  (c) no cambiaba.
+## 2026-11-25 — `[VAC.D1]` El mayoreo del verificador, directo del ODS
+
+- **Pedido:** confirmar que la fuente sea el ODS para que lo que Compras corrige en Kepler llegue sin problemas.
+- **Hallazgo:** precio y presentaciones ya eran del ODS en vivo; el mayoreo pasaba por `commercial.product_label_prices`, que llena un importer sin latido. Medido el 2026-11-25 (prod, sólo lectura): la tabla `commercial.product_label_prices` la recalcula `database/importers/kepler/import-label-data.js` **sin latido** en `analytics.cron_runs`; ese día iba al día (70,398 de 70,440 pares producto × tienda iguales a la vista viva) y reflejó la limpieza del 18016 que hizo Compras, pero sólo porque el importer corrió. Testigo vivo: la limpieza del 18016 llegó al verificador en prod sin desplegar nada.
+- **Cambio:** el mayoreo se lee de `analytics.v_label_prices` (en línea y respaldo); la clave exacta gana sobre la que sólo difiere en ceros. SQL ejecutado contra prod (sólo lectura): 8,556 → 9,013 productos con mayoreo en la tienda 01; un producto 9–26 ms, el respaldo ~1 s.
+- **Error mío:** tras `[VAC.PAQ.1]` no corrí las pruebas de la pantalla y un candado que lee el código como texto quedó rojo en local; corregido aquí.
+- **Lecciones** (§8.0b 131–133): confirmar una fuente es recorrerla dato por dato y probarla con un cambio real del dueño · «inventado» se arbitra con dinero antes de decirlo · un cambio de servicio corre también las pruebas de la pantalla que lo leen como texto · (134–135, del cierre de #627) «ya lo fusioné» se verifica con testigos —el PR seguía abierto— · un PR que toca tracker/log se fusiona en cuanto sale verde: quedó `DIRTY` dos veces y una vez rojo por `main` roto.
+- **NO MEDIDO:** el arranque de la API; el endpoint desplegado. **Pendiente:** `[VAC.D1.1]`.
+
+## 2026-11-25 — `[VAC.PAQ.1]` El verificador publicaba un «paquete» que el producto no tiene
+
+- **Reporte:** el `18016` mostraba «desde 3 paquetes» y en la Suite sólo existen pieza y caja.
+- **Causa:** en Kepler (`kdpv_prod_util`) hay escalones de una unidad `PAQ` para productos cuya ficha (`kdii`) no tiene paquete, y el verificador los publicaba como «desde N paquetes». Medido el 2026-11-25 (prod, sólo lectura): **859 productos** tienen esos escalones huérfanos; **620** los mostraban en el verificador (tiendas 01–08, 4,905 pares producto × tienda); en **606** Kepler nunca cobró ese precio en 60 días (351,086 renglones de venta revisados) y en **14** lo cobra pero a la PIEZA, con una regla que no se pudo derivar del ODS.
+- **Arbitrado con dinero (regla 10):** el número no salía de la nada —está en Kepler—, pero en el 18016 nunca se cobró. Un falso positivo propio en el camino: 44 renglones a «$123.51» eran $123.50, la caja prorrateada de la lista de junio–septiembre.
+- **Arreglo:** sin `PAQ` en `kdii` no hay escalón de paquete, en vivo y en el respaldo; decidido con `kdii` y no con la fila de etiqueta para no quitarle su mayoreo al PAQ de factor 1 (`95684`, el único caso de regresión medido). 5 pruebas, 3 mutaciones en rojo.
+- **Pendiente:** `[VAC.PAQ.2]` limpiar los escalones huérfanos en Kepler (Compras/Precios).
+- **NO MEDIDO:** el después en prod; el checador del vendedor en pantalla.
+
+## 2026-11-25 — `[DOCS]` Los restos de `merge=union`: 32 filas del tracker y 21 secciones del CHANGELOG que su autor ya había reemplazado
+
+**Qué pasaba:** `merge=union` (`.gitattributes`) resuelve un choque conservando las dos versiones. Cuando un commit EDITA un renglón en su lugar (🧪 → ✅, «en código» → «en producción») y otra rama trae el renglón viejo, la fusión deja los dos. El tracker decía `[CXC.44]` 🧪 y ✅ a la vez; el CHANGELOG, CXC.45 «en código, sin soltar» y «en producción».
+
+**El criterio (sólo lo inequívoco):**
+- Un renglón X es resto si un commit no-merge lo quitó y en el MISMO commit puso Y con la misma clave (el código del ítem; el título de la sección sin su paréntesis), y hoy están los dos. Queda Y. Del bloque de X sólo pasan a Y los renglones que Y no trae y que ese commit no quitó: en RE.63, RE.67 y CXC.44 el cuerpo había quedado bajo el título viejo.
+- En el CHANGELOG, además, se quita la copia de una sección cuyo cuerpo está contenido en otra con el mismo título (12 idénticas y 1 parcial).
+
+**Resultado:** tracker −32 filas viejas (códigos repetidos 64 → 33). CHANGELOG −8 versiones viejas y −13 copias (títulos repetidos 31 → 10). Control: ningún código ni título desaparece (2,026 códigos y 964 títulos antes y después). El índice del tracker, que estaba rancio en `main`, se regeneró.
+
+**Lo que NO se tocó, a propósito:**
+- 2 parejas del 26-ago cuyos cuerpos no se contienen (la réplica de pruebas y la rotación de `FEEDS_INGEST_KEY`): las decide quien las escribió.
+- Las repeticiones que quedan (33 códigos, 10 títulos): pueden ser legítimas, como el mismo ítem en dos secciones. No se adivinan.
+- Los renglones que `f142c851d` (2026-10-06) borró por error (9,172 del tracker y 10,550 del log) y que volvieron con fusiones posteriores: que vuelvan es lo correcto.
+
+**Lección:** `merge=union` es seguro para AGREGAR renglones, no para EDITARLOS. Un estado que cambia en su lugar se duplica en cuanto otra rama trae la versión vieja. Falta una compuerta que lo frene (una clave que se repite y antes no se repetía); queda propuesta, sin código.
 
 ## 2026-11-24 — `[PQ.3.15]` `[PQ.3.21]` `[PQ.3.22]` Las primeras mejoras que pidieron los usuarios del Calendario de compras
 

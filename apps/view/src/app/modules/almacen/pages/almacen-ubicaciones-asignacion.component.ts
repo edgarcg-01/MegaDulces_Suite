@@ -423,6 +423,12 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
   readonly sinAlmacen = signal(false);
   readonly entrada = signal('');
   readonly q = signal('');
+  /**
+   * `[UB.RF.17]` `?rack=TA01` — el rack con el que llegó desde el mapa. Mientras está puesto, la lista
+   * muestra sólo lo que ya tiene un lugar vivo en ese rack (el filtro que el backend ya acepta por
+   * `[UB.RF.15]`). Es lo que hace que el número del mapa lleve a su lugar de arreglo y no sólo denuncie.
+   */
+  readonly rack = signal<string | null>(null);
   readonly filtro = signal<ProductLocationFilter>('sin_ubicacion');
   readonly lista = signal<ProductLocationsList | null>(null);
   readonly filas = signal<ProductLocationRow[]>([]);
@@ -519,6 +525,13 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
         this.productoEnHistorial = false;
         this.cerrarProducto();
       }
+      // [UB.RF.17] El rack con el que se llegó del mapa. Con rack puesto se mira lo que YA tiene lugar ahí.
+      const rack = m.get('rack');
+      if (rack !== this.rack()) {
+        this.rack.set(rack);
+        if (rack) this.filtro.set('con_ubicacion');
+        if (this.warehouseId()) this.cargarLista();
+      }
     });
     this.cargarAlmacenes();
   }
@@ -603,8 +616,24 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     });
   }
 
+  /** `[UB.RF.17]` Quita el recorte por rack: la URL manda, así que «atrás» también lo deshace. */
+  quitarRack(): void {
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { rack: null }, queryParamsHandling: 'merge' });
+  }
+
   pickFiltro(f: ProductLocationFilter): void { this.filtro.set(f); this.cargarLista(); }
-  limpiar(): void { this.q.set(''); this.entrada.set(''); this.filtro.set('sin_ubicacion'); this.cargarLista(); }
+  /**
+   * `[UB.RF.17]` «Ver los que faltan por ubicar» también suelta el rack: con rack puesto y filtro
+   * «por ubicar» la lista sale SIEMPRE vacía (un producto sin lugar no puede tener lugar en ese rack),
+   * y se leería como «ya está todo ubicado».
+   */
+  limpiar(): void {
+    this.q.set('');
+    this.entrada.set('');
+    this.filtro.set('sin_ubicacion');
+    if (this.rack()) this.quitarRack(); // el subscribe de la URL recarga
+    else this.cargarLista();
+  }
 
   /** Las cifras de arriba: cuentan sobre el universo (lo que coincide con la búsqueda), no sobre la página. */
   readonly kpis = computed<MetricStripItem[]>(() => {

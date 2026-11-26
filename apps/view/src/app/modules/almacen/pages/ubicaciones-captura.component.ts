@@ -21,13 +21,15 @@ import {
   type LocationKind,
   type LocationRangeSpec,
   type LocationZone,
+  type WarehouseLocationRow,
 } from '@megadulces/contracts';
 import { AlmacenUbicacionesCatalogoService } from '../almacen-ubicaciones-catalogo.service';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/anden-cartel.component';
 import { csvATabla, decodificarCsv, leerTablaUbicaciones, leerXlsx } from '../shared/ubicaciones-archivo';
 
-type Modo = 'rango' | 'archivo';
+/** `[UB.RF.15]` `rack` = productos por rack; `rango` y `archivo` crean ubicaciones. */
+type Modo = 'rack' | 'rango' | 'archivo';
 type Sev = 'success' | 'secondary' | 'warn' | 'danger' | 'info';
 
 // [UB.RF.9] En el resumen la etiqueta va con su cuenta: «Se crean 180», no «Se crea 180».
@@ -58,7 +60,9 @@ const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: S
         <app-segmented [options]="modos" [value]="modo()" (valueChange)="pickModo($any($event))" ariaLabel="Forma de captura" />
       </div>
 
-      @if (modo() === 'rango') {
+      @if (modo() === 'rack') {
+        <!-- [UB.RF.15] Productos por rack: se elige el rack, se leen sus productos y se cierra. -->
+      } @else if (modo() === 'rango') {
         <form class="uc-step uc-rango" (ngSubmit)="revisar()" aria-label="Rango">
           <div class="uc-field">
             <span class="uc-l" id="uc-zona-l">Zona</span>
@@ -148,6 +152,7 @@ const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: S
         </div>
       }
 
+      @if (modo() !== 'rack') {
       <div class="uc-step">
         <h3>Últimas capturas en {{ warehouse().name }}</h3>
         <!-- [UB.RF.4] Cargando, falló y vacío son tres cosas: antes las tres decían «Todavía no hay
@@ -182,6 +187,7 @@ const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: S
           <p class="uc-sub">Todavía no hay capturas masivas en este almacén.</p>
         }
       </div>
+      }
     </section>
   `,
   styles: [`
@@ -229,6 +235,10 @@ export class UbicacionesCapturaComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly warehouse = input.required<{ id: string; code: string; name: string }>();
+  /** `[UB.RF.15]` Las ubicaciones que ya leyó el mapa: de aquí salen los racks de la captura por rack. */
+  readonly ubicaciones = input<WarehouseLocationRow[]>([]);
+  /** El id, no el objeto: el mapa recarga tras crear y manda un objeto nuevo del MISMO almacén. */
+  private readonly whId = computed(() => this.warehouse().id);
   /** Se creó o se deshizo algo: el mapa tiene que recargarse. */
   readonly cambio = output<void>();
 
@@ -236,8 +246,9 @@ export class UbicacionesCapturaComponent {
   readonly tipos = [...LOCATION_KINDS];
   readonly acciones: BulkLocationAction[] = ['nueva', 'existe', 'baja', 'repetida', 'error'];
   readonly modos: SegOption[] = [
-    { label: 'Por rango', value: 'rango' },
-    { label: 'Desde Excel', value: 'archivo' },
+    { label: 'Productos por rack', value: 'rack' },
+    { label: 'Crear por rango', value: 'rango' },
+    { label: 'Crear desde Excel', value: 'archivo' },
   ];
   readonly zonas: SegOption[] = [
     { label: 'B · Bodega', value: 'B' },
@@ -272,11 +283,14 @@ export class UbicacionesCapturaComponent {
   constructor() {
     // Si cambia el almacén estando en la captura, lo visto era del almacén anterior: se limpia todo y
     // se cargan los lotes del nuevo. Sin esto, «Crear 180» de PH se mandaba a 8ESQ (revisión del PR).
+    // [UB.RF.15] Por el ID: con el objeto, la recarga del mapa tras «Crear» (otro objeto, mismo almacén)
+    // borraba el resultado y los carteles recién creados.
     effect(() => {
-      // Leer el id es lo que suscribe el effect al cambio de almacén.
-      const id = this.warehouse().id;
+      const id = this.whId();
       if (!id) return;
       untracked(() => {
+        // Con ubicaciones ya dadas de alta, lo que sigue es ponerles productos; sin ninguna, crearlas.
+        this.modo.set(this.ubicaciones().some((u) => u.familia === 'ubicacion' && u.estado !== 'baja') ? 'rack' : 'rango');
         this.previa.set(null);
         this.resultado.set(null);
         this.carteles.set([]);

@@ -69,12 +69,28 @@ const SIN_REPARTIR = {
   // la mig `20261008094815` segun el flujo que Mega Talento documenta (servicios al personal califica
   // y cierra = `recursos_humanos`; contabilidad audita). Ver SIN_PERSONAS.
   HR_NOMINA_GESTIONAR:
-    'Frente NE, `[NE.2.3]`. Gatea la API que liga el codigo del sistema de nomina con la persona ' +
-    'de la Suite. El empate es POR NOMBRE (no hay llave dura: el numero del reloj acierta por ' +
-    'DEBAJO del azar, y la Suite no guarda CURP), asi que un alias equivocado liga a una persona ' +
-    'con el sueldo de otra. Se reparte con la pantalla que permite revisarlo y corregirlo ' +
-    '(`[NE.2.5]`), a los mismos dos roles que ya tienen todas las claves de RH ' +
-    '(`recursos_humanos` y `reclutamiento_asistencia`). Pendiente: que exista esa pantalla.',
+    'Frente NE, `[NE.2.3]`. Gatea el puente y la cola: ligar el codigo con que un sistema de ' +
+    'nomina nombra a una persona con la persona de la Suite. El empate es POR NOMBRE (no hay ' +
+    'llave dura: el numero del reloj acierta por DEBAJO del azar, y la Suite no guarda CURP), ' +
+    'asi que un alias equivocado liga a una persona con el sueldo de otra. Se reparte con la ' +
+    'pantalla que permite revisarlo y corregirlo (`[NE.2.5]`). Pendiente: que exista esa ' +
+    'pantalla. ' +
+    '⚠️ DESTINO CORREGIDO el 2026-11-25: este motivo decia «a los mismos dos roles que ya tienen ' +
+    'todas las claves de RH (`recursos_humanos` y `reclutamiento_asistencia`)», pero ' +
+    '`reclutamiento_asistencia` tiene CERO personas en prod -- repartir ahi es no repartir (es la ' +
+    'leccion que SIN_PERSONAS documenta aqui mismo). Las vivas estan en `recursos_humanos` (2).',
+  // `[NE.2.6]` / D12 -- partida de la de arriba el 2026-11-25, DESPUES de medir que el frente
+  // entero quedo desplegado en prod sin poder producir una fila (tres tablas en 0) porque los
+  // cinco verbos compartian una clave que espera a una pantalla que espera a la API.
+  HR_NOMINA_CALENDARIO:
+    'Frente NE, `[NE.2.6]`. Gatea UN solo verbo, `POST /hr/nomina/periodos/sincronizar`, que ' +
+    'puebla el calendario de semanas de nomina derivandolo de ContPAQi. NO toca personas: no ' +
+    'muestra nombres, no escribe identidad y no pide firma, es idempotente y reporta lo que no ' +
+    'cae en viernes. ' +
+    '⭐ Por eso, al reves que su hermana, NO necesita pantalla para repartirse con seguridad -- ' +
+    'esta aca porque repartir un permiso en prod es decision del PM, no mia. Partir la clave es ' +
+    'decision tecnica (ADR-054: el permiso es una CLAVE, no una tupla) y ya se hizo; lo que falta ' +
+    'es la firma. Destino propuesto: `recursos_humanos` (2 personas vivas). Pendiente: Edgar (D12).',
 };
 
 /**
@@ -347,8 +363,14 @@ function derivacionesRotas(mapaPorRol, pares) {
   // hacen falta: con [2] sola, "0 huerfanas" se lee como "todo alcanzable" y no es lo
   // mismo -- fue exactamente mi error al reportar prevencion de perdida.
   console.log('\n[2b] Alcance real -- un rol vacio no alcanza nada');
+  // El cero aqui SI es real (la clave entro a esta lista justamente porque ningun rol que la
+  // concede tiene gente), pero se imprime medido igual: un numero escrito a mano no se puede
+  // distinguir de uno que quedo viejo, que es como el de SIN_PERSONAS mintio durante dias.
   for (const k of r.sinNadieQueLaTenga) {
-    console.log(`      ${k}: solo por ${(porRol.get(k) || []).join(', ')} -- 0 personas activas`);
+    const roles = porRol.get(k) || [];
+    const detalle = roles.map((rol) => `${rol}:${personasPorRol.get(rol) || 0}`).join(', ');
+    const gente = roles.reduce((s, rol) => s + (personasPorRol.get(rol) || 0), 0);
+    console.log(`      ${k}: solo por ${detalle || '(nadie)'} -- ${gente} persona(s) activa(s)`);
   }
   ok(r.sinNadieQueLaTenga.length === 0,
     r.sinNadieQueLaTenga.length === 0
@@ -407,8 +429,20 @@ function derivacionesRotas(mapaPorRol, pares) {
     if (SIN_REPARTIR[k]) console.log(`        motivo: ${SIN_REPARTIR[k]}`);
     else if (!g) console.log('        sin escrituras gateadas: reservado, no bloquea nada hoy');
   }
+  // ⛔⛔ ESTE CERO ESTABA ESCRITO A MANO (corregido 2026-11-25). El renglon afirmaba "0 personas
+  //    activas" SIEMPRE, sin medirlo, mientras la compuerta [4] de dos lineas mas arriba ya
+  //    gritaba "sacar de SIN_PERSONAS: ya hay quien las tenga". El instrumento se contradecia
+  //    solo, y el cero ganaba por estar al lado del motivo. Medido en prod ese dia:
+  //    `recursos_humanos` tiene 2 personas (entraron el 20 y el 24 de noviembre), asi que las
+  //    nueve claves de RH que aqui salian en 0 SI le llegan a alguien -- y de eso depende que
+  //    la semana de asistencia se pueda cerrar. Ahora se cuenta de `personasPorRol`, que ya
+  //    estaba calculado y nadie usaba aqui.
   for (const k of Object.keys(SIN_PERSONAS)) {
-    console.log(`      · ${k} -- concedida por ${(porRol.get(k) || []).join(', ')}, 0 personas activas`);
+    const roles = porRol.get(k) || [];
+    const gente = roles.reduce((s, rol) => s + (personasPorRol.get(rol) || 0), 0);
+    const detalle = roles.map((rol) => `${rol}:${personasPorRol.get(rol) || 0}`).join(', ');
+    console.log(`      · ${k} -- concedida por ${detalle || '(nadie)'} -- ${gente} persona(s) activa(s)`);
+    if (gente > 0) console.log('        ⚠️ YA NO ESTA VACIA: el motivo de abajo quedo viejo y hay que revisarlo');
     console.log(`        motivo: ${SIN_PERSONAS[k]}`);
   }
 
