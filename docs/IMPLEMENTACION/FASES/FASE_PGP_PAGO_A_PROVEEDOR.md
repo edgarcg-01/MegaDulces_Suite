@@ -2971,3 +2971,9 @@ decisión de Edgar.
 ### Anexo CL — el cuadre de los libros del pago (2026-11-23)
 
 **[Anexo CL](FASE_PGP_ANEXO_CUADRE_DE_LIBROS.md)**: después del pago doble a CD031, el análisis por reglas y no por caso de los cuatro libros del pago (Calendario, Kepler, banco y SAT) — el método para la próxima, las reglas que deben cumplirse siempre, lo encontrado el 2026-11-23, los límites de cada fuente y las consultas para repetirlo (`ops/prod/cuadre-de-libros/`). Items `[PGP.197]`–`[PGP.201]`; la trampa en `GOTCHAS.md` §95.
+
+---
+
+### Anexo CR — los cargos que el banco aplica solo, sustentados por contrato (2026-11-25)
+
+**[Anexo CR](FASE_PGP_ANEXO_CARGOS_DEL_BANCO.md)**: lo que el banco cobra por su cuenta y nadie programa (arrendamiento domiciliado, créditos, intereses, seguros, FONACOT y cuotas fijas de comisión). Son 32 cargos y ≈ $0.71 M en noviembre, ninguno en el Calendario. La Suite lleva el contrato; el sistema propone y Tesorería confirma. Cada mes el cargo entra programado como `cargo_automatico` y `[PGP.121]` lo cierra al llegar el banco. La nómina se provisiona cada viernes. Las cuotas fijas se escriben en Kepler con el armador de `[CB.62]`. Items `[PGP.209]`–`[PGP.219]`. Decisiones DCR1–DCR9 de Francisco; la DCR9 manda que el cargo se contemple **antes** de hacer el programa, para evitar moras (`[PGP.218]`). DCR10 (la tasa variable) también firmada. `[PGP.209]` (el detector) en código el 2026-11-25: 47 series vigentes, ≈ $512 mil al mes.
