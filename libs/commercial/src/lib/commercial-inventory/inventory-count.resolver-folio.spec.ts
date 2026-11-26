@@ -46,12 +46,20 @@ const FUENTE = readFileSync(
   'utf8',
 );
 
-/** El bloque de `registerCount` que resuelve el código cuando no viene `product_id`. */
+/**
+ * El bloque de `registerCount` que resuelve el código cuando no viene `product_id`.
+ *
+ * ⚠️ **Sin `expect()` acá dentro, a propósito.** Esta función se evalúa en el cuerpo del
+ * `describe`, o sea **fuera de todo test**, y ahí `expect` no tiene contexto: bajo el runner del
+ * monorepo revienta con `Cannot read properties of undefined (reading 'config')` y el archivo
+ * entero queda en rojo sin ejecutar una sola prueba. Devuelve `''` cuando no encuentra el bloque
+ * y es el CONTROL el que lo declara en rojo, dentro de un test.
+ */
 function bloqueDeResolucion(src: string): string {
   const desde = src.indexOf('if (!productId && dto.barcode)');
-  expect(desde, 'no se encontró la rama que resuelve el barcode en registerCount').toBeGreaterThan(-1);
-  const hasta = src.indexOf("if (!UUID.test(productId!))", desde);
-  expect(hasta, 'no se encontró el cierre de la rama').toBeGreaterThan(desde);
+  if (desde < 0) return '';
+  const hasta = src.indexOf('if (!UUID.test(productId!))', desde);
+  if (hasta <= desde) return '';
   return src.slice(desde, hasta);
 }
 
@@ -60,6 +68,7 @@ describe('[IC.F1] el escaneo resuelve contra los artículos del folio', () => {
 
   it('CONTROL — el bloque existe y no viene vacío', () => {
     // Si este control falla, los demás no significan nada: estarían midiendo un string vacío.
+    expect(bloque, 'no se encontró la rama que resuelve el barcode en registerCount').not.toBe('');
     expect(bloque.length).toBeGreaterThan(200);
     expect(bloque).toContain('dto.barcode');
   });
