@@ -524,8 +524,11 @@ nadie había llegado a contar lo suficiente para verlo.**
 ### Los defectos, por severidad
 
 > ⭐ **Qué se arregló y qué no vive en [`inventario-fisico-SOLUCION.md`](inventario-fisico-SOLUCION.md)**,
-> por frentes. Esta tabla es el **hallazgo** y no cambia cuando el defecto se arregla: si una fila y
-> el plan se contradicen, gana la fecha más nueva.
+> y su §1b los recorre **uno por uno con su estado**. Esta tabla es el **hallazgo** y no cambia
+> cuando el defecto se arregla: si una fila y el plan se contradicen, gana la fecha más nueva.
+>
+> ⚠️ **No hay F21.** La numeración salta del **F20** al **F22**; se verificó en el historial del
+> repositorio y **nunca existió**: es un hueco al numerar, no un hallazgo perdido. Son **21**.
 
 | # | Sev. | Defecto | Cómo se midió |
 |---|:---:|---|---|

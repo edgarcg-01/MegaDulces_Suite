@@ -24,6 +24,14 @@
 ⛔ **El tablero dice que IC está 🚀 en prod.** No lo está: en nueve meses no produjo un inventario.
 Eso es una decisión de PM, no técnica.
 
+⭐ **Dónde está esto hoy (2026-11-26).** De los **21** hallazgos, **15 están arreglados** y
+commiteados; quedan F5/F6 a medias (falta paginar), F10 sin mecanismo, F19 sin confirmar, F15 en
+manos de otra sesión y F16 retirado por estar mal. **§1b los recorre uno por uno.**
+
+⛔⛔ **Nada de eso se desplegó ni se vio en pantalla viva**, y **la causa de fondo —el catálogo
+duplicado, frente B— no se tocó**: mientras siga, el arreglo de A la esquiva pero no la quita.
+Lo que falta está en §3.
+
 ---
 
 ## 1. Los siete frentes, por orden de lo que destraba
@@ -37,6 +45,58 @@ Eso es una decisión de PM, no técnica.
 | **E** | **Captura del contador** | F7, F8, F9, F14 (F10 no) | 🟡 **Arreglado 2026-11-26**; F10 sin mecanismo |
 | **F** | **Rótulos y estados que no dicen la verdad** | F3, F12, F13, F22 · F16 estaba mal | ✅ **Arreglado 2026-11-26** |
 | **G** | **`reconcile` con defensa de capa única** | F20 | ✅ **Arreglado 2026-11-26** |
+
+---
+
+## 1b. Los 21 hallazgos, uno por uno — ¿cuál quedó y cuál no?
+
+> ⭐ **Esta tabla es la respuesta a «¿ya quedó completo?».** La de arriba ordena el TRABAJO por
+> frentes; ésta recorre los HALLAZGOS, que es lo que se auditó. Si las dos se contradicen, gana
+> ésta y se corrige la otra.
+>
+> ⚠️ **No hay F21.** La numeración salta del F20 al F22 — se verificó en el historial del
+> repositorio: **nunca existió**, es un hueco al numerar, no un hallazgo perdido. Son **21**, no 22.
+
+| # | Sev. | En una línea | Estado | Dónde |
+|---|:---:|---|---|---|
+| **F1** | 🔴🔴 | El conteo creaba un artículo nuevo con teórico 0 en vez de llenar el que existe | ✅ arreglado | `66433ecc4` |
+| **F2** | 🔴 | El total del folio crecía con cada escaneo (consecuencia de F1) | ✅ cae con F1 | `66433ecc4` |
+| **F3** | 🔴 | «Resolver item» fijaba la cantidad final sin ninguna condición | ✅ acotado, 4 frenos | `9ebe6a01e` |
+| **F4** | 🔴 | …y estaba disponible desde el minuto cero, mostrando el teórico | ✅ mismo arreglo | `9ebe6a01e` |
+| **F5** | 🟠 | La lista del supervisor se topa en 2,000 y no lo decía | 🟡 **lo declara; falta paginar** | `33e464c38` |
+| **F6** | 🟠 | El artículo resuelto «desaparecía» de la lista | 🟡 **era el mismo defecto que F5** | `33e464c38` |
+| **F7** | 🟠 | Tras un código no reconocido el foco saltaba a Cantidad | ✅ arreglado | `621b82055` |
+| **F8** | 🟠 | Corregir la cantidad **concatenaba** (3 sobre 75 → 753) | ✅ arreglado | `621b82055` |
+| **F9** | 🟠 | Las flechas cambiaban la cantidad contada | ✅ arreglado | `621b82055` |
+| **F10** | 🟡 | Tope **mudo** de 6 dígitos | ⛔ **NO arreglado — sin mecanismo** | — |
+| **F11** | 🔴 | Cuanto menos permiso, más habilitado se veía el botón de cerrar | ✅ fail-closed | `81d080e7b` |
+| **F12** | 🟡 | El teórico saltó de 2,094 a 3,363 (+61 %) sin explicación | ✅ **medido** (3 cruces) | `df6eb36e8` |
+| **F13** | 🟡 | Un código de categoría viajando como marca («00203 · 341») | ✅ ahora «PROMOCIONES» | `df6eb36e8` |
+| **F14** | 🟡 | El mismo dato con dos formatos: `5.000` arriba y `999,999` abajo | ✅ un solo formato | `621b82055` |
+| **F15** | 🟠 | La lista de contadores asignables no decía sucursal ni rol | 🟡 **otro dueño** — ver abajo | `[IC.27]` |
+| **F16** | 🟡 | «El candado deja contar a cualquiera con la clave» | ⛔ **RETIRADO: el hallazgo estaba mal** | `9ebe6a01e` |
+| **F17** | 🔴 | Un 403 se pintaba como «Sin items para este filtro» | ✅ tres mensajes distintos | `81d080e7b` |
+| **F18** | 🔴🔴 | Un 403 se pintaba como **ceros**: un inventario impecable | ✅ `—` + no medido | `81d080e7b` |
+| **F19** | ⚠️ | «Las acciones rechazadas fallan en silencio» | ⚠️ **NO CONFIRMADO** (degradado) | — |
+| **F20** | 🟠 | `reconcile` trataba el no-contado como cero donde escribe | ✅ defensa en profundidad | `3e6320733` |
+| **F22** | 🟡 | Al contador sin asignar: «pedile a tu supervisor que abra uno» | ✅ el texto ya no miente | `df6eb36e8` |
+
+**Cuentas:** **15 arreglados** · **2 parciales** (F5 y F6, que son el mismo) · **1 de otro dueño**
+(F15) · **1 sin arreglar** (F10) · **1 sin confirmar** (F19) · **1 retirado por estar mal** (F16).
+
+### F15 no estaba en ningún frente de este plan — y hay que decirlo
+
+⛔ **Hueco de esta documentación, encontrado el 2026-11-26 al revisar si estaba completa.** Los
+siete frentes cubren 20 de los 21 hallazgos; **F15 no figuraba en ninguno**. No fue una decisión:
+se cayó al armar el plan.
+
+Lo está arreglando **otra sesión**, fuera de esta auditoría, bajo `[IC.27]`: `assignableUsers`
+**ya está commiteado** devolviendo `warehouse_code`, `puede_contar` y `folio_vivo` —y de paso
+corrigió algo más grande, que el filtro miraba sólo `u.role_name` y **dejaba fuera a 7 de 31**
+personas que sí pueden contar—. La parte de pantalla estaba **sin commitear** al cerrar esto.
+
+⚠️ Por eso `comercial.service.ts` no se tocó en los commits de arriba: tenía ese trabajo vivo
+encima, y commitearlo entero se lo habría llevado puesto.
 
 ---
 
