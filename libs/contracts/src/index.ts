@@ -250,6 +250,8 @@ export * from './finance/pago-vencido.contract';
 export * from './finance/importe-con-letra';
 // `[PGP.165]` El cheque impreso: la plantilla en mm (BanBajío), los campos ya escritos y si el pago puede salir en cheque.
 export * from './finance/cheque-impreso';
+// `[PGP.168.1]` La póliza del cheque: la copia del cheque, los documentos pagados y sus sumas iguales, al centavo.
+export * from './finance/poliza-cheque';
 // `[PGP.118]` Anticipos a proveedor: el submódulo de Deuda con proveedores.
 export * from './finance/anticipos.contract';
 export * from './finance/venta-vendedor.contract';

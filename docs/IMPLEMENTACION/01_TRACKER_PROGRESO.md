@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 3405 KB, 16033 líneas, 78 secciones.
+> **Índice navegable** — 3409 KB, 16035 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -10,81 +10,81 @@
 | 91 | 98 | 15 | Tracker de Progreso |
 | 99 | 199 | 288 | 📊 Estado global de fases |
 | 200 | 226 | 1 | 🚦 Estado por item (granular) |
-| 227 | 4501 | 853 | 🎯 EN PROGRESO |
-| 4518 | 4555 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 4556 | 4589 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 4590 | 4674 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 4675 | 4778 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 4779 | 4845 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 4846 | 4949 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 4950 | 5033 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 5034 | 5203 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 5204 | 5266 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 5267 | 5339 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 5340 | 5391 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 5392 | 6362 | 232 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 6363 | 6376 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 6377 | 6401 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 6402 | 6424 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 6425 | 6463 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 6464 | 7265 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 7266 | 7450 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 7451 | 7493 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 7494 | 7571 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 7572 | 7665 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 7666 | 7801 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 7802 | 7818 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 7819 | 7873 | 100 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 7874 | 7941 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 7942 | 8194 | 20 | Fase CH — Checadores / Control de asistencia |
-| 8195 | 8260 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 8261 | 8288 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 8289 | 8455 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 8456 | 8484 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
-| 8485 | 8881 | 179 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 8882 | 8944 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 8945 | 9074 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 9075 | 9137 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 9138 | 9298 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 9299 | 9369 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 9370 | 9418 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 9419 | 9451 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 9452 | 10344 | 96 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 10345 | 10476 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 10477 | 10530 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 10531 | 10570 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 10571 | 10623 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 10624 | 10690 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 10691 | 10853 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 10854 | 11137 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 11138 | 11305 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 11306 | 13736 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 13737 | 13745 | 1 | Fase RR — Ventas por ruta |
-| 13746 | 14065 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 14066 | 14076 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 14077 | 14097 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 14098 | 14108 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 14109 | 14120 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 14121 | 14180 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 14181 | 14608 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 14609 | 14623 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 14624 | 14665 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14666 | 14832 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14833 | 14864 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14865 | 15167 | 83 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 15168 | 15238 | 100 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 15239 | 15247 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 15248 | 15317 | 42 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 15324 | 15333 | 1 | 📝 Convenciones |
-| 15334 | 15371 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 15372 | 15390 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 15391 | 15443 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 15444 | 15861 | 133 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15862 | 15892 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15893 | 15914 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15915 | 15948 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15949 | 16000 | 58 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 16001 | 16123 | 129 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 227 | 4503 | 856 | 🎯 EN PROGRESO |
+| 4520 | 4557 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 4558 | 4591 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 4592 | 4676 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 4677 | 4780 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 4781 | 4847 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 4848 | 4951 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 4952 | 5035 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 5036 | 5205 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 5206 | 5268 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 5269 | 5341 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 5342 | 5393 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 5394 | 6364 | 232 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 6365 | 6378 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 6379 | 6403 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 6404 | 6426 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 6427 | 6465 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 6466 | 7267 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 7268 | 7452 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 7453 | 7495 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 7496 | 7573 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 7574 | 7667 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 7668 | 7803 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 7804 | 7820 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 7821 | 7875 | 100 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 7876 | 7943 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 7944 | 8196 | 20 | Fase CH — Checadores / Control de asistencia |
+| 8197 | 8262 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 8263 | 8290 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 8291 | 8457 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 8458 | 8486 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
+| 8487 | 8883 | 179 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 8884 | 8946 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 8947 | 9076 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 9077 | 9139 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 9140 | 9300 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 9301 | 9371 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 9372 | 9420 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 9421 | 9453 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 9454 | 10346 | 96 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 10347 | 10478 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 10479 | 10532 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 10533 | 10572 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 10573 | 10625 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 10626 | 10692 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 10693 | 10855 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 10856 | 11139 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 11140 | 11307 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 11308 | 13738 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 13739 | 13747 | 1 | Fase RR — Ventas por ruta |
+| 13748 | 14067 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 14068 | 14078 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 14079 | 14099 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 14100 | 14110 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 14111 | 14122 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 14123 | 14182 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 14183 | 14610 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 14611 | 14625 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 14626 | 14667 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 14668 | 14834 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14835 | 14866 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14867 | 15169 | 83 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 15170 | 15240 | 100 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 15241 | 15249 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 15250 | 15319 | 42 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 15326 | 15335 | 1 | 📝 Convenciones |
+| 15336 | 15373 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 15374 | 15392 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 15393 | 15445 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 15446 | 15863 | 133 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15864 | 15894 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15895 | 15916 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15917 | 15950 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15951 | 16002 | 58 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 16003 | 16125 | 129 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -450,9 +450,11 @@ Pedido de Edgar (2026-11-17): *«hagamos que nada se capture a mano»*. Firmó D
 > Pedido de Francisco (2026-11-19): imprimir el cheque desde la Suite (hoy a mano; el redondeo con calculadora hace que se devuelvan por liberarse con diferencia), liberar las chequeras, registrar el cheque en el Calendario al emitirlo y seguir el embudo hasta el estado de cuenta. **Medido (prod, sólo lectura):** 222 cheques y $16,995,339.02 en 90 días (BAJÍO 4166: 77, $15.4 M a proveedor; SANTANDER 2169: 145, $1.6 M, 9 de 10 de nómina). El mismo cheque con dos importes en 3 de 14 cobrados (Calendario vs papel, $0.01) y 2 de 21 (Kepler vs cobro, 2169). Kepler registra el cheque **al cobrarse y con la fecha del cobro** (28 de 28): el tránsito no vive en ningún sistema. 9 cobrados sin Kepler ($1,854,710.76); 6 «pendientes» del Calendario ya cobrados ($1,523,929.36); 17 de 74 folios de 4166 sin paradero. Árbitro: la descarga trae el número de cheque (placebo 0). **Métrica:** cobrados que la Suite conocía al centavo antes del cobro, HOY 9 de 43 (21 %). DCH1–DCH8 esperan a Edgar; §9 del plan, a Tesorería. Absorbe `[PGP.133]`.
 
 - [x] **[PGP.165]** ✅ **en prod 2026-11-20: la letra (#578 `231e8fbeb`) y el cheque impreso de BAJÍO (#587 `00c7a688f`; `/api/health` sirve `51a1d9238`, que lo contiene; sin migración)** — ⚠️ sigue NO MEDIDA la impresión en papel (`calibrada: false`) · — con las medidas (anexo §0 fila 11) se imprime **sobre el cheque** (DCH1-a), no una hoja de llenado. `libs/contracts`: `PLANTILLA_CHEQUE_BAJIO` (160 × 70 mm; posiciones medidas sobre la foto con la plantilla montada en perspectiva y el perfil de cada línea impresa, ±0.5 mm; `calibrada: false`), `camposDelCheque` (fecha con el mes en letra, `**107,446.93**`, la letra entre paréntesis), `dictamenCheque` (cheque + cuenta con plantilla + número + importe = suma de sus facturas al centavo + un solo beneficiario; **no pide la autorización de la Suite**: anexo §3 fila 12). `libs/finance`: `GET allocations/:id/cheque.pdf` (PDF de 160.19 × 69.85 mm, una página; `?prueba=1` hoja de prueba con ese pago; `?dx=&dy=` corrimiento ±15 mm) y `GET cheques/prueba.pdf`, con el permiso de preparar pagos (ya repartido); 409 con el motivo en palabras. Pantalla: «Imprimir cheque» en la fila del pago con cheque y número, «Hoja de prueba» en Preparar, y el motivo del servidor llega al aviso (con el PDF como blob se perdía en TODOS los documentos del Calendario). **Probado:** contrato 20/20 (nada pisa lo impreso; prueba negativa de geometría con la primera versión medida a ojo, roja; dictamen roto a propósito dos veces, rojo), SVG 10/10, `tsc` de `libs/finance` sin errores nuevos (39 TS1272 de antes), `nx build view` ✓, `check:pantalla` sin fallas nuevas. **NO MEDIDO:** la impresión en papel (hoja de prueba contra un cheque cancelado), si la impresora acepta papel de 7 cm, el botón en pantalla (sin validación visual) y el endpoint contra prod. El nombre es el que muestra el Calendario hasta DCH8. · **El importe del cheque lo da la Suite, una vez y al centavo, con su letra bien escrita** — 2026-11-19. **Para:** Jefe de Tesorería · **Por qué:** 3 de 14 cheques cobrados en noviembre llevaban un importe distinto al del Calendario. **Capa:** C1+C2 · **Depende de:** DCH8 (leyenda y nombre). `importeConLetra(centavos)` sube a `libs/` desde `anexo-venta.service.ts` y se corrige («un» delante de mil y millones, «de pesos» en millones exactos; hoy escribe «Sesenta y uno mil … setenta y uno pesos» por $61,471.99, el importe de un cheque real). Importe = Σ aplicado − Σ descuentos en centavos enteros. Hoja de llenado imprimible (cheque, beneficiario del CFDI, fecha, importe con número y con letra) mientras no haya chequera para impresora (DCH1-b). **Criterios:** los 222 importes reales de 90 días convertidos y revisados sin error; 21,000 / 31,000 / 61,471.99 / 1,000,000 / 21,000,000 dicen «veintiún mil», «treinta y un mil», «sesenta y un mil … setenta y un pesos 99/100», «un millón de pesos», «veintiún millones de pesos»; ❌ un importe tecleado por la pantalla se ignora. **¿Escribe?** no.
+- [ ] **[PGP.165.1]** 🧪 **El cheque de SANTANDER 2169 sale impreso, en SU papel: 162.3 × 72.1 mm, no 160 × 70** — 2026-11-25, pedido de Francisco (*«avanzamos para los cheques de Santander cuenta 2169 · son las únicas 2 cuentas que se pagan cheque»*). **Para:** Tesorería · **Capa:** C1–C3. `libs/contracts`: `PLANTILLA_CHEQUE_SANTANDER`, medida sobre sus dos fotos con regla (el alto contra la regla a lo ancho, 44 marcas; el largo contra la regla a lo largo, 136 marcas; líneas a ±0.5 mm; `calibrada: false`); el importe va **pegado a la izquierda** del recuadro («INICIE AQUÍ») y la fecha **después** de su rótulo; la prueba de geometría ahora también frena un dato que cruza la línea de otro. Con eso sale impreso el cheque de un pago del Calendario de 2169 (medido ese día: 1, el 17252 del 26-nov, $2,482.40) y «Hoja de prueba» sale de la chequera de la cuenta elegida en Preparar (antes, siempre BanBajío). **Probado:** contrato 24/24 (dos pruebas negativas nuevas de Santander; la plantilla real rota a propósito sale roja con `letra(2) × INICIE AQUÍ`), SVG 12/12, `nx build view` ✓, `check:pantalla` 0 fallas nuevas; PDF de 162.31 × 71.97 mm, una página; la fecha más larga («30 DE SEPTIEMBRE DE 2026») cabe en 2.3 mm y el cheque más alto de 2169 en 90 días ($136,828.17) en un renglón. **NO MEDIDO:** la hoja de prueba sobre un cheque Santander cancelado, si la impresora toma papel de 7.2 cm, el botón en pantalla (sin validación visual) y el endpoint contra prod. **Fuera:** la nómina (121 de los 131 cheques de 2169 en 90 días) no pasa por el Calendario: `[PGP.172]`.
 - [x] **[PGP.166]** ✅ **en prod 2026-11-23** (`/api/health` sirve `2ca4d43b7`; sin migración) · primera pasada del banco (15:18): los 7 cheques cobrados quedaron pagados (8 pagos con Effem); su `X-D-25` no se escribe todavía (`[PGP.171]`) · antes: 🧪 en código 2026-11-23 (lo tomó la sesión de Edgar desde el [anexo CL](FASES/FASE_PGP_ANEXO_CUADRE_DE_LIBROS.md), donde había aparecido como `[PGP.200]`; criterios y diseño, los de este renglón y del anexo CH) — **El cheque se da por cobrado cuando la descarga del banco trae su número** — 2026-11-19. **Para:** Caja General (hoy lo confirma a mano al día siguiente en el estado de cuenta), Tesorería, Dirección · **Por qué:** 6 pagos «pendientes» ya cobrados ($1,523,929.36). **Capa:** C1+C2 · **Depende de:** nada (funciona con los cheques de hoy, número en `reference_text`). Caja General se queda sólo con lo que no casó. Dentro de la pasada de `[PGP.121]`/`[PGP.146]`, no un cron nuevo: 4166 por «numero de cheque | N», 2169 por la referencia. **Criterios:** contra prod, los 12 cheques del Calendario cobrados en nov casan y los mismos números +1000 casan 0; un cobro por importe distinto al emitido es hallazgo en rojo con los dos importes; sin descarga de esos días → «sin medir», nunca «sin cobrar». **¿Escribe?** sí (estado) → prueba con base real en el CI. **Hecho (2026-11-23):** `decidirChequesCobrados` dentro de `decidirPagosPorElBanco` (la misma pasada del worker, sin reloj): un pago con cheque y número casa con la salida de su cuenta cuyo concepto trae «numero de cheque | N» (BanBajío 4166, en el libro y en la descarga), uno a uno; el número gana sobre el importe (el cobro que toma un cheque ya no lo reclama una transferencia). Diferencia de hasta $1 (el centavo de `[PGP.165]`): pagado con el importe del banco, y la bitácora guarda el número y los dos importes; más de $1: no se decide y se dicen los dos importes; sin cobro: «el cheque N todavía no aparece cobrado». **Medido en prod (sólo lectura):** cheques numerados del Calendario en 4166 que casan por número: 7 de 15 pendientes (3 con un centavo), 6 de 13 pagados, 5 de 11 cancelados; con el número +1000: 0. **Ensayo de la regla completa sobre los pendientes de hoy:** la primera pasada después de soltar da por pagados 7 cheques ya cobrados (5377, 5381, 5383, 5384, 5395, 5397, 5400) y el pago de Effem (`[PGP.201]`); 5385 y 5406 siguen sin cobro. **Fuera de alcance, con nombre:** Santander 2169 (el número viene sólo en la referencia de la descarga y el libro no la guarda); el `X-D-25` en Kepler sigue en `[PGP.171]` (el escritor sólo escribe transferencias y lo dice); el «sin medir» por cobertura de la descarga no se distingue todavía de «sin cobro». 7 pruebas y prueba negativa ✔.
 - [ ] **[PGP.167]** ⬜ **La chequera se recibe y se libera en la Suite, y cada folio tiene paradero** — 2026-11-19. **Para:** Jefe de Tesorería · **Por qué:** 17 de 74 folios de 4166 sin paradero; el mismo folio capturado dos veces en Kepler. **Capa:** C1–C3 · **Depende de:** DCH2, DCH6. `finance.checkbooks` (rango de folios, recibida/liberada por y cuándo). **Criterios:** un rango encimado con otro de la misma cuenta se rechaza; un folio fuera de rango o repetido se rechaza; la pantalla dice cuántos folios quedan. **¿Escribe?** sí → prueba con base real.
 - [ ] **[PGP.168]** ⬜ **Del pago autorizado sale el cheque impreso, con el folio confirmado contra el papel** — 2026-11-19. ⚠️ **2026-11-20:** el cheque ya sale impreso desde su pago (`[PGP.165]`); aquí queda la chequera, el folio confirmado contra el papel y la póliza. **Sin exigir la autorización de la Suite** (anexo §3 fila 12: 1 de 29 cheques numerados la tenía; la autoriza la firma de Dirección; lo confirma Edgar). **La póliza es un talonario preimpreso de media carta**, no hoja blanca (DCH10: recomendado, imprimirla completa en hoja blanca de media carta). Al elegir «cheque» como forma de pago se despliega el cheque (folio, fecha = día del Calendario, beneficiario, importe) y la **póliza**: desglose de facturas, notas de crédito y descuentos que dan el importe, y el recibí (nombre, firma, fecha) de quien lo recoge; hoy se llena con papel carbón y el número a mano. **Cómo se imprime** (Francisco, 2026-11-19): el cheque suelto, centrado en la impresora, y detrás **2 hojas blancas de póliza** que repiten el cheque, anexan los documentos pagados y llevan el nombre de **quien recibe el cheque** (del contacto registrado del proveedor, o línea en blanco; al marcar «entregado» se anota quién lo recibió de verdad); los compañeros de hoja del cheque quedan «sueltos en blanco» y la Suite los propone primero. La póliza firmada se fotografía de vuelta a la Suite (prueba de entrega). **Para:** Jefe de Tesorería · **Por qué:** $15.4 M en 90 días se llenan a mano. **Capa:** C1–C3 · **Depende de:** `[PGP.165]`, `[PGP.167]`, DCH1, DCH4. La Suite predice el folio y la persona lo confirma antes de imprimir; un atasco se anula con motivo. **Chequera de libro, 3 cheques por hoja; se desprende la hoja y luego el cheque, que se imprime centrado** (Francisco, 2026-11-19). Calibración con las medidas y la copia de cada cheque (por llegar); mientras, la hoja de llenado de `[PGP.165]`. Calibración con hoja de prueba. Cinco preguntas de `diseno` §0b antes de la pantalla. **Criterios:** el importe impreso = el del servidor al centavo; ❌ un pago no autorizado o con otro método no imprime; reimprimir = anular el folio y usar el siguiente. **¿Escribe?** sí → prueba con base real.
+- [ ] **[PGP.168.1]** 🧪 **La póliza del cheque sale impresa del mismo pago: media carta, ORIGINAL y COPIA, al centavo** — 2026-11-25, pedido de Francisco (*«la impresión de la póliza de cheque, avanzamos de una vez»*). **Para:** Tesorería y Contabilidad · **Capa:** C1–C3 · DCH10-b (la recomendada: hoja blanca de media carta, sin calibrar contra el talonario; si Edgar elige otra, se cambia la hoja, no los datos). `libs/contracts`: `polizaDelCheque` — repite el cheque con las mismas cadenas que el cheque impreso, cada documento como parcial (Suc · folio de Kepler · Ref., CFDI ligado o «sin ligar», vencimiento, y la factura con su descuento al pagar), cargo al beneficiario, abono al banco con su cuenta de ContPAQi (`bank_accounts.contpaqi_cuenta`, llena en 4166 y 2169) y sumas iguales; ⛔ si los documentos no suman el cheque al centavo, no hay póliza. `libs/finance`: `GET allocations/:id/poliza.pdf` (mismo permiso y misma compuerta que el cheque: 409 con el motivo), el CFDI se lee siempre (un cheque de mañana también lleva póliza) y «Hecho por» es quien la imprime. Pantalla: «Póliza» junto a «Imprimir cheque». En blanco y a mano, a propósito: la cuenta del beneficiario (la Suite no la tiene, DCH10), el nombre de quien recibe (no hay contacto del proveedor, DCH9), número de póliza, revisado y sello. **Probado:** contrato 9/9 (la suma rota a propósito sale roja), HTML y documentos 11/11, Preliminar sin regresión, `tsc` de `libs/finance` sin errores nuevos, `nx build view` ✓, `check:pantalla` 0 nuevas; PDF de 139.7 × 215.9 mm: 1 documento → 2 hojas (147 mm de 216 por copia), 7 documentos (el máximo medido) → 2 hojas (201 mm), 14 → cada copia en 2 hojas. **NO MEDIDO:** el arranque de la API con el endpoint nuevo (no se levanta en local: lo compila el CI), la póliza contra un pago real de prod, el botón en pantalla (sin validación visual) y si Contabilidad la acepta en lugar del talonario.
 - [ ] **[PGP.169]** ⬜ **La liberación en el banco usa el mismo importe que el papel** — 2026-11-19. **Para:** Dirección General (firma) y Caja General (libera cada cheque en el portal con número, beneficiario e importe; el banco libera la chequera — Francisco, 2026-11-19) · **Por qué:** es donde nace el rechazo por centavos (sin dato; se estima menos de 2 % de los cheques). **Capa:** C2+C3 · **Depende de:** DCH2 ✅, DCH8. Orden real (Francisco, 2026-11-19): firmado → entregado (póliza de recibido) → **confirmado** (el proveedor llama antes de depositar) → liberado. «Por firmar» (Dirección) y «por confirmar y liberar» (Caja General) con número, beneficiario e importe **tal como se imprimieron**, con botón de copiar; «confirmado» lo marca quien recibe la llamada —Tesorería; en su ausencia, Analista de Egresos o Caja General (Francisco)— y registra quién llamó, cuándo y desde qué teléfono, contra el contacto registrado del proveedor (DCH9; hoy la Suite no guarda ninguno). El permiso de confirmar va a la persona, no al puesto: Analista de Egresos está vacante (2026-11-19). Un permiso por acto; liberar NO por el rol `cajero` (29 usuarios, también cajeros de sucursal). ⛔ No se libera sin firma ni sin «confirmado», ni antes del día del cheque sin autorización con nombre (LGTOC art. 178: la fecha no protege). La Suite no entra al portal. **¿Escribe?** sí (marca) → prueba con base real.
 - [ ] **[PGP.170]** ⬜ **El embudo de cheques: impreso → firmado → entregado → confirmado → liberado → cobrado → en Kepler (y en tránsito, cancelado, devuelto), con días y avisos** — 2026-11-19. **Para:** Tesorería, Dirección · **Capa:** C3 · **Depende de:** `[PGP.166]`–`[PGP.169]`, DCH7 (aviso a los 10 días sin cobro; a quien autoriza, a los 15). **¿Escribe?** no.
 - [ ] **[PGP.171]** ⬜ **El `X-D-25` lo escribe la Suite al cobro, con su folio** (era `[PGP.133]`) — 2026-11-19. **Para:** Tesorería, Contabilidad · **Por qué:** ~74 capturas al mes; 9 cobrados sin capturar ($1.85 M). **Capa:** C2 · **Depende de:** DCH5; fuera de 00, D4 del anexo C. Armador de `[PGP.130]` con `c4 = 25`, `c31 = 'Che'`, `c11 = 'CH-<folio>'`, misma compuerta y ensayo con ROLLBACK. **¿Escribe?** sí (Kepler) → ensayo contra el Kepler vivo + prueba negativa de la compuerta.
