@@ -29,6 +29,8 @@ describe('FichasClientesComponent — [CC.20]', () => {
       candidatos: vi.fn(() => of({ cobros: [{ sucursal: '00', folio: '9001', cobro_date: '2026-11-16', cliente_code: 'C1', cliente_nombre: 'ABARROTES PEÑA', forma_pago: 'deposito', monto: 12500, deposits: 0, del_cliente: true }] })),
       ligar: vi.fn(() => of({ id: 'f1', status: 'validado' })),
       rechazar: vi.fn(() => of({ id: 'f1', status: 'rechazado' })),
+      // `[CC.31]` Por omision ninguna cuadra: una prueba que quiera la propuesta la pone.
+      facturasQueCuadran: vi.fn(() => of({ modo: 'parcial', monto: 100, facturas: [] })),
     };
   });
   function crear() {
@@ -167,5 +169,55 @@ describe('FichasClientesComponent — [CC.20]', () => {
     const f = crear();
     expect(txt(f)).toContain('No se pudo revisar el banco ahora');
     expect(txt(f)).not.toContain('No aparece en el banco');
+  });
+
+  // ── `[CC.31]` Que factura cuadra, para que quien capture en Kepler no la busque ──────────────
+  const FACT = (folio, saldo) => ({ doc_code: 'UD0801', folio, importe: saldo, saldo, fecha: '2026-11-18', vencimiento: '2026-11-17' });
+  const esperaCaptura = () => ficha({ cliente_code: 'C1', banco: banco({ estado: 'sin_aplicar', cobro: null, abonos: [{ id: 'a1', monto: 100, declarado: 'C1', cobros: [] }] }) });
+
+  it('12 · [CC.31] una factura al centavo: la dice con su documento', () => {
+    svc['facturasQueCuadran'] = vi.fn(() => of({ modo: 'exacta', monto: 15539.63, facturas: [FACT('0001446', 15539.63)] }));
+    conFichas([esperaCaptura()]);
+    const f = crear();
+    expect(txt(f)).toContain('Cuadra con UD0801-0001446');
+  });
+
+  it('13 · [CC.31] si cuadran varias, NO elige: las ofrece', () => {
+    svc['facturasQueCuadran'] = vi.fn(() => of({ modo: 'una_de_varias', monto: 500, facturas: [FACT('A', 500), FACT('B', 500)] }));
+    conFichas([esperaCaptura()]);
+    const f = crear();
+    expect(txt(f)).toContain('Cuadran 2 facturas');
+    expect(txt(f)).toContain('elige cuál al capturar');
+    expect(txt(f)).not.toContain('Cuadra con UD0801-A');
+  });
+
+  it('14 · [CC.31] ⛔ si ninguna cuadra lo DICE, no inventa una', () => {
+    svc['facturasQueCuadran'] = vi.fn(() => of({ modo: 'parcial', monto: 500, facturas: [FACT('A', 300), FACT('B', 200)] }));
+    conFichas([esperaCaptura()]);
+    const f = crear();
+    expect(txt(f)).toContain('Ninguna factura cuadra sola');
+    expect(txt(f)).not.toContain('Cuadra con');
+  });
+
+  it('15 · [CC.31] a una ficha que Kepler YA aplicó no se le pregunta: su factura no decide nada', () => {
+    svc['facturasQueCuadran'] = vi.fn(() => of({ modo: 'parcial', monto: 0, facturas: [] }));
+    conFichas([ficha({ banco: banco({ estado: 'aplicado' }) })]);
+    crear();
+    expect(svc['facturasQueCuadran']).not.toHaveBeenCalled();
+  });
+
+  it('15b · [CC.31] el control: a la que SÍ espera captura se le pregunta una vez', () => {
+    svc['facturasQueCuadran'] = vi.fn(() => of({ modo: 'parcial', monto: 0, facturas: [] }));
+    conFichas([esperaCaptura()]);
+    crear();
+    expect(svc['facturasQueCuadran']).toHaveBeenCalledTimes(1);
+  });
+
+  it('16 · [CC.31] si la propuesta falla, la fila se sigue pudiendo trabajar', () => {
+    svc['facturasQueCuadran'] = vi.fn(() => throwError(() => new Error('se cayó')));
+    conFichas([esperaCaptura()]);
+    const f = crear();
+    expect(txt(f)).toContain('Falta capturar el cobro en Kepler');
+    expect(txt(f)).not.toContain('Cuadra con');
   });
 });

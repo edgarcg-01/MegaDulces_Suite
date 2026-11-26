@@ -67,6 +67,42 @@ export interface BandejaResp {
 export interface AbonoDeclaradoResp { ok: boolean; bank_movement_id: string; customer_code: string | null }
 export interface CobroCandidato { cliente_code: string | null; del_cliente: boolean; [k: string]: unknown }
 export interface CambioFichaResp { id: string; status: string }
+
+/** `[CC.31]` Una factura viva del cliente, como la ve quien va a capturar el cobro en Kepler. */
+export interface FacturaQueCuadra {
+  doc_code: string; folio: string; importe: number; saldo: number;
+  fecha: string | null; vencimiento: string | null;
+}
+/**
+ * `[CC.31]` Qué factura cuadra con el depósito. `modo` dice **cuánta confianza tiene la propuesta**, que es la
+ * diferencia entre ayudar y afirmar: `exacta` (una, al centavo) · `una_de_varias` (hay empate, elige la persona) ·
+ * `parcial` (ninguna sola cuadra; van las más viejas para que decida).
+ */
+export interface FacturasQueCuadran {
+  modo: 'exacta' | 'una_de_varias' | 'parcial';
+  monto: number;
+  facturas: FacturaQueCuadra[];
+}
+/** Cuántas facturas se ofrecen cuando ninguna cuadra sola: las más viejas, que es por donde se cobra. */
+export const FACTURAS_SI_NO_CUADRA = 6;
+
+/**
+ * `[CC.31]` La decisión, **pura**: de las facturas vivas del cliente y el importe del depósito, cuál proponer.
+ *
+ * ⛔ **El centavo manda.** Una factura «cuadra» si su saldo **es** el importe, no si se le parece: proponer por
+ * cercanía sería el cruce por importe sin control negativo, que ya costó antes. Y **nunca se propone una
+ * combinación** de dos facturas que sumen el importe — que dos sumen lo mismo no prueba nada.
+ *
+ * El `modo` existe para que la pantalla diga **cuánta confianza tiene** la propuesta, en vez de afirmar siempre.
+ */
+export function elegirFacturasQueCuadran(monto: number, vivas: FacturaQueCuadra[]): FacturasQueCuadran {
+  const lista = (vivas ?? []).filter((v) => Number.isFinite(v?.saldo));
+  if (!Number.isFinite(monto) || monto <= 0) return { modo: 'parcial', monto: monto || 0, facturas: [] };
+  const cuadran = lista.filter((v) => Math.abs(v.saldo - monto) <= 0.005);
+  if (cuadran.length === 1) return { modo: 'exacta', monto, facturas: cuadran };
+  if (cuadran.length > 1) return { modo: 'una_de_varias', monto, facturas: cuadran };
+  return { modo: 'parcial', monto, facturas: lista.slice(0, FACTURAS_SI_NO_CUADRA) };
+}
 const mensajeDe = (e: unknown): string => (e as { message?: string } | null)?.message || String(e);
 
 export interface EnvioFichaDto {
@@ -425,6 +461,42 @@ export class CustomerDepositsService {
     const propios = lista.filter((c) => c.cliente_code === f.cliente_code).map((c) => ({ ...c, del_cliente: true }));
     const otros = lista.filter((c) => c.cliente_code !== f.cliente_code).map((c) => ({ ...c, del_cliente: false }));
     return { cobros: [...propios, ...otros] };
+  }
+
+  /**
+   * `[CC.31]` **Qué factura del cliente cuadra con este depósito** — para que quien lo capture en Kepler no tenga
+   * que buscarla. El cobro lo sigue capturando una persona (`CC.26`: el timbre lo pone el programa de Kepler
+   * llamando al PAC, y escribir las tablas lo saltea); lo que la Suite quita del medio es **el trabajo de buscar**.
+   *
+   * ⭐ Vale la pena porque el cruce acierta seguido: medido el 2026-11-26 sobre los cobros de octubre y noviembre,
+   * **59 % paga UNA sola factura** y **84 % paga una o dos**.
+   *
+   * Tres niveles, y **cada uno dice cuál es**:
+   *  1. `exacta` — una factura cuyo saldo es el importe al centavo. Es la del caso que destapó esto.
+   *  2. `una_de_varias` — hay más de una que cuadra: se ofrecen todas, no se elige por la Suite.
+   *  3. `parcial` — ninguna cuadra sola; se devuelven las vivas más viejas para que la persona decida.
+   * ⛔ Nunca se propone una combinación de facturas: sumar dos que casualmente dan el importe es el cruce por
+   * importe sin control negativo, y eso ya costó antes.
+   */
+  async facturasQueCuadran(id: string): Promise<FacturasQueCuadran> {
+    this.tenantCtx.requireTenantId();
+    const f = await this.tk.run(async (trx) => trx('finance.collection_deposits')
+      .where({ id, origen: 'cliente' })
+      .first('cliente_code', 'sucursal', trx.raw('COALESCE(ocr_monto, reported_monto)::numeric AS monto')));
+    if (!f) throw new BadRequestException('ficha no encontrada');
+    const cliente = String((f as { cliente_code: string | null }).cliente_code ?? '').trim();
+    const monto = Number((f as { monto: string }).monto);
+    if (!cliente || !Number.isFinite(monto)) return { modo: 'parcial', monto: monto || 0, facturas: [] };
+
+    const vivas = await this.tk.run(async (trx) => (await trx.raw(
+      `SELECT doc_code, btrim(folio) AS folio, round(importe::numeric, 2)::float8 AS importe,
+              round(saldo_documento::numeric, 2)::float8 AS saldo, fecha::text AS fecha, vencimiento::text AS vencimiento
+         FROM analytics.customer_receivables_current
+        WHERE tenant_id = current_tenant_id() AND cliente_code = ? AND sucursal = ?
+          AND cargo_abono = 'C' AND saldo_documento > 0.004
+        ORDER BY fecha`, [cliente, (f as { sucursal: string }).sucursal])).rows as FacturaQueCuadra[]);
+
+    return elegirFacturasQueCuadran(monto, vivas);
   }
 
   /**

@@ -6,7 +6,7 @@ import { CustomerDepositsService } from './customer-deposits.service';
 // ⚠️ `import type`: con `emitDecoratorMetadata` + `isolatedModules`, un tipo en la firma de un método decorado tiene
 // que entrar así o el compilador lo rechaza (TS1272).
 import type {
-  EnvioFichaDto, ContextoDepositoResp, ArchivoFicha, LecturaFichaResp, EnvioFichaResp, BandejaResp, CobroCandidato, CambioFichaResp, AbonoDeclaradoResp,
+  EnvioFichaDto, ContextoDepositoResp, ArchivoFicha, LecturaFichaResp, EnvioFichaResp, BandejaResp, CobroCandidato, FacturasQueCuadran, CambioFichaResp, AbonoDeclaradoResp,
 } from './customer-deposits.service';
 
 interface AuthedRequest extends RequestConCabeceras { user?: { username?: string; full_name?: string } }
@@ -91,6 +91,16 @@ export class CustomerDepositsController {
   @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
   candidatos(@Param('id') id: string): Promise<{ cobros: CobroCandidato[] }> {
     return this.svc.candidatos(id);
+  }
+
+  /**
+   * `[CC.31]` Qué factura del cliente cuadra con este depósito, para que quien capture el cobro en Kepler no tenga
+   * que buscarla. ⛔ No captura nada: el cobro lo da de alta una persona en Kepler, que es donde se timbra.
+   */
+  @Get(':id/facturas-que-cuadran')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
+  facturasQueCuadran(@Param('id') id: string): Promise<FacturasQueCuadran> {
+    return this.svc.facturasQueCuadran(id);
   }
 
   @Post(':id/ligar')

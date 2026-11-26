@@ -90,6 +90,14 @@ export class FichasClientesService {
   bandeja(estado: string): Observable<BandejaFichas> {
     return this.http.get<BandejaFichas>(this.base, { params: { estado } });
   }
+  /**
+   * `[CC.31]` Que factura del cliente cuadra con este deposito. ⛔ No captura nada: el cobro lo da de alta una
+   * persona en Kepler, que es donde se timbra (CC.26). Esto solo le quita el trabajo de BUSCARLA.
+   */
+  facturasQueCuadran(id: string): Observable<FacturasQueCuadran> {
+    return this.http.get<FacturasQueCuadran>(`${this.base}/${encodeURIComponent(id)}/facturas-que-cuadran`);
+  }
+
   candidatos(id: string): Observable<{ cobros: CobroCandidato[] }> {
     return this.http.get<{ cobros: CobroCandidato[] }>(`${this.base}/${encodeURIComponent(id)}/candidatos`);
   }
@@ -103,4 +111,20 @@ export class FichasClientesService {
   declararAbono(id: string): Observable<{ ok: boolean; bank_movement_id: string; customer_code: string | null }> {
     return this.http.post<{ ok: boolean; bank_movement_id: string; customer_code: string | null }>(`${this.base}/${encodeURIComponent(id)}/abono`, {});
   }
+}
+
+/** `[CC.31]` Una factura viva del cliente, como la ve quien va a capturar el cobro en Kepler. */
+export interface FacturaQueCuadra {
+  doc_code: string; folio: string; importe: number; saldo: number;
+  fecha: string | null; vencimiento: string | null;
+}
+/**
+ * `[CC.31]` Que factura cuadra con el deposito. `modo` dice CUANTA CONFIANZA tiene la propuesta, que es la
+ * diferencia entre ayudar y afirmar: `exacta` (una, al centavo) · `una_de_varias` (hay empate, elige la
+ * persona) · `parcial` (ninguna sola cuadra; van las mas viejas para que decida).
+ */
+export interface FacturasQueCuadran {
+  modo: 'exacta' | 'una_de_varias' | 'parcial';
+  monto: number;
+  facturas: FacturaQueCuadra[];
 }

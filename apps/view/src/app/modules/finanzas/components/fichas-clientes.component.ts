@@ -6,7 +6,7 @@ import { catchError, concatMap, map, toArray } from 'rxjs/operators';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
-import { FichasClientesService, FichaClienteBandeja, CobroCandidato, BandejaFichas } from '../deposito-cliente.service';
+import { FichasClientesService, FichaClienteBandeja, CobroCandidato, BandejaFichas , FacturasQueCuadran } from '../deposito-cliente.service';
 
 /**
  * `[CC.20]` **La bandeja de Cobranza: las fichas de depósito que subieron los clientes desde su enlace.**
@@ -116,6 +116,21 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato, BandejaFich
                           @if (b.abonos[0]?.declarado === f.cliente_code) {
                             <span class="fc-muted">Marcado como de este cliente.</span>
                             <span class="fc-warn">Falta capturar el cobro en Kepler: hasta entonces sigue debiendo esto en el sistema y su factura no recibe complemento de pago.</span>
+                            <!-- [CC.31] Y QUE factura cuadra, para que quien lo capture no la busque. El modo dice
+                                 cuanta confianza tiene la propuesta: no es lo mismo una al centavo que un empate. -->
+                            @if (cuadre(f.id); as q) {
+                              @switch (q.modo) {
+                                @case ('exacta') {
+                                  <span class="fc-ok">Cuadra con {{ q.facturas[0].doc_code }}-{{ q.facturas[0].folio }} · {{ q.facturas[0].fecha }}</span>
+                                }
+                                @case ('una_de_varias') {
+                                  <span class="fc-muted">Cuadran {{ q.facturas.length }} facturas ({{ folios(q) }}): elige cuál al capturar</span>
+                                }
+                                @case ('parcial') {
+                                  <span class="fc-muted">Ninguna factura cuadra sola con este importe@if (q.facturas.length) {, y tiene {{ q.facturas.length }} viva(s)}</span>
+                                }
+                              }
+                            }
                           }
                         }
                         @case ('de_otro_cliente') {
@@ -227,6 +242,16 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato, BandejaFich
   `],
 })
 export class FichasClientesComponent {
+  /** `[CC.31]` Hasta cuántas fichas se consulta de una vez: una llamada por ficha, y la bandeja es chica.
+   *  Si algún día crece, esto se vuelve una sola llamada en lote — por eso el tope está dicho, no escondido. */
+  private static readonly CUADRES_MAX = 25;
+
+  /** `[CC.31]` Qué factura cuadra con cada ficha, por id. Se pide sólo para las que esperan captura. */
+  private readonly cuadres = signal<Record<string, FacturasQueCuadran>>({});
+  cuadre(id: string): FacturasQueCuadran | null { return this.cuadres()[id] ?? null; }
+  /** Los folios de las que cuadran, para decirlos en una línea. */
+  folios(q: FacturasQueCuadran): string { return q.facturas.map((x) => x.folio).join(', '); }
+
   private readonly svc = inject(FichasClientesService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -311,6 +336,7 @@ export class FichasClientesComponent {
   /** Público: la pantalla de Cobranza lo llama cuando llega el aviso en vivo de una ficha nueva. */
   cargar(): void {
     this.cargando.set(true); this.error.set(null);
+    this.cuadres.set({});
     this.svc.bandeja(this.estado()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
         this.datos.set(d); this.cargando.set(false);
@@ -320,9 +346,25 @@ export class FichasClientesComponent {
           { label: `Ligadas (${n['validado'] ?? 0})`, value: 'validado' },
           { label: `Rechazadas (${n['rechazado'] ?? 0})`, value: 'rechazado' },
         ]);
+        this.pedirCuadres(d.fichas || []);
       },
       error: (e) => { this.cargando.set(false); this.error.set(e?.error?.message || 'No se pudo cargar la bandeja.'); },
     });
+  }
+
+  /**
+   * `[CC.31]` Pide qué factura cuadra, **sólo para las fichas que esperan captura** — las que entraron al banco
+   * y Kepler todavía no tiene su cobro. Para las demás el dato no decide nada, así que no se pide.
+   * Si una falla, se calla: es ayuda, y una ficha sin su propuesta se sigue pudiendo trabajar.
+   */
+  private pedirCuadres(fichas: FichaClienteBandeja[]): void {
+    const esperan = fichas.filter((f) => f.status === 'recibido' && f.banco?.estado === 'sin_aplicar').slice(0, FichasClientesComponent.CUADRES_MAX);
+    for (const f of esperan) {
+      this.svc.facturasQueCuadran(f.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (q) => this.cuadres.update((m) => ({ ...m, [f.id]: q })),
+        error: () => undefined,
+      });
+    }
   }
 
   cambiar(v: string): void { this.estado.set(v); this.cerrar(); this.cargar(); }

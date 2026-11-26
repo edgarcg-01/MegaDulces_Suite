@@ -229,7 +229,7 @@ abono inatribuible en una obligación fiscal con dueño y con fecha**. De los 4,
 
 | | Hallazgo | Severidad |
 |---|---|---|
-| **CC.22.a** | La fila dice «Entró al banco, sin cobro en Kepler» pero **no dice qué factura cuadra**, aunque el importe coincide al centavo con una. El dato existe y la pantalla no lo muestra: quien captura en Kepler tiene que buscarlo a mano | 🔴 |
+| **CC.22.a** | ~~La fila no dice qué factura cuadra~~ ✅ **CERRADO el 2026-11-26 (`CC.31`)**: la fila lo dice, y dice **cuánta confianza** tiene la propuesta | ✅ |
 | **CC.22.b** | **No se declara la obligación fiscal**: ni que la factura es PPD, ni que falta el complemento, ni para cuándo. Es el dato más caro de la fila y no está | 🔴 |
 | **CC.22.c** | «Marcar el abono como suyo» **no dice qué hace y qué no hace**. No escribe en Kepler, no aplica a ninguna factura y no timbra; el rótulo sugiere que cierra el caso | 🟠 |
 | **CC.22.d** | El aviso del cruce por importe está bien puesto (*«~1 de cada 13 coincide por azar»*), pero **no distingue** el cruce débil (sólo importe) del fuerte que hay aquí: **el cliente se declaró dueño**, con foto, monto, fecha y referencia del banco | 🟡 |
@@ -303,7 +303,7 @@ mal timbrado»*. **Es al revés, y es peor.**
 |---|---|---|
 | 1 | **1,489 de 1,489** cobros de más de 7 días tienen su complemento: **100.00 %** | no falla nunca |
 | 2 | Del cobro al timbre: **mediana medio minuto, máximo 1 minuto** (785 casos) | es **al guardar**, no un barrido |
-| 3 | ⭐ De 27 cobros **cancelados**, sólo **1** tiene complemento | si bastara con que la fila exista, los 27 lo tendrían |
+| 3 | ⛔ ~~De 27 cobros cancelados, sólo 1 tiene complemento~~ **MAL MEDIDO, corregido el 2026-11-26** (ver `CC.29`) | se midió contra `fiscal.cfdis`, que es la descarga del SAT; contra Kepler, **los 126 cancelados SÍ tienen su CFDI** |
 | 4 | ⭐ En todo 2026, **cero capturistas que no sean personas** (`0CYC`, `42MAVH`, `VIVIANA`…) | **nunca entró un cobro por otra vía** |
 
 ⛔ **Y las tablas tienen cero disparadores.** O sea que el timbre **lo pone el programa de Kepler en el acto de
@@ -419,3 +419,189 @@ este cobro. Clonar un documento hereda lo que no se pisa, y **aquí se pisó só
 
 ⚠️ Razón de más para **cancelar el `0000886` y recapturarlo**: no sólo le falta el complemento, además arrastra
 dos importes ajenos.
+
+## CC.27–CC.28 — El carril puede CREAR y no puede DESHACER: la cancelación también es del programa (2026-11-26)
+
+> Edgar autorizó cancelar el cobro de `CC.25` y recapturarlo. Medir qué significa cancelar **impidió hacerlo mal**,
+> y después el permiso lo impidió del todo — las dos cosas, para bien.
+
+### Qué significa cancelar un cobro, medido en el Kepler vivo
+
+⛔ Se midió **en Kepler, no en el ODS**: por la lección de `kdm6`, **Kepler borra filas al cancelar y el ODS las
+conserva**, así que el ODS habría dicho que no borra nada.
+
+| | Cancelado (28) | Vivo (858) |
+|---|---|---|
+| `kdm1.c43` | `C` | `N` |
+| `kdm1.c16` (importe) | **0.00** | el importe |
+| `kdm5` (aplicaciones) | **0 — borradas** | 1.87 por cobro |
+| póliza del mes | **0 renglones — borrada** | 2 renglones |
+| `kdue` | conservado, **importe 0.00** | conservado, con importe |
+
+⭐ **Por eso la factura vuelve a deber: las aplicaciones se borran.** No es marcar un estatus.
+
+### ⛔ Y el permiso lo impide, que es como debe ser
+
+Medido el mismo día, el rol `kepler_push` sobre las tablas del cobro:
+
+| Tabla | Puede |
+|---|---|
+| `kdm1` · `kdue` · `kdm5` · la póliza del mes | **leer e insertar. Ni actualizar ni borrar** |
+| `sqliov` (contador) · `kdud` | sólo leer |
+| `kdfe33pagm1` · `kdfe33pagm2` · `kdfe33m1` (el CFDI) | **nada, ni leer** |
+
+> ⭐⭐ **El carril de escritura puede CREAR y no puede DESHACER.** Es un buen diseño, no un hueco — y confirma
+> desde otro ángulo lo de `CC.26`: **cancelar, como timbrar, es un acto del programa.**
+
+⚠️ Trampa de instrumento, la de siempre: `sqliov` aparece como «sólo SELECT» y sin embargo `reservarFolioKepler`
+mueve su contador. El `GRANT` es **por columna**, y `has_table_privilege` devuelve `false` cuando lo es — para eso
+está `has_column_privilege`.
+
+### ⬜ Lo que queda pendiente, y es de una persona
+
+**El cobro `06/U-A-7/0000886` sigue vivo en Kepler**, sin complemento y con dos importes heredados. **Lo tiene que
+cancelar alguien de Crédito desde Kepler** (menú *Crédito y cobranza › Operación CFDI*), y después recapturar el
+cobro por la vía normal — que es la que timbra.
+
+El guion `cancelar-cobro.ts` queda escrito y verificado en seco: **documenta la huella exacta** de una cancelación
+y trae su control. Hoy no puede correr, y está bien que no pueda.
+
+## CC.29 — ⛔⛔ El propio Kepler no puede abrir el cobro que escribió la Suite (2026-11-26)
+
+> Alguien intentó abrir el `UA0701-0000886` en Kepler (*Operación CFDI › Factura de recepción de pagos*) y el
+> programa contestó con un error. Esa pantalla cierra el diagnóstico — y corrige una evidencia mía.
+
+### El error, y lo que prueba
+
+> *«El CFDI asignado a este documento KEPLER, no puede ser procesado por esta página. **Versión CFDI:** _(vacío)_
+> Permitidas en esta versión: 4.0»*
+
+El programa busca el CFDI del documento, **no lo encuentra**, lee una versión vacía y rechaza. Medido en
+`kdfe33m1`: un cobro timbrado tiene **dos** filas —`tipo P` (el complemento, escrito por `FE4Cobro`) y `tipo I`
+(la factura, por `MD_fac`)—, y **al `0000886` le falta la de tipo P**. Es exactamente lo que `CC.26` predijo.
+
+### ⛔ Y algo nuevo que esto destapa: tampoco se puede CANCELAR desde ahí
+
+Si la pantalla no puede **abrir** el documento, **no se puede cancelar por esa vía**. O sea que el cobro quedó en
+un estado que ni la Suite puede deshacer (`CC.28`: el carril no tiene `DELETE` ni `UPDATE`) **ni esa pantalla de
+Kepler puede tocar**. Queda por probar:
+
+1. *Baja de factura de recepción de pagos* (la pantalla de cancelar de esa misma rama) — puede dar el mismo error;
+2. la rama **Operación** (sin CFDI) de Crédito y cobranza, por si ahí los cobros se tratan sin exigir comprobante;
+3. si ninguna sirve, es una pregunta para quien da soporte a Kepler.
+
+⭐ **Lección, y es la más cara del día:** escribir un documento que el ERP considera suyo **sin pasar por su
+programa** no sólo lo deja incompleto — lo deja **fuera del alcance de las herramientas del propio ERP**. No es
+que falte un dato: es que el documento no existe para el programa que debería administrarlo.
+
+### Corrección de una evidencia de `CC.24`
+
+⛔ Dije: *«de 27 cobros cancelados, sólo 1 tiene complemento»*, y lo usé como prueba de que el timbre no sale por
+la sola existencia de la fila. **Estaba mal medido**: lo medí contra `fiscal.cfdis` (la descarga del SAT). Medido
+contra Kepler, **de 126 cobros cancelados desde septiembre, los 126 tienen su fila en `kdfe33m1`**.
+
+⭐ La conclusión de `CC.24` **no cambia, se refuerza**: el timbre se pone **al dar de alta**, siempre, incluso en
+los que después se cancelan. Y **el `0000886` es el único cobro de esa sucursal sin CFDI**. Las otras tres
+evidencias (100 % de cobertura, medio minuto de mediana, cero capturistas que no sean personas) siguen en pie.
+
+## CC.30 — Borrado el cobro de la Suite, y lo que el borrado destapó: el espejo no ve los DELETE (2026-11-26)
+
+> Edgar: *«borrémoslo nosotros si no se timbró»*. Se verificó la condición (sin complemento), se borró, y el
+> borrado destapó un problema que **no es de este caso**: es de todo lo que Kepler borra.
+
+### El borrado
+
+Se hizo con el superusuario desde `md` ([`cc29_borrar_cobro_suite_0000886.sql`](../../../ops/prod/kepler-grants/cc29_borrar_cobro_suite_0000886.sql)),
+en **una transacción con comprobación final** — si no quedaba todo borrado y la factura no volvía a deber sus
+$15,539.63, se revertía. No se amplió ningún permiso: `kepler_push` **sigue sin poder borrar**.
+
+Guardas que llevaba: sólo si el documento es exactamente el de la Suite (capturista **y** referencia), y ⛔ **sólo
+si NO tiene complemento timbrado** — con complemento se cancela por Kepler, no se borra.
+
+**Testigo independiente** (Kepler, no la salida del script): los cobros vivos pasaron de **858 a 857** y sus
+aplicaciones de **1,603 a 1,602** — exactamente uno y una. Los 28 cancelados, intactos. Y no queda ningún documento
+con capturista `SUITE`.
+
+⚠️ **Queda un hueco en la numeración**: el folio `0000886` se consumió y ya hay cobros posteriores, así que el
+contador no se retrocede. Se declara.
+
+### ⛔⛔ Lo que destapó, y vale más que el caso
+
+**El ODS no procesa los `DELETE` de Kepler.** Borrado el cobro, su renglón de `kdue` **siguió vivo en
+`kepler_ods`**, y la cartera de la Suite mostraba que el cliente debía **$29,421.41** cuando debía **$44,961.04**:
+**$15,539.63 menos**, por un cobro que ya no existe.
+
+⭐ Esto **no es de este caso**: es de **todo documento que Kepler borre**. Ya estaba escrito para `kdm6` (Kepler lo
+borra al cancelar un gasto y el ODS no lo ve); aquí aparece otra vez, en otra tabla, **con una cifra de dinero en
+la pantalla de Crédito**.
+
+### Cómo se corrigió, y el error de instrumento que costó un intento
+
+El primer intento **falló, y bien**: borré el fantasma y verifiqué el saldo **dentro de la misma transacción**. Pero
+`analytics.customer_receivables_current` **es una tabla, no una vista**, y la recalcula un worker *después*
+(`[CXC.21]`: el disparador anota la cuenta en `receivables_dirty_accounts` y `drain_customer_receivables()` la
+recalcula). O sea: **verifiqué un efecto asíncrono con un instrumento síncrono.** La comprobación revirtió todo y
+no se cambió nada — que es para lo que estaba.
+
+En el orden correcto —borrar, confirmar, **drenar**, y recién entonces verificar— quedó: fantasma 0, y el saldo
+**$44,961.04**, igual a la suma de los cargos vivos. ⭐ Y de paso se comprobó que el disparador de `[CXC.21]`
+**funciona**: el `DELETE` anotó la cuenta en la cola solo.
+
+### ⬜ Lo que queda abierto
+
+1. **El depósito del 23-nov sigue sin su cobro bueno.** El dinero entró, la factura volvió a deber, y el plazo del
+   complemento vence el **5 de diciembre**. Lo captura una persona en Kepler.
+2. ⬜ **El fantasma es general y no está medido**: ¿cuántas filas del ODS corresponden a documentos que Kepler ya
+   borró? Cada una es dinero mal contado en alguna pantalla. **Eso sí merece medirse.**
+
+## CC.31 — La Suite deja el cobro listo y la persona lo captura: qué factura cuadra (2026-11-26)
+
+> Edgar: *«ahora sí hay que generarlos bien»*. Después de `CC.26` —la Suite **no puede timbrar**— «bien» quiere
+> decir: **que lo capture una persona en Kepler, sin tener que buscar nada**. Esto es esa parte.
+
+### Por qué vale la pena: el cruce acierta seguido
+
+Medido sobre los cobros reales de octubre y noviembre (1,695 cobros):
+
+| El cobro paga… | Cobros | |
+|---|---:|---:|
+| **una sola factura** | **999** | **58.9 %** |
+| dos | 432 | 25.5 % |
+| de 3 a 5 | 235 | 13.9 % |
+| más de 5 | 29 | 1.7 % |
+
+⭐ **Seis de cada diez cobros pagan una sola factura**, y 84 % pagan una o dos. O sea que proponer la factura
+que cuadra acierta la mayor parte del tiempo — y cuando no, **lo dice**.
+
+### Lo que hace, y lo que NO afirma
+
+`GET /api/finance/collections/clientes/:id/facturas-que-cuadran` devuelve un `modo`, que es la diferencia entre
+ayudar y afirmar:
+
+| `modo` | Cuándo | Qué dice la fila |
+|---|---|---|
+| `exacta` | **una** factura cuyo saldo **es** el importe, al centavo | «Cuadra con `UD0801-0001446` · 18 nov» |
+| `una_de_varias` | hay empate | «Cuadran 2 facturas (…): elige cuál al capturar» |
+| `parcial` | ninguna cuadra sola | «Ninguna factura cuadra sola con este importe» + las vivas |
+
+⛔ **Dos cosas que deliberadamente NO hace**, y las dos tienen su prueba:
+1. **No propone por cercanía.** $500.01 no cuadra con una factura de $500 — sólo medio centavo de redondeo, que
+   es lo que se va entre dos fuentes. Proponer por «se le parece» es el cruce por importe sin control negativo.
+2. **No propone combinaciones.** Si hay una de $300 y otra de $200 y el depósito es de $500, **no** dice que sean
+   ésas: que dos sumen lo mismo no prueba nada.
+
+### Lo medido al cerrar
+
+- La decisión vive en una **función pura** (`elegirFacturasQueCuadran`), probada sin base: **8 pruebas**, cada
+  guarda con su control (el centavo que cuadra y el que no, el redondeo que sí y el que no).
+- **17 pruebas** del componente (5 nuevas) y **38** del módulo de depósitos.
+- Sólo se pregunta por las fichas que **esperan captura** — a una que Kepler ya aplicó no se le pregunta, y eso
+  tiene su prueba y su control. Si la propuesta falla, **la fila se sigue pudiendo trabajar**.
+- `check:pantalla` de `finanzas-cobranza`: tipa con 0 errores semánticos y **0 fallas nuevas**. `check:templates`
+  en verde.
+- ⚠️ **Sin validación visual**: no se vio en navegador.
+
+### ⬜ Lo que sigue abierto
+
+`CC.22.b` — la fila todavía **no declara la obligación fiscal con su fecha** (que la factura es PPD y hasta
+cuándo hay para el complemento). Hoy el aviso dice que falta capturarlo y qué pasa si no; falta **el plazo**.
