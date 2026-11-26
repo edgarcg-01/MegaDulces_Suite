@@ -10206,6 +10206,26 @@ más) — PR aparte para no volver ilegible el diff.
     o firmas inyectadas obliga a probar `design:paramtypes` o a declarar «arranque no verificado»
     (*#414 tiró la API en prod con el CI en verde*). Se da de alta junto con el controlador, en
     una sola pasada que sí se pueda probar.
+  - ⛔⛔ **La llave de API NO puede registrar ni recibir webhooks** (medido el 2026-11-26): los
+    cuatro endpoints de webhooks y automatizaciones contestan **404**, y `/apps/v1/instance` pide
+    *«Missing authentication information»* — espera el token de una **App**, no una llave. En Wix
+    el webhook pertenece a una App OAuth. **El disparo no se puede construir sólo con la llave.**
+    - **Opción A — una Automatización en el panel de Wix** («cuando el pedido se paga → llamar a
+      esta URL»). Es por evento, no hay que programar nada del lado de Wix, y **la configura una
+      persona con acceso al panel**. Es la más barata.
+    - **Opción B — una App OAuth** en el Dev Center de Wix, instalada en el sitio. Más trabajo y
+      más permisos, pero es el camino que Wix documenta para recibir eventos.
+    - ⛔ **Consultar la tienda cada tanto NO es opción** (regla del proyecto, 2026-11-10: ningún
+      cron, el dato por evento).
+    **Lo decide Edgar**, porque las dos piden tocar la cuenta de Wix.
+  - ⭐⭐ **El desfase diario, ya medido en una ventana real de 22 h** (2026-11-25 18:33Z →
+    2026-11-26 14:42Z): **376 renglones de cantidad y 6 precios**, o sea **~23 % de la tienda en
+    un día**. Se resincronizó y el veredicto volvió a verde (1,174 de 1,174 al precio del
+    mostrador, 0 ofreciendo de más, 0 muertos a la venta). Mientras no haya mecanismo, **alguien
+    tiene que correr `ops/tienda-wix/aplicar.js --aplicar` a diario**.
+    - El mecanismo correcto **no es consultar la tienda**: el evento es nuestro —cambió el precio
+      o la existencia de un SKU que está publicado— y vive en el ODS. Empujar desde ahí es por
+      evento y respeta la regla.
   - **Falta:** el webhook HTTP de Wix (firmado y verificado) + dar de alta servicio y controlador
     en el módulo · **registrar el webhook en Wix, que necesita la llave rotada** · y C3, ver el
     folio y ver el pedido que no pudo armarse con su porqué.

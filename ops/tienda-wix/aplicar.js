@@ -12,7 +12,9 @@ const { Client } = require('pg');
 const D = __dirname + '/';
 const { repartir, accionDe } = require(D + 'resolver.js');
 
-const K = process.env.WIXK, SITE = process.env.LIVE;
+// La llave vive en .env (ignorado por git; el repo es PUBLICO), o se pasa por entorno.
+const K = process.env.WIXK || process.env.WIX_API_KEY;
+const SITE = process.env.LIVE || process.env.WIX_SITE_ID;
 const APLICAR = process.argv.includes('--aplicar');
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > -1 ? Number(process.argv[i + 1]) : d; };
 const LIMITE = arg('--limite', Infinity), TOPE = arg('--tope', 50);
