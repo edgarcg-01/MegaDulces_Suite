@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — Mesa de Servicio › Configuración: «Renombrar» un área (MS.8.5 · 2026-11-26)
+- Cada área trae «Renombrar» junto a su nombre: cambia el nombre que ve la gente; el código no cambia y las solicitudes se quedan donde están. Lo puede hacer quien coordina esa área.
+- Nació de «Operación de sucursales ·», un área creada con un punto de más que no había cómo corregir en pantalla.
 ### Internal — Pagos: el interés de un crédito, calculado y recalculado un día antes (PGP.219 C0–C1 · 2026-11-26 · en código, sin soltar)
 - El interés que el banco cobra de un crédito ya no se programa con lo último que cobró: es saldo × tasa × días, con el periodo del día del contrato al del mes siguiente. La tasa y el saldo salen de la historia del banco (la tasa implícita del último cargo, DCR10) y el importe sigue rotulado «estimado».
 - Medido en prod con los dos créditos de Banorte: cada mes predicho con los anteriores casa ±$0.02 (14 de 14); lo último cobrado erraba hasta $2,662. El IVA usa la inflación del mes anterior y puede errar hasta $1,450 un mes.

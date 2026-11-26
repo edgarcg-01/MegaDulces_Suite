@@ -197,6 +197,10 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
               <div class="sc-qhead">
                 <b>{{ q.name }}</b><span class="sc-mono">{{ q.code }}</span>
                 @if (!q.active) { <em class="sc-off">apagada</em> }
+                <!-- [MS.8.5] Renombrar: cambia el nombre que ve la gente, nunca el código. El servidor exige la coordinación de ESA cola. -->
+                @if (renombrando() !== q.id) {
+                  <p-button label="Renombrar" icon="pi pi-pencil" size="small" severity="secondary" [text]="true" [ariaLabel]="'Renombrar el área ' + q.name" (onClick)="empezarRenombre(q)" />
+                }
                 <span class="sc-sp"></span>
                 <!-- [MS.7.7] Cómo se SUGIERE la prioridad de esta cola. Lo elige la coordinación de la cola; el servidor lo exige. -->
                 @if (q.uses_priority) {
@@ -208,6 +212,18 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                 <label class="sc-modelo sc-chk"><input type="checkbox" [ngModel]="q.asks_zone" (ngModelChange)="cambiarPreguntaZona(q.id, q.asks_zone, $event)" [attr.aria-label]="'Preguntar la zona en ' + q.name" /> Pregunta la zona</label>
                 <p-button [label]="q.active ? 'Apagar cola' : 'Encender cola'" size="small" severity="secondary" [text]="true" (onClick)="alternarCola(q.id, q.active)" />
               </div>
+              @if (renombrando() === q.id) {
+                <div class="sc-renombre" role="group" [attr.aria-label]="'Renombrar el área ' + q.name">
+                  <label class="sc-field"><span>Nuevo nombre</span>
+                    <input pInputText [id]="'sc-renombre-' + q.id" [(ngModel)]="nombreNuevo" maxlength="80" (keydown.enter)="guardarRenombre(q)" (keydown.escape)="cancelarRenombre()"
+                           [attr.aria-label]="'Nuevo nombre del área ' + q.name" /></label>
+                  <div class="sc-foot">
+                    <p-button label="Guardar" icon="pi pi-check" size="small" [loading]="guardando()" [disabled]="!nombreNuevo.trim()" (onClick)="guardarRenombre(q)" />
+                    <p-button label="Cancelar" size="small" severity="secondary" [text]="true" (onClick)="cancelarRenombre()" />
+                  </div>
+                  <span class="sc-hint">Cambia sólo el nombre que ve la gente. El código <span class="sc-mono">{{ q.code }}</span> no cambia, y las solicitudes de esta área se quedan donde están.</span>
+                </div>
+              }
               <!-- [MSH.3] Cómo se COMPORTA el área: confidencial, con o sin prioridad, con o sin plazos. «Confidencial» NO se cambia con solicitudes ya
                    levantadas (la base lo impide: la marca de un ticket no puede cambiar) y sólo la coordinación de esa cola la administra. -->
               <div class="sc-flags" role="group" [attr.aria-label]="'Comportamiento de ' + q.name">
@@ -350,6 +366,9 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
     .sc-acc { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .sc-queue { display: flex; flex-direction: column; gap: var(--sp-2); overflow-x: auto; }
     .sc-qhead { display: flex; align-items: center; gap: var(--sp-2); }
+    .sc-renombre { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--layout-bg); }
+    .sc-renombre .sc-field { flex: 1 1 16rem; }
+    .sc-renombre .sc-hint { flex-basis: 100%; }
     .sc-off { font-style: normal; font-size: var(--fs-xs); color: var(--warn-fg); }
     .sc-sp { flex: 1; }
     .sc-new { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
@@ -461,13 +480,13 @@ export class ServicioConfiguracionComponent implements OnInit {
     this.reglas.business_days = d.includes(n) ? d.filter((x) => x !== n) : [...d, n].sort((a, b) => a - b);
   }
 
-  /** Corre una operación de guardado: mensaje de éxito o el motivo exacto del servidor. */
-  private guardar(op: Observable<SdConfigResponse>, ok: string): void {
+  /** Corre una operación de guardado: mensaje de éxito o el motivo exacto del servidor. `alGuardar` corre sólo si el servidor aceptó. */
+  private guardar(op: Observable<SdConfigResponse>, ok: string, alGuardar?: () => void): void {
     this.guardando.set(true);
     this.error.set(null);
     this.aviso.set(null);
     op.subscribe({
-      next: (c) => { this.aplicar(c); this.guardando.set(false); this.aviso.set(ok); },
+      next: (c) => { this.aplicar(c); this.guardando.set(false); this.aviso.set(ok); alGuardar?.(); },
       error: (e) => { this.guardando.set(false); this.error.set(sdError(e, 'No se pudo guardar.')); },
     });
   }
@@ -575,6 +594,30 @@ export class ServicioConfiguracionComponent implements OnInit {
     this.guardar(this.api.updateQueue(id, { report_min_cases: n }), `Los reportes de esta área sólo se mostrarán con ${n} casos o más.`);
   }
   alternarCola(id: string, activa: boolean): void { this.guardar(this.api.updateQueue(id, { active: !activa }), activa ? 'Cola apagada.' : 'Cola encendida.'); }
+
+  // ── `[MS.8.5]` Renombrar un área ──
+  /** El área que se está renombrando (una a la vez) y el nombre que se escribe. El código NO se toca: lo usan órdenes, reglas y reportes. */
+  readonly renombrando = signal<string | null>(null);
+  nombreNuevo = '';
+  empezarRenombre(q: { id: string; name: string }): void {
+    this.renombrando.set(q.id);
+    this.nombreNuevo = q.name;
+    this.error.set(null);
+    this.aviso.set(null);
+    // El campo existe hasta el siguiente pintado: el foco va ahí para escribir sin buscarlo.
+    setTimeout(() => (document.getElementById('sc-renombre-' + q.id) as HTMLInputElement | null)?.focus());
+  }
+  cancelarRenombre(): void {
+    this.renombrando.set(null);
+    this.nombreNuevo = '';
+  }
+  /** Sin nombre no viaja (se avisa); el mismo nombre sólo cierra; el servidor decide quién puede y su motivo se muestra tal cual. */
+  guardarRenombre(q: { id: string; name: string; code: string }): void {
+    const nombre = this.nombreNuevo.trim();
+    if (!nombre) { this.error.set('Escribe el nombre del área: no puede quedar vacío.'); return; }
+    if (nombre === q.name) { this.cancelarRenombre(); return; }
+    this.guardar(this.api.updateQueue(q.id, { name: nombre }), `Área renombrada: «${q.name}» ahora se llama «${nombre}». Su código (${q.code}) no cambia.`, () => this.cancelarRenombre());
+  }
   alternarCategoria(id: string, activa: boolean): void { this.guardar(this.api.updateCategory(id, { active: !activa }), activa ? 'Categoría apagada.' : 'Categoría encendida.'); }
 
   // ── `[MS.8.3]` Nueva área ──
