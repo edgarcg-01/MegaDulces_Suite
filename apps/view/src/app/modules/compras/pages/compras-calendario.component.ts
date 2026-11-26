@@ -34,6 +34,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { ManualLinkComponent } from '../../../shared/components/manual-link/manual-link.component';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { PROVEEDORES_TABS } from '../proveedores-tabs';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { motivoHttp } from '../../almacen/shared/http-motivo';
@@ -75,7 +77,7 @@ interface ProveedorDelFormulario {
   imports: [
     FormsModule, RouterLink, ButtonModule, TableModule, TagModule, DialogModule, DatePickerModule, InputNumberModule, InputTextModule,
     SelectModule, TextareaModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, SegmentedComponent, SidePeekComponent,
-    ManualLinkComponent, CheckboxModule,
+    ManualLinkComponent, CheckboxModule, PageTabsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -93,6 +95,10 @@ interface ProveedorDelFormulario {
           <app-freshness-pill measures="fetch" [since]="cargadoEn()" />
         </div>
       </header>
+
+      <!-- [PQ.3.23] La barra del apartado Proveedores (DC32). Con una sola pestaña no se pinta; aparece sola cuando
+           Citas, Revisión, Acuerdos o Listas de precios tengan pantalla y entren a PROVEEDORES_TABS. -->
+      <app-page-tabs [tabs]="tabs" />
 
       @if (errorAccion()) { <p class="cc-error cc-error-fuera" role="alert">{{ errorAccion() }}</p> }
       @if (aviso()) { <p class="cc-aviso" role="status">{{ aviso() }}</p> }
@@ -692,6 +698,7 @@ interface ProveedorDelFormulario {
   styleUrls: ['./compras-calendario.component.css'],
 })
 export class ComprasCalendarioComponent implements OnInit {
+  readonly tabs = PROVEEDORES_TABS;
   private readonly api = inject(CalendarioComprasService);
   private readonly perms = inject(PermissionsService);
   private readonly route = inject(ActivatedRoute);

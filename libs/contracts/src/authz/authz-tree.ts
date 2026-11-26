@@ -371,6 +371,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // `[PQ.3.5]` Calendario de compras: se mira antes de pedir. Marcar el día (GESTIONAR) y definir el ciclo
           // (CICLO) son dos claves: el ciclo lo define la gerencia de compras (DC8).
           { id: 'compras-calendario', label: 'Calendario de compras', route: '/compras/calendario', view: [Permission.COMPRAS_CALENDARIO_VER], manage: [Permission.COMPRAS_CALENDARIO_GESTIONAR, Permission.COMPRAS_CALENDARIO_CICLO] },
+          // `[PQ.3.8]` Proveedores › Citas: la agenda con el proveedor (DC41: agendan Compras, Mercadotecnia y Tesorería).
+          { id: 'compras-citas', label: 'Citas con proveedores', route: '/compras/citas', view: [Permission.COMPRAS_CITAS_VER], manage: [Permission.COMPRAS_CITAS_AGENDAR] },
           { id: 'compras-pedido', label: 'Pedido', route: '/compras/pedido', view: [Permission.COMPRAS_PEDIDO_VER], manage: [Permission.COMPRAS_PEDIDO_GESTIONAR] },
           { id: 'compras-red', label: 'Red de abasto', route: '/compras/red', view: [Permission.COMPRAS_RED_VER], manage: [Permission.COMPRAS_RED_GESTIONAR] },
           { id: 'compras-requisiciones', label: 'Requisiciones', route: '/compras/requisiciones', view: [Permission.COMPRAS_REQUISICIONES_VER], manage: [Permission.COMPRAS_REQUISICIONES_GESTIONAR, Permission.COMPRAS_REQUISICIONES_AUTORIZAR, Permission.COMPRAS_REQUISICION_CANCELAR] },

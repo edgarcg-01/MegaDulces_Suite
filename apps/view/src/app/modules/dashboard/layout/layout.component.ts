@@ -62,6 +62,7 @@ import { TELEMARKETING_TABS } from '../../comercial/telemarketing-tabs';
 import { CATALOGO_TABS } from '../../compras/catalogo-tabs';
 import { ENTRADAS_CONTROL_TABS } from '../../compras/entradas-control-tabs';
 import { PARAMETROS_COMPRA_TABS, PARAMETROS_COMPRA_LABEL } from '../../compras/parametros-compra-tabs';
+import { PROVEEDORES_TABS, PROVEEDORES_LABEL } from '../../compras/proveedores-tabs';
 import { SEGUIMIENTO_COMPRA_TABS, SEGUIMIENTO_COMPRA_LABEL } from '../../compras/seguimiento-compra-tabs';
 import { ALERTAS_ABASTO_TABS, ALERTAS_ABASTO_LABEL } from '../../compras/alertas-abasto-tabs';
 import { PAGO_PROVEEDOR_TABS, PAGO_PROVEEDOR_LABEL } from '../../compras/pago-proveedor-tabs';
@@ -1038,10 +1039,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // `[PQ.94]` Temporadas: qué productos son de temporada y su ventana de venta. Va antes de Pedido,
         // como Existencia: se mira para decidir qué pedir (y qué ya no reponer).
         { label: 'Temporadas',       icon: 'pi pi-calendar',  route: '/compras/temporadas', permission: Permission.COMPRAS_TEMPORADAS_VER },
-        // `[PQ.3.5]` Calendario de compras: a quién le toca la revisión hoy; va justo antes de Pedido, que es a
-        // donde lleva («Abrir en Pedido»).
-        { label: 'Calendario de compras', icon: 'pi pi-calendar-clock', route: '/compras/calendario',
-          anyOf: [Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR, Permission.COMPRAS_CALENDARIO_CICLO] },
+        // `[PQ.3.23]` Proveedores (DC32): la relación con el proveedor —Calendario, y después Citas, Revisión,
+        // Acuerdos y Listas de precios— en UNA entrada (ver `proveedores-tabs.ts`). Aterriza en el Calendario
+        // (`[PQ.3.5]`: a quién le toca la revisión hoy), por eso va justo antes de Pedido, que es a donde lleva.
+        { label: PROVEEDORES_LABEL, icon: 'pi pi-building', route: '/compras/calendario', tabs: PROVEEDORES_TABS },
         { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_PEDIDO_VER },
         // `[NAV.4.1]`/`[NAV.6]` El paso siguiente del pedido, pegado a él: Requisiciones → Órdenes de
         // compra → Abiertas en Kepler, en el orden en que avanza el documento. Pedido + Requisiciones

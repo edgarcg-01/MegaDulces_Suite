@@ -1,0 +1,116 @@
+/* `[PQ.3.8]` Compras › Proveedores › Citas — superficie Operations. Cero hex crudo: sólo tokens (como el Calendario). */
+:host { display: block; }
+
+.ct-page { display: flex; flex-direction: column; gap: var(--sp-4); min-height: 0; container-type: inline-size; }
+.ct-head-acc { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+
+/* Jerarquía (§Q.5): primario = la respuesta y el proveedor de cada renglón; secundario = cuándo, quién va y la
+   situación; terciario = tipo, lugar y notas. */
+.ct-respuesta { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-medium); color: var(--fg-1); max-width: 80ch; }
+.ct-nota { margin: 0; font-size: var(--fs-xs); color: var(--fg-2); max-width: 90ch; }
+.ct-pie { margin-top: var(--sp-3); }
+
+.ct-barra { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
+.ct-semana { display: flex; align-items: center; gap: var(--sp-1); }
+.ct-rango { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-1); font-variant-numeric: tabular-nums; }
+
+.ct-table th {
+  font-size: var(--fs-micro); font-weight: var(--fw-medium);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2);
+}
+.ct-table td { font-size: var(--fs-sm); vertical-align: top; }
+/* Celda de varias líneas: UN solo hijo (en la tabla apilada del celular la celda es flex). */
+.ct-celda { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; align-items: flex-start; }
+.ct-dia { font-weight: var(--fw-medium); color: var(--fg-1); text-transform: capitalize; }
+.ct-hoy { color: var(--fg-1); text-decoration: underline; text-decoration-color: var(--action); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.ct-hora { color: var(--fg-1); font-variant-numeric: tabular-nums; }
+.ct-sub { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
+.ct-sub.ct-inline { display: inline; }
+.ct-falta { color: var(--fg-2); font-style: italic; }
+.ct-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* El día nuevo se separa con una línea, no con una caja (Gestalt: agrupar por espacio). */
+.ct-dia-nuevo td { border-top: 1px solid var(--border-color); }
+/* La cancelada sigue en su día (dice «ya no vayas»), atenuada; la etiqueta dice por qué, no sólo el gris. */
+.ct-cancelada td { color: var(--fg-2); }
+.ct-cancelada .ct-link { color: var(--fg-2); text-decoration: line-through; }
+.ct-choque { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--warn-soft-fg); }
+
+/* El nombre del proveedor abre el detalle: parece texto, se comporta como botón (teclado y lector). */
+.ct-link {
+  padding: 0; border: 0; background: none; text-align: left; cursor: pointer;
+  font: inherit; font-weight: var(--fw-medium); color: var(--fg-1);
+}
+.ct-link:hover { text-decoration: underline; }
+.ct-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+
+.ct-acc { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+
+.ct-aviso {
+  margin: 0; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color);
+  border-radius: var(--r-md); font-size: var(--fs-sm); color: var(--fg-1); max-width: 90ch;
+}
+.ct-error {
+  display: block; margin: 0; padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--bad-border); border-radius: var(--r-md);
+  background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-size: var(--fs-xs); max-width: 90ch;
+}
+.ct-advertencia {
+  margin: 0; padding: var(--sp-1) 0 var(--sp-1) var(--sp-3);
+  border-left: 3px solid var(--warn-border); font-size: var(--fs-sm); color: var(--fg-1);
+}
+/* Cancelar va APARTE y en rojo (Von Restorff): no es la acción del día. */
+.ct-btn-bad { color: var(--bad-soft-fg); }
+.ct-btn-bad-solid { background: var(--bad-soft-bg); border-color: var(--bad-border); color: var(--bad-soft-fg); }
+
+/* ── Detalle (side-peek) ─────────────────────────────────────────────────── */
+.ct-peek { display: flex; flex-direction: column; gap: var(--sp-4); font-size: var(--fs-sm); }
+.ct-peek section { display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; }
+.ct-peek h3 {
+  margin: 0; font-size: var(--fs-micro); font-weight: var(--fw-medium);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2);
+}
+.ct-peek p { margin: 0; }
+.ct-peek-estado { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.ct-peek-baja { margin-top: var(--sp-2); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
+.ct-temas, .ct-gente { margin: 0; padding-left: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-1); }
+/* Los temas van EN ORDEN: el número se ve (el preflight de Tailwind le quita la viñeta a toda lista). */
+.ct-temas { list-style: decimal; padding-left: var(--sp-5); }
+.ct-temas li { display: list-item; }
+.ct-gente { list-style: none; padding-left: 0; }
+/* La minuta se lee como la escribieron: respeta sus renglones. */
+.ct-texto { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg-1); }
+
+/* ── Diálogo (Miller: bloques con título, ninguno de más de seis campos seguidos) ──────────── */
+.ct-form { display: flex; flex-direction: column; gap: var(--sp-3); font-size: var(--fs-sm); }
+.ct-form p { margin: 0; }
+.ct-grupo { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+.ct-grupo legend { padding: 0; margin-bottom: var(--sp-1); font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--fg-1); }
+.ct-label { font-size: var(--fs-xs); color: var(--fg-2); margin-top: var(--sp-1); }
+.ct-fila { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); }
+.ct-campo { display: flex; flex-direction: column; flex: 1 1 9rem; min-width: 0; }
+.ct-fila-rengl { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.ct-fila-rengl > input { flex: 1 1 0; min-width: 0; }
+.ct-persona { flex: 2 1 0; min-width: 0; }
+.ct-area { flex: 1 1 8rem; min-width: 0; }
+.ct-agregar { align-self: flex-start; }
+.ct-casilla { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); }
+.ct-casilla label { cursor: pointer; }
+
+/* Angosto: la persona y su área, una debajo de la otra. */
+@container (max-width: 34rem) {
+  .ct-fila-rengl { flex-wrap: wrap; }
+  .ct-persona, .ct-fila-rengl > input { flex: 1 1 100%; }
+  /* El tema es un solo campo: su ✕ se queda a su lado (si no, cae sola en otro renglón). */
+  .ct-fila-tema { flex-wrap: nowrap; }
+  .ct-fila-tema > input { flex: 1 1 0; }
+}
+
+/* Táctil: objetivos de 44 px (Fitts gana a la densidad cuando el puntero es el dedo). Los campos de PrimeNG: su
+   ANFITRIÓN es la caja, y lleva el atributo de este componente, así que se alcanza sin ::ng-deep. */
+@media (pointer: coarse) {
+  /* Todo botón de esta pantalla (también los del pie de los diálogos, que se declaran aquí). */
+  button[pButton], .ct-link, .ct-agregar, .ct-casilla { min-height: var(--tap-min, 44px); }
+  .ct-ico { min-width: var(--tap-min, 44px); }
+  .ct-form p-select, .ct-form p-datepicker, .ct-form p-autocomplete { min-height: var(--tap-min, 44px); }
+  .ct-fila-rengl > input, .ct-form input[pInputText] { min-height: var(--tap-min, 44px); }
+}
