@@ -475,14 +475,28 @@ Vale escribirlo para que nadie lo «arregle»:
 
 ⛔ No se declara como funcionando:
 
+- ⛔⛔ **NADA de los siete frentes se vio en pantalla viva ni se desplegó.** Todo lo de arriba está
+  probado por candados que leen el fuente y por pruebas de unidad; ninguno afirma «la pantalla hace
+  esto». El guion de verificación de cada frente está en su sección, y el de **E** es el más largo
+  porque es el único que necesita **Chrome de verdad** (`ArrowDown` sobre un `input` con 34 deja
+  **34 en jsdom** y **33 en Chrome**).
+- **F10** — el tope mudo de 6 dígitos: la observación está, el **mecanismo no**. Hay que re-medirlo
+  **tecleando** (no pegando ni con `fill`). Ver el frente **E**.
+- **F19** — el silencio de las acciones rechazadas: **NO CONFIRMADO**, hay que reproducirlo mirando
+  la pantalla en el momento del clic.
 - El **409 real** de `reconcile` (la interfaz lo previene bien: el botón sale deshabilitado) y el
   **camino feliz** completo, que exige un folio contado al 100 % — imposible hasta desplegar **A**.
+- **Ningún endpoint que escribe se ejerció contra base real** con el payload de la pantalla: ni el
+  conteo, ni `resolve` con sus cuatro frenos nuevos (**F3**), ni `reconcile`. Es la regla 13 del
+  proyecto y acá está sin cumplir.
 - Los perfiles **`supervisor`** y **`marketing`** en vivo.
 - **Doble envío** (doble clic en los botones que escriben) y **equipos por pasillo**.
-- Si **F3** (que «Resolver item» aparezca) depende de `SUPERVISAR`: no se pudo ver con encargado ni
-  con prevención porque a los dos la tabla les llega vacía por el 403.
-
----
+- **El costo de paginar** `GET :id/items` (frente **D**): la respuesta de 2,000 ya pesa 197 KB y no
+  se midió qué cuesta el resto. Hasta que eso se haga, el supervisor **sigue sin alcanzar 1,363
+  artículos** — la diferencia es que ahora lo sabe.
+- **Si el salto de 2,094 a 3,376 SKUs es rotación normal** (**F12**): se descartó que fuera la
+  fuente y se descartó que al folio le falten artículos, pero probar la rotación pide un **testigo
+  del movimiento**, no un conteo de SKUs.
 
 ## 4. Fuera de este módulo, y más urgente que todo esto
 
