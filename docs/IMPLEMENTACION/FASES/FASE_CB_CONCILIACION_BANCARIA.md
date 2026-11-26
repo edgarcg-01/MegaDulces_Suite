@@ -630,6 +630,47 @@ ya exige el armador de la solicitud: el mismo día pide siempre la misma marca y
 vivo antes de escribir). **14 pruebas, tres mutantes muertos:** la solicitud naciendo en `F`, el IVA haciendo
 renglón y el candado del pago ya capturado ignorado.
 
+**Hecho (C2, mismo día):** [`comisiones-kepler.escritor.service.ts`](../../../libs/finance/src/lib/bank/comisiones-kepler/comisiones-kepler.escritor.service.ts)
+encadena los tres escritores y `POST finance/bank/comisiones-kepler/generar` lo dispara con
+`FINANCE_BANK_GESTIONAR` — ⛔ **no se inventó una clave nueva**: habría nacido sin nadie que la tenga y el módulo
+se habría desplegado sin producir una fila (regla 20). El cuerpo **no dice qué escribir**, sólo la ventana: el
+escritor vuelve a leer la propuesta y a correr los candados, porque lo que mandó el navegador puede tener minutos.
+
+**Los cinco diales, y nacen todos apagados** (migración `20261126095249`):
+1. `KEPLER_COMISIONES_TERMINAL=encendida` · 2. los interruptores de los tres escritores de PGP (los revisa cada uno) ·
+3. el renglón `comisiones_terminal` de `commercial.kepler_push_switch`, por sucursal y con tope · 5. los `GRANT`.
+4. ⭐ **D3 vive en la CUENTA y es una FECHA**: `finance.bank_accounts.comisiones_kepler_desde`. Por cuenta, porque
+   una misma cuenta sirve a varias sucursales y D3 dice «cuenta por cuenta, empezando por BBVA 4885». Y fecha y no
+   un sí/no, porque un interruptor booleano habría escrito también **el atraso** que Finanzas tiene a medio
+   capturar — justo lo que los tres candados intentan evitar. Un día con cargos de dos cuentas necesita que las
+   dos hayan pasado: el gasto es uno y no se parte. Pruebas: 9, **dos mutantes muertos** (ignorar la fecha;
+   mirar sólo la primera cuenta).
+
+El arranque lleva su candado con **dos pruebas negativas** (`finance-bank.module.arranque.spec.ts`): los tres
+adaptadores viven en otros módulos, así que si esos módulos dejan de **exportarlos** o éste de **importarlos**, el
+typecheck sigue verde y Nest tira la API — la familia de #414. Las dos negativas se verificaron en rojo.
+
+⚠️ **Lo que NO cierra y se declara:** los candados 2 y 3 corren sobre el **ODS**, que replica con minutos de
+retraso (medido: trae documentos capturados hoy en 00, 05, 06 y 08). Contra una persona de Finanzas capturando ESE
+día en ESE minuto, la ventana queda abierta. Lo que de verdad la cierra es **D3**, no un candado. Y una cadena de
+tres escritores **no se puede ensayar entera con `ROLLBACK`** (el gasto clona una solicitud que tiene que existir
+viva): cada paso ya tiene su ensayo verde, y la cadena la prueba el **canario** — un día real, revisado documento
+por documento. Protocolo en [`ops/prod/ensayo-comisiones-kepler/`](../../../ops/prod/ensayo-comisiones-kepler/).
+
+**⭐ Dos defectos que destapó correr el traductor contra prod** (`que-se-escribiria.ts`, sólo lectura):
+- **la plantilla copiaba EL ÚLTIMO documento, que es una moneda al aire.** Son campos que una persona teclea y
+  están llenos de dedazos: la `01` escribe «PADRE HIDALGO» 323 veces y además «PADRE HIDALFO», «PADERE HIDALGO»,
+  «PADREHIDALGO», «PÁDRE HIDALGO», «PADRE HIDALGOB», «PADXRE HIDALGO»; la `03`, «8 ESQ» 266 y «8 ES Q»; la `07`,
+  «MADERO» 339 y una vez «GB004». **Y le tocó a la `06`**: su último pago traía `c48` vacío (2 de 192) y su
+  último concepto de pago era `006` cuando **187 de sus 192 pagos usan `012`**. Ahora se copia **la moda** de 120
+  días (`NULLIF(…,'')` deja fuera las vacías). **Antes/después, mismo instante, 9 sucursales × GB004: cambian 7 de
+  90 campos**, todos a favor —`c48` «» → «CANINDO», `c12` `006` → `012`, `c11` «M.M» → «M.M.»— y **ni un peso
+  cambia** (los mismos 5 días y los mismos $480.15);
+- **yo mismo deduje la plantilla deshaciendo los textos del plan** con una expresión regular, en dos copias. En la
+  `06` devolvía «VTA 11/11/2026» como nombre de sucursal y el gasto habría nacido comentado «COMISION TARJETA VTA
+  11/11/2026 VTAS 11/11/2026». Arreglo: la consulta **publica** la plantilla que ya midió (`DiaPropuesta.plantilla`)
+  y las dos copias se borraron.
+
 **Lo que esto produciría HOY, medido en prod (2026-11-26, ventana de 14 días, 700 cargos):** 18 cargos listos por
 **$521.53**, en 7 días de venta de las sucursales **04, 05 y 06**, todas BBVA (`GB004`) — contra 237 cargos con su
 pago ya capturado por Finanzas, 163 en días que Finanzas dejó a medias, 262 esperando el `U-A-5` de la sucursal y
@@ -644,7 +685,7 @@ botón.
 | CB.62.1 | C0 | Sombra con un **mes completo**: subir la descarga de **octubre** de BBVA 4885 y Banorte 7744 (hoy sólo hay 4 días) | Día de venta y sucursal ≥ 95 % de lo asignado; cada diferencia, explicada |
 | CB.62.2 | C1 | ✅ **Firmado por Edgar (2026-11-10): cada pago es idéntico al cargo del banco, al centavo.** No se imita el ajuste de Finanzas (IVA del gasto = 16 % de la base y un pago un centavo distinto). El armador ya lo hace así | — |
 | CB.62.3 | C2 | ✅ **Cerrada el 2026-11-26 sin foto nueva (§9.5):** la lista de tablas la cierran las capturas reales de `[PGP.122]`, `[PGP.123]` y `[PGP.106]`, porque CB.62 usa esos tres escritores y no uno propio. `cb62_comisiones_terminal.sql` quedó sin seguro y como la unión exacta de sus permisos (16 tablas contra 16, verificado) | La lista de tablas cerrada con una captura real |
-| CB.62.4 | C2 | 🔨 **C1 hecho (§9.5):** `comisiones-kepler.escritor.ts` traduce el día a las tres entregas (14 pruebas, 3 mutantes muertos) y el `GRANT` está listo. **Falta:** el servicio C2 que encadena los tres escritores con su reclamo atómico y su bitácora · el interruptor `KEPLER_COMISIONES_TERMINAL` + el renglón `comisiones_terminal` de `kepler_push_switch` · el `GRANT` aplicado en 01–08 · `ops/prod/ensayo-comisiones-kepler/` (adaptadores reales + `ROLLBACK`, desde `md`) · los tres candados de `candadosDelDia` releídos sobre lo VIVO dentro de la transacción | Ensayo verde en una sucursal; prueba negativa de cada candado |
+| CB.62.4 | C2 | 🧪 **En código (§9.5):** C1 (`comisiones-kepler.escritor.ts`, 14 pruebas, 3 mutantes) + C2 (`comisiones-kepler.escritor.service.ts` encadena los tres escritores, `POST …/generar` con `FINANCE_BANK_GESTIONAR`, reclamo atómico y bitácora `finance.bank_commission_kepler_days`) + migración `20261126095249` con los diales apagados + candado de arranque con dos negativas + `GRANT` cerrado. **Falta para encender:** avisarle a Finanzas, aplicar el `GRANT` en 01–08, la bandera en el secreto, el renglón de la sucursal, la fecha de D3 en BBVA 4885 y **el canario** (un día real, revisado documento por documento) | Canario verde en una sucursal; prueba negativa de cada candado |
 | CB.62.5 | C3 | 🧪 **Construida de sólo lectura (2026-11-10, §9.4):** vista «Comisiones» en Contra Kepler, con el botón apagado. Falta: la línea «esta descarga trae N comisiones → Comisiones» en Estados de cuenta, encender el botón cuando exista CB.62.4, y verla en prod | `diseno` + `check:pantalla` ✅; validación visual en prod |
 | CB.62.6 | — | Póliza de ContPAQi: ya existe (`[CP.8.91]`, banco × mes); falta la firma de contabilidad de `comision_bancaria` → 5200650000 | Firma de contabilidad |
 

@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { CONFIANZA_GRUPO, CONFIANZA_GRUPO_ACREEDOR, PASE_GRUPO, PASE_GRUPO_ACREEDOR, paseDelGrupo } from './recon-pase-grupo';
 import { PASES_DEBILES } from './estado-de-cuenta/motor-de-categoria';
 
