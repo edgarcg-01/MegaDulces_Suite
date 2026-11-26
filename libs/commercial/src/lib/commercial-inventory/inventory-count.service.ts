@@ -835,6 +835,43 @@ export class InventoryCountService {
         .first();
       if (!item) throw new NotFoundException('Item no encontrado');
       const count = await this.getCountOrThrow(trx, countId);
+
+      // ⛔⛔ [IC.F3] CUÁNDO se puede fijar a mano una cantidad final. Decidido por Edgar el
+      // 2026-11-26 sobre la auditoría (`docs/MODULOS/inventario-fisico.md` §9d, F3/F4).
+      //
+      // Antes no había ninguna condición: este método aceptaba cualquier artículo en
+      // cualquier momento. En un folio de doble conteo CIEGO eso es una puerta que anula el
+      // control que define al módulo — y encima el diálogo imprime el teórico justo arriba
+      // del campo, o sea que le sopla la respuesta a quien la usa. Medido en prod: la pueden
+      // abrir 21 personas y sólo 17 pueden reconciliar. Había más gente capaz de anular el
+      // control que de cerrar el inventario.
+      //
+      // Las cuatro condiciones, en el orden en que la persona las puede resolver:
+      if (['reconciled', 'cancelled'].includes(count.status))
+        throw new ConflictException(
+          `El folio está en estado '${count.status}'; su cantidad final ya no se toca.`,
+        );
+      // El mismo compromiso que defiende `reconcile()`: un no-contado NO se trata como cero,
+      // y tampoco se le pone un número a mano para esquivarlo.
+      if (item.count_1 == null)
+        throw new ConflictException(
+          'Nadie contó este artículo. No se le puede fijar una cantidad final: cuéntalo '
+            + '(un no-contado NO se trata como cero).',
+        );
+      if (count.blind_double_count && item.count_2 == null)
+        throw new ConflictException(
+          'Falta el segundo conteo de este artículo. En un conteo ciego la cantidad final no '
+            + 'se fija antes de C1 y C2.',
+        );
+      // Lo que coincide lo resuelve «calcular discrepancias» solo. Acá se tocan los que NO
+      // coincidieron, y los ya resueltos — corregir una resolución equivocada tiene que poder
+      // hacerse; lo que no puede es fijar la primera cifra sin pasar por el conteo.
+      if (item.status !== 'discrepancy' && item.status !== 'resolved')
+        throw new ConflictException(
+          `Este artículo está en '${item.status}', no en discrepancia. Corre «calcular `
+            + 'discrepancias»: lo que coincide se resuelve solo, y acá sólo se tocan los que no.',
+        );
+
       const variance = +(dto.final_qty - this.varianceBaseline(count, item)).toFixed(3);
       await trx('commercial.inventory_count_items')
         .where({ id: itemId })

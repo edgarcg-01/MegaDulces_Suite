@@ -35,7 +35,7 @@ Eso es una decisión de PM, no técnica.
 | **C** | **La pantalla ante un 403** | F11, F17, F18 (F19 no) | ✅ **Arreglado 2026-11-26**, sin ver la pantalla |
 | **D** | **El tope de la lista del supervisor** | F5 (y F6, que era el mismo) | 🟡 **Declarado 2026-11-26**; falta paginar |
 | **E** | **Captura del contador** | F7, F8, F9, F14 (F10 no) | 🟡 **Arreglado 2026-11-26**; F10 sin mecanismo |
-| **F** | **Rótulos y estados que no dicen la verdad** | F12, F13, F22 (F3 y F16 no) | 🟡 **2026-11-26**; F3 y F16 esperan firma |
+| **F** | **Rótulos y estados que no dicen la verdad** | F3, F12, F13, F22 · F16 estaba mal | ✅ **Arreglado 2026-11-26** |
 | **G** | **`reconcile` con defensa de capa única** | F20 | ✅ **Arreglado 2026-11-26** |
 
 ---
@@ -301,15 +301,15 @@ burbuja, y sin el `click`) y mutando el componente (sin la llamada ni el atribut
 
 ---
 
-## F · Rótulos y estados que no dicen la verdad — ✅ TRES DE CINCO, 2026-11-26
+## F · Rótulos y estados que no dicen la verdad — ✅ CERRADO, 2026-11-26
 
 | | Qué pasaba | Estado |
 |---|---|---|
 | **F13** 🟡 | La pantalla del contador pinta «00203 · **341**»: un código de categoría viajando en `brand_name` | ✅ ahora dice **PROMOCIONES** |
 | **F22** 🟡 | Al contador sin asignar: «no hay ningún folio abierto… pedile a tu supervisor que abra uno», con el folio vivo | ✅ el texto ya no afirma lo que no sabe |
 | **F12** 🟡 | El teórico del almacén pasó de 2,094 a 3,363 (+61 %): *«puede ser crecimiento real o cambio de fuente, no está medido»* | ✅ **medido** — ver abajo |
-| **F3** 🔴 | «Resolver item» anula el conteo ciego y no suma a la cobertura | ⏸️ **decisión de Edgar** |
-| **F16** 🟡 | El candado deja contar a cualquiera con la clave, esté o no asignado | ⏸️ **decisión de Edgar** |
+| **F3** 🔴 | «Resolver item» anula el conteo ciego: sin ninguna condición, desde el minuto cero | ✅ acotado con 4 frenos |
+| **F16** 🟡 | El candado deja contar a cualquiera con la clave, esté o no asignado | ⛔ **el hallazgo estaba MAL**: ya estaba cerrado |
 
 ### F13 — era una categoría disfrazada de marca, y el nombre existe
 
@@ -365,18 +365,64 @@ está probado**: para probarlo hace falta un testigo del movimiento, no un conte
 de noviembre como si midieran lo mismo es incorrecto** — comparten **un tercio** de los artículos de
 hoy. Cualquier serie de exactitud que cruce los dos folios tiene que decirlo. Toca **D-EX8**.
 
-### ⏸️ F3 y F16 — no se tocan sin firma: cambian lo que la gente PUEDE hacer
+### F3 — acotado, por decisión de Edgar (2026-11-26)
 
-Los dos son defectos reales y los dos cambian permisos de personas, así que la decisión es de Edgar,
-no de quien programa. La recomendación va escrita para que sea un sí o un no:
+**El defecto.** `resolveItem()` no tenía **ninguna** condición: aceptaba cualquier artículo, en
+cualquier estado, en cualquier momento — incluso en un folio **ya reconciliado**, después de haber
+movido la existencia. Y el diálogo que lo abre imprime el teórico justo encima del campo.
 
-| | El defecto | Lo que se recomienda | A quién le cambia |
-|---|---|---|---|
-| **F3** | «Resolver item» fija la cantidad final **desde el minuto cero**, **mostrando el teórico**, en un folio de doble conteo ciego — y **no suma a la cobertura**: el folio queda con dos verdades paralelas | que el botón aparezca **sólo para artículos en discrepancia y después de C1 y C2**, y que resolver **cuente** para la cobertura | **21 personas** con `SUPERVISAR` dejan de poder fijar cantidades antes de que se cuente. Hoy son más que las **17** que pueden reconciliar: *hay más gente capaz de anular el control que de cerrar el inventario* |
-| **F16** | `ContarOAsignadoGuard` deja pasar a cualquiera con la clave `CONTAR` **aunque no esté asignado**; con doble conteo ciego, **quién hizo C1 y quién C2 no lo garantiza el candado**, sólo la navegación | que **si el folio tiene contadores asignados**, se exija estar entre ellos; si no tiene ninguno, que siga abierto como hoy | **31 personas** tienen `CONTAR`. El «modo abierto» —folio sin equipo— no cambia |
+**Las cuatro condiciones, en el servicio** (que es el único camino por el que pasan todos los
+clientes; esconder el botón no es un control — eso es **F11**, y ahí quedó demostrado que una
+cuenta sin permiso igual mandaba el `POST`):
 
-⛔ **Hasta que eso se decida, F3 y F16 quedan abiertos y nombrados.** Arreglarlos por cuenta propia
-sería decidir, con código, quién puede anular el control de un inventario.
+1. el folio **no** puede estar `reconciled` ni `cancelled`;
+2. el artículo tiene que tener **C1** — *un no-contado NO se trata como cero, y tampoco se le pone
+   un número a mano para esquivarlo*;
+3. si el folio es de **conteo ciego**, tiene que tener **C2**;
+4. tiene que estar **en discrepancia** — o ya resuelto, para poder **corregir** una resolución
+   equivocada, que es algo que hoy no se podía hacer.
+
+En la pantalla, el botón aparece ahora **donde el servidor lo va a aceptar**, y en lo ya resuelto
+dice «Corregir».
+
+#### ⛔ La otra mitad de lo aprobado NO se implementó, y hay que decir por qué
+
+La opción decía *«y que resolver cuente para la cobertura»*. **Al leer el código, eso habría
+empeorado la pantalla**, así que no se hizo:
+
+- `coverage_pct` significa **cuánto se contó físicamente**. Si resolver lo subiera, un supervisor
+  podría dejar **COBERTURA 100 %** sin que nadie hubiera contado nada. Es exactamente la enfermedad
+  de **F18** —un número que se lee «todo bien» sin que nadie lo haya medido— y la contradicción
+  directa de **F20**.
+- El síntoma que motivaba la petición **desaparece solo con la condición 4**: ahora sólo se puede
+  resolver una **discrepancia**, y resolverla **baja «DISCREPANCIAS»** en el tablero y achica la
+  lista de «Falta para poder cerrar este folio». Antes se resolvía un artículo sin contar y no se
+  movía nada, que era lo que se veía como «dos verdades paralelas».
+- Y si algún día se quiere el número aparte, **ya viaja**: `supervisorProgress` devuelve `resolved`
+  desde antes de esta auditoría. Es un renglón de pantalla, no un cambio de significado.
+
+### ✅ F16 — ya estaba cerrado, y mi hallazgo estaba MAL
+
+⛔ **Corrección.** El renglón decía que el candado *«deja pasar a cualquiera con la clave `CONTAR`
+aunque no esté asignado»*. Lo leí en `ContarOAsignadoGuard` — y ese archivo **nunca se commiteó**:
+existe suelto en el árbol compartido desde el 2026-11-24 y **no está en producción**. En el
+controlador que sí está desplegado, `POST :id/count` sólo lleva `@RequirePermissions(CONTAR)`.
+
+Pero el control **sí existe, y está donde tiene que estar**: en `submitCount()`, commiteado desde
+antes de la auditoría —
+
+```ts
+// Opt-in (Fase I.4): si el folio tiene contadores asignados, solo ellos cuentan.
+if (counters.length && !counters.some((a) => a.user_id === uid))
+  throw new ForbiddenException('No estás asignado como contador de este folio.');
+```
+
+— que es **exactamente** la regla que se aprobó el 2026-11-26 («exigir asignación si el folio tiene
+equipo; si no tiene, abierto»), y encima trae un nivel más: si al contador se le asignaron pasillos,
+sólo cuenta los suyos.
+
+**Entonces no se cambió nada de código.** Lo que queda es la lección: *leí un archivo del árbol y lo
+di por desplegado*. Un archivo sin commitear compila en todas las sesiones y no existe en prod.
 
 Compuertas al cerrar: `check:templates` ✅ · `check:tokens` ✅ · `check:estilos` ✅ ·
 `check:pantalla -- comercial` ✅ **0 fallas NUEVAS**, los dos componentes con **0 errores

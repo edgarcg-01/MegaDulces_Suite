@@ -297,8 +297,14 @@ interface LiveCountEntry {
             </td>
             <td><p-tag [value]="itemStatusLabel(it.status)" [severity]="itemStatusSeverity(it.status)"></p-tag></td>
             <td>
-              @if (!isTerminal() && it.status !== 'resolved') {
-                <button pButton [text]="true" size="small" (click)="openResolve(it)" pTooltip="Resolver"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
+              <!--
+                [IC.F3] El botón aparece donde el servidor lo va a aceptar: en discrepancia, y
+                en lo ya resuelto para poder CORREGIRLO. Antes salía desde el minuto cero,
+                sobre artículos que nadie había contado, en un folio de conteo ciego.
+              -->
+              @if (!isTerminal() && (it.status === 'discrepancy' || it.status === 'resolved')) {
+                <button pButton [text]="true" size="small" (click)="openResolve(it)"
+                  [pTooltip]="it.status === 'resolved' ? 'Corregir' : 'Resolver'"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
               }
             </td>
           </tr>
