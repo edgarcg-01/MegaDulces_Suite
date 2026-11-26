@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 3389 KB, 16024 líneas, 78 secciones.
+> **Índice navegable** — 3395 KB, 16053 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -49,42 +49,42 @@
 | 9323 | 9393 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
 | 9394 | 9442 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
 | 9443 | 9475 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 9476 | 10341 | 94 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 10342 | 10473 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 10474 | 10527 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 10528 | 10567 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 10568 | 10620 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 10621 | 10687 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 10688 | 10850 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 10851 | 11134 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 11135 | 11302 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 11303 | 13733 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 13734 | 13742 | 1 | Fase RR — Ventas por ruta |
-| 13743 | 14062 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 14063 | 14073 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 14074 | 14094 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 14095 | 14105 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 14106 | 14117 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 14118 | 14177 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 14178 | 14605 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 14606 | 14620 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 14621 | 14662 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14663 | 14830 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14831 | 14862 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14863 | 15165 | 83 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 15166 | 15240 | 105 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 15241 | 15249 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 15250 | 15313 | 25 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 15320 | 15329 | 1 | 📝 Convenciones |
-| 15330 | 15367 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 15368 | 15386 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 15387 | 15439 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 15440 | 15855 | 127 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15856 | 15886 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15887 | 15908 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15909 | 15942 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15943 | 15994 | 58 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15995 | 16114 | 118 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 9476 | 10368 | 96 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 10369 | 10500 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 10501 | 10554 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 10555 | 10594 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 10595 | 10647 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 10648 | 10714 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 10715 | 10877 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 10878 | 11161 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 11162 | 11329 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 11330 | 13760 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 13761 | 13769 | 1 | Fase RR — Ventas por ruta |
+| 13770 | 14089 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 14090 | 14100 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 14101 | 14121 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 14122 | 14132 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 14133 | 14144 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 14145 | 14204 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 14205 | 14632 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 14633 | 14647 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 14648 | 14689 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 14690 | 14857 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14858 | 14889 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14890 | 15192 | 83 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 15193 | 15267 | 105 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 15268 | 15276 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 15277 | 15340 | 25 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 15347 | 15356 | 1 | 📝 Convenciones |
+| 15357 | 15394 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 15395 | 15413 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 15414 | 15466 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 15467 | 15884 | 131 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15885 | 15915 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15916 | 15937 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15938 | 15971 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15972 | 16023 | 58 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 16024 | 16143 | 118 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -15836,6 +15836,7 @@ entregada» el cuadre nunca tiene qué buscar. Firmas pendientes **D1–D5** (§
 - [ ] ⬜ `[BFU.7.7]` C3 — **Bancos: «N por resolver», por qué y de quién**, con la bandeja por área (`[BFU.4.5]`). `diseno` §0b antes de la pantalla.
 - [ ] ⬜ `[BFU.7.9]` C1 — **Que una conciliación automática no pueda perder pareos válidos.** Medido el 2026-11-23 en seco: re-conciliar **septiembre** (que no corre desde el 15-oct) ganaría 126 pareos y **perdería 23**, y los 23 documentos de Kepler siguen existiendo y nadie más los tiene (varios exactos del mismo día, traspasos incluidos): es el reparto del motor (greedy) el que los suelta. Septiembre **no se corrió**. El riesgo: la conciliación por aviso corre un periodo viejo en cuanto le entra un dato de Bancos (`[CB.79]`), y escribe aunque haya perdidos — la regla «si `perdidos` no está vacío, el cambio no entra» vive en un comentario, no en el código. Propuesta: en las corridas automáticas, un movimiento casado no se descasa (o la corrida no escribe y lo declara); la decisión de soltarlo la toma una persona con el detalle a la vista. Junto con eso, dos hallazgos previos por medir: **1,898 documentos de Kepler aparecen casados a más de un movimiento** en sep–nov (sin medir cuántos son pagos partidos legítimos) y el pase entre meses casa por importe exacto aunque el concepto sea otro (la segunda remesa del caso de arriba).
 - [x] ✅ `[BFU.7.8]` C1 — **El vocabulario del banco: las abreviaturas de comisión de BBVA** («COM SERV…», «SERV BANCA INTERNET»). 3 retiros de noviembre que el motor mandaba a «Kepler no lo tiene → el área» son comisión del banco. **Testigo independiente:** cada uno trae su IVA del 16 % el mismo día (uno exacto; los otros dos sumados al centavo en un solo renglón de IVA). Anclado al inicio del concepto («PAGO COM SERVICIOS…» no es del banco). Prueba con su negativa; mutante (sin la regla) → rojo. **Lo que NO se tocó, a propósito:** «CRÉDITO LÍQUIDO … COBRO DEL PERIODO» (6), FONACOT, el seguro y los cheques: sin el libro (noviembre ya no lo tiene) no hay testigo de su categoría fuera de Kepler, y siguen con su motivo. **✅ 2026-11-20, en prod** (sirve `47376a73a`): la conciliación siguiente los recategorizó solos — los 3 son comisión bancaria; noviembre, mismo universo de 3,317: sin categoría 78 → 75 («Kepler no lo tiene» 24 → 21).
+- [ ] 🧪 `[BFU.7.12]` C1 — **El grupo de UN acreedor el mismo día deja de ser un pareo débil** (2026-11-26, sobre Bancos › Movimientos · salidas · Tesorería: «existen movimientos sin clasificar pero que ya están en Kepler, analízalo» → «sí, ármalo»). Medido en noviembre: 12 retiros ya casados con Kepler seguían sin categoría con motivo `pareo_debil`; los casó el pase 4 de la conciliación (por grupo) y el motor no decide con ningún grupo. En los 12, los 2–3 pagos `X-D-26` eran del mismo acreedor y de la misma fecha que el retiro: una transferencia capturada en Kepler en varios pagos. Sobre los 169 grupos casados hasta hoy: 120 de un acreedor el mismo día, 25 de un acreedor en otro día, 14 con acreedores mezclados, 10 sin acreedor. **Regla** (`recon-pase-grupo.ts`): el grupo es fuerte sólo si todos sus documentos traen acreedor (`entidad_code`), es el mismo y cada uno está a ≤1 día; se guarda como `motor-tes-group-acreedor` (confianza 0.8), que no está en `PASES_DEBILES`; lo demás sigue `motor-tes-group`. El motor de categoría no se tocó (otra sesión lo trae abierto). **Control negativo** sobre prod (sólo lectura, la misma búsqueda por suma): con el importe real, 117 de 168 grupos cumplen la regla; con el importe movido ±0.37 %, 4 de 336 intentos encuentran una suma y 0 cumplen la regla. **Pruebas:** 8 de la regla (cuatro negativas; mutante en rojo), bancos del backend 371 ✔, `tsgo` 0. **Falta (escritura en prod, con su OK):** soltar, volver a conciliar noviembre en seco (antes/después), respaldo de pareos y categorías del mes y la corrida real.
 - [ ] ⬜ `[BFU.4.5]` C3 — **Cada área ve y reconoce sus movimientos del banco para conciliarlos en Kepler** (Edgar, 2026-11-20: «casi cualquier departamento necesita acceso para ver sus movimientos y conciliarlos en Kepler»). Lo que queda sin documento (65 en noviembre, casi un tercio del dinero sin categoría) le llega al área dueña; el área lo captura en Kepler, el motor casa solo y la categoría sale del documento (`[BFU.2.10]`). El área sale del Calendario o del acreedor; lo que no tiene ninguna señal, Tesorería lo asigna con un clic (la descarga casi nunca dice a quién se pagó: 15 de 115 traen nombre). Primero: Compras, RH y Tesorería. **Falta de Edgar:** quién en cada área. Pantalla nueva = `diseno` §0b + permiso REPARTIDO en prod. **2026-11-23 — desglosado** en `[BFU.4.5.1]`–`[BFU.4.5.8]` (anexo §8, E4) con D14–D17 por firmar y maqueta, a pedido de Edgar («que cada departamento observe sus movimientos y los ligue»). Medido en prod (sólo lectura, 1–23 nov): 77 % de los pesos explicados; 668 movimientos por ligar en 5 áreas (Cobranza 453, Tesorería 196, Administración 10, RH 5, Compras 4); 4 mecanismos de liga a mano con 0 usos → el sistema propone y el área confirma; la liga definitiva sigue siendo el documento de Kepler. Se propone arrancar por Cobranza y Tesorería (D14). El segundo «BFU.4.5» del anexo (aviso a quien sube) pasa a `[BFU.4.6]`.
 - [x] ✅ `[BFU.4.5.1]` C0 — **Cada categoría de Bancos tiene un área dueña** (parámetro, no código). Migración `20261123175931_bfu451_area_duena_por_categoria`: `finance.movement_categories.owner_department_code` → `identity.departments.code` (la llave en texto que ya usan `identity.users` y `servicedesk.queues`) y `owner_note`. 32 categorías con área; 5 **sin área inventada**: van a «Otros» (área nula con su razón escrita en la fila; Edgar, 2026-11-24: «pongámoslos en otros») porque no hay departamento «Comercial» ni «Dirección» y «otros gastos» e «ingreso por devolución» no dicen de quién son; sus pendientes los atiende Tesorería. Sólo llena lo que sigue nulo (no pisa un cambio hecho en Admin). **Medido antes en prod (sólo lectura):** los 9 departamentos del mapa existen; simulando el mapa sobre noviembre 1–23, 3,934 movimientos = Cobranza 1,978 + Contabilidad 1,164 + Tesorería 273 + sin categoría 65 + Compras 184 + RH 68 + Logística 47 + Administración 32 + Mercadotecnia 4 + Sistemas 2 + Otros 117 (gasto de venta y de Dirección, todos con documento de Kepler). **Candado** `database/tests/test-newdb-bank-area-duena.js` (registrado en `run-all-tests.js`): ninguna categoría muda, ninguna área colgada, la partición suma el total; en base LOCAL y en transacción deshecha, el `up` re-corrido no cambia nada, no pisa un área cambiada y el `down` se niega. Negativas sintéticas ✔; **dos mutantes (muda / colgada) → rojo**. NO MEDIDO hasta el CI: la parte contra base real (sin Docker en esta máquina). **✅ 2026-11-24, en prod:** la migración se aplicó a las 08:27 (MX) y el código corre en `96c07e4ee` (`/api/health`); remedido en `pg-prod` (sólo lectura): 37 categorías, 32 con área en 9 departamentos y 5 en «Otros» con su nota; 0 áreas colgadas, 0 categorías mudas. El candado en el CI: verde en la corrida `pruebas-db` 45473759985 (la de `716c7118d`, que es la que corre en prod).
 - [ ] 🧪 `[BFU.4.5.2]` C1 — **La cobertura del motor de categoría, por área: a quién le toca cada renglón del banco.** `coberturaDeCategoria` (`[BFU.7.6]`) devuelve `por_area`: con categoría, el área dueña de la categoría (`[BFU.4.5.1]`; sin área → «Otros», que atiende Tesorería); sin categoría, el responsable que dejó el motor (tesorería, contabilidad y sistemas son departamentos) y, cuando el motor dice «el área» sin nombrarla, decide la dirección del dinero: el RETIRO queda «por asignar» (Tesorería lo asigna: sin Calendario ni acreedor no hay de quién) y el DEPÓSITO va a «quien captura» la cuenta (D18, `analytics.v_kepler_deposit_capturers`); «en plazo» (D13) es de nadie todavía y «sin motivo» se declara aparte. La consulta del diagnóstico suma el área de la categoría y la dirección. Se resuelve AL LEER, sin tocar el motor (lo tiene otra sesión a medias, BFU.7.10). **Medido en prod (sólo lectura, noviembre, al 24):** 3,931 renglones = 3,931 del conteo aparte, en 12 grupos (Cobranza 1,935 · Contabilidad 1,202 · Tesorería 278 · Compras 185 · Otros 117 · RH 64 · Logística 52 · en plazo 44 · Administración 33 · por asignar 14 · Mercadotecnia 5 · Sistemas 2); los 69 sin categoría, todos repartidos; la consulta 18–25 ms (antes 12–18). **Spec** 12 ✔ (la partición suma el total, «Otros», la dirección, la negativa de dirección desconocida) y **dos mutantes en rojo** (sin «Otros»; dirección desconocida → quien captura). Typecheck del lib: 0 errores nuevos (los 41 TS1272 son previos, de su tsconfig). ⚠️ Hoy ningún depósito llega a «quien captura»: el respaldo «depósito → cobranza» decide antes (`[BFU.4.5.9]`). Sin pantalla todavía (`[BFU.4.5.6]`); NO MEDIDO el arranque de la API (no toca decoradores ni firmas inyectadas).
