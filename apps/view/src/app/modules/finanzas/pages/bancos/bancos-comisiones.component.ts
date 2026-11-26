@@ -272,7 +272,7 @@ import { BANCOS_STYLES } from './bancos.styles';
     .cm-res-l { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
     .cm-res-i { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); font-size: var(--fs-xs); border-left: 2px solid var(--border-color); padding-left: var(--sp-2); }
     /* El color NO es el único portador: el estado va escrito en el texto de cada renglón. */
-    .cm-res-ok { border-left-color: var(--ok-fg); }
+    .cm-res-ok { border-left-color: var(--good-fg); }
     .cm-res-duda { border-left-color: var(--warn-fg); }
     .cm-res-d { font-weight: 600; color: var(--text-main); }
     .cm-res-q { color: var(--text-muted); font-variant-numeric: tabular-nums; }
