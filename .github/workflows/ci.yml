@@ -704,6 +704,8 @@ jobs:
           node scripts/check-signal-reactivity.js
           node scripts/check-primeng-api.js
           node scripts/check-spec-vivo.js
+          node scripts/check-import-colgado.js --self-test
+          node scripts/check-import-colgado.js
           node scripts/check-caja-sin-control.js --self-test
           node scripts/check-caja-sin-control.js
           node scripts/check-keyboard-nav.js
