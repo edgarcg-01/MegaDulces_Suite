@@ -74,6 +74,12 @@ export * from './http/supplier-credits.contract';
 export * from './http/purchase-delivery.contract';
 // [TP.16] Calendario de Pagos: semana completa, «Ordenar y pagar» y cuentas de origen.
 export * from './http/payment-calendar.contract';
+// `[PGP.218]` ¿Le alcanza a la cuenta de origen para lo programado y para los cargos que el banco cobra solo? (la regla, para servidor y pantalla).
+export * from './finance/suficiencia-de-cuentas.contract';
+// `[PGP.210]` El contrato que sustenta un cargo del banco: vocabulario (= los CHECK) y reglas puras.
+export * from './finance/contratos-de-cargo.contract';
+// `[PGP.219]` El interés del crédito, calculado: saldo × tasa implícita del último cargo × días (DCR8/DCR10).
+export * from './finance/interes-del-credito.contract';
 // [PGP.97] la guía «pagado en el banco, falta en Kepler».
 export * from './http/fuera-de-programa.contract';
 // [OR.4] Trabajo: el vocabulario común de una tarea asignada. El reparto se construyó CUATRO veces

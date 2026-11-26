@@ -9,6 +9,45 @@
 ---
 
 ## [Unreleased]
+### Internal — Pagos: el interés de un crédito, calculado y recalculado un día antes (PGP.219 C0–C1 · 2026-11-26 · en código, sin soltar)
+- El interés que el banco cobra de un crédito ya no se programa con lo último que cobró: es saldo × tasa × días, con el periodo del día del contrato al del mes siguiente. La tasa y el saldo salen de la historia del banco (la tasa implícita del último cargo, DCR10) y el importe sigue rotulado «estimado».
+- Medido en prod con los dos créditos de Banorte: cada mes predicho con los anteriores casa ±$0.02 (14 de 14); lo último cobrado erraba hasta $2,662. El IVA usa la inflación del mes anterior y puede errar hasta $1,450 un mes.
+- Un día antes del cargo se vuelve a calcular: si llegó un cobro con otra tasa, el importe programado se corrige y queda el antes y el después. Si no se puede calcular (la tasa cambia cada mes, el capital va por tabla), se queda lo último cobrado y la nota dice por qué.
+- Fixed (PGP.212): dos créditos en la misma cuenta, con los mismos conceptos, ya no se cruzan: el cobro de uno no queda ligado al contrato del otro.
+### Internal — Pagos: el cargo de cada mes de un contrato, programado en el Calendario (PGP.211 C1 · 2026-11-26 · en código, sin soltar)
+- Todavía sin la tarea diaria que lo corre ni pantalla (PGP.213/214). Cada contrato confirmado programa su cargo de este mes y del siguiente: el compromiso y su pago en el día esperado, como cargo automático desde la cuenta del contrato y ya autorizado (la firma es la del contrato, DCR5). Fijo por los cargos del periodo, tabla de amortización o estimado con lo último que cobró el banco.
+- No programa, y dice por qué: lo ya cobrado este mes, lo que tiene acreedor en Kepler (ya está en el Calendario), la nómina semanal (PGP.215), lo que está fuera de vigencia y el estimado sin cobro anterior. Generar dos veces deja las mismas filas.
+- Se cierra con la liga contrato ↔ salida del banco de PGP.212 (no por importe y ±3 días: la arrendadora cobra hasta 9 días tarde). Las salidas que usa quedan ligadas para PGP.121, y el aviso de PGP.218 deja de contarlas por historia.
+- Migración `20261126011012` (4 columnas que admiten vacío y los 10 subtipos en `finance.financial_commitments`, hoy con 0 filas), después de las de PGP.209, 210 y 212.
+### Internal — Pagos: cada cargo que el banco cobra solo, con su contrato o su porqué (PGP.212 C1 · 2026-11-26 · en código, sin soltar)
+- Todavía sin pantalla. La Suite sabe qué cargos automáticos del banco no tienen un contrato que los sustente, y por qué: sin contrato, propuesta sin confirmar o rechazada, fuera de vigencia o importe distinto al del contrato.
+- Medido: 561 cargos automáticos en 12 meses (≈ $24.3 M); en noviembre, 59 por $781,571, ninguno con contrato todavía.
+- DCR11: el PDF del contrato es obligatorio para confirmar arrendamiento, crédito, seguro y FONACOT.
+- Migración `20261126004656` (la vista `finance.v_automatic_bank_charges`, sólo DDL), después de las de PGP.209 y PGP.210.
+### Internal — Pagos: el contrato que sustenta cada cargo del banco (PGP.210 C1 · 2026-11-26 · en código, sin soltar)
+- Todavía sin pantalla ni API (PGP.213/214). La Suite ya puede guardar el contrato de cada cargo que el banco cobra solo: quién cobra, desde qué cuenta, qué días, cuánto (fijo, por tabla de amortización o estimado), su PDF y si ya lo confirmó Tesorería.
+- El sistema propone desde la historia del banco (PGP.209) y Tesorería confirma, corrige o rechaza con motivo. Lo rechazado no se vuelve a proponer; nada se borra.
+- Medido: las 47 series vigentes darían 41 propuestas (2 créditos, 25 cuotas de comisión, 14 por clasificar).
+- Migración `20261126001551` (`finance.charge_contracts`, `_lines`, `_schedule`), aplicar antes de soltar.
+### Added — Pagos › Calendario: antes del programa, el dinero del cargo del banco en su cuenta (PGP.218 · 2026-11-25 · en código, sin soltar)
+- Si una cuenta de origen no alcanza para lo preparado y los cargos que el banco cobra solo en los próximos 7 días (arrendamiento, créditos, seguros, cuotas), la barra de la semana lo dice en una línea: qué cuenta, qué día y cuánto falta. Abre el desglose por cuenta y por cargo.
+- En «Preparar pago» y «Autorizar», bajo la cuenta de origen: qué cargo del banco deja sin cubrir este pago y cuánto falta, o lo que queda. No bloquea.
+- El saldo es el de Bancos (la última descarga o el libro). Sin saldo dice «no medido»; si es de hace más de 2 días, lo dice. Los depósitos por venir no se suman.
+- Reconstruido en prod: Santander 2169 al cierre del 12-nov no cubría los cargos de la arrendadora del 14 (faltaban $48,731.55) y el banco los cobró tarde; hoy le faltan $16,306.09 para dos cargos del 24.
+- Lo que cambió tras la prueba visual del 26-nov (escritorio, Fold 7 y celular):
+  - Si los cargos del banco no se pudieron revisar, la línea igual nombra la cuenta que no cubre lo preparado y aclara que no contó los cargos.
+  - En el Fold y el celular el desglose ya no tapa columnas; en el celular cada cuenta y cada cargo se apilan con sus datos.
+  - Un cargo con más de un mes de atraso ya no se cuenta y se lista aparte.
+  - El aviso «de hace N días» ahora se lee bien en tema claro.
+  - Si la revisión falla, la línea abre el desglose con «Reintentar». Las cifras del desglose van alineadas a la derecha.
+  - En todas las pantallas, el botón «Reintentar» de un error ya no se corta en el celular y mide 44 px al dedo.
+  - En el desglose se ven primero los cargos de las cuentas que no alcanzan; los demás se abren con un toque, con su número y su total. La línea de la semana y el enlace a los estados de cuenta miden 44 px al dedo.
+- Internal: `GET /api/finance/payment-calendar/suficiencia` (sólo lectura). Necesita la vista de PGP.209 (migración `20261125224611`) aplicada antes de soltar.
+### Internal — Pagos: los cargos que el banco cobra solo, propuestos por su historia (PGP.209 C0 · 2026-11-25 · en código, sin soltar)
+- Todavía no cambia ninguna pantalla. Es la propuesta de contratos que Tesorería confirmará (DCR1) y lo que el Calendario apartará del saldo antes de armar el programa (PGP.218, DCR9).
+- Una serie es el mismo cargo en la misma cuenta durante 3 meses o más: al mismo importe (arrendamiento, capital de crédito, cuotas) o con el mismo número de crédito (el interés que baja).
+- Medido en 12 meses: 47 series vigentes, ≈ $512 mil al mes, en 10 cuentas. De los 32 cargos de noviembre propone 19 (≈ $420 mil); lo que no ve se declara.
+- Migración `20261125224611`: la vista `finance.v_recurring_bank_charges` (sólo DDL, sin datos).
 ### Added — Compras › Calendario de compras: quién cambió cada regla y de qué a qué (PQ.3.17 · 2026-11-24 · en código, sin soltar)
 - El detalle de una regla dice, además de quién la definió, «Último cambio: quién, el día». Debajo, «Cambios» dice de qué a qué, el más nuevo primero: el patrón entero, el responsable, fuera de ciclo con su motivo, la nota y la baja.
 - De un cambio hecho antes de que se guardara el historial se dice quién y cuándo, no de qué a qué.

@@ -61,8 +61,12 @@ import { SkeletonModule } from 'primeng/skeleton';
       border: 1px solid var(--bad-border, var(--border-color)); border-radius: var(--r-md, 12px);
       background: color-mix(in srgb, var(--bad-fg) 8%, var(--card-bg));
     }
+    /* [PGP.218] En un contenedor angosto (side-peek a 390 px) el botón se encogía y se cortaba («Reinten»). El texto
+       pide al menos 16rem; si no caben texto y botón, el botón BAJA de renglón, nunca se recorta. A lo ancho no cambia. */
+    .ls-error { flex-wrap: wrap; }
     .ls-error-ic { font-size: 1.25rem; color: var(--bad-fg); flex: none; }
-    .ls-error-txt { flex: 1 1 auto; min-width: 0; }
+    .ls-error-txt { flex: 1 1 16rem; min-width: 0; }
+    .ls-error > button { flex: none; margin-left: auto; }
     /* [CGA-LEG.7] .9rem y .8rem son 14.4px y 12.8px: dos peldanos que NO existen en
        tokens.css. Mismo defecto que .ms-l/.ms-sub -- un rem clavado inventa un nivel, y con
        muchos niveles ninguno se lee como mas importante. Van a --fs-body (14) y --fs-sm (13),
@@ -77,6 +81,8 @@ import { SkeletonModule } from 'primeng/skeleton';
     .ls-empty-title { margin: 0; font-weight: var(--fw-bold, 700); color: var(--text-main); font-size: var(--fs-body); }
     .ls-empty-hint { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); max-width: 30rem; }
     .ls-empty button, .ls-error button { margin-top: .35rem; }
+    /* Con el dedo manda Fitts (DESIGN §716): 44 px. Con mouse se queda la densidad. Medido 28 px en el Fold y el celular. */
+    @media (pointer: coarse) { .ls-empty button, .ls-error button { min-height: 44px; } }
   `],
 })
 export class LoadStateComponent {

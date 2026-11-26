@@ -3,7 +3,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import { describirArchivo, describirNoLeidos, leerEstadoDeCuenta, type Banco, type EstadoDeCuentaLeido, type MovimientoBanco } from './lectores';
-import { cierreDelDia, type RenglonDelLibro } from './saldo-del-libro';
+import { saldosConocidos } from './saldo-conocido.query';
 import { compararContraElLibro, type ClasificarSinLibro, type CuentaContraElLibro, type RenglonComparable, type SucursalesContraElLibro } from './contra-el-libro';
 import { cuadreDeLaDescarga, type CuadreDeLaDescarga } from './cuadre-de-la-descarga';
 import { cuadresDeLaDescarga } from './cuadre-de-cuentas.query';
@@ -134,23 +134,12 @@ export class EstadoDeCuentaService {
     return buf;
   }
 
-  /** Último saldo conocido ANTES del primer día del archivo: primero el banco, si no, el libro. */
+  /**
+   * Último saldo conocido ANTES del primer día del archivo: primero el banco, si no, el libro.
+   * `[PGP.218]` La regla vive en `saldosConocidos` (la usa también el Calendario de pagos): un primitivo, no dos.
+   */
   private async saldoConocido(trx: Knex.Transaction, cuentaId: string, antesDe: string): Promise<number | null> {
-    // El saldo al cierre del último día: el renglón cronológicamente último (`seq`) del archivo más reciente.
-    const delBanco = await trx('finance.bank_statement_lines')
-      .where({ bank_account_id: cuentaId }).andWhere('movement_date', '<', antesDe)
-      .orderBy([{ column: 'movement_date', order: 'desc' }, { column: 'created_at', order: 'desc' }, { column: 'seq', order: 'desc' }])
-      .first('running_balance');
-    if (delBanco) return Number(delBanco.running_balance);
-    // El libro no guarda el orden dentro del día: el cierre se reconstruye por la cadena de saldos.
-    const ultimoDia = await trx('finance.bank_movements')
-      .where({ bank_account_id: cuentaId }).whereNull('deleted_at').whereNotNull('running_balance')
-      .andWhere('movement_date', '<', antesDe).first(trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as d"));
-    if (!ultimoDia?.d) return null;
-    const delDia: RenglonDelLibro[] = await trx('finance.bank_movements')
-      .where({ bank_account_id: cuentaId, movement_date: ultimoDia.d }).whereNull('deleted_at')
-      .select('amount_in', 'amount_out', 'running_balance');
-    return cierreDelDia(delDia);
+    return (await saldosConocidos(trx, [cuentaId], antesDe)).get(cuentaId)?.saldo ?? null;
   }
 
   private async revisarEn(trx: Knex.Transaction, leido: EstadoDeCuentaLeido, body: SubirEstadoDeCuentaBody, sha1: string): Promise<RevisionEstadoDeCuenta & { _lineas: LineaRevisada[] }> {

@@ -62,13 +62,17 @@ import {
   type CargoKepler, type FacturaParaDebeMenos, type ModoAjusteAlSaldo, type OpcionesAjusteAlSaldo, type RenglonVivoDeLaFactura,
 } from './debe-menos';
 import { ErrorAlPartir, EVENTO_PARTIDO_EN_TRANSFERENCIAS, partirEnTransferencias, type ParteDelPago } from './partir-en-transferencias';
+import { SQL_CUBIERTO, TABLE_BY_SOURCE, recalcularObligacion, type ObligationSource } from './recalcular-obligacion';
+import { armarSuficiencia } from './suficiencia-de-cuentas';
+import { leerEntradaDeSuficiencia } from './suficiencia-de-cuentas.query';
+import type { PaymentCalendarSuficiencia } from '@megadulces/contracts';
 import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
 import { AUTOR_PAGO_EN_KEPLER, EVENTO_LIGADO_A_KEPLER, EVENTO_PAGADO_EN_KEPLER, SQL_POR_LIGAR_A_KEPLER, decidirPagoEnKepler } from './pago-en-kepler';
 
 /** `[PGP.117]` Quién libera un pago vencido: queda en `updated_by` y en la bitácora. */
 export const AUTOR_PAGOS_VENCIDOS = 'sistema:pagos-vencidos';
 
-export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
+export type { ObligationSource } from './recalcular-obligacion';
 
 /**
  * `[TP.18.7]` La llave del origen derivado vive en `shared/`: la usan el Calendario y Pronto
@@ -203,28 +207,8 @@ interface AllocationItemRow {
   discount_amount: number | string;
 }
 
-/**
- * `[PGP.91]` **Lo que un item CUBRE de su factura**, en SQL: el neto que sale del banco más el
- * descuento que dio el proveedor. Toda suma que diga cuánto de una obligación está reservado o
- * pagado lee ESTO, para que el sobrante descontado no se vuelva a ofrecer mientras la nota de
- * crédito de Kepler no llega. ⛔ Lo que dice cuánto DINERO sale (`amount_assigned`, el tope del
- * día, los PDF, el cruce con el `X-D-26`) sigue leyendo `applied_amount` solo.
- */
-const SQL_CUBIERTO = '(i.applied_amount + i.discount_amount)';
-
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 
-/**
- * `[TP.18]` `null` = el origen **no tiene tabla propia**: es derivado de una vista del ERP y su
- * saldo se calcula al vuelo. Todo lo que lee o escribe una obligación tiene que preguntar por esto
- * antes de tocar una tabla — por eso el tipo lo obliga (`string | null`) en vez de dejarlo afuera.
- */
-const TABLE_BY_SOURCE: Record<ObligationSource, string | null> = {
-  budget_expense: 'budget.expense_obligations',
-  financial_commitment: 'finance.financial_commitments',
-  supplier_payable: 'commercial.supplier_payment_obligations',
-  kepler_payable: null,
-};
 const CLASSIFICATION_BY_SOURCE: Record<ObligationSource, string> = {
   budget_expense: 'gasto',
   financial_commitment: 'compromiso_financiero',
@@ -520,32 +504,9 @@ export class PaymentCalendarService {
     if (!DATE_RX.test(d)) throw new BadRequestException('Fecha inválida (YYYY-MM-DD)');
   }
 
-  /** Recalcula reserved_amount/paid_amount/status de UNA obligación desde sus items activos. */
+  /** Recalcula reserved_amount/paid_amount/status de UNA obligación desde sus items activos (`recalcularObligacion`). */
   private async recalcObligation(trx: Knex.Transaction, source: ObligationSource, id: string) {
-    const table = TABLE_BY_SOURCE[source];
-    // `[TP.18]` El origen derivado no tiene dónde guardar `reserved_amount`/`paid_amount`: su
-    // saldo se recalcula al vuelo en cada lectura, desde estos mismos items. No hay nada que
-    // desincronizar, que es justamente lo que `recalcObligation` viene a evitar en los otros tres.
-    if (!table) return;
-    // `[PGP.91]` Reservado y pagado son lo CUBIERTO (neto + descuento al pagar), no sólo el neto:
-    // una factura pagada con 3 % de descuento queda saldada aquí, y el 3 % no vuelve a ofrecerse
-    // mientras Kepler no emite la nota de crédito. Respeta el CHECK reservado + pagado ≤ original
-    // de las tres tablas porque lo cubierto nunca pasa del disponible (`createAllocation`/`addItem`).
-    const [agg] = await trx('finance.payment_allocation_items as i')
-      .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
-      .where({ 'i.obligation_source': source, 'i.obligation_id': id })
-      .select(
-        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'pending'), 0) AS reserved`),
-        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'executed'), 0) AS paid`),
-      );
-    const row = await trx(table).select('original_amount', 'status').where({ id }).first();
-    if (!row) return;
-    const reserved = Number(agg?.reserved ?? 0);
-    const paid = Number(agg?.paid ?? 0);
-    const newStatus = row.status === 'cancelled' ? 'cancelled'
-      : paid >= Number(row.original_amount) ? 'paid'
-      : (paid > 0 || reserved > 0) ? 'partial' : 'pending';
-    await trx(table).where({ id }).update({ reserved_amount: reserved, paid_amount: paid, status: newStatus, updated_at: trx.fn.now() });
+    return recalcularObligacion(trx, source, id);
   }
 
   /** Recalcula amount_assigned de UN allocation desde sus items. */
@@ -2760,6 +2721,17 @@ export class PaymentCalendarService {
       .where('active', true)
       .select('id', 'bank', 'account_label', 'alias', 'kind')
       .orderBy([{ column: 'bank' }, { column: 'account_label' }]));
+  }
+
+  /**
+   * `[PGP.218]` **¿Le alcanza a cada cuenta de origen para lo programado y para los cargos que el banco cobra solo?**
+   * Hoy y los próximos 7 días (anexo CR §3.0, DCR9): la regla vive en `armarSuficiencia`, la lectura en
+   * `leerEntradaDeSuficiencia`. Sólo lee. Siempre es HOY: el saldo y la historia de los cargos son los de hoy.
+   */
+  async suficiencia(): Promise<PaymentCalendarSuficiencia> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hoy = todayMx();
+    return this.tk.run(async (trx) => armarSuficiencia(await leerEntradaDeSuficiencia(trx, tenantId, hoy)));
   }
 
   /**

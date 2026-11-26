@@ -9,7 +9,7 @@ import {
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarSuficiencia, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -161,6 +161,16 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: '[TP.16] Cuentas de ORIGEN elegibles al preparar un pago (activas, sin la caja).' })
   originAccounts(): Promise<PaymentOriginAccount[]> {
     return this.svc.originAccounts();
+  }
+
+  /**
+   * `[PGP.218]` Antes del programa, el dinero del cargo en su cuenta (anexo CR §3.0, DCR9). Sólo lectura, siempre hoy.
+   */
+  @Get('suficiencia')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: '[PGP.218] Por cada cuenta de origen: el saldo al cierre de su último día conocido (el de Bancos), lo programado desde ella y los cargos que el banco cobra solo en los próximos 7 días (por su historia, [PGP.209]), con el primer cargo que no cubre y cuánto falta. Los depósitos por venir no se suman. Sin saldo: no_medido. Medido el 2026-11-25 reconstruyendo el 12-nov: Santander 2169 tenía $31,144.45 y esperaba $79,876 de la arrendadora el 14 (faltaban $48,731.55); el banco los cobró tarde.' })
+  suficiencia(): Promise<PaymentCalendarSuficiencia> {
+    return this.svc.suficiencia();
   }
 
   @Get('payment-habits')
