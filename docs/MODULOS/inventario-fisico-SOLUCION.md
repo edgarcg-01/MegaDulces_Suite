@@ -498,6 +498,8 @@ Vale escribirlo para que nadie lo «arregle»:
   fuente y se descartó que al folio le falten artículos, pero probar la rotación pide un **testigo
   del movimiento**, no un conteo de SKUs.
 
+---
+
 ## 4. Fuera de este módulo, y más urgente que todo esto
 
 - ⛔⛔ **Seguridad de plataforma:** al probar permisos se confirmó que al menos una cuenta sin
