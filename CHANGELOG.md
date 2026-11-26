@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Internal — Compras: cada factura del proveedor, ligada a su aplicación en Kepler (PQ.150 · 2026-11-25 · en código, sin soltar)
+- La Suite sabe qué factura del SAT cerró cada aplicación de Kepler. Liga primero por el folio del proveedor que Kepler guarda en la referencia, también cuando a su acreedor le falta el RFC (6 de cada 10 aplicaciones). En 60 días, las aplicaciones con su factura pasan de 28.5 % a 49.6 %, y el dinero de 41 % a 77 %.
+- Todavía no cambia ninguna pantalla. Es la base para que la historia de PQ.148 aprenda de más proveedores y para validar el costo al aplicar (PQ.157).
+- Migración `20261125090951`: la vista `commercial.v_supplier_invoice_application` y su matvista `analytics.mv_supplier_invoice_application`, que se refresca cada hora.
 ### Changed — Verificador de precios: el mayoreo sale directo del ODS (VAC.D1, 2026-11-25 · en código, sin soltar)
 - El mayoreo del verificador (y del checador del vendedor y el respaldo del kiosco) se lee de la vista viva sobre el ODS, igual que la etiqueta del anaquel, y ya no de una tabla que recalculaba un importer. Lo que Compras corrige en Kepler llega con el ODS (~5 min). En la tienda 01, 457 productos más muestran su mayoreo (los que Kepler tiene y la tabla no).
 ### Fixed — Verificador de precios: ya no muestra un «paquete» que el producto no tiene (VAC.PAQ.1, 2026-11-25 · en código, sin soltar)
