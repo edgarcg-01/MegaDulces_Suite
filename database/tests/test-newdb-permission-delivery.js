@@ -60,11 +60,12 @@ const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓', msg); } els
  * (una lista de excepciones que nadie poda deja de significar algo).
  */
 const SIN_REPARTIR = {
-  COMMERCIAL_PREVENTION_GESTIONAR:
-    'Prevencion de perdida. El modulo (mig 20260817160000) declara SEGREGACION DE FUNCIONES: ' +
-    '"quien cuenta/reconcilia NO es quien investiga". A quien le toca investigar es decision de ' +
-    'negocio y NO se deriva del estado vivo -- repartirlo a ojo destruiria el control que el ' +
-    'modulo existe para implementar. Pendiente: Edgar.',
+  // ⛔ `[VEC.0c]` COMMERCIAL_PREVENTION_GESTIONAR SALIO de esta lista el 2026-11-26. Decia
+  //    «sin repartir, pendiente de Edgar» y llevaba meses REPARTIDA: medido ese dia, la alcanzan
+  //    5 personas activas (2 por rol, 3 por override personal). La lista no mentia por maldad --
+  //    medir el reparto por `users.role_name` no ve ni los roles complementarios ni los overrides.
+  //    ⭐ Lo que importaba de ese motivo no era «quien la tiene» sino el CONTROL que protegia
+  //    (segregacion de funciones), y eso ya no se declara: se mide en `[2d]`.
   // `[RH.1.7]` Las claves de asistencia salieron de esta lista: con las pantallas `/rh/*` las reparte
   // la mig `20261008094815` segun el flujo que Mega Talento documenta (servicios al personal califica
   // y cierra = `recursos_humanos`; contabilidad audita). Ver SIN_PERSONAS.
@@ -101,28 +102,54 @@ const SIN_REPARTIR = {
  * para verlo**. Un permiso concedido a un rol vacio es tan inalcanzable como uno
  * concedido a nadie, y el primer censo no sabia distinguirlos.
  */
-const SIN_PERSONAS = {
-  COMMERCIAL_PREVENTION_VER:
-    'Mismo caso que su hermana _GESTIONAR: su unica via es `direccion`, que hoy tiene 0 ' +
-    'personas activas. El modulo de perdida no lo alcanza NADIE. Se resuelve con la misma ' +
-    'decision de segregacion de funciones. Pendiente: Edgar.',
-  // `[RH.1.7]` Repartidas a `recursos_humanos` (mig `20261008094815`), el rol que `[IDG.8]` creo para
-  // el personal de RH sin nadie adentro. Mientras nadie de RH este asignado, las pantallas `/rh/*` no
-  // le llegan a nadie de negocio (solo superadmin). La auditoria (`HR_INCIDENTS_AUDITAR`) NO esta
-  // aca: va a `contabilidad`, que si tiene gente.
-  // `[RH.2.3]` Reclutamiento: misma vía (mig `20261012174003`), mismo hueco.
-  ...Object.fromEntries(['HR_ATTENDANCE_VER', 'HR_ATTENDANCE_GESTIONAR', 'HR_INCIDENTS_CAPTURAR',
-    'HR_INCIDENTS_CALIFICAR', 'HR_PERIOD_CLOSE', 'HR_DEVICES_GESTIONAR',
-    'HR_RECRUITMENT_VER', 'HR_RECRUITMENT_GESTIONAR'].map((k) => [k,
-    'Fase RH [RH.1.7]: su unica via es `recursos_humanos`, con 0 personas. Falta asignar al personal ' +
-    'de RH desde /admin/personas (el puesto Auxiliar de RR-HH cae por defecto en `administracion`, ' +
-    'que no es solo RH). Pendiente: David con RH.'])),
-  HR_ATTENDANCE_CHECAR:
-    'Fase CH.1: su unica via es `checador_kiosco`, que quedo con 0 cuentas a proposito -- la ' +
-    'cuenta `checador.03` se borro porque se creo la credencial ANTES que su pantalla, y ' +
-    '`[CH.0.10]` sigue bloqueada por una decision de datos (`hr.*` vacio en prod). El rol y el ' +
-    'permiso se conservan: son el primitivo, no el defecto.',
-};
+/**
+ * ⛔⛔ `[VEC.0c]` VACIADA EL 2026-11-26, Y ESO ES EL HALLAZGO, no una limpieza.
+ *
+ * Sus 10 entradas decian, cada una, «0 personas». Medido ese dia en prod con la definicion
+ * de permiso efectivo que usa el JWT, las 10 le llegaban a gente:
+ *
+ *   COMMERCIAL_PREVENTION_VER .......... 9   (el motivo decia «no lo alcanza NADIE»)
+ *   las 8 claves de RH ................. 7 u 8 cada una (el motivo decia 0)
+ *   HR_ATTENDANCE_CHECAR .............. 15   (el motivo decia que la unica cuenta se borro)
+ *
+ * ⭐ Ninguno de esos motivos era mentira cuando se escribio: estaban medidos con
+ * `users.role_name`, que es UNA de las TRES vias de reparto. Las otras dos -- los roles
+ * complementarios (`identity.user_roles`, que discrepa en 36 de 42 roles) y los overrides de
+ * persona (`identity.user_permissions`, 960 filas en ALLOW sobre 269 claves) -- no se miraban.
+ *
+ * ⚠️ Un detalle que la lista vacia NO puede decir y conviene no perder: que una clave de RH
+ * «llegue a 7 personas» no significa que el modulo funcione. Las tablas `hr.*` siguen en 0
+ * filas y la semana de asistencia nunca se cerro; lo que se cae es la explicacion «no le llega
+ * a nadie», no el problema. Esa parte vive en la fase RH, no aca.
+ *
+ * Si vuelve a hacer falta declarar una clave sin gente, se agrega con su motivo Y su medicion
+ * del dia: `alcanceEfectivo` la contradice sola si el motivo envejece.
+ */
+const SIN_PERSONAS = {};
+
+/**
+ * `[VEC.0c]` SEGREGACIONES DE FUNCIONES declaradas por un modulo: pares de claves que la MISMA
+ * persona no deberia alcanzar. Un control que solo esta escrito en el motivo de una lista es
+ * una intencion; aca se MIDE.
+ *
+ * ⛔ Medido el 2026-11-26, al vaciar `SIN_PERSONAS`: de las 5 personas que pueden investigar
+ * una perdida, **4 tambien pueden contar y reconciliar el inventario** -- que es exactamente
+ * lo que la migracion `20260817160000` existe para impedir. Tres de las cuatro lo recibieron
+ * por override personal; la cuarta, por el rol `finanzas_operativo`.
+ */
+const SEGREGACIONES = [
+  {
+    nombre: 'prevencion de perdida',
+    fuente: 'mig 20260817160000',
+    juez: 'COMMERCIAL_PREVENTION_GESTIONAR',
+    partes: ['COMMERCIAL_INVENTORY_CONTAR', 'COMMERCIAL_INVENTORY_RECONCILIAR'],
+    regla: 'quien cuenta o reconcilia NO es quien investiga',
+    // Lo medido el 2026-11-26. Entra como declaracion para que el rojo diga si EMPEORO o no,
+    // en vez de repetir el mismo numero todos los dias sin que nadie sepa si se movio.
+    conocidos: 4,
+    dueno: 'Edgar',
+  },
+];
 
 /**
  * `[VEC.0]` — PARES DERIVADOS. Repartos que una migracion calculo a partir de OTRO permiso.
@@ -210,20 +237,32 @@ function clavesQueGatean() {
  * Las cuatro compuertas, como FUNCION PURA. Que sean puras es lo que hace posible la prueba
  * negativa: se las alimenta con entradas adulteradas y tienen que ponerse rojas.
  */
-function evaluar(catalogo, vivo, gatean, permitidas, porRol, rolesConGente, sinPersonas) {
-  const nadieMenciona = catalogo.filter((k) => !vivo.has(k));
+function evaluar(catalogo, vivo, gatean, permitidas, porRol, rolesConGente, sinPersonas, alcance) {
+  // `[VEC.0c]` ¿cuanta gente ACTIVA alcanza de verdad la clave? Las tres vias, no una.
+  const alcanzan = (k) => ((alcance || new Map()).get(k) || 0);
+  // `[1]` se parte en DOS, porque eran dos defectos distintos bajo un solo rotulo:
+  //   · `nadieMenciona`   -- ningun rol la menciona Y nadie la alcanza: entregada y muerta.
+  //   · `soloPorPersona`  -- nadie la alcanza POR ROL, pero hay quien la tiene por un override
+  //     de persona. No esta muerta: esta repartida por la via fragil. ADR-054 dice que el
+  //     permiso es una CLAVE que viaja por rol; un override se pierde al cambiar de puesto y
+  //     no se ve en `MATRIZ_ACCESOS.md`, que se genera del padron de roles.
+  const nadieMenciona = catalogo.filter((k) => !vivo.has(k) && alcanzan(k) === 0);
+  const soloPorPersona = catalogo.filter((k) => !vivo.has(k) && alcanzan(k) > 0);
   const nadieConcede = catalogo.filter((k) => {
     const v = vivo.get(k);
-    return v && v.conTrue === 0 && gatean.has(k) && !permitidas[k];
+    return v && v.conTrue === 0 && gatean.has(k) && !permitidas[k] && alcanzan(k) === 0;
   });
   const fueraDeCatalogo = [...vivo.keys()].filter((k) => !catalogo.includes(k));
   // Concedida, pero sólo por roles que nadie tiene → nadie la alcanza igual.
+  // ⛔ «nadie tiene ese rol» NO es «nadie la alcanza»: puede llegarle por un rol complementario
+  //    (`identity.user_roles`) o por un override. Por eso tambien se descuenta `alcanzan(k)`.
   const sinNadieQueLaTenga = [...(porRol || new Map()).entries()]
     .filter(([k, roles]) => roles.length > 0
       && roles.every((r) => !rolesConGente.has(r))
-      && !(sinPersonas || {})[k])
+      && !(sinPersonas || {})[k]
+      && alcanzan(k) === 0)
     .map(([k]) => k);
-  return { nadieMenciona, nadieConcede, fueraDeCatalogo, sinNadieQueLaTenga };
+  return { nadieMenciona, soloPorPersona, nadieConcede, fueraDeCatalogo, sinNadieQueLaTenga };
 }
 
 /**
@@ -316,6 +355,77 @@ function derivacionesRotas(mapaPorRol, pares) {
       FROM identity.users
      WHERE activo AND deleted_at IS NULL
      GROUP BY role_name`);
+  // ⛔⛔ [VEC.0c] ALCANCE EFECTIVO -- la unica medicion de "¿quien puede de verdad?".
+  //
+  // Hasta el 2026-11-26 esta compuerta contestaba esa pregunta con UNA de las TRES vias por
+  // las que se reparte un permiso en esta suite, y por eso publicaba ceros que eran el
+  // instrumento. Medido ese dia contra prod: `identity.user_permissions` tiene 1,100 filas
+  // (960 en ALLOW sobre 269 claves distintas, 140 en NIEGA) y `identity.user_roles` discrepa
+  // con `users.role_name` en 36 de 42 roles. Resultado: de 8 claves que la compuerta declaraba
+  // inalcanzables, 5 las alcanzaba gente -- `FINANCE_EXPENSES_HISTORIAL_TODOS` (3 personas,
+  // gatea 4 escrituras), `DEV_PROJECTS_VER` (2, gatea 3), `DEV_PROJECTS_GESTIONAR` (2, gatea
+  // 10), `COMPRAS_REQUISICIONES_AUTORIZAR` (4) y `FINANCE_CAJA_VENTANILLA` (1).
+  //
+  // ⭐ La definicion no se inventa aca: es la MISMA que arma el JWT, en
+  // `libs/platform-core/src/lib/ability/permiso-efectivo.ts` (override de la PERSONA manda en
+  // los dos sentidos; si no hay, la UNION de `users.role_name` y `identity.user_roles`).
+  // ⚠️ DEUDA CON NOMBRE (ADR-056): esto es una 3ª copia de ese primitivo -- la 2ª es
+  // `libs/service-desk/src/lib/agents.service.ts`. Esta es JS y vive fuera de Nx, asi que no
+  // puede importar el TS; unificarlas pide mover el primitivo a SQL compartido. Mientras tanto
+  // el cruce que las ata esta en la prueba negativa [6]: si divergen, la compuerta se pone roja.
+  // Medido: coincide con el primitivo clave por clave en las 294 vivas (0 diferencias) en 85 ms.
+  const { rows: filasAlcance } = await c.query(`
+    WITH activos AS (
+      SELECT u.id, u.tenant_id, u.role_name FROM identity.users u
+       WHERE u.activo AND u.deleted_at IS NULL
+    ), roles_efectivos AS (
+      SELECT a.id, a.tenant_id, r.role_name
+        FROM activos a
+        CROSS JOIN LATERAL (
+          SELECT ur.role_name FROM identity.user_roles ur
+           WHERE ur.tenant_id = a.tenant_id AND ur.user_id = a.id
+          UNION SELECT a.role_name
+        ) r
+    ), por_rol AS (
+      SELECT DISTINCT re.id, e.key
+        FROM roles_efectivos re
+        JOIN identity.role_permissions rp
+          ON rp.tenant_id = re.tenant_id AND lower(rp.role_name) = lower(re.role_name)
+         AND rp.deleted_at IS NULL
+        CROSS JOIN LATERAL jsonb_each(rp.permissions) e
+       WHERE e.value = 'true'::jsonb
+    ), concedidas AS (
+      SELECT pr.id, pr.key FROM por_rol pr
+       WHERE NOT EXISTS (
+         SELECT 1 FROM identity.user_permissions up
+          WHERE up.user_id = pr.id AND up.permission_key = pr.key AND up.allow = false)
+      UNION
+      SELECT a.id, up.permission_key FROM identity.user_permissions up
+        JOIN activos a ON a.id = up.user_id AND a.tenant_id = up.tenant_id
+       WHERE up.allow = true
+    )
+    SELECT key, count(DISTINCT id)::int AS gente FROM concedidas GROUP BY key`);
+  // `[VEC.0c]` Segregacion de funciones, MEDIDA. Misma definicion de permiso efectivo, por
+  // persona: ¿cuantas alcanzan a la vez la clave que JUZGA y alguna de las que OPERAN?
+  const efectivo = (n) => `COALESCE(
+    (SELECT up.allow FROM identity.user_permissions up
+      WHERE up.tenant_id = u.tenant_id AND up.user_id = u.id AND up.permission_key = $${n}),
+    EXISTS (SELECT 1 FROM (SELECT ur.role_name FROM identity.user_roles ur
+             WHERE ur.tenant_id = u.tenant_id AND ur.user_id = u.id
+            UNION SELECT u.role_name) roles
+      JOIN identity.role_permissions rp ON rp.tenant_id = u.tenant_id AND lower(rp.role_name) = lower(roles.role_name)
+     WHERE rp.permissions ->> $${n} = 'true' AND rp.deleted_at IS NULL))`;
+  const choquesMedidos = [];
+  for (const s of SEGREGACIONES) {
+    const args = [s.juez, ...s.partes];
+    const opera = s.partes.map((_, i) => efectivo(i + 2)).join(' OR ');
+    const { rows: q } = await c.query(`
+      SELECT count(*)::int AS juzgan,
+             count(*) FILTER (WHERE ${opera})::int AS tambien_operan
+        FROM identity.users u
+       WHERE u.activo AND u.deleted_at IS NULL AND ${efectivo(1)}`, args);
+    choquesMedidos.push({ ...s, juzgan: q[0].juzgan, choques: q[0].tambien_operan });
+  }
   await c.end();
 
   const porRol = new Map(filasRol.map((f) => [f.key, f.roles]));
@@ -327,6 +437,7 @@ function derivacionesRotas(mapaPorRol, pares) {
     Object.fromEntries(Object.entries(f.permissions || {}).map(([k, v]) => [k, String(v)])),
   ]));
   const personasPorRol = new Map(filasPersonas.map((f) => [f.role_name, f.personas]));
+  const alcanceEfectivo = new Map(filasAlcance.map((f) => [f.key, f.gente]));
   const vivo = new Map(rows.map((r) => [r.key, { conTrue: Number(r.con_true), conFalse: Number(r.con_false) }]));
   const gatean = clavesQueGatean();
 
@@ -338,20 +449,38 @@ function derivacionesRotas(mapaPorRol, pares) {
   ok(gatean.size > 20, `claves que gatean una escritura: ${gatean.size}`);
 
   ok(rolesConGente.size > 10, `roles que alguien activo tiene de verdad: ${rolesConGente.size}`);
+  // `[VEC.0c]` Piso del alcance efectivo: si esta medicion viniera vacia, TODA clave se leeria
+  // como inalcanzable y las compuertas [1], [2] y [2b] se pondrian rojas enteras -- un rojo
+  // masivo se nota, pero el piso lo dice con su nombre en vez de hacerlo adivinar.
+  // ⚠️ `alcanceEfectivo.size` NO es «cuantas del catalogo se alcanzan»: incluye las que el padron
+  //    tiene y el catalogo no (hoy 3). Decirlo «de 296 del catalogo» leia como 296 de 296, que es
+  //    falso -- hay 3 que nadie alcanza. Se informan los dos numeros, cada uno con su universo.
+  const delCatalogoAlcanzadas = CATALOGO.filter((k) => (alcanceEfectivo.get(k) || 0) > 0).length;
+  ok(alcanceEfectivo.size > 100,
+    `claves que alguna persona activa alcanza de verdad: ${alcanceEfectivo.size} en total, de las cuales ${delCatalogoAlcanzadas} son del catalogo (que tiene ${CATALOGO.length})`);
 
-  const r = evaluar(CATALOGO, vivo, gatean, SIN_REPARTIR, porRol, rolesConGente, SIN_PERSONAS);
+  const r = evaluar(CATALOGO, vivo, gatean, SIN_REPARTIR, porRol, rolesConGente, SIN_PERSONAS, alcanceEfectivo);
 
   // ── 1. Toda clave del catalogo la MENCIONA alguien ────────────────────────────────────
   console.log('\n[1] Reparto -- ninguna clave del catalogo es invisible para todos los roles');
   ok(r.nadieMenciona.length === 0,
     r.nadieMenciona.length === 0
       ? 'las 0 claves huerfanas'
-      : `${r.nadieMenciona.length} clave(s) que NINGUN rol menciona (modulo entregado e inalcanzable): ${r.nadieMenciona.join(', ')}`);
+      : `${r.nadieMenciona.length} clave(s) que NINGUN rol menciona y NADIE alcanza (modulo entregado e inalcanzable): ${r.nadieMenciona.join(', ')}`);
+  // `[VEC.0c]` No es lo mismo muerta que repartida a mano. Esta segunda lista se IMPRIME aunque
+  // la compuerta este verde: es el unico lugar donde se ve un permiso que viaja fuera del rol.
+  for (const k of r.soloPorPersona) {
+    console.log(`      ${k}: ningun rol la menciona, pero ${alcanceEfectivo.get(k)} persona(s) la tienen por override personal`);
+  }
+  ok(r.soloPorPersona.length === 0,
+    r.soloPorPersona.length === 0
+      ? 'ninguna clave se reparte SOLO persona por persona'
+      : `${r.soloPorPersona.length} clave(s) repartidas solo por override personal, nunca por rol (ADR-054): ${r.soloPorPersona.join(', ')}`);
 
   // ── 2. Toda clave que gatea una escritura la CONCEDE alguien ─────────────────────────
   console.log('\n[2] Alcance -- lo que gatea una escritura tiene que ser alcanzable');
   for (const k of r.nadieConcede) {
-    console.log(`      ${k}: gatea ${gatean.get(k)} escritura(s) y ningun rol lo concede`);
+    console.log(`      ${k}: gatea ${gatean.get(k)} escritura(s), ningun rol lo concede y nadie lo alcanza por ninguna via`);
   }
   ok(r.nadieConcede.length === 0,
     r.nadieConcede.length === 0
@@ -369,8 +498,7 @@ function derivacionesRotas(mapaPorRol, pares) {
   for (const k of r.sinNadieQueLaTenga) {
     const roles = porRol.get(k) || [];
     const detalle = roles.map((rol) => `${rol}:${personasPorRol.get(rol) || 0}`).join(', ');
-    const gente = roles.reduce((s, rol) => s + (personasPorRol.get(rol) || 0), 0);
-    console.log(`      ${k}: solo por ${detalle || '(nadie)'} -- ${gente} persona(s) activa(s)`);
+    console.log(`      ${k}: solo por ${detalle || '(nadie)'} -- alcance efectivo ${alcanceEfectivo.get(k) || 0} persona(s)`);
   }
   ok(r.sinNadieQueLaTenga.length === 0,
     r.sinNadieQueLaTenga.length === 0
@@ -390,6 +518,29 @@ function derivacionesRotas(mapaPorRol, pares) {
     rotas.length === 0
       ? `los ${PARES_DERIVADOS.length} pares derivados siguen al dia en todos los roles`
       : `${rotas.length} derivacion(es) vieja(s): la migracion que las reparto fue una foto, y el padron se movio`);
+
+  // ── 2d. La segregacion de funciones que un modulo DECLARA, medida ────────────────────
+  // Un control escrito en el motivo de una lista es una intencion. Este lo cuenta.
+  console.log('\n[2d] Segregacion de funciones -- lo que un modulo prohibe, medido');
+  for (const s of choquesMedidos) {
+    console.log(`      ${s.nombre} (${s.fuente}): "${s.regla}"`);
+    console.log(`        ${s.juzgan} persona(s) alcanzan ${s.juez}; de ellas ${s.choques} alcanzan tambien ${s.partes.join(' o ')}`);
+    if (s.choques > s.conocidos) console.log(`        ⛔ EMPEORO: eran ${s.conocidos} el dia que se midio`);
+    else if (s.choques < s.conocidos) console.log(`        ⭐ MEJORO: eran ${s.conocidos}; actualizar \`conocidos\``);
+  }
+  const empeoraron = choquesMedidos.filter((s) => s.choques > s.conocidos);
+  const rotasHoy = choquesMedidos.filter((s) => s.choques > 0);
+  // ⛔ Un ✓ al lado de «la segregacion sigue rota» afirma lo que no es: quien lee la columna de
+  //    simbolos ve verde. El rojo se reserva para el EMPEORAMIENTO (que es lo accionable sin
+  //    decision de negocio), y el estado roto-pero-estable se declara con su propio simbolo, sin
+  //    sumar al marcador en ninguna direccion -- igual que `[5]`.
+  if (empeoraron.length) {
+    ok(false, `${empeoraron.length} segregacion(es) EMPEORARON desde la ultima medicion: ${empeoraron.map((s) => `${s.nombre} ${s.conocidos}->${s.choques}`).join(', ')}`);
+  } else if (rotasHoy.length) {
+    console.log(`  ⚠️ DECLARADO (no empeoro, pero NO se cumple): ${rotasHoy.map((s) => `${s.nombre} ${s.choques}/${s.juzgan}`).join(', ')} -- repararlo es de ${[...new Set(rotasHoy.map((s) => s.dueno))].join('/')}, no de esta compuerta`);
+  } else {
+    ok(true, `las ${choquesMedidos.length} segregaciones declaradas se cumplen`);
+  }
 
   // ── 3. Nada en la DB fuera del catalogo ──────────────────────────────────────────────
   console.log('\n[3] Deriva -- el padron no inventa claves');
@@ -412,8 +563,10 @@ function derivacionesRotas(mapaPorRol, pares) {
       ? 'ninguna declarada quedo fuera del catalogo'
       : `las listas nombran claves que ya no existen: ${noExisten.join(', ')}`);
   // Misma poda para la 2a lista: una clave que ya llego a alguien deja de ser excepcion.
+  // `[VEC.0c]` Se pregunta por el ALCANCE, no por los roles: una clave puede llegarle a alguien
+  // por un rol complementario o un override sin que ningun rol «con gente» la conceda.
   const yaTienenGente = Object.keys(SIN_PERSONAS)
-    .filter((k) => (porRol.get(k) || []).some((rol) => rolesConGente.has(rol)));
+    .filter((k) => (alcanceEfectivo.get(k) || 0) > 0);
   ok(yaTienenGente.length === 0,
     yaTienenGente.length === 0
       ? `las ${Object.keys(SIN_PERSONAS).length} de SIN_PERSONAS siguen sin una sola persona`
@@ -437,11 +590,19 @@ function derivacionesRotas(mapaPorRol, pares) {
   //    nueve claves de RH que aqui salian en 0 SI le llegan a alguien -- y de eso depende que
   //    la semana de asistencia se pueda cerrar. Ahora se cuenta de `personasPorRol`, que ya
   //    estaba calculado y nadie usaba aqui.
+  // ⛔⛔ Y ESE ARREGLO SEGUIA CORTO (corregido 2026-11-26). `personasPorRol` sale de
+  //    `users.role_name`, UNA de las TRES vias por las que se reparte un permiso; medido ese
+  //    dia, discrepa con `identity.user_roles` en 36 de 42 roles (p. ej. `analisis_ventas`:
+  //    0 por una via, 5 por la otra) y ninguna de las dos ve los 960 overrides de persona en
+  //    ALLOW. El numero de abajo ya no se suma por rol: sale de `alcanceEfectivo`, que es la
+  //    misma definicion del JWT. El detalle por rol se conserva al lado porque dice POR DONDE.
   for (const k of Object.keys(SIN_PERSONAS)) {
     const roles = porRol.get(k) || [];
-    const gente = roles.reduce((s, rol) => s + (personasPorRol.get(rol) || 0), 0);
+    const gente = alcanceEfectivo.get(k) || 0;
+    const porBase = roles.reduce((s, rol) => s + (personasPorRol.get(rol) || 0), 0);
     const detalle = roles.map((rol) => `${rol}:${personasPorRol.get(rol) || 0}`).join(', ');
-    console.log(`      · ${k} -- concedida por ${detalle || '(nadie)'} -- ${gente} persona(s) activa(s)`);
+    console.log(`      · ${k} -- concedida por ${detalle || '(nadie)'} -- alcance efectivo ${gente} persona(s) activa(s)`);
+    if (gente !== porBase) console.log(`        (solo por rol base serian ${porBase}: la diferencia entra por rol complementario u override)`);
     if (gente > 0) console.log('        ⚠️ YA NO ESTA VACIA: el motivo de abajo quedo viejo y hay que revisarlo');
     console.log(`        motivo: ${SIN_PERSONAS[k]}`);
   }
@@ -450,28 +611,57 @@ function derivacionesRotas(mapaPorRol, pares) {
   // Las tres compuertas, rotas a proposito. Si alguna sigue verde con la entrada adulterada,
   // este archivo es decorativo.
   console.log('\n[6] Prueba negativa -- las compuertas rotas a proposito tienen que dar ROJO');
+  // `[VEC.0c]` Las adulteraciones van sobre la entrada REAL, `alcanceEfectivo` incluida: una
+  // prueba negativa que le pasa `undefined` donde el gate usa un mapa prueba otro programa.
+  const sinAlcance = (mapa, claves) => {
+    const m = new Map(mapa);
+    for (const k of claves) m.delete(k);
+    return m;
+  };
+
   const falsa = 'PERMISO_QUE_NADIE_REPARTIO_XYZ';
-  const n1 = evaluar([...CATALOGO, falsa], vivo, gatean, SIN_REPARTIR, porRol, rolesConGente, SIN_PERSONAS);
-  ok(n1.nadieMenciona.includes(falsa), '[1] detecta una clave del catalogo que ningun rol menciona');
+  const n1 = evaluar([...CATALOGO, falsa], vivo, gatean, SIN_REPARTIR, porRol, rolesConGente, SIN_PERSONAS, alcanceEfectivo);
+  ok(n1.nadieMenciona.includes(falsa), '[1] detecta una clave del catalogo que ningun rol menciona Y que nadie alcanza');
+
+  // `[VEC.0c]` La otra mitad de [1]: la misma clave, pero alcanzada por un override personal,
+  // NO puede salir como «entregada e inalcanzable» -- tiene que caer en la lista de reparto fragil.
+  const n1b = evaluar([...CATALOGO, falsa], vivo, gatean, SIN_REPARTIR, porRol, rolesConGente, SIN_PERSONAS,
+    new Map([...alcanceEfectivo, [falsa, 2]]));
+  ok(!n1b.nadieMenciona.includes(falsa) && n1b.soloPorPersona.includes(falsa),
+    '[1] NO llama inalcanzable a la clave que 2 personas tienen por override: la separa como reparto fragil');
 
   const vivoRoto = new Map(vivo);
   const victima = [...gatean.keys()].find((k) => vivo.get(k)?.conTrue > 0);
   vivoRoto.set(victima, { conTrue: 0, conFalse: 3 });
-  const n2 = evaluar(CATALOGO, vivoRoto, gatean, SIN_REPARTIR, porRol, rolesConGente, SIN_PERSONAS);
-  ok(n2.nadieConcede.includes(victima), `[2] detecta que ${victima} gatea escrituras y nadie lo concede`);
+  const n2 = evaluar(CATALOGO, vivoRoto, gatean, SIN_REPARTIR, porRol, rolesConGente, SIN_PERSONAS,
+    sinAlcance(alcanceEfectivo, [victima]));
+  ok(n2.nadieConcede.includes(victima), `[2] detecta que ${victima} gatea escrituras, nadie lo concede y nadie lo alcanza`);
+
+  // `[VEC.0c]` El falso positivo que esta medicion vino a matar: la MISMA entrada, pero con
+  // gente que lo alcanza por otra via, tiene que quedarse VERDE. Es el caso real de
+  // `DEV_PROJECTS_GESTIONAR` (gatea 10 escrituras, 0 roles, 2 personas por override).
+  const n2b = evaluar(CATALOGO, vivoRoto, gatean, SIN_REPARTIR, porRol, rolesConGente, SIN_PERSONAS,
+    new Map([...alcanceEfectivo, [victima, 2]]));
+  ok(!n2b.nadieConcede.includes(victima),
+    `[2] NO marca ${victima} cuando 2 personas lo alcanzan por complemento u override`);
 
   const vivoSucio = new Map(vivo);
   vivoSucio.set('CLAVE_BASURA_QUE_NO_EXISTE', { conTrue: 1, conFalse: 0 });
-  const n3 = evaluar(CATALOGO, vivoSucio, gatean, SIN_REPARTIR, porRol, rolesConGente, SIN_PERSONAS);
+  const n3 = evaluar(CATALOGO, vivoSucio, gatean, SIN_REPARTIR, porRol, rolesConGente, SIN_PERSONAS, alcanceEfectivo);
   ok(n3.fueraDeCatalogo.includes('CLAVE_BASURA_QUE_NO_EXISTE'), '[3] detecta una clave del padron fuera del catalogo');
 
   // [2b]: se vacia de gente el (los) rol(es) que conceden una clave sana y tiene que caer.
   const sana = [...porRol.entries()].find(([k, roles]) =>
     roles.length > 0 && roles.every((rol) => rolesConGente.has(rol)) && !SIN_PERSONAS[k]);
   const genteRota = new Set([...rolesConGente].filter((rol) => !sana[1].includes(rol)));
-  const n5 = evaluar(CATALOGO, vivo, gatean, SIN_REPARTIR, porRol, genteRota, SIN_PERSONAS);
+  const n5 = evaluar(CATALOGO, vivo, gatean, SIN_REPARTIR, porRol, genteRota, SIN_PERSONAS,
+    sinAlcance(alcanceEfectivo, [sana[0]]));
   ok(n5.sinNadieQueLaTenga.includes(sana[0]),
     `[2b] detecta que ${sana[0]} queda sin una sola persona si se vacian ${sana[1].join('/')}`);
+  // `[VEC.0c]` Y con el rol vacio pero alguien que la alcanza igual, [2b] NO puede marcarla.
+  const n5b = evaluar(CATALOGO, vivo, gatean, SIN_REPARTIR, porRol, genteRota, SIN_PERSONAS, alcanceEfectivo);
+  ok(!n5b.sinNadieQueLaTenga.includes(sana[0]),
+    `[2b] NO marca ${sana[0]} con los roles vacios si el alcance efectivo dice que alguien la tiene`);
 
   // [2c]: se le BORRA la derivada a un rol que hoy la tiene por derivacion, y tiene que caer.
   // Se elige la victima de los datos, no a mano: si manana cambian los pares, sigue valiendo.
@@ -512,9 +702,33 @@ function derivacionesRotas(mapaPorRol, pares) {
       `[2c] NO marca a ${victimaDeriv.rol} cuando la clave esta en false explicito (decision, no hueco)`);
   }
 
-  const n4 = evaluar(CATALOGO, vivo, gatean, {}, porRol, rolesConGente, {});
-  ok(n4.nadieConcede.length > r.nadieConcede.length && n4.sinNadieQueLaTenga.length > r.sinNadieQueLaTenga.length,
-    `sin las listas de declaradas las compuertas [2] y [2b] caen en rojo (${n4.nadieConcede.length} vs ${r.nadieConcede.length} y ${n4.sinNadieQueLaTenga.length} vs ${r.sinNadieQueLaTenga.length}): las listas TAPAN algo real, no estan de adorno`);
+  // `[VEC.0c]` Tambien con el alcance real: si no, esta prueba mide un programa que ya no existe.
+  // ⭐ Y su rojo cambio de significado. Antes decia «las listas tapan algo real». Ahora puede
+  //    significar lo contrario -- que ya no tapan nada, porque la gente SI alcanza esas claves
+  //    por rol complementario u override -- y entonces lo que toca es PODARLAS, no agregarles.
+  // `[VEC.0c]` Esta prueba solo tiene sentido si alguna declarada puede llegar a [2] o [2b], y
+  // eso pide que algun rol la MENCIONE. Hoy las dos que quedan (`HR_NOMINA_*`) no las menciona
+  // nadie, asi que caen en [1] y estas dos compuertas no las ven: afirmar «las listas tapan algo»
+  // seria un rojo sin contenido. Se declara en vez de dibujarse.
+  const declaradasVisibles = [...Object.keys(SIN_REPARTIR), ...Object.keys(SIN_PERSONAS)].filter((k) => vivo.has(k));
+  if (declaradasVisibles.length === 0) {
+    console.log(`  — NO MEDIDO: ninguna de las ${Object.keys(SIN_REPARTIR).length + Object.keys(SIN_PERSONAS).length} declaradas la menciona un rol, asi que [2]/[2b] no pueden verlas (caen en [1]). Sin entrada que adulterar, no hay prueba negativa que hacer aca.`);
+  } else {
+    const n4 = evaluar(CATALOGO, vivo, gatean, {}, porRol, rolesConGente, {}, alcanceEfectivo);
+    const tapan = n4.nadieConcede.length > r.nadieConcede.length || n4.sinNadieQueLaTenga.length > r.sinNadieQueLaTenga.length;
+    ok(tapan,
+      tapan
+        ? `sin las listas de declaradas [2]/[2b] caen en rojo (${n4.nadieConcede.length} vs ${r.nadieConcede.length} y ${n4.sinNadieQueLaTenga.length} vs ${r.sinNadieQueLaTenga.length}): TAPAN algo real`
+        : `las ${declaradasVisibles.length} declaradas que un rol menciona ya no tapan nada: con el alcance efectivo les llega gente -- PODAR la lista, no ampliarla`);
+  }
+
+  // `[VEC.0c]` [2d] rota a proposito: si se declara una segregacion mas limpia de lo medido,
+  // la compuerta tiene que gritar que EMPEORO. Sin esto, `conocidos` seria un numero que se
+  // ajusta solo al rojo, que es la forma mas comoda de no ver nunca que algo se rompio mas.
+  const peor = choquesMedidos.map((s) => ({ ...s, conocidos: Math.max(0, s.choques - 1) }));
+  const nSeg = peor.filter((s) => s.choques > s.conocidos);
+  ok(nSeg.length === choquesMedidos.length,
+    `[2d] detecta que una segregacion EMPEORO si se baja su medida conocida en 1 (${choquesMedidos.map((s) => `${s.nombre}: ${s.choques} > ${Math.max(0, s.choques - 1)}`).join('; ')})`);
 
   console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} pass · ${fail} fail`);
   process.exit(fail === 0 ? 0 : 1);
