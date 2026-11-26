@@ -380,6 +380,36 @@ export interface LigaCompartidaCreada { id: string; cfdi_uuid: string; motivo: s
 /** `[RE.86]` Lo que devuelve deshacer esa liga. */
 export interface LigaCompartidaDeshecha { desligadas: number }
 
+/** Una entrada de Kepler con su total, para sumar las que comparten una factura. */
+export interface EntradaConMonto { sucursal: string; folio: string; monto: number }
+
+/**
+ * `[RE.88]` El PDF que se quiere subir ya está en OTRA entrada del mismo proveedor, y las dos citan en Kepler la misma
+ * factura (CEDIS 0010285 y 0010295 de Relámpago, `0-F-1979`). No es un error de la persona: la mercancía llegó en dos
+ * entradas. Se le dice eso y lo que suman contra la factura, para que quien valida decida ligarla CON MOTIVO (RE.86).
+ */
+export interface MismaFacturaDuplicado {
+  /** La referencia de Kepler que citan las dos («0-F-1979»). */
+  referencia: string;
+  /** La entrada que ya tiene el PDF. */
+  hermana: EntradaConMonto;
+  /** Otras entradas ya ligadas a esa factura con motivo (sin contar estas dos). */
+  otras_ligadas: EntradaConMonto[];
+  /** El total de Kepler de la entrada a la que se quiere subir. */
+  monto_entrada: number;
+  /** Esta + la hermana + las otras ligadas. */
+  suma_entradas: number;
+  /** El CFDI de esa factura si está en ContPAQi como recibida vigente; `null` si no. */
+  cfdi_uuid: string | null;
+  /** Total de la factura: del SAT, o el leído del papel si el CFDI no está. */
+  factura_total: number | null;
+  factura_fuente: 'sat' | 'papel' | null;
+  /** `suma_entradas − factura_total`; `null` sin total. Distinto de 0 = algo de una entrada no viene en la factura. */
+  diferencia: number | null;
+  /** Por qué todavía NO se puede ligar (lo dice tal cual la pantalla); `null` = se puede, con permiso de validar. */
+  no_se_puede: string | null;
+}
+
 export interface MismaFactura {
   /** La referencia tal como la trae Kepler («0-F-319»). */
   referencia: string;

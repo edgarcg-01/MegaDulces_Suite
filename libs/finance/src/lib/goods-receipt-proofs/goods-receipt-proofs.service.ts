@@ -9,9 +9,9 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 import { GoodsReceiptExpedienteService, enPares } from './goods-receipt-expediente.service';
 import { REGLA_EXPEDIENTE } from './expediente-verdict';
 import { fechaDeCalendario } from './fecha-de-calendario';
-import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, FacturaCompartidaLiga, LigaCompartidaCreada, LigaCompartidaDeshecha, MismaFactura } from '@megadulces/contracts';
+import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, FacturaCompartidaLiga, LigaCompartidaCreada, LigaCompartidaDeshecha, MismaFactura, MismaFacturaDuplicado } from '@megadulces/contracts';
 import { armarMismaFactura, citaFactura } from './misma-factura';
-import { MOTIVO_LIGA_MIN, hayLigaCompartida, tieneLigaCompartidaSql } from './liga-compartida';
+import { MOTIVO_LIGA_MIN, armarMismaFacturaDuplicado, hayLigaCompartida, tieneLigaCompartidaSql } from './liga-compartida';
 import { esEntradaInternaSql } from './entrada-interna';
 import { cuadraDentroDeTolerancia, evidenciaCuadra, sqlEvidenciaCuadra, paqueteSoloHojaKepler, MENSAJE_SOLO_HOJA_KEPLER } from '@megadulces/contracts';
 import {
@@ -228,6 +228,8 @@ export interface DuplicateHit {
   monto?: number | null;
   /** `false` = la entrada ya no existe en el espejo de Kepler. No bloquea; se avisa. */
   vigente: boolean;
+  /** `[RE.88]` La otra entrada cita la MISMA factura en Kepler: no es un error, la mercancía llegó en dos entradas. */
+  misma_factura?: MismaFacturaDuplicado | null;
 }
 
 export interface ListReceiptsQuery {
@@ -1960,7 +1962,14 @@ export class GoodsReceiptProofsService {
       const peor = masGrave(hits.filter((h) => h.r.vigente === true)) ?? masGrave(hits);
       if (!peor) return null;
       const { v, r, p } = peor;
+      // `[RE.88]` Sólo cuando frena de verdad y la otra entrada no es la misma: ¿citan las dos la misma factura?
+      const misma = dSuc && dFol && r.vigente === true && v.nivel === 'bloquea' && !(r.sucursal === dSuc && r.folio === dFol)
+        ? await trx.transaction((sp) => this.mismaFacturaDeDuplicado(sp, tid, { sucursal: dSuc, folio: dFol }, { sucursal: r.sucursal, folio: r.folio }, p.total ?? null))
+          // Es un dato de más: si falla, el duplicado se decide igual que antes (el savepoint deja viva la transacción).
+          .catch((e: unknown) => { this.logger.warn(`[RE.88] misma factura no medida para ${dSuc}/${dFol}: ${(e as Error)?.message}`); return null; })
+        : null;
       return {
+        misma_factura: misma,
         reason: v.motivo === 'misma_hoja' ? 'file' as const : 'folio' as const,
         nivel: v.nivel as 'bloquea' | 'avisa',
         motivo: v.motivo,
@@ -1973,6 +1982,51 @@ export class GoodsReceiptProofsService {
           folioPapel: nuevo.folio ?? null, monto: p.total ?? null, montoNuevo: nuevo.total ?? null,
         }),
       };
+    });
+  }
+
+  /**
+   * `[RE.88]` Lee lo que `armarMismaFacturaDuplicado` necesita: las dos entradas, la factura (el CFDI ligado a la
+   * hermana, o el UUID que leyó el OCR de su PDF) y las otras entradas ya ligadas a ella con motivo. Sólo lee.
+   */
+  private async mismaFacturaDeDuplicado(
+    trx: Knex.Transaction, tid: string, destino: { sucursal: string; folio: string }, otra: { sucursal: string; folio: string },
+    papelTotal: number | null,
+  ): Promise<MismaFacturaDuplicado | null> {
+    // `referencia` llegó a la vista con RE.32: una base sin ella no puede saber si citan la misma factura.
+    if (!(await this.existeCol(trx, 'analytics', 'erp_goods_receipts', 'referencia'))) return null;
+    const fila = (suc: string, fol: string) => trx('analytics.erp_goods_receipts')
+      .where({ tenant_id: tid, sucursal: suc, folio: fol }).whereNull('dup_of_folio')
+      .first('proveedor_code', 'proveedor_rfc', 'referencia', trx.raw('monto::float8 AS monto')) as Promise<
+        { proveedor_code: string | null; proveedor_rfc: string | null; referencia: string | null; monto: number } | undefined>;
+    const [e, h] = await Promise.all([fila(destino.sucursal, destino.folio), fila(otra.sucursal, otra.folio)]);
+    if (!e || !h) return null;
+    // Barato primero: si no citan la misma factura del mismo proveedor, no se busca el CFDI.
+    if (!armarMismaFacturaDuplicado({ entrada: e, hermana: { ...otra, ...h }, otras: [], cfdi: null, papelTotal, entradaYaLigada: false })) return null;
+    const ligada = (await trx('fiscal.cfdi_assignments')
+      .where({ tenant_id: tid, sucursal: otra.sucursal, doc_folio: otra.folio }).whereIn('status', ['confirmed', 'auto'])
+      .first('cfdi_uuid')) as { cfdi_uuid: string } | undefined;
+    const leida = ligada ? null : (await trx('finance.goods_receipt_proofs')
+      .where({ tenant_id: tid, sucursal: otra.sucursal, folio: otra.folio })
+      .first(trx.raw(`upper(btrim(ocr_raw->>'uuid')) AS uuid`))) as { uuid: string | null } | undefined;
+    const uuid = (ligada?.cfdi_uuid || leida?.uuid || '').trim().toUpperCase();
+    const cfdi = uuid ? (await trx('fiscal.cfdis')
+      .where({ tenant_id: tid, uuid, rol: 'recibidas', tipo_comprobante: 'I' })
+      .whereRaw(`COALESCE(estatus_sat, '') NOT ILIKE 'cancel%'`)
+      .first('uuid', 'emisor_rfc', trx.raw('total::float8 AS total'))) as { uuid: string; emisor_rfc: string | null; total: number } | undefined : undefined;
+    const otras = cfdi && (await hayLigaCompartida(trx)) ? (await trx('fiscal.cfdi_assignments as a')
+      .join('analytics.erp_goods_receipts as g', function () {
+        this.on('g.tenant_id', '=', 'a.tenant_id').andOn('g.sucursal', '=', 'a.sucursal').andOn('g.folio', '=', 'a.doc_folio');
+      })
+      .where({ 'a.tenant_id': tid, 'a.cfdi_uuid': cfdi.uuid, 'a.status': 'confirmed' }).whereNotNull('a.shared_reason').whereNull('g.dup_of_folio')
+      .whereNot(function () { this.where({ 'a.sucursal': destino.sucursal, 'a.doc_folio': destino.folio }); })
+      .whereNot(function () { this.where({ 'a.sucursal': otra.sucursal, 'a.doc_folio': otra.folio }); })
+      .select('a.sucursal', 'a.doc_folio as folio', trx.raw('g.monto::float8 AS monto'))) as { sucursal: string; folio: string; monto: number }[] : [];
+    const yaLigada = !!(await trx('fiscal.cfdi_assignments')
+      .where({ tenant_id: tid, sucursal: destino.sucursal, doc_folio: destino.folio }).whereIn('status', ['confirmed', 'auto']).first('id'));
+    return armarMismaFacturaDuplicado({
+      entrada: e, hermana: { ...otra, ...h }, otras, papelTotal, entradaYaLigada: yaLigada,
+      cfdi: cfdi ? { uuid: cfdi.uuid, total: Number(cfdi.total), emisor_rfc: cfdi.emisor_rfc } : null,
     });
   }
 
