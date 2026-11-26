@@ -1438,6 +1438,13 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/compras/pages/compras-calendario.component').then(m => m.ComprasCalendarioComponent),
         canActivate: [anyPermissionGuard(Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR, Permission.COMPRAS_CALENDARIO_CICLO)]
       },
+      {
+        // `[PQ.3.8]` Proveedores › Citas: la agenda de reuniones con el proveedor (anexo C §9.1, §10.19). Las dos llaves
+        // abren la ruta (NO REBOTE: el árbol de accesos la ofrece con VER o AGENDAR; DC41).
+        path: 'citas',
+        loadComponent: () => import('./modules/compras/pages/compras-citas.component').then(m => m.ComprasCitasComponent),
+        canActivate: [anyPermissionGuard(Permission.COMPRAS_CITAS_VER, Permission.COMPRAS_CITAS_AGENDAR)]
+      },
       { path: 'que-toca', redirectTo: 'pedido', pathMatch: 'full' },
       { path: 'pedido-real', redirectTo: 'pedido', pathMatch: 'full' },        // fusionada en Pedido
       { path: 'existencia-critica', redirectTo: 'pedido', pathMatch: 'full' }, // fusionada en Pedido

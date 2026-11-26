@@ -49,6 +49,8 @@ export * from './lib/product-sheets/product-sheets.module';
 export * from './lib/temporadas/temporadas.module';
 // [PQ.3.4] Compras › Calendario de compras: reglas de revisión por alcance y la marca del día.
 export * from './lib/purchase-calendar/purchase-calendar.module';
+// [PQ.3.8] Compras › Proveedores › Citas: la agenda de reuniones con el proveedor.
+export * from './lib/supplier-meetings/supplier-meetings.module';
 export * from './lib/commercial-picking/picking.service';
 export * from './lib/warehouse-orders/warehouse-orders.module';
 export * from './lib/warehouse-locations/warehouse-locations.module';

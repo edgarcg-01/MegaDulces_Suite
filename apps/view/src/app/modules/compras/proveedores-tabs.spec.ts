@@ -72,6 +72,28 @@ describe('[PQ.3.23] el apartado Proveedores de Compras', () => {
     expect(primeraPestanaVisible(PROVEEDORES_TABS, (p) => p === Permission.COMPRAS_PEDIDO_VER)).toBeNull();
   });
 
+  it('[PQ.3.8] Citas es la segunda pestaña y quien sólo tiene sus llaves (Mercadotecnia, Tesorería, Dirección) entra por ahí', () => {
+    expect(PROVEEDORES_TABS.map((t) => t.route)).toEqual(['/compras/calendario', '/compras/citas']);
+    for (const llave of [Permission.COMPRAS_CITAS_VER, Permission.COMPRAS_CITAS_AGENDAR]) {
+      expect(primeraPestanaVisible(PROVEEDORES_TABS, (p) => p === llave)?.route).toBe('/compras/citas');
+    }
+    // Con las del Calendario y las de Citas, el apartado abre en el Calendario (el orden de la lista manda).
+    expect(primeraPestanaVisible(PROVEEDORES_TABS, (p) => p === Permission.COMPRAS_CITAS_AGENDAR || p === Permission.COMPRAS_CALENDARIO_VER)?.route)
+      .toBe('/compras/calendario');
+    // Las llaves existen (una mal escrita haría pasar la prueba contra undefined).
+    expect(Permission.COMPRAS_CITAS_VER).toBe('COMPRAS_CITAS_VER');
+    expect(Permission.COMPRAS_CITAS_AGENDAR).toBe('COMPRAS_CITAS_AGENDAR');
+  });
+
+  it('[PQ.3.8] la ruta de Citas existe y su guardia pide las MISMAS llaves que la pestaña (sin rebote)', () => {
+    const tramo = RUTAS.split(/(?=path: ')/).find((t) => t.startsWith("path: 'citas'"));
+    expect(tramo, 'no hay ruta «citas» en app.routes.ts').toBeTruthy();
+    expect(tramo).toContain('compras-citas.component');
+    const guardia = /anyPermissionGuard\(([^)]*)\)/.exec(tramo as string)?.[1] ?? '';
+    const llaves = guardia.split(',').map((x) => x.trim().replace('Permission.', '')).filter(Boolean).sort();
+    expect(llaves).toEqual([...(PROVEEDORES_TABS[1].anyOf ?? [])].map(String).sort());
+  });
+
   it('el Calendario vive en UN solo apartado y la pestaña de Parámetros conserva su ruta', () => {
     const todas = TODAS_LAS_PESTANAS.flatMap(([, tabs]) => tabs.map((t) => t.route));
     expect(todas.filter((r) => r === '/compras/calendario')).toHaveLength(1);

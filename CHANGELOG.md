@@ -18,6 +18,12 @@
 ### Fixed — Compras › Pedido: «Est.» y las tarjetas de «Qué hacer» en celular (PQ.95 · 2026-11-26)
 - La columna «Est.» ya no muestra la razón del fin de pico como si fuera estacionalidad: sale sólo de las sucursales sin freno (9 productos con todas sus sucursales frenadas pasan a «—», con su porqué).
 - En celular las tarjetas de «Qué hacer» cortaban el texto, todas («Sube el precio», «Pide el pronto pago»…): ahora hacen salto de línea.
+### Added — Compras › Proveedores › Citas: la agenda de reuniones con el proveedor (PQ.3.8 C1–C3 · 2026-11-26 · en código, sin soltar)
+- Nueva pestaña «Citas» en Compras › Proveedores (`/compras/citas`): la semana de reuniones con ejecutivos, revisiones de negocio y planes de trabajo, las que pasaron sin minuta (de cualquier semana) y las que siguen por confirmar.
+- Agendar con proveedor (buscador común), fecha y horas de la Ciudad de México, modalidad y lugar, temas en orden y quién va por las dos partes; avisa si alguien ya tiene otra reunión a esa hora. Confirmar, escribir la minuta (la reunión queda realizada) y cancelar con motivo; nada se borra.
+- El detalle trae la minuta de la reunión anterior con el mismo proveedor.
+- Quién entra (DC41): agendan Compras, Mercadotecnia y Tesorería; Dirección consulta. Llaves nuevas `COMPRAS_CITAS_VER` y `COMPRAS_CITAS_AGENDAR`.
+- Migraciones, a mano y en orden antes de soltar: `20261125203927` (las tablas, PR #628) y `20261126013618` (el reparto de las llaves; sólo datos). Las 18 personas vuelven a entrar.
 
 ### Fixed — Almacén › Ubicaciones: lo que acabas de ubicar ya no desaparece (UB.RF.19 · 2026-11-25 · **en producción**)
 - Reporte: «los productos no se están almacenando ni mostrando». **Sí se estaban guardando** — dos asignaciones ese mismo día en TA011 de Padre Hidalgo, sin un solo error. Lo que no había era dónde verlos: al guardar, el producto salía de la lista (el filtro de entrada es «Por ubicar» y ya había dejado de estarlo) y la única señal era un aviso que se va.

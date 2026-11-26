@@ -8,7 +8,8 @@ import { Permission } from '../../core/constants/permissions';
  *
  * Los cinco apartados acordados, y dónde está cada uno:
  *  - **Calendario** — `/compras/calendario` (PQ.3.2–PQ.3.22): EXISTE.
- *  - **Citas** — reuniones con ejecutivos y visitas (PQ.3.8, PQ.3.12, PQ.3.13): por construir.
+ *  - **Citas** — `/compras/citas`: la agenda de reuniones con el proveedor (PQ.3.8): EXISTE. Las visitas por WhatsApp
+ *    (PQ.3.13) y la invitación (PQ.3.12) entran sobre ella.
  *  - **Revisión** — la revisión de negocio y su ficha (PQ.3.9): por construir.
  *  - **Acuerdos** — lo pactado, con dueño y fecha, y el plan de trabajo anual (PQ.3.10, PQ.3.11): por construir.
  *  - **Listas de precios** — la del proveedor, con su vigencia y cada cambio autorizado (PQ.155, anexo P):
@@ -32,5 +33,13 @@ export const PROVEEDORES_TABS: PageTab[] = [
     icon: 'pi pi-calendar-clock',
     // Las tres llaves del calendario (DC7): quien sólo consulta, quien marca y quien define reglas.
     anyOf: [Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR, Permission.COMPRAS_CALENDARIO_CICLO],
+  },
+  {
+    label: 'Citas',
+    route: '/compras/citas',
+    icon: 'pi pi-users',
+    // `[PQ.3.8]` Quien consulta (Dirección) y quien agenda (Compras, Mercadotecnia y Tesorería; DC41). Quien sólo tiene
+    // estas llaves entra al apartado por aquí: la entrada del menú abre su primera pestaña visible.
+    anyOf: [Permission.COMPRAS_CITAS_VER, Permission.COMPRAS_CITAS_AGENDAR],
   },
 ];

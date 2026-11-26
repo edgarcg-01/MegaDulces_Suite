@@ -90,7 +90,7 @@ import { ProductSheetsModule } from '@megadulces/commercial';
 // [PQ.94] Compras › Temporadas.
 import { TemporadasModule } from '@megadulces/commercial';
 // [PQ.3.4] Compras › Calendario de compras.
-import { PurchaseCalendarModule } from '@megadulces/commercial';
+import { PurchaseCalendarModule, SupplierMeetingsModule } from '@megadulces/commercial';
 import { CommercialCargaModule } from '@megadulces/commercial';
 import { CommercialAnalyticsModule } from '@megadulces/commercial';
 import { CommercialAlertsModule } from '@megadulces/commercial';
@@ -229,6 +229,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       ProductSheetsModule,
       TemporadasModule,
       PurchaseCalendarModule,
+      // [PQ.3.8] Proveedores › Citas: la agenda de reuniones con el proveedor.
+      SupplierMeetingsModule,
       WarehouseOrdersModule,
       // [UB.1] Ubicaciones de mercancía (Fase UB, ADR-090).
       WarehouseLocationsModule,
