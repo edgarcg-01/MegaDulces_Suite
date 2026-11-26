@@ -9,6 +9,18 @@
 ---
 
 ## [Unreleased]
+### Added — Almacén › Ubicaciones: el croquis de la sucursal se acomoda arrastrando (UB.PL.8 · 2026-11-26 · en código, sin soltar)
+- El mapa deja de dibujar todo como pasillos: se toma cada mueble y se suelta en un renglón, hasta que la planta se parece a la tienda. Se puede con el mouse y también sin mouse, con el teclado.
+- La planta abre siempre con un renglón libre al final, y la bandeja «Sin lugar» dice cuántas piezas faltan y cómo se llaman.
+- Acomodar no toca ninguna ubicación ni ningún código: una etiqueta ya pegada no se puede invalidar moviendo muebles en la pantalla.
+
+### Changed — Almacén › Ubicaciones: un rack puede tener hasta 9 niveles (UB.NV.1 · 2026-11-26 · **en producción**)
+- Hasta hoy el tope era 6, y en Padre Hidalgo **11 racks ya estaban topados**: no había forma de dar de alta el entrepaño siguiente. Ahora llegan al 9.
+- El código de la ubicación no cambia de forma (`BA053`, cinco caracteres), así que las etiquetas impresas y el escáner siguen igual. Nueve es el máximo que cabe sin cambiar el código.
+
+### Fixed — Almacén › Ubicaciones: «Configurar el croquis» armaba las piezas y no lo decía (UB.PL.10 · 2026-11-26 · en código, sin soltar)
+- El botón funcionaba —armó 8 piezas de Padre Hidalgo, cabeceras incluidas— pero la pantalla quedaba idéntica, así que se tocaba de nuevo hasta que el sistema cortaba por exceso de peticiones.
+- Ahora dice cuántas piezas armó y cómo se llaman, se apaga mientras trabaja y el segundo clic no vuelve a pedir.
 ### Fixed — Pagos › Preparar pago: la ✕ para quitar una transferencia se ve (PGP.190.2 · 2026-11-26 · en código, sin soltar)
 - Al partir un pago en tres o más transferencias, cada renglón tiene una ✕ para quitarlo. Desde la actualización de PrimeNG salía vacía: se podía tocar, pero no se veía. Ahora se ve, alineada con el importe y la cuenta, y con el dedo mide 44 px.
 - Internal: en PrimeNG 22 `pButton` ya no tiene `icon` ni `label`; el ícono va dentro del botón (`[iconOnly]`). Hay 28 botones más con el mismo defecto en otras pantallas (AUD-UI.5).

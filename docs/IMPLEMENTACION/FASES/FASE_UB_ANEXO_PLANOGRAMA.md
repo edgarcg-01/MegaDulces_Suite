@@ -120,10 +120,30 @@ El problema no es el dibujo: **es que el dato no puede decir la verdad.**
 - **[UB.PL.6]** `GET/PUT` del croquis de un almacén y zona · `POST` de una pieza (crea sus
   ubicaciones) · mover una pieza sin tocar sus ubicaciones.
 
-### C3 — El editor y el mapa (no se detalla todavía)
+### C3 — El editor y el mapa
 
-- **[UB.PL.7]** El mapa dibuja el croquis configurado. **[UB.PL.8]** El editor acomoda las piezas
-  arrastrando, con el permiso de D4.
+- **[UB.PL.7]** 🚀 El mapa dibuja el croquis configurado: cada pieza como lo que es, y una cabecera
+  sin corredor. En prod desde el 2026-11-26 (`ee60f28fd`).
+- **[UB.PL.10]** 🚀 **El botón que armaba el croquis no decía nada.** Medido en prod ese mismo día:
+  Edgar lo tocó a las 14:23:04, se armaron **8 piezas** en Padre Hidalgo (3 anaqueles y 5 cabeceras
+  — la derivación sí las distingue) y la pantalla quedó **idéntica**, así que lo tocó seis veces más
+  y sacó un `ThrottlerException`. Causa: el aviso vivía dentro de `@if (hayCroquis())`, y una pieza
+  recién armada nunca cumple esa condición — **rama muerta por construcción**. Ahora el aviso vive
+  fuera, el botón se apaga mientras arma y el segundo clic no vuelve a pedir.
+- **[UB.PL.8]** 🧪 **El editor acomoda las piezas arrastrando** (permiso de D4, resuelto como
+  `ALMACEN_UBICACIONES_GESTIONAR`: 4 roles ya repartidos, sin clave nueva). El mouse arrastra y el
+  teclado toma y suelta **por el mismo camino**. ⭐ Un arrastre es **una** petición: `acomodar`
+  devuelve sólo las piezas que se movieron. ⛔ El servicio escribe en dos pasadas porque
+  `commercial_fixtures_celda_unica` no se puede diferir.
+
+### Fuera del plan original — el tope del nivel
+
+- **[UB.NV.1]** 🚀 **El nivel pasa de 1–6 a 1–9**, pedido por Edgar el 2026-11-26. Medido ese día en
+  prod: **11 racks ya estaban topados en el 6** y no había forma de dar de alta el entrepaño
+  siguiente. ⛔ Nueve es el techo: el código son 5 caracteres con el nivel en el último, y
+  `defaultPickSequence` le reserva un solo dígito. Pasar de 9 es cambiar el código y cada etiqueta
+  ya pegada. Migración `20261126151952` **aplicada a prod** (386 ubicaciones, los dos CHECK
+  verificados); afloja en vez de apretar, así que ninguna fila vieja queda fuera de regla.
 
 ## 9. Riesgos y bloqueos
 
