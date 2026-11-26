@@ -87,7 +87,11 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
   // se prueba contra el libro, y sin la tabla la migración de LE.0.0 sale sin hacer nada.
   'finance.caos_ingreso_atribucion',
   // `[LE.6.19]` La hoja de zona que Caja paga en un acto (regla 13: el pago se ejerce contra esta base).
-  'finance.expense_sheets'];
+  'finance.expense_sheets',
+  // `[RE.53]` `[PQ.148]` Las equivalencias del proveedor: `aprender-alias.servicio-real` corre en este job
+  // desde el 2026-10-29 y SIN la tabla fallaba sus 3 pruebas («relation … does not exist»), escondidas
+  // por el `| tee` del paso (medido en la corrida 45495471825 de `main`, 2026-11-24).
+  'commercial.supplier_item_aliases'];
 /**
  * `[CGA-A.55]` Migraciones que ALTERAN una tabla de `LEE_EL_SERVICIO` con REGLAS (no con datos).
  * De esas tablas sólo se trae la migración que las crea; una regla agregada después no entraba, y
@@ -127,7 +131,9 @@ const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_
   // (cerrada → pagada sin aprobación). Sin ellas `hoja-gastos.servicio-real` sale NO MEDIDO.
   '20261030133058_cga_a65_hoja_cerrar_y_pagar.js',
   '20261030140503_cga_a65_hoja_cajon_con_conteo.js',
-  '20261106102659_le619_hoja_de_zona_se_paga_en_un_acto.js'];
+  '20261106102659_le619_hoja_de_zona_se_paga_en_un_acto.js',
+  // `[PQ.148]` El código del proveedor como segunda llave de `supplier_item_aliases` (columna e índice).
+  '20261124210829_pq148_alias_por_codigo_del_proveedor.js'];
 /**
  * `[LE.6.19]` Tablas que el servicio LEE y ninguna migración del conjunto pide: la hoja de zona busca el
  * depósito de su reposición en el banco al contestar. Llegan vacías desde el snapshot (basta su forma),
@@ -139,6 +145,8 @@ const SOLO_LEE_EL_SERVICIO = ['finance.bank_accounts', 'finance.bank_movements',
   'finance.expense_proofs'];
 const MAX_REMEDIOS = 200;
 /** Los GRANT de prod a `app_runtime` sobre tablas que llegan vacías del snapshot y una prueba escribe. */
+/** `[RE.53]` `[PQ.148]` Schemas creados por el remedio cuyo `USAGE` tiene `app_runtime` en prod (ver abajo). */
+const USO_DE_SCHEMA_DE_PROD = ['commercial'];
 const GRANTS_DE_PROD = {
   // `[LE.6.28]` La prueba de la firma del vale siembra vales como `app_runtime` (y los deshace).
   'finance.expense_proofs': 'SELECT, INSERT',
@@ -458,6 +466,16 @@ async function main() {
       await knex.raw(`GRANT USAGE ON SCHEMA ${t.split('.')[0]} TO app_runtime`);
       await knex.raw(`GRANT ${GRANTS_DE_PROD[t]} ON ${t} TO app_runtime`);
       await anotar('grant_de_prod', t, `app_runtime: ${GRANTS_DE_PROD[t]}`);
+    }
+    // `[RE.53]` `[PQ.148]` Schemas que aquí crea el remedio y en prod tienen `USAGE` para `app_runtime`
+    // (medido 2026-11-24: `has_schema_privilege('app_runtime','commercial','USAGE')` = true). Sin esto
+    // `app_runtime` no llega ni a leer `commercial.supplier_item_aliases`, aunque la migración de la tabla
+    // le dé sus GRANT. La migración que crea `commercial` en prod no se trae: arrastra una FK a
+    // `public.stores` que la base vacía no puede cumplir.
+    for (const s of USO_DE_SCHEMA_DE_PROD) {
+      if (!(await knex.raw('SELECT to_regnamespace(?) IS NOT NULL AS s', [s])).rows[0].s) continue;
+      await knex.raw(`GRANT USAGE ON SCHEMA ${s} TO app_runtime`);
+      await anotar('grant_de_prod', s, 'app_runtime: USAGE del schema (medido en prod)');
     }
     console.log('   ⛔ Esta base NO es prod: valida estructura y reglas del corte, no datos.');
   } finally {

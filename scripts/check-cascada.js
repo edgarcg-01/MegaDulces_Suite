@@ -35,11 +35,22 @@
  *   · Lo que está DENTRO de un comentario no cuenta: se explica, no se escribe (igual que
  *     check-motion, que marcaba un `width 900ms` comentado).
  *
- * Uso: `node scripts/check-cascada.js` · prueba negativa: `--self-test`
+ * ── A quién culpa ([OPS.CASCADA.1], 2026-11-25) ──────────────────────────────────────────────
+ *   El `pre-push` (`gate-push.js`) culpa a un push cuando la salida de una compuerta en rojo NOMBRA
+ *   un archivo que viaja en él. Esta compuerta nombraba los 10 archivos con MÁS ::ng-deep: un
+ *   ranking de la deuda, no de quién la subió. Medido el 2026-11-25: `main` en 585/580 y 1094/1092
+ *   (lo subieron 8 commits ya fusionados), y un push que agregaba CERO quedaba frenado por tocar
+ *   `finanzas-calendario-pagos.component.ts`, 2º del ranking con 43. Ahora, en rojo, compara cada
+ *   archivo que difiere de la base (`CASCADA_BASE`, `NX_BASE` o `origin/main`) y nombra sólo los
+ *   que CRECIERON. El ranking sigue a mano con `--ranking`. Sin base comparable, se queda como
+ *   antes (nombra el ranking): no poder medir no absuelve a nadie.
+ *
+ * Uso: `node scripts/check-cascada.js [--ranking]` · prueba negativa: `--self-test`
  */
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const RAIZ = path.resolve(__dirname, '..');
 
@@ -72,6 +83,19 @@ function analizar(src) {
   };
 }
 
+/**
+ * `[OPS.CASCADA.1]` Los archivos que CRECIERON contra la base: `hoy` (archivo → cuenta en el árbol) y
+ * `antesDe(archivo)` (su cuenta en la base; 0 si no existía). Igual o menos no es crecer.
+ */
+function crecieron(hoy, antesDe) {
+  const out = [];
+  for (const [rel, n] of hoy) {
+    const antes = antesDe(rel);
+    if (n > antes) out.push({ rel, antes, hoy: n });
+  }
+  return out.sort((a, b) => b.hoy - b.antes - (a.hoy - a.antes) || a.rel.localeCompare(b.rel));
+}
+
 // ── Prueba negativa ────────────────────────────────────────────────────────────────────────
 if (process.argv.includes('--self-test')) {
   const casos = [
@@ -98,11 +122,30 @@ if (process.argv.includes('--self-test')) {
       fallos++;
     }
   }
+  // `[OPS.CASCADA.1]` A quién se culpa: sólo a lo que creció contra la base.
+  const base = new Map([['a.ts', 3], ['b.ts', 5], ['c.ts', 2]]);
+  const antesDe = (rel) => base.get(rel) ?? 0;
+  const culpa = [
+    // [nombre, hoy, esperados]
+    ['igual que la base → nadie',           [['a.ts', 3]],                         []],
+    ['bajó → nadie',                         [['b.ts', 4]],                         []],
+    ['subió 1 → ése',                        [['a.ts', 4]],                         ['a.ts']],
+    ['archivo nuevo con 2 → ése',            [['nuevo.ts', 2]],                     ['nuevo.ts']],
+    ['mezcla → sólo los que suben, el mayor primero', [['a.ts', 3], ['b.ts', 9], ['c.ts', 3], ['d.ts', 1]], ['b.ts', 'c.ts', 'd.ts']],
+  ];
+  for (const [nombre, hoy, esperados] of culpa) {
+    const dio = crecieron(new Map(hoy), antesDe).map((x) => x.rel);
+    if (JSON.stringify(dio) === JSON.stringify(esperados)) console.log('  ✅ "' + nombre + '"');
+    else {
+      console.error('  ❌ "' + nombre + '": esperaba [' + esperados.join(', ') + '], dio [' + dio.join(', ') + ']');
+      fallos++;
+    }
+  }
   if (fallos) {
     console.error('\n❌ La compuerta no cuenta ' + fallos + ' caso(s) como debe. Arreglala antes de confiar en su verde.\n');
     process.exit(1);
   }
-  console.log('\n✅ ' + casos.length + ' casos: cuenta ng-deep, !important y @layer, y respeta los comentarios.\n');
+  console.log('\n✅ ' + (casos.length + culpa.length) + ' casos: cuenta ng-deep, !important y @layer, respeta los comentarios y culpa sólo a lo que creció.\n');
   process.exit(0);
 }
 
@@ -140,14 +183,64 @@ function topOfensores(mapa) {
   return [...mapa.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
 }
 
+function git(...args) {
+  return execFileSync('git', args, { cwd: RAIZ, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 });
+}
+
+/** `[OPS.CASCADA.1]` La base de la comparación: una explícita, la del CI (`NX_BASE`) o `origin/main`. */
+function baseDeComparacion() {
+  for (const ref of [process.env.CASCADA_BASE, process.env.NX_BASE, 'origin/main']) {
+    if (!ref) continue;
+    try {
+      return { ref, sha: git('rev-parse', '--verify', '--quiet', ref + '^{commit}').trim() };
+    } catch { /* la siguiente */ }
+  }
+  return null;
+}
+
+/** Los archivos del ámbito que difieren de la base: commiteados, sin commitear o nuevos sin versionar. */
+function difierenDe(sha) {
+  const lista = (...args) => git(...args).split('\n').map((s) => s.trim()).filter(Boolean);
+  const todos = new Set([
+    ...lista('diff', '--name-only', sha, '--', ...AMBITO),
+    ...lista('ls-files', '--others', '--exclude-standard', '--', ...AMBITO),
+  ]);
+  return [...todos].filter((rel) => EXT.has(path.extname(rel)) && !rel.endsWith('.spec.ts'));
+}
+
+/** Su cuenta en la base; 0 si el archivo no existía ahí. */
+function cuentaEnBase(sha, rel, clave) {
+  try { return analizar(git('show', sha + ':' + rel))[clave]; } catch { return 0; }
+}
+
 const subio = [];
-if (ngDeep > BASE.ngDeep) subio.push(['::ng-deep', BASE.ngDeep, ngDeep, porArchivoNg]);
-if (important > BASE.important) subio.push(['!important', BASE.important, important, porArchivoImp]);
+if (ngDeep > BASE.ngDeep) subio.push(['::ng-deep', BASE.ngDeep, ngDeep, porArchivoNg, 'ngDeep']);
+if (important > BASE.important) subio.push(['!important', BASE.important, important, porArchivoImp, 'important']);
 
 if (subio.length) {
-  for (const [nombre, base, hoy, mapa] of subio) {
+  // ⛔ Ninguna línea de este bloque escribe una ruta que no sea culpable: `gate-push.js` culpa a todo
+  // archivo NOMBRADO en la salida (por eso el ranking se pide aparte y el comando va sin ruta).
+  const conRanking = process.argv.includes('--ranking');
+  const b = conRanking ? null : baseDeComparacion();
+  let difieren = null;
+  if (b) { try { difieren = difierenDe(b.sha); } catch { difieren = null; } }
+  for (const [nombre, base, hoy, mapa, clave] of subio) {
     console.error('\n❌ ' + nombre + ' creció: ' + base + ' sellado → ' + hoy + ' hoy (+' + (hoy - base) + ').');
-    for (const [rel, n] of topOfensores(mapa)) console.error('   ×' + String(n).padStart(3) + '  ' + rel);
+    if (difieren) {
+      const hoyAhi = new Map(difieren.filter((rel) => mapa.has(rel)).map((rel) => [rel, mapa.get(rel)]));
+      const suben = crecieron(hoyAhi, (rel) => cuentaEnBase(b.sha, rel, clave));
+      const contra = 'Contra ' + b.ref + ' (' + b.sha.slice(0, 9) + ')';
+      if (suben.length) {
+        console.error('   ' + contra + ', crecieron en este árbol:');
+        for (const s of suben) console.error('   +' + String(s.hoy - s.antes).padStart(2) + '  ' + s.rel + '  (' + s.antes + ' → ' + s.hoy + ')');
+      } else {
+        console.error('   ' + contra + ', ningún archivo de este árbol creció: la deuda ya venía en esa base.');
+      }
+      console.error('   Dónde está: npm run check:cascada -- --ranking');
+    } else {
+      if (!conRanking) console.error('   (sin base para comparar archivo por archivo: se nombran los 10 con más)');
+      for (const [rel, n] of topOfensores(mapa)) console.error('   ×' + String(n).padStart(3) + '  ' + rel);
+    }
   }
   console.error('\n   DESIGN.md §S: la cascada va en @layer; ::ng-deep es sólo para vendor (con comentario y');
   console.error('   horizonte de retiro) y un !important justifica contra qué capa de vendor pelea. Sobre un');

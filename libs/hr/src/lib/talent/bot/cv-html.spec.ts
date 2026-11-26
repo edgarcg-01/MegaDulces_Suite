@@ -4,10 +4,13 @@
  */
 // `cv-html` usa `esc` del barril de platform-core, que exige JWT_SECRET al cargarse (como en las demás pruebas del bot).
 let htmlCv: typeof import('./cv-html').htmlCv;
+// `[RH.15.5x]` 60 s propios: lo que tarda es el primer `import` del barril de platform-core bajo carga
+// paralela (sola, la suite del bot corre en 7 s; con `libs/hr` entera, el import pasa de los 10 s por
+// defecto). Una compuerta que parpadea es peor que una roja: enseña a ignorarla.
 beforeAll(async () => {
   process.env['JWT_SECRET'] ??= 'prueba-cv';
   ({ htmlCv } = await import('./cv-html'));
-});
+}, 60000);
 
 const base = {
   nombres: 'Ana', apellido_paterno: 'López', apellido_materno: 'Pérez', puesto_solicitado: 'Cajera', email: 'ana@gmail.com',

@@ -50,6 +50,9 @@ import { ComprobacionGastoService } from './comprobacion-kepler/comprobacion-gas
   providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService, CierreKeplerService, KeplerAutorizacionGastoAdapter, AutorizacionKeplerLecturaService,
     KeplerSolicitudGastoSinkAdapter, SolicitudGastoService, FacturasSatService, KeplerGastoSinkAdapter, ComprobacionGastoService,
     PgListenService, SolicitudPorEventoService],
-  exports: [ExpenseProofsService, ExpenseCaptureLinksService],
+  // `[CB.62.4]` Los dos escritores de Kepler se EXPORTAN para que las comisiones de la terminal (Bancos) los
+  // encadenen en vez de inventar un tercero: una segunda instancia abriría su propio pozo de conexiones a cada
+  // Kepler de sucursal.
+  exports: [ExpenseProofsService, ExpenseCaptureLinksService, KeplerSolicitudGastoSinkAdapter, KeplerGastoSinkAdapter],
 })
 export class FinanceExpenseProofsModule {}

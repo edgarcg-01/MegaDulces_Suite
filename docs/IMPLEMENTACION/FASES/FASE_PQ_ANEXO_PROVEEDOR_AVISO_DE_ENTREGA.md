@@ -158,6 +158,54 @@ que desaparecerían.
 los vales se capturan de 6–9 h a 17–21 h según la sucursal; la 08 (621 vales) tiene su pico a las 14 h
 (16 %), la 00 (584) a las 9 h (18 %), la 07 por la tarde (19 h, 19 %). De lunes a sábado (domingo: 14).
 
+**10. La factura ligada a su aplicación (`[PQ.150]`, medido el 2026-11-25).** Aplicaciones `X-A-20` vivas
+de 60 días (hasta hace 3, sin CL005): 1,938, $114.5 M. **El RFC del acreedor falta en Kepler para 1,147
+(59.2 %)**, y `kdm1.c22` no lo suple: es su copia (vacío en las 939 sin RFC). Lo que sí está: el folio
+del proveedor en la referencia (`kdm1.c11`), en 1,759 (90.8 %), el mismo que usa Recepción (`[RE.43]`).
+
+| Llave (en orden, cada una uno a uno sobre lo que quedó libre) | Ligadas | Testigo por renglón* | Placebo* |
+|---|---:|---:|---:|
+| RFC + folio de la referencia (factura entre 0.5× y 2× la aplicación) | 571 | 78 % | 2.0 % |
+| Folio + total ±$1 (el acreedor sin RFC) | 295 | 75 % | 4.1 % |
+| RFC + total ±$1 + ±20 días (la regla de antes, sobre lo que quedó) | 96 | 93 % | 8.8 % |
+| **Total** | **962 (49.6 %, $88.6 M = 77 %)** | | |
+| *Antes: sólo RFC + total* | *553 (28.5 %, $47.4 M = 41 %)* | | |
+
+\* Pares con la mitad o más de sus renglones casados por importe (±0.5 %, uno a uno); el placebo es la
+misma factura contra otra aplicación del mismo acreedor.
+
+- ⭐ **Las llaves no se contradicen.** El folio no mira el importe y el importe no mira el folio: donde
+  cada una sola encuentra factura única, eligen la misma en **458 de 458**.
+- **La banda del total** sale de lo medido: sin ella, 3 aplicaciones caían en facturas de $0 y $6.48 que
+  repetían el número de folio.
+- ⭐ **76 ligas por folio tienen el total distinto, y no es ruido**: 72 son de **dos proveedores**, con la
+  aplicación sistemáticamente abajo de su factura (3.3–4.9 % en 46 aplicaciones, 9.0 % en 23), unos
+  **$548 mil en 60 días**. Es el caso que valida `[PQ.157]`: ¿hay nota de crédito por esa diferencia?
+  NO MEDIDO aquí.
+- **Lo que no se liga** (976): 765 aplicaciones ($9.1 M) son de acreedores sin ninguna factura en
+  ContPAQi (remisión, personas físicas, `[RE.35.2]`). El nombre del acreedor contra el del emisor
+  (`parecidoNombre`, `[RE.59]`) sumaría 35: no entra (sería replicar en SQL otra pieza de Recepción).
+- **Costo.** La vista entera: 5,243 pares de toda la historia en 8.3 s. Filtrarla por un proveedor no
+  es más barato (el uno a uno se decide contra todos los candidatos; con el filtro el plan se fue a
+  92 s): por eso se lee de una matvista que se refresca cada hora.
+
+**Lo que gana la historia de `[PQ.148]`** (mismo método: aprende de lo anterior al 26-oct y se prueba
+contra los 30 días siguientes; placebo = el código del renglón vecino):
+
+| | Antes | Con estas ligas, **sólo pares con el total igual** |
+|---|---:|---:|
+| Equivalencias (estables) | 1,494 (1,396), 60 proveedores | **2,514 (2,348), 133 proveedores** |
+| Vistas en 2+ facturas, siempre el mismo SKU | 89.7 % | 89.0 % |
+| Acierta con datos que no vio | 99.6 % (placebo 0 %) | 99.5 % (placebo 0.1 %) |
+| Renglones con propuesta, proveedores con RFC en Kepler | 60.0 % | 60.8 % |
+| … sumando los acreedores sin RFC en Kepler | 39.2 % | **57.3 %** |
+
+⛔ **La historia NO puede aprender de todas las ligas.** Con las 76 de total distinto, sus renglones casan
+por accidente, ensucian códigos estables y la cobertura de los proveedores que ya cubría **baja de
+60.0 % a 49.3 %**. La vista de PQ.150 publica todas (PQ.157 necesita justo esas); la historia filtra
+`diferencia` < $1. Y la última fila sólo se cobra si Recepción busca por el RFC de la factura cuando
+Kepler no lo tiene: hoy busca alias e historia **sólo** por el RFC de Kepler.
+
 ## 4. Cómo se lleva a la Suite
 
 **Un concepto nuevo, de la Suite: la cita.** Es lo que el sector ya le pide al proveedor (§1): una
@@ -249,9 +297,15 @@ recibido (hoy 24 %). **Esfuerzo:** C0 S; equivalencias M; aviso + pantalla M–L
   validada (UUID, emisor, receptor, estado SAT) y sus renglones, cada uno ligado a un renglón de OC con
   cantidad en la unidad del proveedor y en la nuestra. Compromete cantidades en la Suite; no toca
   Kepler. Contrato en `libs/contracts`. Prueba contra base real con el payload de la pantalla (regla 13).
-- **`[PQ.150]`** ⬜ **C0 — La factura ligada a su aplicación.** Subir el 39 % (522 de 1,335) con el folio
-  en la referencia (`kdm1.c11`), el RFC del documento (`kdm1.c22`) donde `kdxd` no lo tiene (887 de
-  1,985) y tolerancias medidas; control negativo como §3.2. Cierre: cobertura antes/después.
+- **`[PQ.150]`** 🧪 **C0 — La factura ligada a su aplicación** (§3.10). **Primer tramo (2026-11-25):**
+  `commercial.v_supplier_invoice_application` (derivada, `security_invoker`) con tres llaves —RFC + folio
+  de la referencia, folio + total, RFC + total— y su copia por costo `analytics.mv_supplier_invoice_application`
+  (cada hora, `AnalyticsRefreshService`); mig `20261125090951`. `kdm1.c22` se descartó medido (copia de
+  `kdxd.c10`). Cierre medido: **553 → 962 de 1,938 aplicaciones (28.5 % → 49.6 %; dinero 41 % → 77 %)**,
+  las llaves concuerdan 458 de 458, testigo por renglón contra placebo. **Segundo tramo (después de #624):**
+  la historia de `[PQ.148]` lee la matvista y aprende sólo de pares con el total igual, y Recepción busca
+  alias e historia por el RFC de la factura cuando Kepler no lo tiene. Cierre: renglones con propuesta
+  antes/después (medido en simulación: 39.2 % → 57.3 %).
 - **`[PQ.151]`** ⬜ **C3 — Emparejar la factura con la OC (escalón A: Compras).** La pantalla propone por
   código, descripción y cantidad × factor; la persona confirma. Las cinco preguntas de `diseno` §0b por
   escrito. Cierre: avisos del piloto en 30 días y renglones propuestos que se aceptaron sin cambio.
@@ -279,7 +333,7 @@ recibido (hoy 24 %). **Esfuerzo:** C0 S; equivalencias M; aviso + pantalla M–L
 | DP1–DP6 sin firma | Edgar | abrir la Suite a externos; reglas del aviso | este anexo |
 | El vale escrito por la Suite | Edgar | DR1 y DR5 del anexo R | anexo R |
 | La factura llega a la Suite ~1 día después del timbrado | — | el carril `contpaqi_add` | escalón B (el proveedor sube su XML) |
-| 45 % de aplicaciones sin RFC del proveedor en `kdxd` | — | NO MEDIDO | `[PQ.150]` |
+| 59 % de aplicaciones sin RFC del acreedor en `kdxd` (medido el 2026-11-25; `kdm1.c22` es su copia) | Compras (captura del acreedor en Kepler) | el alta del acreedor no lo exige | `[PQ.150]` liga por el folio sin RFC; Recepción debe buscar por el RFC de la factura (segundo tramo) |
 | CL005 no sigue la forma del resto | — | facturas de miles de renglones | se trata aparte; no entra al piloto |
 
 ## 9. Definición de terminado (método §5)
@@ -296,6 +350,9 @@ recibido (hoy 24 %). **Esfuerzo:** C0 S; equivalencias M; aviso + pantalla M–L
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-24 | **`[PQ.148]` 🧪** (segundo tramo, en local): lo aprendido de la historia es una **vista**, no una copia (regla 1): `commercial.v_supplier_item_code_history` (mig `20261124231441`, `security_invoker`), con el método de §3.2 —factura ↔ aplicación `X-A-20` uno a uno en los dos sentidos, renglón ↔ renglón por importe ±0.5 % uno a uno— y las guardas del primer tramo. Hoy: 1,494 equivalencias de 60 proveedores (desde 2025-10-27), 1,396 estables; de las vistas en 2+ facturas, 851 de 949 siempre en el mismo SKU (en un año cambia más que en 60 días: las demás no proponen solas, van a revisión). El motor la usa **al último**: lo confirmado (código, descripción) y el código de barras van antes, y su producto tiene que venir en la entrada; la pantalla lo rotula «Historial», sin negrita, y al dar por buena la factura pasa a confirmado. **Cierre medido** (prod, sólo lectura, aprende de lo anterior al 25-oct y prueba los 30 días siguientes): acierta 1,054 de 1,058 (99.6 %) contra 0 de 1,025 del placebo; renglones de factura con propuesta (366 facturas, sin CL005) **654 → 1,899 de 2,797 (23.4 % → 67.9 %)**, 74.5 % con la vista de hoy. Costo: la vista entera 4 s y un proveedor 0.4–1 s; tardaba 16 s hasta que la condición de fecha dejó de llevar `AT TIME ZONE` (con RLS, una función no *leakproof* no entra al índice). Pruebas: motor 44/44 con 5 mutantes en rojo; `test-newdb-pq148-code-history` 27/0/0 (casos armados con `VALUES`, 6 mutantes de la vista en rojo, el control contra Kepler en prod); la migración sube, se repite, baja y vuelve a subir contra Postgres real | Claude |
+| 2026-11-24 | **`[PQ.148]` 🧪** (primer tramo, en local): `commercial.supplier_item_aliases` gana `codigo_proveedor` (mig `20261124210829`, columna + índice único por proveedor y código); el motor de Recepción empareja primero por código y cae a la descripción si ese producto no vino; se aprende con código salvo los de 1–2 caracteres (número de renglón) y los repetidos en la factura (medido: 98 % de los pares proveedor-código tienen una sola descripción). Probado: 39/39 del motor con 4 mutantes en rojo y 6/6 contra Postgres real como `app_runtime` con 3 negativas en rojo. De paso apareció `AUD-CI.1`: la prueba de RE.53 contra base real nunca corrió en el CI. Falta lo aprendido de la historia (como vista, regla 1) | Claude |
+| 2026-11-25 | **`[PQ.150]` 🧪** (primer tramo, en local): la factura ligada a su aplicación es la vista `commercial.v_supplier_invoice_application` y su matvista por costo (mig `20261125090951`, refresco cada hora). Tres llaves, uno a uno: RFC + folio de la referencia, folio + total (el acreedor sin RFC: 59 % de las aplicaciones), RFC + total. **553 → 962 de 1,938 aplicaciones de 60 días (dinero 41 % → 77 %)**; las llaves concuerdan 458 de 458; testigo por renglón 75–93 % contra 2–9 % del placebo (§3.10). Control con respuesta conocida: la vista y una medición que usa las funciones TS de Recepción dan las mismas 962 ligas, par por par. Hallazgos: dos proveedores con la aplicación 3–9 % abajo de su factura en 69 aplicaciones (va a `[PQ.157]`); la historia de PQ.148 **no** puede aprender de las ligas de total distinto (la cobertura bajaría de 60.0 % a 49.3 %), así que filtra; Recepción busca alias e historia sólo por el RFC de Kepler. Pruebas: `test-newdb-pq150-invoice-application` 34/0/1 contra prod en sólo lectura y 29/0/1 en Postgres local (TS ≡ SQL en 33 mil valores reales, 18 casos armados, 7 mutantes en rojo); la migración sube, se repite, refresca con `CONCURRENTLY`, baja y vuelve a subir contra Postgres real, y su compuerta se niega con 5,000 aplicaciones y cero pares | Claude |
 | 2026-11-24 | Francisco responde las decisiones de Compras: DP2 (a), DP3 sí, DP5 la 08, DP6 sí, DP7 ventanas del encargado de almacén y sin cita a la fila; **DP4: la lista de precios vive en la Suite, la mantiene el proveedor y cada cambio lo autoriza el comprador** (`[PQ.155]` reescrito). Falta que Edgar las ratifique y decida DP1 | Claude |
 | 2026-11-24 | Francisco: el vale ES la cita; la orden de entrada es rastrillar en vivo; la aplicación valida el costo (anexo R §3c, DR7, `[PQ.157]`). Sin cita se recibe, en la fila (DP7, falta ratificar). El paso 6 pasa a «el vale se escribe al confirmar la cita» | Claude |
 | 2026-11-24 | Francisco trae lo que dicen los proveedores: el sector ya pide **la cita** (el proveedor empareja al sacarla). Se valida lo que pidió (§3.8): **vales borrados y rehechos, confirmado** (78 de 221 cancelados tienen vale nuevo de la misma OC en ±1 día; placebo 5.9 %; Compras cancela el 45 %); **OC achicadas editándolas, no** (855 de 858 OC iguales a su requisición); **OC nuevas por factura, sí y es la regla**: 1,306 de 1,618 OC sin requisición se capturan el mismo día que su vale (control: Kepler no reescribe la fecha al recibir, 155 de 157). Nacen la cita (PQ.156), DP7, y DP1 pasa a recomendar la cuenta del proveedor como destino | Claude |

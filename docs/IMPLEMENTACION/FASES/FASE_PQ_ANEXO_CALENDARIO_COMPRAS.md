@@ -140,6 +140,7 @@ Ciclo de Pedido: una sola agenda.
 | DC24 | La gerencia de compras de Canindo y Zamora Centro **no se recorta** a 05–06: define reglas para todas (DC8) y un recorte de alcance le quitaría las corporativas. «Abre en 05 y 06» queda como búsqueda («Zamora», «Canindo»); un filtro que se recuerde sería otro item | ✅ Francisco, 2026-11-21 (aceptó la propuesta) |
 | DC25 | El conocimiento para definir reglas lo tienen **dos personas**: la jefa actual de compras (`gerente_compras`) y quien llevaba antes la gerencia, hoy en operaciones de compras (`compras_operaciones`, rol de **una** sola persona, que ve y marca pero no define). El resto del equipo ejecuta (Francisco, 2026-11-21). **Define la jefa actual**: no se le da `COMPRAS_CALENDARIO_CICLO` a `compras_operaciones`. Como la clave la tiene otra persona de `gerente_compras` y el modo dios también define, se rastrea **quién definió y quién cambió** cada regla (PQ.3.17). Refina DC8 (§10.9) | ✅ Francisco, 2026-11-22 («Arizbeth o hacer un tracking de quién definió reglas»: las dos) |
 | DC26 | **Mantenimiento**: el patrón lo decide la jefa de compras (DC25). Si un comprador no avanzó, **pospone** («hoy no se pide» con nueva fecha) o hace una **revisión extemporánea** (las dos ya existen), o **ajusta la regla sólo para su sucursal o zona** (PQ.3.19: nueva clave por ADR-054, limitada a su alcance de escritura, nunca la corporativa; falta decidir si la de sucursal o zona reemplaza a la corporativa en esas sucursales o se revisa aparte, §10.1). Con el rastro de quién cambió qué (PQ.3.17) | ✅ Francisco, 2026-11-22 |
+| DC27 | **Los ocasionales se deciden en bloque** (PQ.3.18 c): a cada proveedor de una o pocas compras en 12 meses, sin día fijo y sin regla, se le define una regla para todas las sucursales «cada 180 días» y queda **fuera de ciclo 26 semanas** con el motivo «Ocasional: una o pocas compras en 12 meses». Así no amanecen rezagados y en esa fecha regresan solos a «Por revisar», para ver si siguen siendo ocasionales. Son 94 proveedores, el 1.8 % de la compra. Alternativa descartada: «cada 90 días» sin sacarlos del ciclo, porque muchos amanecerían rezagados el primer día | 🟡 Claude, 2026-11-22 (Francisco: «continúa» sin elegir; se tomó la recomendada). Se puede revertir: cada regla se cambia o se da de baja |
 | DC28 | **Varias zonas o sucursales en una captura** (PQ.3.21): casillas en vez de una lista, y se guarda **una regla por lugar**, todas a la vez o ninguna. Cada una se atiende con lo de su lugar, así se ve si a una zona no se le pidió; cada encargado ve la suya, y la base no cambia. Descartado: una regla que cubra varias zonas (una OC en cualquiera daría por atendida a todas y no se vería la zona sin revisar) | ✅ Francisco, 2026-11-24 |
 | DC29 | **La cadencia de «días de la semana»** (PQ.3.15): cada semana · cada 2 · cada 3 · una vez al mes · cada 6 semanas, en el orden en que la pidieron los usuarios. «Cada N semanas» cuenta desde «a partir del» y no se mueve con la actividad de Kepler. «Una vez al mes» = el 1º, 2º, 3º, 4º o último de ese día en el mes (12 al año). Descartado «cada 4 semanas»: 13 al año, y se corre de semana del mes. Reemplaza el alcance de PQ.3.15 (que decía 2, 3 o 4) | ✅ Francisco, 2026-11-24 |
 | DC30 | **El responsable de una regla** (PQ.3.22): una persona activa con la llave efectiva de marcar que escribe en **todas** las sucursales de la regla (así siempre la ve y la atiende), con el filtro «Mis revisiones». Sin las cuentas de sistema (superadmin, admin), como en `receipt-devueltas` | ✅ Francisco, 2026-11-24 |
@@ -240,9 +241,15 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | 2026-11-22 | **DC25 ✅**: define la jefa actual de compras (no se reparte la clave a `compras_operaciones`) y se rastrea quién definió y quién cambió cada regla → **PQ.3.17**. Las 5 reglas semanales las captura ella desde la pantalla | Francisco + sesión Claude |
 | 2026-11-22 | **DC26 ✅** y **PQ.3.19**: el patrón lo decide la jefa de compras; el comprador pospone, revisa fuera de fecha (ya existen) o ajusta la regla sólo para su sucursal o zona (nuevo) | Francisco + sesión Claude |
 | 2026-11-22 | **El embudo de llenado** (§10.10): 340 proveedores, 0 reglas; dinero y operaciones no ordenan igual (50 % de la compra = 10 proveedores, 50 % de las OC = 22); escalón 1 = 62 proveedores, 82.8 % de la compra y 65.8 % de las OC. Se abre **PQ.3.18**. PQ.3.14 ✅ (en prod con #591) | Francisco + sesión Claude |
+| 2026-11-22 | **PQ.3.18 (c): prueba visual, 0 fallas (35 ✓)** en 3 perfiles + oscuro. Escribió una vez (201, las dos reglas fuera de ciclo). Encontró el botón del escalón 3 en 28 px con el dedo y se corrigió | Francisco (autorizó levantar la API local) + sesión Claude |
+| 2026-11-22 | **PQ.3.18 (c) 🔨 · DC27 🟡**: los ocasionales en bloque (regla «cada 180 días» y fuera de ciclo 26 semanas), API y pantalla con pruebas contra Postgres real (50 ✓, 4 mutantes) y de pantalla (18 ✔, 3 mutantes). Falta la prueba visual (pide autorización) | sesión Claude |
 | 2026-11-22 | **PQ.3.18 🧪**: el orden y el medidor del embudo en «Sin regla», sin migración. Control en prod con el repo real = medición independiente (0 escalones distintos); dominio 36 ✔ (5 mutantes), vista 26 ✔, componente 14 ✔ (3 mutantes), Postgres real 45 ✓. Falta la decisión en bloque de los ocasionales, la prueba visual y el PR | sesión Claude |
 | 2026-11-23 | **PQ.3.20 🧪** (§10.11): el manual de capacitación vive en la pantalla (botón «Manual», otra pestaña) como archivo del repo; `app-manual-link` compartido; el candado de rótulos (65 en `origin/main`, todos en el manual; mutante en rojo), la prueba visual del manual en 3 perfiles + oscuro (0 fallas tras subir a 44 px los objetivos táctiles) y la del botón en la pantalla viva por puesto (0 fallas). Falta el PR (con `main` en rojo por `a9a843a95`) | Francisco (pidió el manual y dónde vive) + sesión Claude |
 | 2026-11-24 | **PQ.3.15 🧪 · PQ.3.21 🧪 · PQ.3.22 🧪** (§10.12): las primeras mejoras que pidieron los usuarios al día siguiente de salir a prod: varias zonas o sucursales con casillas (una regla por lugar), la cadencia de los días de la semana (cada 2, 3 o 6 semanas, o una vez al mes) y el responsable con «Mis revisiones». DC28–DC31 de Francisco. Migración `20261124133043` (la prueba contra Postgres real encontró un defecto en ella, ya corregido). 23 ✓ contra Postgres, 7 mutantes en rojo; prueba visual ✔ en 3 perfiles y oscuro | Francisco (lo pidieron los usuarios) + sesión Claude |
+| 2026-11-24 | **PQ.3.18 (c) al día con `main`**: rearmado encima de PQ.3.15, PQ.3.21 y PQ.3.22 sin cambiar su código; el manual enseña «Sacar del ciclo a los N» y su diálogo (el candado pasa); re-probado contra Postgres real con todo junto (50 ✓ · 23 ✓ · 18 ✓). Va en su propio PR, sin migración | sesión Claude |
+| 2026-11-24 | **PQ.3.15 ✅ · PQ.3.21 ✅ · PQ.3.22 ✅** en prod: `/api/health` sirve `b995d6a2a` (#617) y la migración `20261124133043` está aplicada con sus 3 columnas (sólo lectura). Todavía ninguna de las 16 reglas vivas usa la cadencia nueva ni tiene responsable: se mide el uso, no sólo la llegada | sesión Claude |
+| 2026-11-24 | **PQ.3.17 🧪** (§10.13): quién definió, quién cambió y de qué a qué, sin tabla propia: las reglas se suman a `analytics.master_data_history` con un disparador (mig `20261124231747`), cada escritura declara quién, y sin disparador el historial se declara no medido. 13 ✓ contra Postgres real, 8 mutantes en rojo. Falta la prueba visual y su PR (después del de (c)) | sesión Claude |
+| 2026-11-25 | **PQ.3.17 · prueba visual ✔** (§10.13): dos gerencias escriben por pantalla sobre la misma regla y el detalle dice las dos, con el de qué a qué; escritorio, Fold 7, celular y oscuro; sin el disparador, la pantalla lo declara. 40/40; con (c) en la misma corrida, lo de un alta en bloque ya no sale como «Cambios». Va en el mismo PR que (c) | sesión Claude |
 
 ---
 
@@ -992,9 +999,59 @@ Mientras tanto, la medición se repite a pedido con el script de la sesión, sin
     local da 404, igual que en PQ.3.14. No se vio en prod con datos reales.
   - La base local se dejó como estaba: las reglas que escribió la prueba se borraron, y la preparación se deshizo en
     orden inverso.
-- **Falta:**
-  - (c) la decisión en bloque para los ocasionales, que espera la decisión de qué regla llevan;
-  - el PR.
+- **Enviado como #602** (2026-11-22, sin migración). En el CI pasaron las obligatorias; el rojo de Lint & test es heredado de `main` (`f5cf83019`, con los mismos tres rojos).
+
+**Cómo quedó (c), los ocasionales en bloque (DC27, 2026-11-22; va en su propio PR, después de #602):**
+- **API.** `POST /compras/calendario/reglas/ocasionales` con `{ supplier_codes }` (las claves que muestra la pantalla).
+  - El servidor vuelve a medir el embudo y **sólo toca las que HOY son ocasionales sin regla**. A cada una le pone la
+    regla corporativa «cada 180 días» y la saca del ciclo 26 semanas, con motivo y con quién. Las demás las devuelve
+    como omitidas, con su motivo.
+  - Pide `COMPRAS_CALENDARIO_CICLO` y alcance de escritura en todas las sucursales.
+  - Todo en una transacción. Sin el embudo medido, no escribe a ciegas.
+- **Pantalla.** En el escalón 3, el botón «Sacar del ciclo a los N» (sólo si hay ocasionales sin regla).
+  - Antes de hacer nada, el diálogo dice qué va a hacer: la regla, la fecha de regreso, el motivo y unos nombres.
+  - Al guardar, el aviso dice cuántos quedaron, hasta cuándo, y cuántos no se tocaron.
+- **Pruebas.**
+  - Contrato: 24 ✔. Arranque: la ruta nueva con su permiso.
+  - `test-newdb-pq3-4`: 50 ✓ contra Postgres real, con un ocasional sembrado en el ODS dentro de la transacción
+    (se revierte). Verifica:
+    - la regla y su fuera de ciclo, con quién;
+    - la clave no ocasional, omitida y sin tocar;
+    - repetir no duplica;
+    - en el calendario sale «fuera de ciclo»;
+    - sin alcance de todas, 403, también con una lista sin ningún ocasional.
+  - Cuatro mutantes en rojo: escribir cualquier clave, no exigir el alcance, no sacar del ciclo, aceptar la lista vacía.
+  - Vista: 29 ✔. Componente: 18 ✔, con 3 mutantes en rojo (mandar todas las claves, botón sin ocasionales, cerrar el
+    diálogo al fallar).
+  - `check:pantalla` cumple; `nx build view` y `nx build api` compilan.
+- **Prueba visual de (c), de punta a punta (2026-11-22; Francisco: «inicia prueba visual»; Docker local, API y vista
+  locales): 0 fallas (35 ✓).** Se sembraron dos ocasionales de una sola OC en el ODS local.
+  - **API.** Salen como ocasionales sin regla. El encargado (sin la clave) recibe 403, y tras el 403 siguen los dos sin
+    regla.
+  - **Perfiles:** escritorio, Fold 7 abierto y celular táctiles, y escritorio en oscuro.
+    - El botón dice «Sacar del ciclo a los 2».
+    - El diálogo dice, antes de hacer nada, la regla, la fecha de regreso (hoy + 182 días), el motivo y a quién toca.
+    - El diálogo cabe en la pantalla, y Cancelar cierra sin escribir.
+    - Con teclado, Tab llega al botón con indicador de foco, Enter abre el diálogo y Escape lo cierra.
+  - **Escribe una vez.** Responde 201 con `definidas: 2`.
+    - El aviso dice cuántos quedaron, hasta cuándo y con qué regla.
+    - El escalón 3 queda «2 de 2» y el botón desaparece.
+    - En la API las dos reglas son corporativas, «cada 180 días», fuera de ciclo hasta la fecha y con motivo, y
+      «Reglas» las muestra así.
+  - **Encontró, ya corregido:** con el dedo, el botón del escalón 3 medía **28 px**, porque vive en el embudo, fuera de
+    `.cc-acc`, y no le alcanzaba la regla táctil. Ahora mide 44.
+  - **Declarado:** la X de cerrar de PrimeNG mide 36 px con el dedo, como en todos los diálogos.
+  - La base local se dejó como estaba.
+- **Al día con `main` (2026-11-24).** #602 ya está en prod con (a) y (b), y `main` ya trae PQ.3.15, PQ.3.21 y PQ.3.22
+  (#617), que tocan los mismos archivos. (c) se rearmó encima sin cambiar su código: los choques eran métodos nuevos uno
+  junto a otro e importaciones reacomodadas.
+  - **El manual enseña el botón** (lección G2): el botón en la figura del embudo, el bloque «Los ocasionales, de una
+    vez» con lo que hace el diálogo, la fila «Compra una o pocas veces al año» de «¿Cada cuándo?», y sale de las dos
+    listas de lo que todavía no está en la Suite. El candado del manual pasa; sin esas líneas se ponía en rojo por
+    «Sacar del ciclo a los ocasionales».
+  - **Re-probado con todo junto:** `test-newdb-pq3-4` 50 ✓, `test-newdb-pq3-21` 23 ✓ y `test-newdb-pq3-6` 18 ✓ contra Postgres real; `libs/contracts` 45 ✔ y
+    `libs/commercial` 53 ✔ (calendario); pantalla, reglas y manual 52 ✔.
+  - **Falta:** el PR, su CI, el merge, soltar (sin migración) y verlo en prod.
 
 ### 10.11 El manual de capacitación (PQ.3.20, 2026-11-23)
 
@@ -1035,7 +1092,7 @@ vivir el manual?»*.
   - Control: un rótulo inventado no está en el manual.
   - Mutante: un manual sin «Pasa al lunes» y «Fuera de ciclo hasta» da rojo y los nombra.
   - La negativa real la dio el árbol local: el diálogo de PQ.3.18 (c), «Sacar del ciclo a los ocasionales», lo puso en
-    rojo solo. **Cuando (c) se envíe, su PR tiene que enseñar ese botón en el manual.**
+    rojo solo. **Cuando (c) se envíe, su PR tiene que enseñar ese botón en el manual.** Hecho en ese PR (2026-11-24).
 - **Pruebas.**
   - El botón, 3 ✔. El componente del calendario, 18 ✔. El candado, verde contra `origin/main`.
   - `check:pantalla` cumple las 10 reglas. «Sin emojis», plantillas, estilos y tokens, en verde.
@@ -1149,3 +1206,97 @@ Piedad y otra en Zamora: era el rodeo para «dos zonas». Las decisiones son DC2
   - *El manual:* el botón «Manual» abre el que ya enseña «Por zona», «¿Cada cuánto?» y «Mis revisiones».
   - El último paso del guion falló por el guion (el panel de detalle tapaba el botón «Manual»); se midió aparte, con la
     pantalla limpia: ✓.
+
+### 10.13 Quién definió, quién cambió y de qué a qué (PQ.3.17 · 2026-11-24)
+
+**El problema (DC25).** El detalle de una regla decía «Definida por X el Y» con quien la CREÓ. Si otra persona cambiaba
+el patrón (guardar sobre una regla viva la reemplaza), seguía nombrando sólo a X: la pantalla afirmaba lo que no era. Y el
+patrón anterior se perdía: la regla sólo guarda el último `updated_by` / `updated_at`, que además se mueven igual al
+sacarla del ciclo que al cambiar el patrón.
+
+**Medido en prod (sólo lectura, 2026-11-24):**
+- 16 reglas vivas de 2 personas; 2 se tocaron después de crearse (las dos por quien las creó); ninguna la cambió otra
+  persona; ninguna dada de baja.
+- `analytics.master_data_history` (VP.3.1) ya existe y ya vigila 14 tablas (precios, reorden, caja, libro de efectivo)
+  con un disparador genérico al que se le pasan las columnas. `app_runtime` tiene INSERT, SELECT, la secuencia y el
+  esquema; la función no es SECURITY DEFINER.
+
+**Decisión (técnica, de Claude): sin tabla de historial propia (ADR-056).** Las reglas se suman al log compartido con
+un disparador (migración `20261124231747`, sólo `CREATE TRIGGER`). Cada escritura de la API declara quién es
+(`app.actor`, local a la transacción, como los importers en VP.3.2). Se vigila también `updated_at`: así toda escritura
+deja su fila, aun la que guarda lo mismo, y «el último cambio no está en el historial» sólo puede querer decir que es
+de antes de la migración.
+
+**Las preguntas antes de construir** (skill `diseno` §0b):
+1. *Qué ve y en qué orden.* En el detalle de la regla, sección «La regla»: quién la definió y cuándo; si alguien la tocó
+   después, «Último cambio: quién, el día»; debajo, «Cambios», el más nuevo primero: día · quién, y qué cambió en
+   palabras (el patrón entero antes → después, el responsable por nombre, fuera de ciclo con su motivo, la nota, la baja).
+2. *Qué no.* Ni ids, ni nombres de columna, ni JSON, ni la hora; nada en la lista principal (al revisar no se busca eso).
+3. *Accesibilidad.* A un clic (abrir la regla); una lista ordenada, cada renglón su propio elemento; sin color; nombres
+   de personas, no ids; «sin nombre declarado» cuando una escritura no dijo quién; los 10 más recientes y cuántos hay.
+4. *Ligas.* DC25 (define la jefa de compras) y PQ.3.19 (el comprador ajusta la regla de su sucursal): el rastro que
+   PQ.3.19 necesita es éste.
+5. *¿Le toca?* Sí: el detalle de la regla es donde ya se dice quién la definió.
+
+**Cómo quedó (🧪; viaja en el mismo PR que (c), que toca los mismos archivos):**
+- **Migración** `20261124231747`: el disparador sobre `commercial.purchase_review_rules` (patrón completo, responsable,
+  fuera de ciclo, nota, baja y `updated_at`). Verifica que existan las columnas y el log antes de crearlo; `down()` lo
+  quita y la historia escrita se queda. ⚠️ Sólo crea un disparador: la compuerta del despliegue la clasifica NO_MEDIDO,
+  así que se aplica ANTES de soltar.
+- **API.** `GET /compras/calendario` trae por regla `ultimo_cambio` (de la regla misma: quién y cuándo) y `cambios` (los 10
+  más nuevos del log, con `antes` / `despues` y los nombres de los responsables), más `historial: { measured, note }`. La
+  lectura va en un SAVEPOINT y primero mira que el disparador esté activo: si no, el historial se DECLARA no medido y no
+  se manda `cambios` (nunca «sin cambios» por defecto). Guardar, sacar del ciclo y dar de baja declaran quién.
+- **Contrato.** `historialDeLaRegla` reconstruye la regla entera antes y después de cada cambio (hacia atrás desde la de
+  hoy; lo que el cambio trae manda sobre lo reconstruido) y `ultimoCambioSinHistorial` dice si el último cambio es de
+  antes del historial.
+- **Pantalla.** «Último cambio: …, el …» y la lista «Cambios» en el detalle. Un último cambio sin fila se dice: «Ese último
+  cambio es de antes de que se guardara el historial: se sabe quién y cuándo, no de qué a qué.» Las 2 reglas tocadas en
+  prod lo van a decir así.
+- **Manual.** La figura del detalle con «Último cambio» y «Cambios», su leyenda, el consejo «Quién la definió», y sale de
+  «Lo que viene para la gerencia».
+- **Pruebas.**
+  - `test-newdb-pq3-17` contra Postgres real, como `app_runtime`: **13 ✓**. Una regla recién definida no tiene último
+    cambio; otra persona cambia el patrón y la regla nombra a las dos, con el antes y el después; una tercera escritura de
+    otra persona se le atribuye a ella (el actor no se hereda de la anterior); guardar lo mismo deja su fila; sin declarar
+    quién queda en `null`; la baja queda con quién; NEGATIVA: sin el disparador, se declara no medido.
+  - Sin regresión: `test-newdb-pq3-4` 50 ✓, `pq3-21` 23 ✓, `pq3-6` 18 ✓.
+  - Contrato 51 ✔, dominio 56 ✔, vista y pantalla 78 ✔ (con el candado del manual).
+  - **8 mutantes en rojo:** fuera de ciclo sin declarar quién; sin disparador dice «medido»; la migración sin
+    `updated_at`; el dominio manda cambios sin historial medido; el «antes» sin reconstruir; sin último cambio dice que
+    falta historial; la vista pinta sin historial medido; la pantalla sin «Último cambio».
+  - `check:pantalla` cumple.
+  - **Prueba visual (2026-11-25), 40/40**, contra la API local y Postgres de Docker con la migración aplicada por su `up()`
+    real y usuarios de prueba locales:
+    - Controles antes de escribir: la regla nunca cambiada sólo dice «Definida por»; la cambiada antes del disparador
+      dice quién y cuándo y la frase «de antes de que se guardara el historial», sin inventar «Cambios».
+    - Escritura real por pantalla de **dos gerencias** sobre la misma regla: una corrige el patrón y pone responsable, la
+      otra la saca del ciclo. La base guarda dos filas escritas por `app_runtime`, cada una con su actor; el detalle dice
+      «Último cambio» de la segunda, «Definida por» sigue siendo quien la creó, y «Cambios» trae los dos pasos, el más
+      nuevo primero, con el paso viejo leyéndose igual (patrón de martes y viernes a jueves y viernes; responsable de
+      nadie a la gerencia).
+    - Fold 7 y celular táctiles: los pasos caben (sin desplazamiento lateral), letra ≥ 12 px, botones del detalle ≥ 44 px.
+      Escritorio oscuro: contraste de «Cambios» ≥ 6.9:1.
+    - **Negativa:** sin el disparador, la API declara `historial.measured: false` (sin `cambios`, no una lista vacía) y
+      la pantalla muestra «Último cambio» con el aviso; al reponerlo, los dos cambios vuelven.
+  - **Con (c) en la misma corrida:** «Sacar del ciclo a los N» define la regla y la saca del ciclo en UNA transacción, y
+    el detalle mostraba «Cambios» (la salida del ciclo) sin «Último cambio»: dos piezas de la pantalla contestaban
+    «¿se cambió?» con reglas distintas. Ahora lo escrito en la misma transacción del alta es parte del alta, con la misma
+    regla que «Último cambio» (`changed_at > created_at + 1 s`); la fila se queda en el log. `test-newdb-pq3-17` **14 ✓**
+    y su mutante (sin el filtro) en rojo; la prueba visual de (c) lo confirma en la pantalla.
+  - **Revisión independiente** (otra sesión, sin mis conclusiones), sin bloqueantes. Encontró que un usuario sin nombre en
+    `identity.users` salía como «sin nombre declarado», que en la pantalla quiere decir «escrito fuera de la Suite»: ahora
+    `null` es SÓLO la escritura que no dijo quién, y un usuario sin nombre dice «sin nombre registrado».
+    `test-newdb-pq3-17` **15 ✓** y su mutante en rojo.
+- **Deuda con nombre** (de la misma revisión; de borde, y sin código que no se pueda probar de forma determinista):
+  - `[PQ.3.17.d1]` «Último cambio» sale de la regla y «Cambios» del log: una escritura a mano (SQL fuera de la API, que
+    no mueve `updated_by`/`updated_at`) los puede desalinear. Con historial medido, «Último cambio» podría salir del log.
+  - `[PQ.3.17.d2]` Lo cambiado antes del disparador no está en el log. Hoy son 2 reglas en prod: cuando se vuelvan a
+    cambiar, el aviso «de antes del historial» se va y la lista no dice que le faltan los cambios de antes.
+  - `[PQ.3.18.c1]` Concurrencia en «Sacar del ciclo a los N»: si otra gerencia define la regla de un ocasional entre la
+    lectura y la escritura, se reemplaza en vez de omitirse. Pide dos gerencias en el mismo segundo sobre el escalón 3.
+  - `[PQ.3.18.c2]` Si la actividad de 12 meses (día fijo) no se pudo medir y la compra sí, un proveedor de pocas compras
+    con día fijo cae al escalón 3. El diálogo lo nombra antes de guardar.
+  - `[PQ.3.18.c3]` La fecha del diálogo sale de la carga de la pantalla: abierta pasada la medianoche promete un día
+    antes; el aviso final dice la fecha real del servidor.
+- **Falta:** el merge (va en el mismo PR que (c)), la migración `20261124231747` antes de soltar y verlo en prod.

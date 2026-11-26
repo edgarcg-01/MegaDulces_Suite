@@ -2,8 +2,8 @@
 import { diasEntre } from '../finance/pago-vencido.contract';
 import { sumarDias } from './existencia-historico.contract';
 import {
-  diaIso, estadoDeRegla, fechasDeLaRegla, proximasRevisiones,
-  type PatronDeRegla, type ReglaRevision,
+  diaIso, estadoDeRegla, fechasDeLaRegla, historialDeLaRegla, OCASIONALES_MAX, proximasRevisiones, ultimoCambioSinHistorial, validarOcasionales,
+  type CambioDeRegla, type EstadoDeLaRegla, type PatronDeRegla, type ReglaRevision,
 } from './purchase-calendar.contract';
 
 /**
@@ -159,5 +159,84 @@ describe('estadoDeRegla — el estado de HOY (DC14: lo no atendido amanece rezag
   it('fuera de ciclo hasta el 15-dic: no se rezaga, y la próxima es la primera después', () => {
     const e = estadoDeRegla({ ...semana(3), out_of_cycle_until: '2026-12-15' }, hoy, { actividad: ['2026-10-01'] });
     expect(e).toMatchObject({ estado: 'fuera_de_ciclo', dias_atraso: 0, proxima: { fecha: '2026-12-16', corrida_de: null } });
+  });
+});
+
+describe('`[PQ.3.18]` (c) los ocasionales en bloque: lo que se rechaza antes de llegar a la base', () => {
+  it('sin proveedores, con una clave vacía o que no es texto, se dice en llano', () => {
+    expect(validarOcasionales({ supplier_codes: [] })).toBe('Faltan los proveedores.');
+    expect(validarOcasionales({ supplier_codes: ['CA022', ' '] })).toBe('Cada proveedor va por su clave de Kepler.');
+    expect(validarOcasionales({ supplier_codes: [7 as unknown as string] })).toBe('Cada proveedor va por su clave de Kepler.');
+    expect(validarOcasionales(null as unknown as { supplier_codes: string[] })).toBe('Faltan los proveedores.');
+  });
+  it(`más de ${OCASIONALES_MAX} no son «los ocasionales»; hasta ahí, válido`, () => {
+    expect(validarOcasionales({ supplier_codes: Array.from({ length: OCASIONALES_MAX + 1 }, (_, i) => 'C' + i) })).toMatch(/más de 500/);
+    expect(validarOcasionales({ supplier_codes: Array.from({ length: OCASIONALES_MAX }, (_, i) => 'C' + i) })).toBeNull();
+    expect(validarOcasionales({ supplier_codes: ['CA022'] })).toBeNull();
+  });
+});
+
+describe('`[PQ.3.17]` el historial de una regla: de qué a qué, reconstruido desde la regla de hoy', () => {
+  const hoy: EstadoDeLaRegla = {
+    pattern: 'weekdays', weekdays: [1, 3], month_days: null, month_last_day: false, every_n_days: null, weekend_shift: 'friday',
+    week_interval: 2, week_anchor: '2026-11-23', month_week: null, reviewer_user_id: 'U-B', out_of_cycle_until: null,
+    out_of_cycle_reason: null, note: 'pasa con el camión de Zamora',
+  };
+  const cambio = (el: string, campos: CambioDeRegla['campos'], por: string | null = 'Bea'): CambioDeRegla =>
+    ({ el, dia: el.slice(0, 10), por, campos, nombres: {} });
+  // El más nuevo primero, como los da la API.
+  const cambios = [
+    cambio('2026-11-26T15:00:00Z', { out_of_cycle_until: { antes: '2026-12-15', despues: null }, out_of_cycle_reason: { antes: 'inventario', despues: null } }),
+    cambio('2026-11-25T15:00:00Z', {
+      pattern: { antes: 'every_n_days', despues: 'weekdays' }, every_n_days: { antes: 14, despues: null },
+      weekdays: { antes: null, despues: [1, 3] }, week_interval: { antes: null, despues: 2 }, week_anchor: { antes: null, despues: '2026-11-23' },
+      reviewer_user_id: { antes: null, despues: 'U-B' },
+    }, 'Ana'),
+  ];
+
+  it('el cambio más nuevo termina en la regla de hoy; su «antes» es el «después» del anterior', () => {
+    const [p1, p2] = historialDeLaRegla(hoy, cambios);
+    expect(p1.despues).toEqual(hoy);
+    expect(p1.antes.out_of_cycle_until).toBe('2026-12-15');
+    expect(p1.antes.out_of_cycle_reason).toBe('inventario');
+    expect(p1.antes.weekdays).toEqual([1, 3]); // lo que no se movió se queda
+    expect(p2.despues).toEqual(p1.antes);
+  });
+
+  it('reconstruye el patrón ENTERO de antes, no sólo las columnas que se movieron', () => {
+    const p2 = historialDeLaRegla(hoy, cambios)[1];
+    expect(p2.antes).toMatchObject({ pattern: 'every_n_days', every_n_days: 14, weekdays: null, week_interval: null, week_anchor: null, reviewer_user_id: null });
+    expect(p2.antes.note).toBe('pasa con el camión de Zamora');
+    expect(p2.antes.out_of_cycle_until).toBe('2026-12-15'); // estaba fuera de ciclo cuando cambió el patrón
+  });
+
+  it('las listas del JSON vuelven como números, y un campo que no venía queda en null', () => {
+    const p = historialDeLaRegla({ ...hoy, weekdays: [1] }, [cambio('2026-11-25T15:00:00Z', { weekdays: { antes: ['2', '4'], despues: [1] } })])[0];
+    expect(p.antes.weekdays).toEqual([2, 4]);
+    const q = historialDeLaRegla(hoy, [cambio('2026-11-25T15:00:00Z', { note: { despues: 'x' } as never })])[0];
+    expect(q.antes.note).toBeNull();
+  });
+
+  it('lo que el cambio trae manda sobre lo reconstruido: un hueco no le atribuye un valor que no escribió', () => {
+    // Hoy la nota es «z» (una escritura que no pasó por el disparador); el cambio guardado decía «x».
+    const p = historialDeLaRegla({ ...hoy, note: 'z' }, [cambio('2026-11-25T15:00:00Z', { note: { antes: null, despues: 'x' } })])[0];
+    expect(p.despues.note).toBe('x');
+    expect(p.antes.note).toBeNull();
+  });
+
+  it('sin cambios no hay pasos; el objeto de hoy no se modifica', () => {
+    const copia = JSON.parse(JSON.stringify(hoy));
+    expect(historialDeLaRegla(hoy, [])).toEqual([]);
+    historialDeLaRegla(hoy, cambios);
+    expect(hoy).toEqual(copia);
+  });
+
+  it('el último cambio que el historial no tiene es de antes de que se guardara; con su fila (±2 s), no', () => {
+    const u = { por: 'Ana', el: '2026-11-25T15:00:01Z', dia: '2026-11-25' };
+    expect(ultimoCambioSinHistorial({ ultimo_cambio: u, cambios })).toBe(false);
+    expect(ultimoCambioSinHistorial({ ultimo_cambio: u, cambios: [] })).toBe(true);
+    expect(ultimoCambioSinHistorial({ ultimo_cambio: { ...u, el: '2026-11-24T10:00:00Z' }, cambios })).toBe(true);
+    // NEGATIVA: una regla que nadie tocó no dice que le falte historial.
+    expect(ultimoCambioSinHistorial({ ultimo_cambio: null, cambios: [] })).toBe(false);
   });
 });

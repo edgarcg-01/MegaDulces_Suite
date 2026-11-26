@@ -4,10 +4,13 @@
  */
 // El servicio importa el barril de platform-core, que exige JWT_SECRET al cargarse.
 let HrDocumentClassifierService: typeof import('./clasificar-documento.service').HrDocumentClassifierService;
+// `[RH.15.5x]` 60 s propios: lo que tarda es el primer `import` del barril de platform-core bajo carga
+// paralela (sola, la suite del bot corre en 7 s; con `libs/hr` entera, el import pasa de los 10 s por
+// defecto). Una compuerta que parpadea es peor que una roja: enseña a ignorarla.
 beforeAll(async () => {
   process.env['JWT_SECRET'] ??= 'prueba-clasificador';
   ({ HrDocumentClassifierService } = await import('./clasificar-documento.service'));
-});
+}, 60000);
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 const respuesta = (input: unknown) => ({ content: [{ type: 'tool_use', name: 'clasificar_documento', input }] });

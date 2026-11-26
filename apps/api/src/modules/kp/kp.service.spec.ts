@@ -26,7 +26,7 @@ const kdii = (o: Fila = {}): Fila => ({
   ...o,
 });
 
-/** Una fila de `product_label_prices` (la etiqueta del anaquel). */
+/** Una fila de etiqueta: hoy `analytics.v_label_prices` (`[VAC.D1]`), la vista viva sobre el ODS. */
 const etiqueta = (o: Fila = {}): Fila => ({
   piece_price: 85.49, source: 'kepler', content: '1.350 ML', unit_base: 'PZA',
   wholesale_piece_price: null, wholesale_piece_min_qty: null,
@@ -59,10 +59,10 @@ function dbFalso(o: Opciones = {}) {
     // `[ETQ-PROMO.2]` El agregado del $0.01 va ANTES que la lectura de fichas: comparten tabla.
     if (sql.includes('bool_and')) return { rows: o.centavo ?? [] };
     if (sql.includes('FROM kepler_ods.kdii')) return { rows: o.kdii ?? [] };
-    if (sql.includes('catalog.suppliers') && !sql.includes('product_label_prices')) {
+    if (sql.includes('catalog.suppliers') && !sql.includes('v_label_prices')) {
       return { rows: o.proveedores ?? [] };
     }
-    if (sql.includes('product_label_prices')) {
+    if (sql.includes('v_label_prices')) {
       if (o.fallaEtiqueta) throw new Error(MENSAJE_PG);
       return { rows: o.etiqueta ?? [] };
     }
@@ -318,7 +318,7 @@ describe('[VAC.L7] KpService.getPrecio', () => {
     it('la lectura de la etiqueta ya no pide la columna source', async () => {
       const { svc, llamadas } = servicio({ kdii: [kdii()], etiqueta: [etiqueta()] });
       await svc.getPrecio('00610', '03');
-      const lecturaEtiqueta = llamadas.find((l) => l.sql.includes('product_label_prices'));
+      const lecturaEtiqueta = llamadas.find((l) => l.sql.includes('v_label_prices'));
       expect(lecturaEtiqueta).toBeDefined();
       expect(lecturaEtiqueta!.sql).not.toMatch(/l\.source/);
     });
@@ -520,5 +520,108 @@ describe('[ETQ-PROMO.2] KpService avisa que un código es una promoción', () =>
     expect(q).toContain('<= 0.01');
     // sin acotar a una plaza: un producto real puede tener un precio de paso en UNA tienda
     expect(q).not.toMatch(/sucursal\s*=/);
+  });
+});
+
+/**
+ * `[VAC.PAQ.1]` (2026-11-25) Sin paquete en Kepler, no hay escalón de «paquete».
+ *
+ * El `18016` (Cajeta envinada 1 kg) tiene pieza y caja; `kdpv_prod_util` trae escalones de una
+ * unidad `PAQ` que el producto no tiene, y el verificador publicaba «desde 3 paquetes, $136.12 c/u».
+ * La decisión se toma con las presentaciones de `kdii`, no con la fila de etiqueta: el `95684` tiene
+ * un PAQ REAL de factor 1 que la etiqueta no registra como paquete, y no se le quita su mayoreo.
+ */
+describe('[VAC.PAQ.1] el escalón de paquete sólo si Kepler tiene paquete', () => {
+  beforeEach(() => {
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  // La fila de etiqueta del 18016: mayoreo de pieza Y un «paquete» sin paquete registrado.
+  const etiqueta18016 = (o: Fila = {}) => etiqueta({
+    sku: '610', piece_price: 85.49, unit_base: 'PZA', pack_price: null, pack_size: null,
+    wholesale_piece_price: 79.9, wholesale_piece_min_qty: 3,
+    wholesale_pack_price: 81.5, wholesale_pack_min_qty: 3,
+    ...o,
+  });
+  const etiquetas = (r: any) => (r.mayoreo as Array<{ etiqueta: string }>).map((t) => t.etiqueta);
+
+  it('pieza y caja en Kepler: se publica el mayoreo de pieza y NO el «paquete»', async () => {
+    const { svc } = servicio({ kdii: [kdii({ u3: 'CJA', pv3: 980, f3: 12 })], etiqueta: [etiqueta18016()] });
+    expect(etiquetas(await svc.getPrecio('00610', '03'))).toEqual(['pieza']);
+  });
+
+  it('con un PAQ real en Kepler (aunque sea de factor 1) el escalón de paquete se queda', async () => {
+    const { svc } = servicio({ kdii: [kdii({ u2: 'PAQ', pv2: 80, f2: 1, u3: 'CJA', pv3: 980, f3: 12 })], etiqueta: [etiqueta18016()] });
+    expect(etiquetas(await svc.getPrecio('00610', '03'))).toEqual(['pieza', 'paquete']);
+  });
+
+  it('con base PAQ el escalón de «paquete» ES el de la base y se queda', async () => {
+    const { svc } = servicio({
+      kdii: [kdii({ u1: 'PAQ', pv1: 85.49 })],
+      etiqueta: [etiqueta18016({ unit_base: 'PAQ', wholesale_piece_price: null, wholesale_piece_min_qty: null })],
+    });
+    expect(etiquetas(await svc.getPrecio('00610', '03'))).toEqual(['paquete']);
+  });
+
+  it('con base CJA (sin PAQ en Kepler) el escalón de «paquete» también es el de la base y se queda', async () => {
+    const { svc } = servicio({
+      kdii: [kdii({ u1: 'CJA', pv1: 85.49 })],
+      etiqueta: [etiqueta18016({ unit_base: 'CJA', wholesale_piece_price: null, wholesale_piece_min_qty: null })],
+    });
+    expect(etiquetas(await svc.getPrecio('00610', '03'))).toEqual(['paquete']);
+  });
+
+  it('el respaldo del kiosco aplica el MISMO filtro que el modo en línea', async () => {
+    const sinPaq = servicio({ kdii: [kdii({ u3: 'CJA', pv3: 980, f3: 12 })], etiqueta: [etiqueta18016()] });
+    const r1: any = await sinPaq.svc.getPreciosTodos('03');
+    expect((r1.productos[0].m ?? []).map((t: any) => expandirTier(t).etiqueta)).toEqual(['pieza']);
+
+    const conPaq = servicio({ kdii: [kdii({ u2: 'PAQ', pv2: 80, f2: 1 })], etiqueta: [etiqueta18016()] });
+    const r2: any = await conPaq.svc.getPreciosTodos('03');
+    expect((r2.productos[0].m ?? []).map((t: any) => expandirTier(t).etiqueta)).toEqual(['pieza', 'paquete']);
+  });
+});
+
+/**
+ * `[VAC.D1]` (2026-11-25) El mayoreo sale de la vista VIVA sobre el ODS (`analytics.v_label_prices`)
+ * y no de la tabla que recalcula un importer sin latido. Lo que Compras corrige en Kepler llega sin
+ * intermediario: el 18016 se limpió ese día y la tabla lo reflejó sólo porque el importer corrió.
+ */
+describe('[VAC.D1] el mayoreo se lee de la vista viva sobre el ODS', () => {
+  beforeEach(() => {
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('en línea: lee analytics.v_label_prices de ESA plaza, con la clave tal cual y sin ceros', async () => {
+    const { svc, llamadas } = servicio({ kdii: [kdii()], etiqueta: [etiqueta()] });
+    await svc.getPrecio('00610', '03');
+    const lectura = llamadas.find((l) => l.sql.includes('v_label_prices'));
+    expect(lectura).toBeDefined();
+    expect(lectura!.sql).toMatch(/FROM analytics\.v_label_prices v/);
+    expect(lectura!.sql).not.toMatch(/commercial\.(v_)?product_label_prices/);
+    expect(lectura!.bindings).toEqual(expect.arrayContaining(['00610', '610', '03']));
+  });
+
+  it('el respaldo del kiosco lee la MISMA vista, por plaza', async () => {
+    const { svc, llamadas } = servicio({ kdii: [kdii()], etiqueta: [etiqueta({ sku: '610' })] });
+    await svc.getPreciosTodos('03');
+    const lectura = llamadas.find((l) => l.sql.includes('v_label_prices'));
+    expect(lectura).toBeDefined();
+    expect(lectura!.sql).not.toMatch(/commercial\.(v_)?product_label_prices/);
+    expect(lectura!.bindings).toEqual(['03']);
+  });
+
+  it('un producto sin ficha en el catálogo conserva su mayoreo (la ficha es LEFT JOIN): sólo falta la llave del aviso', async () => {
+    const { svc } = servicio({
+      kdii: [kdii()],
+      etiqueta: [etiqueta({ product_id: null, wholesale_piece_price: 79.9, wholesale_piece_min_qty: 3 })],
+    });
+    const r: any = await svc.getPrecio('00610', '03');
+    expect(r.mayoreo.map((t: any) => t.etiqueta)).toEqual(['pieza']);
+    expect(r.product_id).toBeNull();
   });
 });

@@ -18,6 +18,8 @@ function armar() {
   const c: any = Object.create(ComprasEntradasComponent.prototype);
   Object.assign(c, {
     showDetail: signal(false), detailLoading: signal(false), detailData: signal(null), detailTarget: signal(null),
+    // [PQ.157] openDetail deja limpio el «sucio» de la decisión de costo de la entrada nueva.
+    costoSucio: signal(false),
     recon: signal(null), reconLoading: signal(false), verLineasKepler: signal(false), hojaIdx: signal(0),
     explains: signal([]), explainsLoading: signal(false), explainsTotal: signal(0), explainsOtras: signal([]), explainsError: signal(false),
     destroyRef: { onDestroy: () => () => undefined, destroyed: false },
