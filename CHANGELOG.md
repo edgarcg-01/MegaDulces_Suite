@@ -13,6 +13,16 @@
 - El mayoreo del verificador (y del checador del vendedor y el respaldo del kiosco) se lee de la vista viva sobre el ODS, igual que la etiqueta del anaquel, y ya no de una tabla que recalculaba un importer. Lo que Compras corrige en Kepler llega con el ODS (~5 min). En la tienda 01, 457 productos más muestran su mayoreo (los que Kepler tiene y la tabla no).
 ### Fixed — Verificador de precios: ya no muestra un «paquete» que el producto no tiene (VAC.PAQ.1, 2026-11-25 · en código, sin soltar)
 - 620 productos mostraban «desde N paquetes» con un precio de una unidad PAQ que su ficha en Kepler no tiene (p. ej. 18016, cajeta 1 kg: pieza y caja). Ahora ese escalón no se publica, ni en línea ni en el respaldo del kiosco. Los paquetes reales (incluido el de 1 pieza) se quedan.
+### Added — Compras › Pedido: la etiqueta del freno, con su porqué y el filtro «Con freno» (PQ.95 · 2026-11-26)
+- Cada producto dice qué regla movió su sugerido: «fin de pico» con las sucursales donde aplicó (el motor ya lo hacía y la pantalla no lo decía), o su temporada confirmada en Compras › Temporadas («Navidad y posadas · se repone hasta 24-dic»). Una etiqueta por renglón, la que manda; sin freno, ninguna.
+- Al abrir el producto, «Qué hacer» lo explica en texto, y cada sucursal frenada dice con cuánto se pide (por ejemplo, ≈5.7 cajas al mes en lugar de 18.7, el 31 %).
+- «Con freno», en «Más filtros», deja sólo los productos con fin de pico o con temporada confirmada y dice cuántos hay de cada uno (la temporada avisa: todavía no cambia el sugerido). El Excel respeta el filtro.
+- Donde la temporada ya no deja reponer, la etiqueta lo dice y avisa que el sugerido todavía no lo frena. Ningún sugerido cambió.
+
+### Fixed — Compras › Pedido: «Est.» y las tarjetas de «Qué hacer» en celular (PQ.95 · 2026-11-26)
+- La columna «Est.» ya no muestra la razón del fin de pico como si fuera estacionalidad: sale sólo de las sucursales sin freno (9 productos con todas sus sucursales frenadas pasan a «—», con su porqué).
+- En celular las tarjetas de «Qué hacer» cortaban el texto, todas («Sube el precio», «Pide el pronto pago»…): ahora hacen salto de línea.
+
 ### Fixed — Almacén › Ubicaciones: lo que acabas de ubicar ya no desaparece (UB.RF.19 · 2026-11-25 · **en producción**)
 - Reporte: «los productos no se están almacenando ni mostrando». **Sí se estaban guardando** — dos asignaciones ese mismo día en TA011 de Padre Hidalgo, sin un solo error. Lo que no había era dónde verlos: al guardar, el producto salía de la lista (el filtro de entrada es «Por ubicar» y ya había dejado de estarlo) y la única señal era un aviso que se va.
 - Ahora **«Acabas de ubicar (N)»** queda a la vista en la lista, con el código donde quedó cada producto y su «Quitar». Antes esa bandeja sólo se llenaba si trabajabas parado en una ubicación.

@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 3344 KB, 15823 líneas, 78 secciones.
+> **Índice navegable** — 3361 KB, 16020 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -10,81 +10,81 @@
 | 91 | 98 | 15 | Tracker de Progreso |
 | 99 | 199 | 288 | 📊 Estado global de fases |
 | 200 | 226 | 1 | 🚦 Estado por item (granular) |
-| 227 | 4499 | 850 | 🎯 EN PROGRESO |
-| 4516 | 4553 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 4554 | 4587 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 4588 | 4672 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 4673 | 4776 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 4777 | 4843 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 4844 | 4947 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 4948 | 5031 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 5032 | 5201 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 5202 | 5264 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 5265 | 5337 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 5338 | 5389 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 5390 | 6360 | 226 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 6361 | 6374 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 6375 | 6399 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 6400 | 6422 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 6423 | 6461 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 6462 | 7263 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 7264 | 7448 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 7449 | 7491 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 7492 | 7569 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 7570 | 7663 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 7664 | 7799 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 7800 | 7816 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 7817 | 7871 | 100 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 7872 | 7939 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 7940 | 8192 | 20 | Fase CH — Checadores / Control de asistencia |
-| 8193 | 8258 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 8259 | 8286 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 8287 | 8453 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 8454 | 8482 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
-| 8483 | 8879 | 179 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 8880 | 8942 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 8943 | 9072 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 9073 | 9135 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 9136 | 9296 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 9297 | 9367 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 9368 | 9416 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 9417 | 9449 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 9450 | 10146 | 80 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 10147 | 10278 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 10279 | 10332 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 10333 | 10372 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 10373 | 10425 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 10426 | 10492 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 10493 | 10655 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 10656 | 10939 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 10940 | 11107 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 11108 | 13538 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 13539 | 13547 | 1 | Fase RR — Ventas por ruta |
-| 13548 | 13867 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 13868 | 13878 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 13879 | 13899 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 13900 | 13910 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 13911 | 13922 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 13923 | 13982 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 13983 | 14410 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 14411 | 14425 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 14426 | 14467 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14468 | 14634 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14635 | 14666 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14667 | 14969 | 83 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14970 | 15040 | 100 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 15041 | 15049 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 15050 | 15116 | 32 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 15123 | 15132 | 1 | 📝 Convenciones |
-| 15133 | 15170 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 15171 | 15189 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 15190 | 15242 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 15243 | 15658 | 127 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15659 | 15689 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15690 | 15711 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15712 | 15745 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15746 | 15797 | 58 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15798 | 15913 | 107 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 227 | 4500 | 852 | 🎯 EN PROGRESO |
+| 4517 | 4554 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 4555 | 4588 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 4589 | 4673 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 4674 | 4777 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 4778 | 4844 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 4845 | 4948 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 4949 | 5032 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 5033 | 5202 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 5203 | 5265 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 5266 | 5338 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 5339 | 5390 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 5391 | 6361 | 226 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 6362 | 6375 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 6376 | 6400 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 6401 | 6423 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 6424 | 6462 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 6463 | 7264 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 7265 | 7449 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 7450 | 7492 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 7493 | 7570 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 7571 | 7664 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 7665 | 7800 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 7801 | 7817 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 7818 | 7872 | 100 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 7873 | 7940 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 7941 | 8193 | 20 | Fase CH — Checadores / Control de asistencia |
+| 8194 | 8259 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 8260 | 8287 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 8288 | 8454 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 8455 | 8483 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
+| 8484 | 8880 | 179 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 8881 | 8943 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 8944 | 9073 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 9074 | 9136 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 9137 | 9297 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 9298 | 9368 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 9369 | 9417 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 9418 | 9450 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 9451 | 10343 | 96 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 10344 | 10475 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 10476 | 10529 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 10530 | 10569 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 10570 | 10622 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 10623 | 10689 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 10690 | 10852 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 10853 | 11136 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 11137 | 11304 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 11305 | 13735 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 13736 | 13744 | 1 | Fase RR — Ventas por ruta |
+| 13745 | 14064 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 14065 | 14075 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 14076 | 14096 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 14097 | 14107 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 14108 | 14119 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 14120 | 14179 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 14180 | 14607 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 14608 | 14622 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 14623 | 14664 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 14665 | 14831 | 83 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14832 | 14863 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14864 | 15166 | 83 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 15167 | 15237 | 100 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 15238 | 15246 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 15247 | 15313 | 32 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 15320 | 15329 | 1 | 📝 Convenciones |
+| 15330 | 15367 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 15368 | 15386 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 15387 | 15439 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 15440 | 15855 | 127 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15856 | 15886 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15887 | 15908 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15909 | 15942 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15943 | 15994 | 58 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15995 | 16110 | 107 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -1085,6 +1085,7 @@ Pedido de Edgar (2026-11-17): *«hagamos que nada se capture a mano»*. Firmó D
 - [x] **[RH.1.3]** ✅ 2026-11-12 El lector de relojes en el monorepo (2026-10-12): el agente de Mega Talento (`api/agente` @ e8a2ad3) en `database/importers/checadores/agente/`, sólo con el origen `relojes` (sin modo `hr`, sin servicio de Windows, sin log a archivo); la configuración sale del entorno (`config.js`: `HR_AGENT_API_URL`, `HR_INGEST_KEY`, `HR_AGENT_DATA_DIR`…). Empuja a la entrada compatible de la Suite (las 5 rutas ya existían, `[RH.1.2b]`). Imagen `trade-ingest` con `node-zklib` 1.3.0 y `better-sqlite3` 11.10.0 (las de producción; binario musl, sin toolchain): **construida y probada en local** — carga sus dependencias, crea la cola y, sin API, reintenta sin caerse; sin llave no arranca. Manifiesto `ops/k3s/29-hr-relojes.deployment.yaml`: singleton, `Recreate`, cola en hostPath, secreto `hr-relojes-env`, y **nace fuera del despliegue** con el estado nuevo `migracion: preparado-externo` (lo corre la laptop hasta el corte; el deploy lo saltea; `check:k3s` lo reconoce y exige que no esté en Compose). Candado `agente-relojes.spec.ts` 8 ✓ (negativa: marcarlo `migrado` → rojo). Runbook del corte: opción B (copiar `cola.db` de la laptop para conservar la marca de agua de cada reloj) y su reversa. **Hecho:** `[RH.0.3]` medido desde `md`, secreto creado y lector encendido en `md` en el corte del 11-nov a las 15:44 (bitácora de [`RH_CORTE_ASISTENCIA`](RUNBOOKS/RH_CORTE_ASISTENCIA.md)); las 429 del primer respaldo, corregidas (`da497b10a`, en prod). El 12-nov pasó a su imagen propia `trade-relojes` (`ops/relojes/`, ya no `trade-ingest`) y lo despliega el vigía (`[OPS.ING.1]`). La checada llega a la Suite en 13–22 s, y Sucursal PH volvió sola el 12-nov a las 02:48 (194 checadas guardadas, el corte era de red).
 - [x] **[OPS.ING.1]** ✅ 2026-11-12 **La ingesta se despliega DESDE `md`, detrás del vigía** (2026-11-12, Edgar: «todo es desde md, no podemos tener una infraestructura tan débil»). Antes los diez carriles de `ingesta` (ODS, CAOS, feeds y el lector de relojes) sólo se desplegaban con `ops/vl/deploy.sh --k3s` desde una laptop (árbol local, sin CI, y `md` compilaba pese a `[OPS.CI.1]`). Ahora: el CI construye `trade-ingest` y `trade-relojes` (`imagenes.yml`); `ops/prod/desplegar-ingesta.sh` corre en `md` desde el checkout del despliegue, **sólo con el commit que la API ya sirve**, descarga de GHCR (verifica `revision`), prevuelo, aplica, espera y revierte el carril que no levanta, sin tocar la API (latido `auto_deploy_ingesta`); `auto-deploy.sh` lo llama al quedar al día o desplegado. Etiqueta por contenido (`etiqueta-imagen.sh`): un cambio del lector no reinicia el ODS ni al revés. Lector en imagen propia (`ops/relojes/`). `deploy.sh --k3s` ya no compila: le pide a `md`. Pruebas `despliegue-ingesta.spec.ts` 15 ✓ (la de control cazó un defecto real: un `__COMMIT__` en comentario) + 2 mutantes muertos. Runbook: `ops/prod/RUNBOOK-despliegue.md` §5bis. ✅ **En prod el 2026-11-12, de 13:56 a 13:57**, con `d592bfbf2` (lo soltó otra sesión; contiene `3b044f206`): el vigía desplegó la API y enseguida la ingesta, sin nadie en una laptop. Trajo de GHCR `trade-ingest:e-f3c1c90e9216` y `trade-relojes:e-81f1114c1760` (nada se compiló en `md`), reinició una vez los diez carriles —todos en `Running`— y les puso la etiqueta nueva a las tres CronJob. Latido `auto_deploy_ingesta` ok. El lector quedó con 12 relojes a cargo, los 12 vigilados y «avisos: conectado a la Suite»; las primeras checadas en vivo llegaron a la Suite en 13 s (Morelia Abastos) y 22 s (Morelia Madero). Antes del soltar, Edgar instaló en `md` el `auto-deploy.sh` nuevo (respaldo `auto-deploy.sh.anterior-20261112`); las dos imágenes se bajan de GHCR sin credencial (control: una inexistente da 403). ⚠️ Corrección: eran **diez** carriles, no once. **Siguiente:** `[OPS.ING.2]`, que los guiones de `~/ops/prod` salgan del checkout sellado y no de una laptop. Fuera de este item: las tres CronJob de `ingesta` (`ods-reconcile-full`, `ods-reconcile-ancho`, `ods-dedupe-fecha`) contradicen la regla sin cron → `[CANON.6]`.
 - [x] **[OPS.ING.2]** ✅ 2026-11-12 **Los guiones de `~/ops/prod` en `md` salen del commit desplegado, no de una laptop** (2026-11-12, sigue a `[OPS.ING.1]`). Medido antes en `md`: todo lo que corre era igual al commit desplegado salvo `soltar.sh` (sin el arreglo `[CD.22.2]` desde el 7-oct, y se usa ahí: 17 menciones en su historial) y `dev-ro.sql`; la unidad del vigía en `/etc/systemd` difiere del repo (le faltan dos `Environment=` que hoy cubre `vigia.env`). Ahora: `ops/prod/guiones-del-host.txt` (23 `auto`, 5 `mano`, cada uno con su motivo) e `ops/prod/instalar-guiones.sh`, que `auto-deploy.sh` llama al final de cada despliegue sano y en el «al día» (nunca en seco): lee la lista y los archivos DEL COMMIT, valida (`sh -n`), instala con `<archivo>.anterior`, prueba en seco el `auto-deploy.sh` nuevo y, si algo falla, no deja puesto ninguno; latido `instalar_guiones`; `--ver` sólo mira; a mano toma el candado del vigía. `deploy.sh subir_compose` ya no sube guiones (le pide a `md`) y la ingesta a mano va con el candado. Compuerta del push `check:guiones-host` (lo que un guion llama está listado, la agenda llama sólo `auto`, el desplegador cableado); `:self` = 10 mutaciones en rojo + el instalador real en un repo de juguete (4 negativos) + 3 mutantes del instalador muertos. Runbook `ops/prod/RUNBOOK-despliegue.md` §5ter. ✅ **En prod el 2026-11-12:** `575b2f6bd` soltado y desplegado por el vigía a las 14:39 (la ingesta no reinició ningún carril: su código no cambió). El arranque a mano, una sola vez, a las 15:19: `--ver` predijo y la instalación hizo exactamente `auto-deploy.sh`, `soltar.sh` y `dev-ro.sql` (20 iguales). El `auto-deploy.sh` nuevo pasó su prueba en seco, las tres copias previas quedaron en `.anterior` y el latido `instalar_guiones` salió ok, con el aviso de la unidad del vigía. El candado funcionó en vivo: el primer intento cayó durante el despliegue y salió sin tocar nada. Desde ahí, cada despliegue mantiene los guiones solo. Detalle corregido después: en seco el «al día» no imprimía nada, así que la línea «pasó su prueba en seco:» salía vacía; ahora dice «SECO: al día en …», y lo instalará el próximo despliegue (primer cambio de `auto-deploy.sh` que llega sin nadie). Fuera, declarado: el `Caddyfile` y el compose siguen siendo `mano`; la prueba en seco no ve un `auto-deploy.sh` que falle sólo al desplegar de verdad (prod no se cae, el carril se traba hasta devolver `.anterior`).
+- [ ] **[OPS.CASCADA.1]** 🧪 **La compuerta `cascada` culpa a quien la hace crecer, no a quien toca un archivo grande** — 2026-11-25, pedido de Francisco (*«corrige la compuerta y envía las 2»*). El `pre-push` culpa a un push cuando la salida de una compuerta en rojo NOMBRA un archivo que viaja en él, y `check-cascada` nombraba los 10 archivos con más `::ng-deep`/`!important`: un ranking de la deuda, no de quién la subió (el mismo defecto que `[PGP.57]` le quitó a `check-pantalla`). Medido: `origin/main` 0efa12047 en 585 de 580 y 1,094 de 1,092 (lo subieron 8 commits ya fusionados desde el sello del 2026-11-18), y el PR de cheques, que no agrega ni un renglón de los dos, quedaba frenado por tocar `finanzas-calendario-pagos.component.ts`, 2º del ranking con 43. Ahora, en rojo, compara cada archivo que difiere de la base (`CASCADA_BASE`, `NX_BASE` o `origin/main`; commiteado, sin commitear o nuevo) y nombra sólo los que crecieron, con su antes → hoy; el ranking se pide con `npm run check:cascada -- --ranking`, y sin base comparable se nombra como antes (no poder medir no absuelve a nadie). El total y el código de salida no cambian: `main` sigue en rojo hasta que se bajen 5 y 2. **Probado:** `--self-test` 15/15 (5 casos nuevos de a quién se culpa); negativas: «crecer» como `>=` → 2 rojos; un `::ng-deep` nuevo en el Calendario → lo nombra (43 → 44); sin git ni base → nombra el ranking. En rojo tarda 2.0 s con 110 archivos distintos de la base; en verde no corre git. El CI no corre esta compuerta (sólo el `pre-push` y `npm run check`).
 - [ ] **[RH.0.4]** 🔨 Propuesta de mapeos lista para RH (11 sitios → almacén, 40 departamentos → 21, puesto por defecto por departamento). ⚠️ Medido: 485 de 488 activos NO tienen puesto en Mega Talento y el «departamento» mezcla áreas con plazas; 101 son promotoras (¿empleadas o de la marca?).
 - [x] **[RH.0.4]** ✅ 2026-10-12 — **ya no hace falta que RH valide nada: Mega Talento lo sabe.** Revisado a fondo su repo y su base (sólo lectura): las plazas están en su tabla de plazas (`docs/CONTEXTO-AGENTE.md` §1: Vicente Guerrero ES Madero, Catedral ES Zamora Centro); el «departamento» ES la sección del reporte de RH (de los PDF de nómina de ContPAQi) y se guarda tal cual, no se traduce; «ZONA TEMPORAL» y «RECURSOS HUMANOS» son sólo bajas; las 21 «posibles repetidas» son la misma persona en varias plazas (staff que rota); no hay puestos y no se inventan. Ver `[RH.1.4b]`.
 - [ ] **[RH.1.4b]** 🧪 La carga de personas corregida (2026-10-12). **Error de la primera versión:** traducía la sección de RH a los 21 departamentos de la Suite (el reporte calcado dejaba de agruparse como el de RH) e inventaba un puesto por omisión; además creaba una persona por ficha (la misma persona en dos plazas quedaba doble) y dejaba sin ligar a 3 personas por empates con cuentas de la Suite. **Ahora:** tabla nueva `hr.person_site_profiles` (mig `20261012151620`, RLS) con la ficha de cada plaza —sección de RH tal cual, casilla de promotora, activa en ESA plaza—; el lector de asistencia toma de ahí el «departamento» y el estado por plaza; una persona por nombre completo normalizado de 3+ palabras (16 personas con 35 fichas unidas); sin departamento ni puesto de la Suite; el empate con cuentas duplicadas de la Suite crea la persona y deja AVISO para Sistemas (3). La paridad ahora usa la CARGA REAL (antes la simulaba) y compara también el departamento: **72 cálculos, 1,470 personas, 5,111 días, 4 diferencias** — las 4 de una persona y de la regla «día con incidencia sin checadas», que está en #371 y no en esta rama; departamento 0 diferencias; nadie de más ni de menos. Negativa: el lector sin la sección → rojo. `libs/hr` 151. El departamento `promotoria_marca` de la mig `20261012094356` queda sin uso (ya aplicada: no se borra).
@@ -9993,7 +9994,7 @@ más) — PR aparte para no volver ilegible el diff.
     catálogo de la tienda viva, y lee facturación y padrón de clientes de los dos sitios. Hay que
     **rotarla** y emitir una **de sitio** con permiso sólo de Catálogo e Inventario.
 
-- [ ] **[CV.30]** ⬜ **Toda la tienda contra nuestra verdad — y la frontera de qué NO es nuestro**
+- [x] **[CV.30]** ✅ **Toda la tienda contra nuestra verdad — y la frontera de qué NO es nuestro**
   (pedido de Edgar el 2026-11-25: *"nosotros somos la fuente de la verdad, debemos actualizar todo
   nuestro catálogo de Wix"*. Continúa `[CV.29]`, que dejó 1,158 de 1,642 renglones sincronizados.)
   - ⛔⛔ **La premisa es cierta a medias, y la mitad falsa decide el alcance.** Somos la fuente de
@@ -10031,11 +10032,207 @@ más) — PR aparte para no volver ilegible el diff.
       ¿Se mantiene el consolidado de las 8 con tope, o la tienda declara una plaza que la surte?
     - **D3** — foto y copy: ¿se quedan en Wix (hoy), o se abre el campo en nuestro catálogo para que
       la tienda deje de ser su dueño? Lo segundo es trabajo de captura, no de código.
+  - 🔨 **Construido y probado en seco el 2026-11-25** — [`ops/tienda-wix/`](../../ops/tienda-wix/):
+    `resolver.js` (la regla), `control.js` (su control negativo) y `aplicar.js` (en seco por
+    defecto, escribe sólo con `--aplicar`). Ninguno lleva credencial: la llave va por entorno.
+    - **La unidad sale de tres reglas, en orden:** el nombre conocido (`Caja`→`CJA`); el **código
+      de unidad de Kepler guardado como nombre** (`500`, `Cub` — Wix lo hizo en varios); y **SKU de
+      unidad única → esa unidad**. Lo que ninguna resuelve **se DECLARA**: quedaron **4 de 1,642**.
+    - **La cantidad se reparte en cascada**, de mayor a menor factor, descontando lo ya ofrecido.
+      **Prueba negativa hecha:** al quitar el descuento el control se pone rojo (`no excede la
+      existencia`, salida 1) y vuelve a verde al restaurarlo.
+
+    **Ensayo en seco sobre los 1,642 renglones** (mostrador 18:17Z, existencia de `pg-prod`):
+
+    | | Renglones |
+    |---|---:|
+    | Cantidad distinta a la real | **911** (bajan 497, suben 414) |
+    | ...pasan de agotado a la venta | **70** |
+    | ...pasan a agotado, ofrecían lo que no hay | **33** |
+    | Retirar (SKU muerto) | **125** |
+    | Precio distinto al mostrador | 11 |
+    | Sin resolver, se DECLARAN | **4** |
+    | Ya correctos, no se tocan | 602 |
+
+    ⭐ **Control: 0 SKU ofrecerían más de lo que hay — eran 146.**
+    Los 4 que se declaran: `83802` Caja, `17162` Paquete y `17116` Bulto (el nombre es conocido
+    pero Kepler no vende ese SKU en esa unidad) y `83145` (nombre roto con varias unidades).
+  - **El ritmo del desfase, medido:** en 2.09 h se movieron **18 precios del mostrador (de 18,536)
+    y 2 de los publicados** — ~9 por hora en total, ~1 por hora de los que la tienda muestra. Una
+    corrida a mano aguanta días, no semanas: es el argumento del mecanismo por evento.
+
+  **APLICADO el 2026-11-25 (Edgar: *"apliquémoslo"*), verificado por una SEGUNDA
+  implementación** (`veredicto.js` relee la tienda y reescribe la regla a mano, sin usar
+  `resolver.js`):
+
+  | | Mañana | Ahora |
+  |---|---:|---:|
+  | Precio igual al mostrador | 457 de 1,158 | **1,174 de 1,174** |
+  | Variantes agotadas | 503 | **310** |
+  | SKU muerto todavía a la venta | 125 | **0** |
+  | "Pieza" de precio inventado, visible | 337 | **0** |
+  | SKU que ofrecen más de lo que hay | 146 | **0** |
+
+  Visibles 1,177 de 1,642. Inventario: 864 renglones en 18 lotes, **0 fallidas**. Precio y
+  visibilidad: todos verificados releyendo. **4 renglones se DECLARAN**, no se adivinan.
+  - ⛔⛔ **Tres defectos del aplicador salieron ejerciéndolo contra la tienda viva, no leyéndolo:**
+    - `bulk/inventory-items/update` **exige `revision`**; sin ella contesta 400. El canario se
+      detuvo ahí, antes de tocar el lote — que es exactamente para lo que está.
+    - **Reconstruir la variante de cero pierde campos que el servidor exige**
+      (`physicalProperties.pricePerUnit` → `428`). Misma familia que el `PATCH` parcial que
+      destruyó un producto en `[CV.29]`. Ahora **se parte de la variante viva** y sólo se pisa lo
+      que cambia; es la forma correcta y evita toda esa clase de bug.
+    - El canario iba **también** en el lote con su revisión ya vencida: una fallida por corrida.
+  - ⛔⛔ **Y un defecto mío al mover los scripts al repo: el aplicador escribía su foto previa y su
+    plan JUNTO A SÍ MISMO, o sea dentro del repo, que es PÚBLICO.** Entraron **21 MB con el
+    catálogo entero y sus precios** en un commit. Se deshizo con `update-ref` antes de empujar
+    nada (⚠️ el `HEAD~1` era commit de **otra sesión** — se verificó que quedara intacto). Ahora
+    los volcados van fuera del repo (`SALIDA`, o el temporal del sistema) y un `.gitignore` los
+    bloquea. *Regla: un script operativo que guarda su respaldo en `__dirname` publica el negocio
+    el día que el script se muda al repo.*
+  - ⭐ **La tienda se desfasa sola, y ahora está medido:** tras converger a 0, el plan de cantidad
+    volvió a crecer a **28 renglones en ~10 minutos** de una tarde hábil, con desvíos de 1 a 4
+    unidades — el conjunto crece, las magnitudes no. Es venta real moviendo la existencia, no el
+    algoritmo: su control duro habría abortado la corrida. **Una corrida a mano aguanta horas.**
+    Esto es el argumento del mecanismo por evento, con número.
+  - ⛔ **La llave usada fue la MISMA, de cuenta y sin rotar.** Se recuperó del transcript de la
+    sesión en vez de pedir que se pegara otra vez (pegarla la multiplica) y se borró al terminar.
+    **Rotarla sigue pendiente y es de Edgar.**
   - ⚠️ **Bloqueado hasta que se rote la llave** (`[CV.29]`): los tres frentes son escrituras a la
     tienda viva. Sin llave nueva no arranca.
   - **Lo que este item NO es:** publicar el catálogo completo. De 9,053 activos, **5,487 tienen
     precio y existencia hoy**, y **0 tienen imagen** — subir una ficha sin foto es publicar un
     renglón vacío. Eso depende de D3, no de la API.
+
+- [ ] **[COT.7.50]** 🔨 **El pedido llega a Kepler solo, venga de donde venga — dos productores para una puerta que ya existe**
+  (Edgar, 2026-11-25: *«cuando se genere un pedido se vaya automáticamente a pedido de tlmk»*; al
+  preguntarle qué pedido: **«los dos»**. Plan:
+  [`FASE_COT7_ANEXO_DOS_ORIGENES_2026-11-25.md`](FASES/FASE_COT7_ANEXO_DOS_ORIGENES_2026-11-25.md))
+  - ⭐ **La mitad ya está hecha: 625 de 625 cotizaciones aceptadas de telemarketing tienen folio de
+    Kepler**, ninguna con error. La máquina de escribir el documento está en prod y no se toca.
+    Falta **el productor**: armar el `PedidoTlmkEntrada` desde otros dos orígenes (ADR-056: se reusa
+    el primitivo, no se inventa el noveno).
+  - **Origen A, la tienda Wix:** de 848 pedidos históricos, **176 pagados** (635 sin pagar, 640
+    cancelados). Un pedido pagado ya trae SKU, cantidad, precio y domicilio. ⭐ **El cliente existe
+    y se usa:** `kdud` clave **`ONLINE`**, «ENVIOS ONLINE (E-COMMERCE)», en las 9 sucursales,
+    vendedor `00002`, contado — con **1,078 documentos** ya capturados a mano (953 en `01`, 125 en
+    `00`). Automatizar reemplaza una captura que ya ocurre.
+  - ⭐⭐ **Origen B, los pedidos de la Suite, son del VENDEDOR DE RUTA y ahí está el dinero:** 1,819
+    de 1,844 los creó un `vendedor_ruta`, y **noviembre lleva 1,671 por $1,450,081** contra 128 en
+    octubre. Es **~180 veces** la tienda Wix (~$8,045/mes). **Ninguno llegó escrito a Kepler**, y
+    **ninguno nació de una cotización** (`quotes.order_id` vacío en los 1,844: el motor «pasar a
+    venta» `[MCP.34]`, del 2026-11-24, todavía no produjo un pedido en prod).
+  - ⚠️ **Un doctipo NO se lee del folio.** Los 14 pedidos que figuran ligados a Kepler tienen folios
+    `UD1003`/`UD1004` y los leí como preventa: son `U-D-10` **tipo 03 y 04**, o sea tickets de
+    mostrador, y además están **ligados, no escritos** (`link_source='mesa'`, los 14 el mismo día).
+    `U-D-40` es **el Pedido** a secas (`c2='U' c3='D' c4=40`, folio `PD-`); «Telemarketing» es el
+    nombre de la pantalla, no una naturaleza. **Un solo doctipo sirve para los dos orígenes.**
+  - ⚠️ **NO MEDIDO:** que los 1,078 documentos de `ONLINE` sean pedidos *de Wix* y no de otro canal
+    en línea. Se cruza una muestra por importe y fecha **con control negativo** antes de construir.
+  - **Decisiones para Edgar** (detalle en el anexo): sucursal `01` **declarada** para la tienda ·
+    sólo pedidos **pagados** · escribe solo, con el interruptor y el tope diario que ya existen ·
+    **sin recuperar históricos** · disparo **por evento**, nunca cron ni importer.
+  - ⛔ **El riesgo es el volumen:** el carril pasa de ~1 documento por cotización a potencialmente
+    1,671 al mes. Entra por canario, con tope, y se verifica **releyendo el ERP**, no el acuse.
+  - ⛔⛔ **CORREGIDO el 2026-11-25, y achica el trabajo:** los documentos de `ONLINE` **no son de
+    Wix, son de TIKTOK**. El cruce contra los 176 pedidos pagados de la tienda dio **0 empates, y
+    su control negativo también 0** — no se tocan. El comentario del documento lo dice: *«PEDIDO
+    TIK TOK»*. TikTok son ~8 pedidos por día (69 en noviembre, $19,721); la tienda Wix lleva **16
+    pagados desde el 7 de julio**.
+    ⭐⭐ **Y el camino a Kepler ya está completo:** Cinthia Valle (`vendedor_telemarketing`) captura
+    cada pedido en línea como **cotización de la Suite** con cliente `ONLINE` y sucursal `01`, y al
+    aceptarla COT.7 escribe el `U-D-40 TELEMARK` solo — **45 de 45 con folio** desde el 12-nov.
+    **Entonces el productor NO escribe en Kepler: escribe una cotización.** Se cae el riesgo del
+    ERP, el tope y el canario.
+  - ⚠️ **`U-D-40` no es «el Pedido a secas»** como decía mi primera lectura: es las dos cosas, y
+    las separa `c27` — **`TELEMARK` 8,966** (pedido de cliente, 724 clientes) contra **`SUCURSAL`
+    5,861** (traspaso, pseudo-cliente `TI###`). `ONLINE` es el cliente **#1** de los TELEMARK con
+    cliente real: 322 documentos, **los 322 en la sucursal `01`** — D1 queda ratificada con
+    evidencia, no con criterio. ⚠️ `ERP_KEPLER.md` línea 113 dice que `kdm1.c10` es «forma de
+    pago»: es el **cliente** (§3.y.3 y el código de COT.7 en prod lo tratan así). Corregir.
+  - 🔨 **C1 construido el 2026-11-25** — `libs/commercial/src/lib/commercial-quotes/pedido-tienda-a-cotizacion.ts`,
+    puro, sin HTTP ni base, con 20 pruebas.
+    - La unidad sale de **tres reglas en orden**: rótulo conocido · **código de unidad guardado como
+      rótulo** (la tienda lo hizo: `500`, `Cub`) · **SKU de unidad única**. Lo que ninguna resuelve
+      **no se adivina**: rechaza y dice por qué.
+    - **Falla cerrada:** un renglón malo tira el pedido entero con su SKU.
+    - ⛔ **El precio de la tienda NO se copia:** se cotiza al de HOY (igual que `[MCP.34]`); el de la
+      tienda viaja sólo para poder **declarar** la diferencia.
+    - **Prueba negativa hecha:** al dejar pasar los no pagados y al adivinar la unidad caen las tres
+      pruebas correctas; al restaurar, verde. `nx test commercial`: **3,375 pasan**, +20 exactas.
+    - ⚠️ `abandono.spec.ts` sale roja y es **ajena**: archivo **sin versionar** de otra sesión que
+      importa de `vitest` teniendo `globals: true`, con lo que ni carga. No llega al CI.
+  - 🔨 **C2, mitad servidor, construido el 2026-11-25** — `tienda-pedido.service.ts`, 10 pruebas.
+    - ⛔⛔ **Idempotente**, que es lo que de verdad importa de un webhook: un reintento del mismo
+      aviso **no puede volverse dos pedidos en el ERP**. Antes de crear nada busca el número.
+      ⚠️ **Deuda con nombre:** la marca vive en `order_notes` porque `commercial.quotes` no tiene
+      columna de referencia externa; lo correcto es `external_ref` con único por tenant.
+    - **El peldaño no se decide acá:** lo resuelve `rungDeRotulo` contra la escalera del SKU, que
+      ya contempla `BTO`/`CUB` como base y nunca adivina un intermedio. **Una sola definición de
+      unidad** en el proyecto, la del motor de precios — no una tabla paralela.
+    - **Si Kepler falla, la cotización QUEDA** (es el testigo de que el pedido llegó) y el motivo
+      se declara en vez de perderse.
+    - **Prueba negativa:** al ignorar que el pedido ya había entrado cae exactamente la prueba de
+      idempotencia; al restaurar, verde. `nx test commercial`: **3,385 pasan** (+30 en el día).
+  - ⚠️ **NO MEDIDO, y es la regla 13:** que el INSERT real entre. Un endpoint que escribe no está
+    probado hasta que una prueba lo ejerció **contra base real con el payload de la pantalla**.
+    Lo de hoy prueba la decisión, no la escritura.
+  - ⚠️ **El servicio NO está dado de alta en su módulo de Nest, a propósito.** Tocar proveedores
+    o firmas inyectadas obliga a probar `design:paramtypes` o a declarar «arranque no verificado»
+    (*#414 tiró la API en prod con el CI en verde*). Se da de alta junto con el controlador, en
+    una sola pasada que sí se pueda probar.
+  - ⛔⛔ **La llave de API NO puede registrar ni recibir webhooks** (medido el 2026-11-26): los
+    cuatro endpoints de webhooks y automatizaciones contestan **404**, y `/apps/v1/instance` pide
+    *«Missing authentication information»* — espera el token de una **App**, no una llave. En Wix
+    el webhook pertenece a una App OAuth. **El disparo no se puede construir sólo con la llave.**
+    - **Opción A — una Automatización en el panel de Wix** («cuando el pedido se paga → llamar a
+      esta URL»). Es por evento, no hay que programar nada del lado de Wix, y **la configura una
+      persona con acceso al panel**. Es la más barata.
+    - **Opción B — una App OAuth** en el Dev Center de Wix, instalada en el sitio. Más trabajo y
+      más permisos, pero es el camino que Wix documenta para recibir eventos.
+    - ⛔ **Consultar la tienda cada tanto NO es opción** (regla del proyecto, 2026-11-10: ningún
+      cron, el dato por evento).
+    **Lo decide Edgar**, porque las dos piden tocar la cuenta de Wix.
+  - ⭐⭐ **El desfase diario, ya medido en una ventana real de 22 h** (2026-11-25 18:33Z →
+    2026-11-26 14:42Z): **376 renglones de cantidad y 6 precios**, o sea **~23 % de la tienda en
+    un día**. Se resincronizó y el veredicto volvió a verde (1,174 de 1,174 al precio del
+    mostrador, 0 ofreciendo de más, 0 muertos a la venta). Mientras no haya mecanismo, **alguien
+    tiene que correr `ops/tienda-wix/aplicar.js --aplicar` a diario**.
+    - El mecanismo correcto **no es consultar la tienda**: el evento es nuestro —cambió el precio
+      o la existencia de un SKU que está publicado— y vive en el ODS. Empujar desde ahí es por
+      evento y respeta la regla.
+  - ⭐⭐ **El mecanismo contra el desfase: el evento es NUESTRO y ya existe.** Investigado el
+    2026-11-26 antes de escribir una línea, y resulta que casi todo está puesto:
+    - **El evento de precio ya se emite y ya llega**: el hop-2 de `services/feeds-ingest/` recomputa
+      los precios **dentro del POST del carril del ODS (cada 15 s)** y avisa a la API por
+      `POST /store/live/label-prices-changed` **con los `product_ids` que cambiaron**
+      (`notify-store.js`, `[TDA.1]`). Hoy sólo lo usa la etiquetera. **Colgar ahí el empuje a la
+      tienda no estrena ni un secreto ni un mecanismo** — es literalmente lo que ese archivo dice
+      que hay que hacer. *ADR-056.*
+    - ⛔ **Y lo que NO hay que hacer ya está descartado por escrito en ese mismo archivo:**
+      `LISTEN/NOTIFY` (sería el primer uso en todo el repo) y un trigger sobre `kepler_ods.*`
+      (descartado una vez por el impuesto de escritura). Un cron tampoco: el dato va por evento.
+    - **La disciplina del aviso también está probada:** fail-OPEN, timeout corto, nunca `throw`,
+      jamás dentro de la transacción. Si el empuje falla, la tienda queda como estaba — un aviso
+      caído no puede tumbar el carril que alimenta precio, costo, margen y reorden.
+    - **Prod sí tiene salida a internet** (la API ya habla con SAT, PAC, WhatsApp y los LLM): Wix
+      sería una dependencia externa más, de las que *se degradan o encolan*, no un impedimento.
+  - 🔨 **Construido el 2026-11-26: el sincronizador ya empuja SOLO lo que cambió** (`--skus`).
+    Es la forma que el disparo por evento necesita: releer los 637 productos para mover 3
+    renglones era el modo caro. **Medido de punta a punta: 13 s para un SKU contra ~2 min para la
+    tienda entera**, y el canario verificó el valor releyendo. Control negativo: un SKU que no
+    está publicado lo dice y no toca nada.
+  - ⛔ **Lo que falta y es de Edgar, porque son dos cosas suyas:**
+    - **El evento de EXISTENCIA no existe** — y es el que manda: el desfase de 22 h fueron **376
+      renglones de cantidad contra 6 de precio**. Hacerlo es el mismo patrón, pero se escribe
+      **dentro del carril del ODS**, que es el lugar más delicado del sistema (tiene una prueba
+      dedicada a que un aviso no lo tumbe). No lo toco sin autorización.
+    - **La llave de Wix como secreto de k3s**, para que la API pueda empujar desde prod.
+  - **Falta:** el webhook HTTP de Wix (firmado y verificado) + dar de alta servicio y controlador
+    en el módulo · **registrar el webhook en Wix, que necesita la llave rotada** · y C3, ver el
+    folio y ver el pedido que no pudo armarse con su porqué.
+  - ⚠️ **Contra el cupo:** 10 fases 🔨 contra un tope de 4. Por eso esto entra como **item de COT.7**,
+    no como fase nueva.
 
 - [x] **[TDA.7]** 🧪 **El mayoreo sigue al código leído, y su base estaba equivocada** (2026-09-10)
   — 0Sistemas: *"se critico con tu trabajo"*, sobre TDA.5/TDA.6 (mayoreo en pantalla, centrado,

@@ -207,6 +207,11 @@ export interface WorkbookCell {
    *  sale en 0). Sólo viaja ahí: arriba del reorden está la mitad de las celdas y casi a todas ya
    *  no les falta nada. */
   sr?: true;
+  /**
+   * `[PQ.95]` El fin de pico (AB.17) frenó ESTA sucursal: la razón con la que el motor bajó la venta
+   * de 30 días a la venta normal (0.33 = pide con un tercio). Ausente = no frenó aquí.
+   */
+  fp?: number;
 }
 // [RA-PRO.65] La forma de la respuesta NO se escribe acá: vive en `libs/contracts`
 // (`replenishment-monthly.contract.ts`, ADR-052), que es de donde la lee el backend. Copiarla a
@@ -348,7 +353,14 @@ export interface WorkbookRow {
   // RA-PRO.41 — estacionalidad: la demanda del horizonte YA va multiplicada por esta razón
   // (idx próximos 30d ÷ idx últimos 30d, jerárquico sku→categoría→global). 1 = mes plano.
   season_ratio: number | null;
-  season_src: string | null;       // sku | cat | global
+  season_src: string | null;       // sku | cat | global | fin_pico (ver fin_pico_n: el max() lo tapa)
+  /**
+   * `[PQ.95]` En cuántas sucursales frenó el fin de pico (AB.17). En cuáles lo dice `cells[*].fp`.
+   * Ausente = backend anterior.
+   */
+  fin_pico_n?: number;
+  /** `[PQ.95]` La temporada confirmada del producto. `null` = ninguna confirmada en su ventana. */
+  temporada?: TemporadaFila | null;
   /**
    * `[RA-DYN.U7]` — cumplimiento histórico del PROVEEDOR (0..1), medido en la cadena de Kepler
    * (`X-A-35` → `X-A-37`) sobre la ventana configurada y ponderado por dinero.
@@ -393,7 +405,27 @@ export interface WorkbookResponse {
    * `null`/ausente = no medido.
    */
   agotados_con_venta?: number | null;
+  /**
+   * `[PQ.95]` Dónde aplica cada regla, sobre el universo filtrado, en PRODUCTOS: con fin de pico en
+   * alguna sucursal y con temporada confirmada. Iguales con el filtro «Con freno» puesto o sin él (el
+   * filtro es la unión). Ausente = backend anterior: no se pinta ningún conteo.
+   */
+  frenos?: { fin_pico: number; temporada: number };
   rows: WorkbookRow[];
+}
+/**
+ * `[PQ.95]` La temporada CONFIRMADA del producto (Compras › Temporadas), tal como la publica
+ * `catalog.v_product_season_status`. Las fechas son `YYYY-MM-DD` de calendario (texto, sin zona).
+ */
+export interface TemporadaFila {
+  nombre: string;
+  /** Dónde está hoy respecto de su calendario. */
+  estado: 'por_iniciar' | 'en_venta' | 'pasado_el_corte' | 'en_remate';
+  /** `compra_unica` = se compra una vez; `hasta_corte` = se repone hasta la fecha de corte. */
+  reposicion: 'compra_unica' | 'hasta_corte';
+  /** Si HOY la regla de la temporada permite reponer. */
+  repone: boolean;
+  desde: string; hasta: string; corte: string; remate: string;
 }
 export interface WorkbookQuery {
   supplier_id?: string; brand_id?: string; category_id?: string; search?: string; coverage_days?: number; scope?: string;
@@ -403,6 +435,8 @@ export interface WorkbookQuery {
   iad?: 'accel' | 'decel'; only_overstock?: boolean;   // RA-PRO.36.2 filtros server-side
   /** `[PQ.37]` Sólo los agotados en toda la red que sí vendieron en 12 meses (entran en cero). */
   agotados?: boolean;
+  /** `[PQ.95]` Sólo productos con freno: fin de pico en alguna sucursal o temporada confirmada. */
+  freno?: boolean;
 }
 // RA-PRO.32 — detalle drill-down de un SKU (desglose por almacén de los 4 puntos de compra).
 export interface WorkbookDetailWarehouse {
@@ -1385,6 +1419,7 @@ export class ComprasService {
     if (q.iad) p.set('iad', q.iad);
     if (q.only_overstock) p.set('only_overstock', 'true');
     if (q.agotados) p.set('agotados', 'true');
+    if (q.freno) p.set('freno', 'true');
     if (q.brand_id) p.set('brand_id', q.brand_id);
     const qs = p.toString();
     return this.http.get<WorkbookResponse>(`${this.base}/workbook${qs ? '?' + qs : ''}`);
@@ -1491,6 +1526,7 @@ export class ComprasService {
     if (q.group) p.set('group', q.group);
     if (q.iad) p.set('iad', q.iad);
     if (q.only_overstock) p.set('only_overstock', 'true');
+    if (q.freno) p.set('freno', 'true');
     if (flat) p.set('flat', 'true');
     if (q.brand_id) p.set('brand_id', q.brand_id);
     const qs = p.toString();
