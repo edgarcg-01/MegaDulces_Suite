@@ -10248,6 +10248,15 @@ más) — PR aparte para no volver ilegible el diff.
     - **Y ya costó pedidos:** de los 3 pedidos pagados recientes que `[COT.7.50]` no puede armar,
       **los 23 renglones que los frenan son exactamente estas variantes** (20 en el pedido 11227).
       El comprador paga algo que el mostrador no sabe vender así.
+    - **Cruzado contra la existencia arbitrada** (`analytics.v_erp_stock_on_hand`, `pg-prod`
+      verificada por `system_identifier`, sólo lectura): de las 320, **66 variantes no tienen
+      NINGUNA existencia arbitrada** y aun así están a la venta. Ese es el dato duro.
+      ⚠️ **Lo que NO se puede afirmar, y por qué:** las otras 254 publican números mucho mayores que
+      su existencia (`20015` ofrece 54,780 contra 186), pero **son unidades distintas**: estas
+      variantes son precisamente las que **no tienen `PZA` en el mostrador**, así que su base no es
+      la pieza y `qty_stock_units` no se compara contra «piezas» sin un factor. Decir «ofrece
+      229,427 unidades que no tenemos» sería multiplicar peras por cajas — el error de ADR-051.
+      Lo que sí vale sin unidad: **esas cantidades nunca se sincronizaron, así que no son nuestras.**
     - ⛔ **No lo ejecuto: apagar 320 variantes de una tienda viva es hacia afuera y es de Edgar**
       (puede ser venta que hoy se atiende a mano). El mecanismo ya existe y es una corrida; lo que
       falta es la orden. *Cifra para decidir: la tienda hace ~4 pedidos pagados al mes.*
