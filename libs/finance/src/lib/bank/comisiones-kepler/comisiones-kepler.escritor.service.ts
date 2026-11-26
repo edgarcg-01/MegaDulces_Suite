@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantContextService, TenantKnexService, todayMx } from '@megadulces/platform-core';
+import { TenantContextService, TenantKnexService, toMxDateKey, todayMx } from '@megadulces/platform-core';
 
 import { KeplerGastoSinkAdapter } from '../../expense-proofs/comprobacion-kepler/kepler-gasto-sink.adapter';
 import { KeplerSolicitudGastoSinkAdapter } from '../../expense-proofs/solicitud-kepler/kepler-solicitud-gasto-sink.adapter';
@@ -76,6 +76,24 @@ export interface ResultadoGeneracion {
 
 /** El dial de D3 de una cuenta: desde cuándo la escribe la Suite. */
 export interface DialDeCuenta { account_label: string; comisiones_kepler_desde: string | null }
+
+/**
+ * ⛔⛔ **La fecha de D3 tal como la devuelve la base, convertida a `YYYY-MM-DD`.**
+ *
+ * `pg` entrega una columna `date` como **objeto `Date`**, no como texto. Esto estaba escrito
+ * `String(valor).slice(0, 10)`, que sobre un `Date` da **`'Tue Nov 1'`** — y entonces
+ * `'2026-11-17' < 'Tue Nov 1'` es **true** (`'2' < 'T'` en ASCII), así que TODO cargo quedaba como
+ * «atraso de Finanzas» y **ninguna cuenta podía escribir jamás**, con un motivo que suena legítimo.
+ *
+ * Lo encontró el canario del 2026-11-26, no una prueba: las 9 de `dialDeD3Cierra` son puras y le
+ * pasan strings, así que nunca cruzan la frontera base→código, que es donde estaba el defecto.
+ *
+ * `toMxDateKey` es el primitivo del repo para esto (ADR-056) y no desplaza el día por zona horaria.
+ */
+export function fechaDelDial(valor: Date | string | null | undefined): string | null {
+  const k = toMxDateKey(valor);
+  return k || null;
+}
 
 /**
  * ⭐ **D3, el dial que de verdad importa.** ¿Esta cuenta ya pasó a la Suite, y este cargo es posterior al cambio
@@ -156,7 +174,7 @@ export class ComisionesKeplerEscritorService {
     const filas = await this.tk.run((trx: Trx) => trx('finance.bank_accounts')
       .where({ tenant_id: tenantId })
       .select<DialDeCuenta[]>('account_label', 'comisiones_kepler_desde'));
-    return new Map(filas.map((f) => [String(f.account_label).trim(), { ...f, comisiones_kepler_desde: f.comisiones_kepler_desde ? String(f.comisiones_kepler_desde).slice(0, 10) : null }]));
+    return new Map(filas.map((f) => [String(f.account_label).trim(), { ...f, comisiones_kepler_desde: fechaDelDial(f.comisiones_kepler_desde) }]));
   }
 
   private async interruptores(tenantId: string): Promise<Map<string, { encendida: boolean; tope_dia: number | null }>> {
