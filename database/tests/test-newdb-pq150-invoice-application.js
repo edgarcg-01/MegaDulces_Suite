@@ -137,7 +137,7 @@ f_kdm1(sucursal, c1, c2, c3, c4, c5, c6, c9, c10, c11, c16, c43) AS (VALUES
     ${kdm1}),
 f_cfdis(tenant_id, id, uuid, emisor_rfc, folio, rol, tipo_comprobante, total, fecha, estatus_sat) AS (VALUES
     ${cfdis}),`;
-  let sql = cuerpoSql.replace(/kepler_ods\.kdxd/g, 'f_kdxd').replace(/kepler_ods\.kdm1/g, 'f_kdm1').replace(/fiscal\.cfdis/g, 'f_cfdis');
+  const sql = cuerpoSql.replace(/kepler_ods\.kdxd/g, 'f_kdxd').replace(/kepler_ods\.kdm1/g, 'f_kdm1').replace(/fiscal\.cfdis/g, 'f_cfdis');
   if (/kepler_ods\.|fiscal\./.test(sql)) throw new Error('quedó una fuente real en el SQL de los casos');
   if (sql.includes('?')) throw new Error('el cuerpo trae «?»: chocaría con los parámetros de knex');
   return sql.replace(/^\s*WITH /, `WITH ${fuentes}\n`);
