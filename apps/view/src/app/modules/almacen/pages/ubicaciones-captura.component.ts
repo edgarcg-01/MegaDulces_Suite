@@ -27,7 +27,6 @@ import { AlmacenUbicacionesCatalogoService } from '../almacen-ubicaciones-catalo
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/anden-cartel.component';
 import { csvATabla, decodificarCsv, leerTablaUbicaciones, leerXlsx } from '../shared/ubicaciones-archivo';
-import { UbicacionesCapturaRackComponent } from './ubicaciones-captura-rack.component';
 
 /** `[UB.RF.15]` `rack` = productos por rack; `rango` y `archivo` crean ubicaciones. */
 type Modo = 'rack' | 'rango' | 'archivo';
@@ -53,7 +52,7 @@ const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: S
   selector: 'app-ubicaciones-captura',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, TableModule, TagModule, SegmentedComponent, AndenCartelComponent, UbicacionesCapturaRackComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, TableModule, TagModule, SegmentedComponent, AndenCartelComponent],
   template: `
     <section class="uc-block" aria-labelledby="uc-h">
       <div class="uc-bh">
@@ -63,7 +62,6 @@ const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: S
 
       @if (modo() === 'rack') {
         <!-- [UB.RF.15] Productos por rack: se elige el rack, se leen sus productos y se cierra. -->
-        <div class="uc-step"><app-ubicaciones-captura-rack [warehouse]="warehouse()" [ubicaciones]="ubicaciones()" /></div>
       } @else if (modo() === 'rango') {
         <form class="uc-step uc-rango" (ngSubmit)="revisar()" aria-label="Rango">
           <div class="uc-field">

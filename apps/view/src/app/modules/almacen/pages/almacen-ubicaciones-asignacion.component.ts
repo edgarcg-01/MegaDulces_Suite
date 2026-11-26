@@ -588,7 +588,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     if (!w) return;
     const folio = ++this.folioLista;
     this.err.set(null);
-    this.api.products(w, { q: this.q(), filtro: this.filtro(), orden: 'venta', limit: PAGINA, offset: 0, rack: this.rack() ?? undefined }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.products(w, { q: this.q(), filtro: this.filtro(), orden: 'venta', limit: PAGINA, offset: 0 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (l) => {
         if (folio !== this.folioLista) return;
         this.lista.set(l);
@@ -605,7 +605,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     if (!w || this.cargandoMas()) return;
     const folio = this.folioLista;
     this.cargandoMas.set(true);
-    this.api.products(w, { q: this.q(), filtro: this.filtro(), orden: 'venta', limit: PAGINA, offset: this.filas().length, rack: this.rack() ?? undefined }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.api.products(w, { q: this.q(), filtro: this.filtro(), orden: 'venta', limit: PAGINA, offset: this.filas().length }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (l) => {
         this.cargandoMas.set(false);
         if (folio !== this.folioLista) return;
