@@ -1,8 +1,8 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { of } from 'rxjs';
-import type { AvanceDelEmbudo, CalendarioCompras, EmbudoLlenado, GuardarReglaRespuesta, PropuestaDiaFijo, PropuestaSinRegla, PropuestasCalendario } from '@megadulces/contracts';
+import { of, throwError, type Observable } from 'rxjs';
+import type { AvanceDelEmbudo, CalendarioCompras, DefinirOcasionalesRespuesta, EmbudoLlenado, GuardarReglaRespuesta, PropuestaDiaFijo, PropuestaSinRegla, PropuestasCalendario } from '@megadulces/contracts';
 import { ComprasCalendarioComponent } from './compras-calendario.component';
 import { CalendarioComprasService } from '../calendario-compras.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -49,7 +49,8 @@ function montar(prop: PropuestasCalendario, vista?: string, calendario: Calendar
   const api = {
     calendario: vi.fn(() => of(calendario)), propuestas: vi.fn(() => of(prop)),
     guardarRegla: vi.fn(() => of({ id: 'R-NUEVA', accion: 'creada' } as GuardarReglaRespuesta)),
-    responsables: vi.fn(() => of(RESPONSABLES)),
+    definirOcasionales: vi.fn((): Observable<DefinirOcasionalesRespuesta> => of({ definidas: 1, hasta: '2027-05-20', omitidas: [] })),
+    responsables: vi.fn((): Observable<ResponsablesCalendario> => of(RESPONSABLES)),
   };
   const perms = { has$: () => signal(true), has: () => true, isAdmin: () => false };
   TestBed.configureTestingModule({
@@ -208,6 +209,44 @@ describe('[PQ.3.18] Sin regla: el embudo de llenado', () => {
     const { c, el, f } = montar({ ...PROP, sin_regla: PROP.sin_regla.filter((p) => p.supplier_code !== 'C3') });
     c.filtrarEscalon(3); f.detectChanges();
     expect(el.textContent ?? '').toContain('No quedan proveedores sin regla en el Escalón 3 · ocasionales.');
+  });
+
+  it('(c) el escalón 3 ofrece sacar del ciclo a sus ocasionales SIN regla; el diálogo dice qué hace antes de hacerlo', () => {
+    const { el, f } = montar(PROP);
+    const b = el.querySelector<HTMLButtonElement>('.cc-ocasionales');
+    expect(b?.textContent?.trim()).toBe('Sacar del ciclo al ocasional');
+    b!.click(); f.detectChanges();
+    const d = document.querySelector('.p-dialog')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(d).toContain('1 proveedor compró una o pocas veces en 12 meses');
+    expect(d).toContain('«cada 180 días»');
+    expect(d).toContain('fuera de ciclo hasta el sáb 22 may'); // hoy (21-nov) + 182 días, la misma cuenta que el servidor
+    expect(d).toContain('Son: OCASIONAL DE PRUEBA.');
+  });
+
+  it('(c) al confirmar manda las claves que la pantalla muestra, cierra y dice cuántos quedaron y hasta cuándo', () => {
+    const { c: comp, el, f, api } = montar(PROP);
+    comp.abrirOcasionales(); f.detectChanges();
+    comp.guardarOcasionales(); f.detectChanges();
+    expect(api.definirOcasionales).toHaveBeenCalledWith(['C3']);
+    expect(comp.dlgOcasionales()).toBe(false);
+    expect(el.textContent ?? '').toContain('1 proveedor ocasional quedó fuera de ciclo hasta el jue 20 may');
+  });
+
+  it('(c) si falla, el diálogo se queda abierto y dice que no se guardó ninguno', () => {
+    const { c: comp, f, api } = montar(PROP);
+    api.definirOcasionales.mockReturnValueOnce(throwError(() => ({ status: 403, error: { message: 'Fuera de tu alcance' } })));
+    comp.abrirOcasionales(); f.detectChanges();
+    comp.guardarOcasionales(); f.detectChanges();
+    expect(comp.dlgOcasionales()).toBe(true);
+    expect(comp.errorDlg()).toMatch(/^No se guardó ninguno\./);
+  });
+
+  it('(c) NEGATIVA: sin ocasionales sin regla (o sin peso medido) no hay botón', () => {
+    const sin = montar({ ...PROP, sin_regla: PROP.sin_regla.filter((p) => p.supplier_code !== 'C3') });
+    expect(sin.el.querySelector('.cc-ocasionales')).toBeNull();
+    TestBed.resetTestingModule();
+    const nm = montar({ ...PROP, sin_regla: PROP.sin_regla.map((p) => ({ ...p, peso: null })) });
+    expect(nm.el.querySelector('.cc-ocasionales')).toBeNull();
   });
 
   it('NEGATIVA: sin la compra medida lo DICE (no pinta 0 %), no ofrece escalones y la lista queda en el orden de Kepler', () => {

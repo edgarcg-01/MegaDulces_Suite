@@ -9,6 +9,15 @@
 ---
 
 ## [Unreleased]
+### Added — Compras › Calendario de compras: quién cambió cada regla y de qué a qué (PQ.3.17 · 2026-11-24 · en código, sin soltar)
+- El detalle de una regla dice, además de quién la definió, «Último cambio: quién, el día». Debajo, «Cambios» dice de qué a qué, el más nuevo primero: el patrón entero, el responsable, fuera de ciclo con su motivo, la nota y la baja.
+- De un cambio hecho antes de que se guardara el historial se dice quién y cuándo, no de qué a qué.
+- Una regla definida en bloque («Sacar del ciclo a los N») no dice que se cambió: salir del ciclo es parte de cómo se definió.
+- Internal: sin tabla nueva: las reglas se suman a `analytics.master_data_history` con un disparador (mig `20261124231747`, aplicar antes de soltar); cada escritura declara quién (`app.actor`). Sin el disparador, la API declara el historial no medido.
+### Added — Compras › Calendario de compras: los ocasionales, de una vez (PQ.3.18 · 2026-11-24 · en código, sin soltar)
+- En «Sin regla», el escalón 3 tiene «Sacar del ciclo a los N» (sólo para quien define reglas). A cada proveedor que compró una o pocas veces en 12 meses y sigue sin regla le pone una regla para todas las sucursales «cada 180 días» y lo deja fuera de ciclo 26 semanas, con el motivo escrito. En esa fecha regresa solo a «Por revisar».
+- El diálogo dice qué va a hacer antes de hacerlo. Si alguno ya tiene regla al guardar, no se toca y el aviso lo cuenta.
+- Internal: `POST /compras/calendario/reglas/ocasionales` (`COMPRAS_CALENDARIO_CICLO` y alcance en todas las sucursales); el servidor vuelve a medir quién es ocasional y escribe todo en una transacción. Sin migración. El manual de capacitación quedó al día.
 ### Internal — Compras: cada factura del proveedor, ligada a su aplicación en Kepler (PQ.150 · 2026-11-25 · en código, sin soltar)
 - La Suite sabe qué factura del SAT cerró cada aplicación de Kepler. Liga primero por el folio del proveedor que Kepler guarda en la referencia, también cuando a su acreedor le falta el RFC (6 de cada 10 aplicaciones). En 60 días, las aplicaciones con su factura pasan de 28.5 % a 49.6 %, y el dinero de 41 % a 77 %.
 - Todavía no cambia ninguna pantalla. Es la base para que la historia de PQ.148 aprenda de más proveedores y para validar el costo al aplicar (PQ.157).
