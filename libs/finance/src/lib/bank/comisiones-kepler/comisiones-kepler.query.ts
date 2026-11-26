@@ -53,6 +53,16 @@ export interface DiaPropuesta {
   cargos: CargoPropuesta[];
   /** Lo que se escribiría: sólo cuando está `lista` (o, para medir, con `armarTodo`). */
   plan: PlanComisionesKepler | null;
+  /**
+   * `[CB.62.4]` La plantilla que se copió del último gasto real de esa sucursal con ese banco (acreedor,
+   * proyecto, departamento, referencia…). Se PUBLICA porque el escritor la necesita entera.
+   *
+   * ⛔ No se deduce del plan deshaciendo sus textos: el primer intento sacaba el nombre de la sucursal del
+   * comentario con una expresión regular y en la `06` —cuya plantilla no trae nombre— devolvió «VTA
+   * 11/11/2026», así que el gasto habría nacido comentado «COMISION TARJETA VTA 11/11/2026 VTAS 11/11/2026».
+   * Lo que se midió aquí se entrega aquí.
+   */
+  plantilla: PlantillaComisiones | null;
 }
 
 export interface BloquePorRevisar {
@@ -132,21 +142,40 @@ export function tablaPoliza(fecha: string): string {
 const t = (v: unknown): string => String(v ?? '').trim();
 const cent = (n: number): number => Math.round(n * 100);
 
-/** Plantilla de cada sucursal × banco: su último gasto de comisiones (con renglón 611-003) y su último pago. */
+/**
+ * Plantilla de cada sucursal × banco, copiada de lo que esa sucursal captura con ese banco en los últimos 120 días.
+ *
+ * ⛔ **Lo que se copia es lo MÁS FRECUENTE, no lo más reciente** (`[CB.62.4]`, 2026-11-26). Tomar el último
+ * documento es una moneda al aire: estos campos son texto que una persona teclea y están llenos de dedazos. Medido
+ * en los pagos `X-D-26` a un banco de oct–nov: la `01` escribe «PADRE HIDALGO» 323 veces y además «PADRE HIDALFO»,
+ * «PADERE HIDALGO», «PADREHIDALGO», «PÁDRE HIDALGO», «PADRE HIDALGOB», «PADRE HIDALGOV», «PADXRE HIDALGO» y una
+ * vacía; la `03` escribe «8 ESQ» 266 veces y también «8 ES Q»; la `07`, «MADERO» 339 y una vez «GB004».
+ * **Y le tocaba a la `06`**: su último pago traía `c48` vacío (2 de 192), así que la plantilla salía sin nombre de
+ * sucursal y el comentario del gasto habría nacido «COMISION TARJETA  VTAS 11/11/2026». Con la moda: «CANINDO»
+ * (186 de 192). `NULLIF(…,'')` deja fuera las vacías: una vacía frecuente no gana por ser mayoría de la nada.
+ *
+ * La fecha y el folio del gasto sí son los del ÚLTIMO: se usan para ir a leer su póliza real (`cuentaAcreedor`),
+ * y una póliza se lee de un documento que existe, no de una moda.
+ */
 async function plantillas(db: Db, pares: { sucursal: string; acreedor: string }[], hasta: string): Promise<Map<string, PlantillaComisiones>> {
   const out = new Map<string, PlantillaComisiones>();
+  const moda = (col: string): string => `mode() WITHIN GROUP (ORDER BY NULLIF(btrim(${col}), ''))`;
   for (const { sucursal, acreedor } of pares) {
     const gas = (await db.raw(`
-      SELECT m.c6, to_char(m.c9, 'YYYY-MM-DD') AS fecha, m.c11, m.c30, d.c13, d.c16
+      SELECT (array_agg(btrim(m.c6) ORDER BY m.c9 DESC, m.c6 DESC))[1] AS c6,
+             (array_agg(to_char(m.c9, 'YYYY-MM-DD') ORDER BY m.c9 DESC, m.c6 DESC))[1] AS fecha,
+             ${moda('m.c11')} AS c11, ${moda('m.c30')} AS c30, ${moda('d.c13')} AS c13, ${moda('d.c16')} AS c16
         FROM kepler_ods.kdm1 m
         JOIN kepler_ods.kdm6 d ON d.sucursal = m.sucursal AND d.c2 = m.c2 AND d.c3 = m.c3 AND d.c4 = m.c4 AND d.c5 = m.c5 AND d.c6 = m.c6
        WHERE m.sucursal = ? AND m.c2 = 'X' AND m.c3 = 'A' AND m.c4 = 10 AND m.c43 <> 'C' AND btrim(m.c10) = ?
          AND m.c9 >= ?::date - 120 AND btrim(d.c8) = '611-003'
-       ORDER BY m.c9 DESC, m.c6 DESC LIMIT 1`, [sucursal, acreedor, hasta])).rows[0];
+      HAVING count(*) > 0`, [sucursal, acreedor, hasta])).rows[0];
     const pag = (await db.raw(`
-      SELECT c12, c32, c33, c34, c35, c48 FROM kepler_ods.kdm1
+      SELECT ${moda('c12')} AS c12, ${moda('c32')} AS c32, ${moda('c33')} AS c33, ${moda('c34')} AS c34,
+             ${moda('c35')} AS c35, ${moda('c48')} AS c48
+        FROM kepler_ods.kdm1
        WHERE sucursal = ? AND c2 = 'X' AND c3 = 'D' AND c4 = 26 AND c43 <> 'C' AND btrim(c10) = ? AND c9 >= ?::date - 120
-       ORDER BY c9 DESC, c6 DESC LIMIT 1`, [sucursal, acreedor, hasta])).rows[0];
+      HAVING count(*) > 0`, [sucursal, acreedor, hasta])).rows[0];
     if (!gas || !pag) continue;
     let cuentaAcreedor = '';
     // La tabla del mes puede no existir en un ODS que no la replica: sin ella, la plantilla queda incompleta
@@ -253,8 +282,8 @@ export async function leerPropuesta(db: Db, tenantId: string, desde: string, has
     const cargos = g.cargos.map(vista);
     const capturados = cargos.filter((c) => c.kepler_pago).length;
     const suma = (tipo?: 'iva') => cargos.filter((c) => !tipo || c.tipo === tipo).reduce((s, c) => s + cent(c.importe), 0) / 100;
-    const base: Omit<DiaPropuesta, 'estado' | 'motivos' | 'plan'> = { sucursal: g.sucursal, dia_venta: g.diaVenta, acreedor: g.acreedor, banco: bancoDe.get(g.cargos[0]?.cuenta ?? '') ?? g.acreedor, total: suma(), iva: suma('iva'), cargos };
     const p = pl.get(`${g.sucursal}|${g.acreedor}`);
+    const base: Omit<DiaPropuesta, 'estado' | 'motivos' | 'plan'> = { sucursal: g.sucursal, dia_venta: g.diaVenta, acreedor: g.acreedor, banco: bancoDe.get(g.cargos[0]?.cuenta ?? '') ?? g.acreedor, total: suma(), iva: suma('iva'), cargos, plantilla: p ?? null };
     const paraMedir = (): PlanComisionesKepler | null => {
       if (!opciones.armarTodo || !p) return null;
       const r = armarComisionesKepler(g, p);

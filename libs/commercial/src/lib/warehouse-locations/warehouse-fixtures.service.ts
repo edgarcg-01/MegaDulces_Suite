@@ -8,38 +8,17 @@ import {
   formatLocationCode,
   nombrePieza,
   piezasDerivadas,
+  type CrearPiezaBody,
+  type CroquisResponse,
   type FixtureKind,
   type LocationZone,
+  type MoverPiezaBody,
   type WarehouseFixture,
 } from '@megadulces/contracts';
 import { almacenDeUbicaciones, contextoDeAlcance } from './warehouse-locations-scope';
 
-/** Lo que la pantalla manda para crear o mover una pieza. */
-export interface CrearPiezaBody {
-  warehouse_id: string;
-  zona: LocationZone;
-  tipo: FixtureKind;
-  pasillo?: string | null;
-  racks: number;
-  niveles: number;
-  fila?: number | null;
-  columna?: number | null;
-  label?: string | null;
-}
-
-export interface MoverPiezaBody {
-  fila?: number | null;
-  columna?: number | null;
-  label?: string | null;
-}
-
-export interface CroquisResponse {
-  warehouse: { id: string; code: string; name: string };
-  zona: LocationZone;
-  piezas: WarehouseFixture[];
-  /** Ubicaciones de la zona que todavía NO cuelgan de ninguna pieza: el hueco, dicho (ADR-056). */
-  sin_pieza: number;
-}
+// Los tipos del contrato HTTP viven en `contracts`, no acá: la pantalla los necesita y una app de
+// Angular no puede importar del backend.
 
 const COLUMNAS = ['id', 'warehouse_id', 'zona', 'tipo', 'pasillo', 'racks', 'niveles', 'fila', 'columna', 'orden', 'label'] as const;
 
