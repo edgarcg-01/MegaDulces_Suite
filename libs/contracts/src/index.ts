@@ -126,6 +126,7 @@ export * from './http/autoabasto-mesa.contract';
 // [AB.40] El motor único de cantidad (tope de 45 días) para Autoabasto y Compras.
 export * from './http/cantidad-pedido.contract';
 export * from './http/warehouse-locations.contract';
+export * from './http/warehouse-fixtures.contract';
 // [GP.2] Pool de surtido con pedidos de Kepler (U-D-40) y armado de olas por tamaño.
 export * from './http/warehouse-picking-kepler.contract';
 // `[RE.ETQ]` Etiquetas de caja de la orden de entrada (TSC TE200): cola, bitácora y reglas de la etiqueta.
