@@ -248,6 +248,21 @@ interface LiveCountEntry {
       <!-- Filtro -->
       <div class="in-filter">
         <p-selectbutton [options]="filterOptions" [(ngModel)]="filter" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="sb-liquid"></p-selectbutton>
+        @if (listaTopada()) {
+          <!--
+            [IC.F5] Cruce 1: si el encabezado dice N, la lista tiene que poder llegar a N.
+            La consulta se topa en 2,000 y devolvia un arreglo pelado, sin total ni has_more:
+            con 3,363 articulos el supervisor no veia 1,363 y NADA se lo decia.
+          -->
+          <p class="in-tope">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            Se muestran <strong>{{ items().length | number }}</strong> de
+            <strong>{{ totalDelFolio() | number }}</strong> articulos:
+            <strong>{{ totalDelFolio() - items().length | number }}</strong> no caben en esta lista
+            y <strong>no se pueden alcanzar desde aqui</strong>. Filtrar por Discrepancias ayuda si
+            son menos de {{ TOPE_LISTA | number }}.
+          </p>
+        }
       </div>
 
       <!-- Tabla de items -->
@@ -360,6 +375,15 @@ interface LiveCountEntry {
       que distingue «el folio está vacío» de «no tienes permiso».
       (Sin acentos graves acá adentro: parten el template literal de styles. Séptima vez.)
     */
+    /*
+      [IC.F5] El aviso de tope. Va pegado al filtro, que es donde la persona decide qué mira,
+      y usa el ambar de aviso en su variante de TEXTO (--warn-soft-fg): el -fg suelto da 2.15:1
+      sobre blanco y no pasa AA.
+    */
+    .in-tope {
+      margin: var(--sp-2) 0 0; display: flex; gap: var(--sp-2); align-items: baseline;
+      color: var(--warn-soft-fg); font-size: var(--fs-sm);
+    }
     .in-empty-ttl { display: block; color: var(--text-main); font-weight: 600; }
     .in-empty-sub { display: block; margin-top: var(--sp-1); color: var(--text-muted); }
     .in-form { display: flex; flex-direction: column; gap: .4rem; }
@@ -478,6 +502,26 @@ export class ComercialInventorySessionDetailComponent {
     ];
   });
   items = signal<InventoryCountItem[]>([]);
+
+  /**
+   * ⛔ `[IC.F5]` **El tope de la lista se DECLARA.** `listItems` corta en 2,000 y devuelve un
+   * arreglo pelado —sin `total` ni `has_more`—, así que el front no podía avisarlo ni queriendo.
+   * Medido el 2026-11-25 en `INV-2026-00010`: **2,000 de 3,363**, y como la consulta ordena
+   * `discrepancy → pending → el resto` y después por nombre, lo que quedaba afuera era **todo el
+   * final del alfabeto** y **los artículos ya resueltos** (eso era `F6`: no se excluían, se
+   * caían por el tope — los dos son el mismo defecto).
+   *
+   * ⭐ No hace falta cambiar el contrato para decir la verdad: el total ya viene en `progress`.
+   * El tope exacto de 2,000 es inequívoco, porque es el `limit` del servicio.
+   */
+  readonly TOPE_LISTA = 2000;
+  readonly totalDelFolio = computed(() => this.progress()?.total ?? 0);
+  readonly listaTopada = computed(() => {
+    const n = this.items().length;
+    // Sólo se afirma el recorte cuando se puede PROBAR: la lista vino llena hasta el tope y el
+    // folio declara más. Sin `progress` (403) no se inventa un aviso: de eso habla F18.
+    return n >= this.TOPE_LISTA && this.totalDelFolio() > n;
+  });
   loading = signal(false);
   computing = signal(false);
   reconciling = signal(false);

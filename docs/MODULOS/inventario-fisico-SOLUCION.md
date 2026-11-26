@@ -33,7 +33,7 @@ Eso es una decisión de PM, no técnica.
 | **A** | **Identidad del producto al escanear** | **F1, F2** — los dos rojos de la causa raíz | ✅ **Arreglado 2026-11-26**, sin desplegar |
 | **B** | **Catálogo duplicado** | la causa de fondo de A | 🔴 otro dueño (Catálogo) |
 | **C** | **La pantalla ante un 403** | F11, F17, F18, F19 | 🔴 un solo arreglo, cuatro defectos |
-| **D** | **El tope de la lista del supervisor** | F5, F6 | 🔴 |
+| **D** | **El tope de la lista del supervisor** | F5 (y F6, que era el mismo) | 🟡 **Declarado 2026-11-26**; falta paginar |
 | **E** | **Captura del contador** | F7, F8, F9, F10, F14 | 🔴 |
 | **F** | **Rótulos y estados que no dicen la verdad** | F3, F12, F13, F16, F22 | 🟠 |
 | **G** | **`reconcile` con defensa de capa única** | F20 | ✅ **Arreglado 2026-11-26** |
@@ -176,9 +176,32 @@ Compuertas al cerrar: `check:templates` ✅ 599 componentes · `check:pantalla -
 - **F6** 🟠 — el artículo **resuelto desaparece** de la lista (trae los 2,000 *pendientes*), así que
   **no hay forma de revisar ni corregir lo ya resuelto**.
 
-**Arreglo:** declarar el tope en el contrato (`total` + `has_more`) y paginar o filtrar; y permitir
-ver los resueltos. ⚠️ Es el **Cruce 1** del protocolo de auditoría: *si el encabezado dice N, la
-lista tiene que poder llegar a N*.
+### ✅ Estado: declarado el 2026-11-26 — y **F6 no era un defecto aparte**
+
+⚠️ **Corrección de la auditoría.** Al leer `listItems` se midió que **la consulta NO excluye los
+resueltos**: ordena `discrepancy → pending → el resto` y después por nombre, así que lo resuelto se
+va al final y **el tope de 2,000 lo corta**. Con menos de 2,000 artículos se vería. **F5 y F6 son el
+mismo defecto.**
+
+**Lo hecho:** la lista **declara su tope** junto al filtro, y **no hizo falta tocar el contrato** —
+el total ya viene en `progress`. El aviso sale sólo cuando el recorte se puede **probar** (la lista
+llegó llena al tope **y** el folio declara más); sin `progress` no se inventa nada, que es F18.
+
+⛔ **El texto dice la verdad completa, no un consejo que no funciona.** La primera versión decía
+«acota con los filtros para alcanzar el resto» y **es falso**: con 3,362 pendientes, filtrar por
+Pendientes vuelve a topar en 2,000. Ahora dice cuántos faltan, que **no se pueden alcanzar desde
+ahí**, y en qué caso concreto sí ayuda filtrar.
+
+**Lo que deliberadamente NO se hizo, y por qué:** subir el `limit` del backend. Es un paliativo —el
+almacén más grande tiene 3,666 artículos— y **no se midió el costo**: la respuesta de 2,000 ya pesa
+**197 KB**. El arreglo de fondo es **paginar**, y eso es una decisión con su propia medición.
+
+> **Pendiente de este frente:** paginar `GET :id/items`, o darle un buscador por SKU/nombre a la
+> tabla. Hasta entonces, **el supervisor sigue sin poder alcanzar 1,363 artículos** — la diferencia
+> es que ahora **lo sabe**.
+
+Compuertas: `templates` · `tokens` · `estilos` ✅ · `check:pantalla -- comercial` **0 NUEVAS**,
+componente con **0 errores semánticos**.
 
 ---
 
