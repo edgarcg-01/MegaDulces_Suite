@@ -9,6 +9,11 @@ import { EstadoDeCuentaService } from './estado-de-cuenta/estado-de-cuenta.servi
 import { EstadoDeCuentaController } from './estado-de-cuenta/estado-de-cuenta.controller';
 import { ComisionesKeplerService } from './comisiones-kepler/comisiones-kepler.service';
 import { ComisionesKeplerController } from './comisiones-kepler/comisiones-kepler.controller';
+import { ComisionesKeplerEscritorService } from './comisiones-kepler/comisiones-kepler.escritor.service';
+import { KeplerSolicitudGastoSinkAdapter } from '../expense-proofs/solicitud-kepler/kepler-solicitud-gasto-sink.adapter';
+import { KeplerGastoSinkAdapter } from '../expense-proofs/comprobacion-kepler/kepler-gasto-sink.adapter';
+import { KeplerPagoSinkAdapter } from '../payment-calendar/kepler-pago/kepler-pago-sink.adapter';
+import { BancosRealtimeModule } from './bancos-realtime.module';
 
 /**
  * `[CB.53.1]` — **Que compile no es que arranque.**
@@ -158,14 +163,57 @@ describe('[CB.62] la propuesta de comisiones a Kepler está registrada en el mó
     expect(meta<unknown>('controllers', FinanceBankModule)).toContain(ComisionesKeplerController);
   });
 
-  it('el servicio pide dos dependencias y el controlador una (si cambian, revisar el arranque)', () => {
+  it('el servicio pide dos dependencias y el controlador DOS (si cambian, revisar el arranque)', () => {
     expect(ComisionesKeplerService.length).toBe(2);
-    expect(ComisionesKeplerController.length).toBe(1);
+    // `[CB.62.4]`: el controlador ganó el escritor. Si este número baja a 1, el POST /generar quedó sin servicio.
+    expect(ComisionesKeplerController.length).toBe(2);
   });
 
   it('PRUEBA NEGATIVA: un módulo sin el controlador no lo registra (la ruta daría 404 con el CI en verde)', () => {
     class SinControlador {}
     Reflect.defineMetadata('controllers', [EstadoDeCuentaController], SinControlador);
     expect(meta<unknown>('controllers', SinControlador)).not.toContain(ComisionesKeplerController);
+  });
+});
+
+/**
+ * `[CB.62.4]` **El escritor de comisiones pide SEIS cosas y tres no son globales.** Los tres adaptadores que
+ * encadena (`[PGP.122]`, `[PGP.123]`, `[PGP.106]`) viven en otros módulos: si esos módulos no los EXPORTAN, o
+ * si éste no los importa, el typecheck sigue en verde y Nest tira la API al arrancar
+ * (`UnknownDependenciesException`) — la misma familia de #414 y del incidente del 2026-10-21.
+ */
+describe('[CB.62.4] el escritor de comisiones puede resolver sus tres escritores', () => {
+  it('está entre los providers del módulo', () => {
+    expect(meta<unknown>('providers', FinanceBankModule)).toContain(ComisionesKeplerEscritorService);
+  });
+
+  it('pide seis dependencias (si cambia, revisar el arranque)', () => {
+    expect(ComisionesKeplerEscritorService.length).toBe(6);
+  });
+
+  it('los tres adaptadores de Kepler están al alcance del módulo', () => {
+    const alcance = alcanceDe(FinanceBankModule);
+    expect(alcance.has(KeplerSolicitudGastoSinkAdapter)).toBe(true);
+    expect(alcance.has(KeplerGastoSinkAdapter)).toBe(true);
+    expect(alcance.has(KeplerPagoSinkAdapter)).toBe(true);
+  });
+
+  it('PRUEBA NEGATIVA: sin importar los dos módulos, los tres adaptadores NO están al alcance (la API no arrancaría)', () => {
+    class SinLosImports {}
+    Reflect.defineMetadata('imports', [BancosRealtimeModule], SinLosImports);
+    Reflect.defineMetadata('providers', meta<unknown>('providers', FinanceBankModule), SinLosImports);
+    const alcance = alcanceDe(SinLosImports);
+    expect(alcance.has(KeplerSolicitudGastoSinkAdapter)).toBe(false);
+    expect(alcance.has(KeplerGastoSinkAdapter)).toBe(false);
+    expect(alcance.has(KeplerPagoSinkAdapter)).toBe(false);
+  });
+
+  it('PRUEBA NEGATIVA: si los módulos dejan de EXPORTARLOS, tampoco (exportar no es proveer)', () => {
+    class ExpenseProofsSinExports {}
+    Reflect.defineMetadata('exports', [], ExpenseProofsSinExports);
+    class ModuloConEseImport {}
+    Reflect.defineMetadata('imports', [ExpenseProofsSinExports], ModuloConEseImport);
+    Reflect.defineMetadata('providers', [ComisionesKeplerEscritorService], ModuloConEseImport);
+    expect(alcanceDe(ModuloConEseImport).has(KeplerSolicitudGastoSinkAdapter)).toBe(false);
   });
 });

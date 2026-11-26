@@ -101,6 +101,16 @@ describe('[NP.13][NP.14] REFRESH con ajustes propios', () => {
     ]);
   });
 
+  it('[PQ.150] la factura ligada a su aplicación: con tope de 2 min, en la MISMA transacción', async () => {
+    const { k, sentencias } = knexFalso();
+    const svc = new AnalyticsRefreshService(k) as unknown as ConRefresco;
+    await svc.refrescarMv(k, 'analytics.mv_supplier_invoice_application', 'CONCURRENTLY ');
+    expect(sentencias).toEqual([
+      "[trx] SET LOCAL statement_timeout = '120s'",
+      '[trx] REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_supplier_invoice_application',
+    ]);
+  });
+
   it('[negativa] las demás matvistas se refrescan como siempre: sin transacción ni ajustes', async () => {
     const { k, sentencias } = knexFalso();
     const svc = new AnalyticsRefreshService(k) as unknown as ConRefresco;

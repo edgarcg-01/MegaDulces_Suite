@@ -151,6 +151,17 @@ describe('FichasClientesComponent — [CC.20]', () => {
     expect(svc['declararAbono']).toHaveBeenCalledWith('f1');
   });
 
+  it('11 · [CC.22] ⛔ marcado NO es cobrado: dice que falta capturarlo en Kepler', () => {
+    // El caso real del 2026-11-23 ($15,539.63, cuadra con el banco, sin cobro en Kepler dos dias despues):
+    // decia solo «ya esta marcado como de este cliente» y quien lo presiona puede creer que termino.
+    conFichas([ficha({ cliente_code: 'C1', banco: banco({ estado: 'sin_aplicar', cobro: null, abonos: [{ id: 'a1', monto: 100, declarado: 'C1', cobros: [] }] }) })]);
+    const f = crear();
+    expect(txt(f)).toContain('Marcado como de este cliente');
+    expect(txt(f)).toContain('Falta capturar el cobro en Kepler');
+    expect(txt(f)).toContain('no recibe complemento de pago');
+    // Y el boton ya no se ofrece: el abono ya esta declarado como suyo.
+    expect(txt(f)).not.toContain('Marcar el abono como suyo');
+  });
   it('10 · [CC.21] ⛔ si la consulta al banco falló se dice, no se pinta «no aparece»', () => {
     conFichas([ficha({ banco: null })], false);
     const f = crear();

@@ -68,7 +68,12 @@ export interface DatosSolicitudKepler {
   formaPago?: string | null;
   /** `c26`: la marca de la Suite que vuelve idempotente la escritura (`SUITE SG-…`). */
   marca: string;
-  /** `c43`: `A` = autorizada (nace al firmar, DS2). `F` = aplicada (así nacen las de comisiones, CB.62). */
+  /**
+   * `c43`: `A` = autorizada (nace al firmar, DS2). `F` = aplicada.
+   * ⚠️ **Corregido el 2026-11-26**: esta línea decía que «así nacen las de comisiones (CB.62)». Medido en el ODS
+   * sobre las 442 solicitudes de comisión vivas de oct–nov: **16 están en `A` con su saldo entero** y 412 en `F`
+   * (385 con saldo 0). La `F` es donde las DEJA su gasto, no donde nacen. CB.62 las entrega en `A`, como PGP.
+   */
   estado: EstadoSolicitudKepler;
   /** `c68` (`YYYY-MM-DD`) y `c69` (`HH:MM`), hora de México: cuándo la escribió la Suite. */
   capturadaEn: { fecha: string; hora: string };

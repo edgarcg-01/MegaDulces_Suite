@@ -1,7 +1,7 @@
-import type { ReglaCalendario } from '@megadulces/contracts';
+import type { CambioDeRegla, ReglaCalendario } from '@megadulces/contracts';
 import {
   atencionEnPalabras, corrimientoEnPalabras, diaCorto, diaFijoEnPalabras, diaFijoEvidencia, diaFijoReciente, estadoEnPalabras, fechasEnRango, patronEnPalabras, propuestaEnPalabras, relativo, alcanceEnPalabras, paraQuienVe,
-  avanceEscalonEnPalabras, avanceTotalEnPalabras, NOMBRE_ESCALON, pesoEnPalabras, porcentaje,
+  avanceEscalonEnPalabras, avanceTotalEnPalabras, avisoOcasionales, historialVisible, NOMBRE_ESCALON, pesoEnPalabras, porcentaje,
 } from './calendario-compras-reglas';
 
 /** `[PQ.3.5]` Lo que la pantalla del calendario dice en palabras, y las fechas de «Semana» y «Mes». */
@@ -173,5 +173,83 @@ describe('`[PQ.3.18]` el embudo de llenado en palabras', () => {
   it('NEGATIVA: el % nunca se separa de su número (espacio que no se parte), y un escalón vacío se dice en llano', () => {
     expect(porcentaje(68.1)).not.toContain(' %');
     expect(avanceEscalonEnPalabras({ escalon: 3, proveedores: 0, con_regla: 0, compra_pct: 0, compra_con_regla_pct: 0, ocs_pct: 0, ocs_con_regla_pct: 0 })).toBe('Ningún proveedor en este escalón');
+  });
+});
+
+describe('`[PQ.3.18]` (c) el aviso de los ocasionales en bloque', () => {
+  it('dice cuántos, hasta cuándo y con qué regla; y lo que no se tocó', () => {
+    expect(avisoOcasionales({ definidas: 94, hasta: '2027-05-23', omitidas: [] }))
+      .toBe('94 proveedores ocasionales quedaron fuera de ciclo hasta el dom 23 may, con una regla «cada 180 días».');
+    expect(avisoOcasionales({ definidas: 1, hasta: '2027-05-23', omitidas: [{}, {}] }))
+      .toBe('1 proveedor ocasional quedó fuera de ciclo hasta el dom 23 may, con una regla «cada 180 días». 2 no se tocaron: ya tenían regla o ya no eran ocasionales.');
+  });
+  it('NEGATIVA: si no se definió ninguno, no dice que sí', () => {
+    expect(avisoOcasionales({ definidas: 0, hasta: '2027-05-23', omitidas: [{}] })).toBe('No se definió ningún ocasional. 1 no se tocó: ya tenían regla o ya no eran ocasionales.');
+  });
+});
+
+describe('`[PQ.3.17]` quién la cambió y de qué a qué, en palabras', () => {
+  const c = (el: string, campos: CambioDeRegla['campos'], por: string | null = 'Bea Ruiz', nombres: Record<string, string> = {}): CambioDeRegla =>
+    ({ el, dia: el.slice(0, 10), por, campos, nombres });
+  const hoyR = regla({
+    weekdays: [1, 3], week_interval: 2, week_anchor: '2026-11-23', reviewer_user_id: 'U-B', note: 'con el camión de Zamora',
+    ultimo_cambio: { por: 'Bea Ruiz', el: '2026-11-26T15:00:00Z', dia: '2026-11-26' }, cambios_total: 2,
+    cambios: [
+      c('2026-11-26T15:00:00Z', { out_of_cycle_until: { antes: '2026-12-15', despues: null }, out_of_cycle_reason: { antes: 'inventario', despues: null } }),
+      c('2026-11-25T15:00:00Z', {
+        pattern: { antes: 'every_n_days', despues: 'weekdays' }, every_n_days: { antes: 14, despues: null }, weekdays: { antes: null, despues: [1, 3] },
+        week_interval: { antes: null, despues: 2 }, week_anchor: { antes: null, despues: '2026-11-23' }, reviewer_user_id: { antes: null, despues: 'U-B' },
+      }, 'Ana Gil', { 'U-B': 'Bea Ruiz' }),
+    ],
+  });
+
+  it('cada cambio dice cuándo, quién y qué: el patrón entero antes → después y el responsable por nombre', () => {
+    const h = historialVisible(hoyR, true)!;
+    expect(h.pasos.map((p) => `${p.cuando} · ${p.quien}`)).toEqual(['jue 26 nov · Bea Ruiz', 'mié 25 nov · Ana Gil']);
+    expect(h.pasos[0].lineas).toEqual(['Regresó al ciclo']);
+    expect(h.pasos[1].lineas).toEqual([
+      'Patrón: Cada 14 días → Cada 2 semanas, en lunes y miércoles (a partir del lun 23 nov)',
+      'Responsable: nadie (revisa el puesto) → Bea Ruiz',
+    ]);
+    expect(h.mas).toBeNull();
+    expect(h.sin_historial).toBeNull();
+  });
+
+  it('fuera de ciclo con su motivo, la nota, la baja, y una escritura que no movió nada', () => {
+    const r = regla({ out_of_cycle_until: '2026-12-15', out_of_cycle_reason: 'inventario', note: null, cambios: [
+      c('2026-11-27T15:00:00Z', { updated_at: { antes: 'a', despues: 'b' } }),
+      c('2026-11-26T15:00:00Z', { note: { antes: 'vieja', despues: null } }),
+      c('2026-11-25T15:00:00Z', { out_of_cycle_until: { antes: null, despues: '2026-12-15' }, out_of_cycle_reason: { antes: null, despues: 'inventario' } }),
+    ] });
+    const h = historialVisible(r, true)!;
+    expect(h.pasos.map((p) => p.lineas)).toEqual([['Se guardó sin cambios'], ['Se quitó la nota'], ['Fuera de ciclo hasta el mar 15 dic: «inventario»']]);
+    const b = historialVisible(regla({ cambios: [c('2026-11-27T15:00:00Z', { deleted_at: { antes: null, despues: '2026-11-27T15:00:00Z' } })] }), true)!;
+    expect(b.pasos[0].lineas).toEqual(['Dada de baja']);
+  });
+
+  it('el patrón guardado otra vez igual (sólo cambió una columna que no se nota) no se pinta como un cambio de patrón', () => {
+    const r = regla({ weekdays: [3], cambios: [c('2026-11-25T15:00:00Z', { weekend_shift: { antes: 'monday', despues: 'friday' } })] });
+    expect(historialVisible(r, true)!.pasos[0].lineas).toEqual(['Patrón: Cada miércoles, guardado otra vez']);
+  });
+
+  it('quien no se declaró, se dice; más cambios que los que vienen, se dice', () => {
+    const r = regla({ cambios_total: 14, cambios: [c('2026-11-25T15:00:00Z', { note: { antes: null, despues: 'x' } }, null)] });
+    const h = historialVisible(r, true)!;
+    expect(h.pasos[0].quien).toBe('sin nombre declarado');
+    expect(h.pasos[0].lineas).toEqual(['Nota: «x»']);
+    expect(h.mas).toBe('Se ven los 1 más recientes de 14.');
+  });
+
+  it('un último cambio que el historial no tiene se dice como anterior al historial (quién y cuándo, no de qué a qué)', () => {
+    const r = regla({ ultimo_cambio: { por: 'Ana Gil', el: '2026-11-24T10:00:00Z', dia: '2026-11-24' }, cambios: [] });
+    const h = historialVisible(r, true)!;
+    expect(h.pasos).toEqual([]);
+    expect(h.sin_historial).toBe('Ese último cambio es de antes de que se guardara el historial: se sabe quién y cuándo, no de qué a qué.');
+  });
+
+  it('NEGATIVA: una regla que nadie tocó no dice nada; sin historial medido tampoco (lo dice el aviso, no una lista vacía)', () => {
+    expect(historialVisible(regla({ ultimo_cambio: null, cambios: [] }), true)).toBeNull();
+    expect(historialVisible(hoyR, false)).toBeNull();
+    expect(historialVisible(regla({ ultimo_cambio: null }), true)).toBeNull(); // sin `cambios`: la API no los mandó
   });
 });

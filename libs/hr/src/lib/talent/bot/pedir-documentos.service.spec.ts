@@ -4,11 +4,14 @@
  * DECLARA el motivo (nunca se intenta un envío que Meta rechazaría en silencio).
  */
 let HrDocumentRequestService: typeof import('./pedir-documentos.service').HrDocumentRequestService;
+// `[RH.15.5x]` 60 s propios: lo que tarda es el primer `import` del barril de platform-core bajo carga
+// paralela (sola, la suite del bot corre en 7 s; con `libs/hr` entera, el import pasa de los 10 s por
+// defecto). Una compuerta que parpadea es peor que una roja: enseña a ignorarla.
 beforeAll(async () => {
   // El servicio importa el barril de platform-core, que exige JWT_SECRET al cargarse.
   process.env['JWT_SECRET'] ??= 'prueba-pedir-docs';
   ({ HrDocumentRequestService } = await import('./pedir-documentos.service'));
-});
+}, 60000);
 
 const AHORA = new Date('2026-10-14T18:00:00Z');
 const TENANT = '00000000-0000-0000-0000-00000000d01c';

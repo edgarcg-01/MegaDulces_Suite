@@ -131,8 +131,10 @@ export class CommercialReplenishmentController {
     @Query('only_overstock') only_overstock?: string,
     @Query('agotados') agotados?: string,
     @Query('coverage_mode') coverage_mode?: string,
+    // [PQ.95] «Con freno»: fin de pico en alguna sucursal o temporada confirmada.
+    @Query('freno') freno?: string,
   ) {
-    return this.svc.workbook({ supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, coverage_mode, scope, warehouse_ids, group, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined, iad, only_overstock: only_overstock === 'true' || only_overstock === '1', agotados: agotados === 'true' || agotados === '1' });
+    return this.svc.workbook({ supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, coverage_mode, scope, warehouse_ids, group, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined, iad, only_overstock: only_overstock === 'true' || only_overstock === '1', agotados: agotados === 'true' || agotados === '1', freno: freno === 'true' || freno === '1' });
   }
 
   @Get('workbook.xlsx')
@@ -152,6 +154,8 @@ export class CommercialReplenishmentController {
     @Query('only_overstock') only_overstock?: string,
     @Query('flat') flat?: string,
     @Query('coverage_mode') coverage_mode?: string,
+    // [PQ.95] El mismo «Con freno» de la pantalla: el Excel refleja exacto lo que se ve.
+    @Query('freno') freno?: string,
   ) {
     // Mismos filtros que la tabla en pantalla (incluye group=desglosar/englobar + iad + sobrestock)
     // → el Excel refleja EXACTO lo que ve el comprador, sin paginar.
@@ -160,6 +164,7 @@ export class CommercialReplenishmentController {
       scope, warehouse_ids, group,
       iad: iad === 'accel' || iad === 'decel' ? iad : undefined,
       only_overstock: only_overstock === 'true' || only_overstock === '1',
+      freno: freno === 'true' || freno === '1',
       export: true,
     });
     // Hoja "Traspasos" — mismos filtros estructurales (proveedor/categoría/búsqueda/cobertura).

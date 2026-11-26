@@ -54,9 +54,9 @@ const RESP: ResponsablesCalendario = {
   ],
 };
 
-function montar(o: { reglas?: ReglaCalendario[]; vista?: string; respuesta?: GuardarReglaRespuesta; responsables?: Observable<ResponsablesCalendario> } = {}) {
+function montar(o: { reglas?: ReglaCalendario[]; vista?: string; respuesta?: GuardarReglaRespuesta; responsables?: Observable<ResponsablesCalendario>; historial?: CalendarioCompras['historial'] } = {}) {
   const api = {
-    calendario: vi.fn(() => of(cal(o.reglas))), propuestas: vi.fn(() => of(PROP)),
+    calendario: vi.fn(() => of({ ...cal(o.reglas), ...(o.historial ? { historial: o.historial } : {}) })), propuestas: vi.fn(() => of(PROP)),
     guardarRegla: vi.fn(() => of(o.respuesta ?? ({ id: 'R-NUEVA', accion: 'creada', reglas: [] } as GuardarReglaRespuesta))),
     responsables: vi.fn(() => o.responsables ?? of(RESP)),
   };
@@ -265,5 +265,55 @@ describe('[PQ.3.22] el responsable y «Mis revisiones» (DC30)', () => {
     const { el, c } = montar({ reglas: [regla({})] });
     expect(c.mias()).toBe(0);
     expect(el.querySelector('button.cc-mias')).toBeNull();
+  });
+});
+
+describe('[PQ.3.17] quién la definió, quién la cambió y de qué a qué (DC25)', () => {
+  const MEDIDO = { measured: true, note: null };
+  const texto = () => (document.body.textContent ?? '').replace(/\s+/g, ' ');
+  const cambiada = regla({
+    every_n_days: null, weekdays: [2], reviewer_user_id: 'U-LP',
+    ultimo_cambio: { por: 'Compras La Piedad', el: '2026-11-21T16:00:00Z', dia: '2026-11-21' }, cambios_total: 1,
+    cambios: [{
+      el: '2026-11-21T16:00:00Z', dia: '2026-11-21', por: 'Compras La Piedad', nombres: { 'U-LP': 'Compras La Piedad' },
+      campos: {
+        pattern: { antes: 'every_n_days', despues: 'weekdays' }, every_n_days: { antes: 7, despues: null }, weekdays: { antes: null, despues: [2] },
+        reviewer_user_id: { antes: null, despues: 'U-LP' },
+      },
+    }],
+  });
+
+  it('una regla que cambió otra persona nombra a las dos: quién la definió y quién la cambió, y de qué a qué', () => {
+    const { f, c } = montar({ reglas: [cambiada], historial: MEDIDO });
+    c.abrir('R1'); f.detectChanges();
+    expect(texto()).toContain('Definida por Gerencia el vie 20 nov.');
+    expect(texto()).toContain('Último cambio: Compras La Piedad, el sáb 21 nov.');
+    // Cada cambio, renglón por renglón (cada uno es su propio elemento: así se ve y así se lee).
+    const li = [...document.querySelectorAll('.cc-cambios li')].map((x) => [...x.children].map((s) => (s.textContent ?? '').trim()));
+    expect(li).toEqual([['sáb 21 nov · Compras La Piedad', 'Patrón: Cada 7 días → Cada martes', 'Responsable: nadie (revisa el puesto) → Compras La Piedad']]);
+  });
+
+  it('el último cambio anterior al historial se dice así (quién y cuándo, no de qué a qué)', () => {
+    const { f, c } = montar({ reglas: [{ ...cambiada, cambios: [], cambios_total: 0 }], historial: MEDIDO });
+    c.abrir('R1'); f.detectChanges();
+    expect(texto()).toContain('Último cambio: Compras La Piedad, el sáb 21 nov.');
+    expect(texto()).toContain('Ese último cambio es de antes de que se guardara el historial');
+    expect(document.querySelector('.cc-cambios')).toBeNull();
+  });
+
+  it('sin historial medido, una regla cambiada lo DICE (no pinta «sin cambios»)', () => {
+    const { f, c } = montar({ reglas: [{ ...cambiada, cambios: undefined }], historial: { measured: false, note: 'El historial de cambios de las reglas no está activo en esta base.' } });
+    c.abrir('R1'); f.detectChanges();
+    expect(texto()).toContain('El historial de cambios de las reglas no está activo en esta base.');
+    expect(document.querySelector('.cc-cambios')).toBeNull();
+  });
+
+  it('NEGATIVA: una regla que nadie tocó sólo dice quién la definió', () => {
+    const { f, c } = montar({ reglas: [regla({ ultimo_cambio: null, cambios: [], cambios_total: 0 })], historial: MEDIDO });
+    c.abrir('R1'); f.detectChanges();
+    expect(texto()).toContain('Definida por Gerencia el vie 20 nov.');
+    expect(texto()).not.toContain('Último cambio');
+    expect(texto()).not.toContain('antes de que se guardara el historial');
+    expect(document.querySelector('.cc-cambios')).toBeNull();
   });
 });
