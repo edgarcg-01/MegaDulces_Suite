@@ -1,4 +1,4 @@
-import { dialDeD3Cierra, escrituraDeComisionesEncendida, fechaDelDial, TIPO_INTERRUPTOR_COMISIONES, type DialDeCuenta } from './comisiones-kepler.escritor.service';
+import { dialDeD3Cierra, escrituraDeComisionesEncendida, ESTADOS_RETOMABLES, fechaDelDial, motivoDeNoReclamar, TIPO_INTERRUPTOR_COMISIONES, type DialDeCuenta } from './comisiones-kepler.escritor.service';
 
 /**
  * `[CB.62.4]` Los diales del escritor. El que importa es **D3**: el cambio de manos va cuenta por cuenta
@@ -91,5 +91,38 @@ describe('[CB.62.4] la fecha de D3 tal como la devuelve la base', () => {
   it('y el del día ANTERIOR sigue siendo atraso de Finanzas', () => {
     const desde = fechaDelDial(new Date(2026, 10, 17));
     expect(dialDeD3Cierra([cargo('4885', '2026-11-16')], diales({ '4885': desde }))).toContain('atraso de Finanzas');
+  });
+});
+
+/**
+ * `[CB.62.4]` El reclamo del día: qué se puede retomar y qué se DICE cuando no.
+ *
+ * Tercer defecto del canario del 2026-11-26: el día de la 05 quedó en `rechazado` por el renglón
+ * AMPARA, y al reintentar —ya con ese arreglo puesto— la pantalla decía «Otro proceso está
+ * escribiendo este día (o ya lo escribió)». No había otro proceso: era su propio renglón de la
+ * bitácora, y el día quedaba bloqueado PARA SIEMPRE con un aviso que mandaba a buscar donde no era.
+ */
+describe('[CB.62.4] el reclamo del día', () => {
+  it('un día RECHAZADO se puede retomar: el rechazo no escribió nada', () => {
+    expect(ESTADOS_RETOMABLES).toContain('rechazado');
+  });
+
+  it('⛔ pero «escrito» y «en_duda» NO se retoman', () => {
+    expect(ESTADOS_RETOMABLES).not.toContain('escrito');
+    expect(ESTADOS_RETOMABLES).not.toContain('en_duda');
+  });
+
+  it('el aviso dice el estado REAL, no una causa inventada', () => {
+    expect(motivoDeNoReclamar('escrito')).toMatch(/ya se escribió/);
+    expect(motivoDeNoReclamar('escribiendo')).toMatch(/Otro proceso/);
+    expect(motivoDeNoReclamar('en_duda')).toMatch(/EN DUDA/);
+  });
+
+  it('⭐ «en duda» manda a BUSCARLO en Kepler antes de reintentar, no a reintentar', () => {
+    expect(motivoDeNoReclamar('en_duda')).toMatch(/Búscalo en Kepler antes de reintentar/);
+  });
+
+  it('un estado que no conocemos se dice tal cual, no se disfraza', () => {
+    expect(motivoDeNoReclamar('loquesea')).toContain('loquesea');
   });
 });
