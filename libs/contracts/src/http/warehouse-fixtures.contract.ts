@@ -122,6 +122,9 @@ export interface CroquisResponse {
   warehouse: { id: string; code: string; name: string };
   zona: LocationZone;
   piezas: WarehouseFixture[];
+  /** `[UB.PL.11]` Las caras de esas piezas: lo que de verdad se acomoda en la planta. */
+  caras: FixtureFace[];
+
   /** Ubicaciones de la zona que todavía NO cuelgan de ninguna pieza: el hueco, dicho (ADR-056). */
   sin_pieza: number;
 }
@@ -330,4 +333,204 @@ export function acomodar(
     if (p.fila !== gesto.fila || p.columna !== columna) cambios.push({ id: p.id, fila: gesto.fila, columna });
   });
   return { ok: true, cambios };
+}
+// ── `[UB.PL.11]` La planta se arma con CARAS, no con corredores ──────────────────────────────
+
+/** Cuántos lugares admite un renglón. Mismo porqué que `CROQUIS_FILAS_MAX`: frenar un dedo trabado. */
+export const CROQUIS_COLUMNAS_MAX = 60;
+
+/**
+ * `[UB.PL.11]` **Lo que se acomoda es una CARA, y cada cara dice hacia dónde mira.**
+ *
+ * Hasta `[UB.PL.8]` lo que se colocaba era la pieza entera, con sus dos frentes ya pegados uno
+ * enfrente del otro. Eso decidía por el usuario: daba por hecho que una letra es un **corredor**
+ * con dos frentes enfrentados, y entonces un anaquel que vive **entre** dos pasillos no se podía
+ * decir — sus dos caras pertenecen a letras distintas.
+ *
+ * *Lo planteó Edgar el 2026-11-26: «¿y si los anaqueles están entre pasillos?», y al ofrecerle
+ * elegir entre los dos modelos contestó que no: «que todo pueda ser configurable, un sistema más
+ * libre acomodar».*
+ *
+ * El modelo libre, en tres reglas:
+ *
+ *  1. la planta es una rejilla de **celdas** (`fila`, `columna`); una celda es **un mueble**;
+ *  2. cada cara se coloca en una celda y dice si **mira arriba o abajo** — o sea, a cuál de los dos
+ *     corredores que tocan esa fila le sirve;
+ *  3. **dos caras en la misma celda mirando a lados opuestos son el mismo mueble**, espalda con
+ *     espalda. El anaquel entre pasillos queda dicho por el acto de ponerlas juntas, sin inventar
+ *     un concepto aparte.
+ *
+ * ⭐ El **corredor no se acomoda**: es lo que queda entre dos filas, y «es el pasillo A» porque las
+ * caras que lo tocan son de A. Por eso «qué tengo enfrente» deja de ser una suposición de la regla
+ * par/non y pasa a **leerse del dibujo** (`queTieneEnfrente`).
+ */
+export type MiraHacia = 'arriba' | 'abajo' | 'izquierda' | 'derecha';
+
+/** Las cuatro, en orden de reloj. Un corredor VERTICAL se sirve con 'izquierda' y 'derecha'. */
+export const MIRAS: readonly MiraHacia[] = ['arriba', 'derecha', 'abajo', 'izquierda'];
+
+/**
+ * La celda de enfrente, según hacia dónde mira la cara: un paso en esa dirección. El croquis es
+ * topológico, así que "un paso" es la celda vecina y no una distancia.
+ */
+export function celdaDeEnfrente(c: { fila: number; columna: number }, mira: MiraHacia): { fila: number; columna: number } {
+  if (mira === 'arriba') return { fila: c.fila - 1, columna: c.columna };
+  if (mira === 'abajo') return { fila: c.fila + 1, columna: c.columna };
+  if (mira === 'izquierda') return { fila: c.fila, columna: c.columna - 1 };
+  return { fila: c.fila, columna: c.columna + 1 };
+}
+
+/** Las caras que tiene una pieza: dos si es de pasillo, una si es cabecera, caja o mostrador. */
+export type CaraDePieza = 'nones' | 'pares' | 'unica';
+
+export interface FixtureFace {
+  id: string;
+  fixture_id: string;
+  cara: CaraDePieza;
+  /** Dónde cae en la planta. `null` mientras nadie la haya colocado. */
+  fila: number | null;
+  columna: number | null;
+  mira: MiraHacia | null;
+}
+
+/** Cuántas caras tiene una pieza, según su tipo. Una cabecera es de una sola cara. */
+export function carasDePieza(tipo: FixtureKind): CaraDePieza[] {
+  return FIXTURE_KINDS[tipo]?.dosFrentes ? ['nones', 'pares'] : ['unica'];
+}
+
+/** Una cara está colocada cuando tiene celda **y** dirección: sin las tres no se puede dibujar. */
+export function caraColocada(c: Pick<FixtureFace, 'fila' | 'columna' | 'mira'>): boolean {
+  return c.fila != null && c.columna != null && c.mira != null;
+}
+
+/** El lado contrario. Lo usan tanto la validación como el dibujo. */
+export function miraOpuesta(m: MiraHacia): MiraHacia {
+  if (m === 'arriba') return 'abajo';
+  if (m === 'abajo') return 'arriba';
+  if (m === 'izquierda') return 'derecha';
+  return 'izquierda';
+}
+
+/**
+ * La **otra cara del mismo mueble**: la que comparte celda mirando al lado contrario. `null` si el
+ * mueble es de una sola cara (contra una pared, o una cabecera).
+ */
+export function laOtraCaraDelMueble(caras: readonly FixtureFace[], id: string): FixtureFace | null {
+  const c = caras.find((x) => x.id === id);
+  if (!c || !caraColocada(c)) return null;
+  return caras.find((o) => o.id !== id && o.fila === c.fila && o.columna === c.columna && o.mira === miraOpuesta(c.mira as MiraHacia)) ?? null;
+}
+
+/**
+ * `[UB.PL.11]` **Qué hay enfrente, leído del croquis.** Dos caras están enfrentadas cuando comparten
+ * columna y se miran a través del corredor que separa sus filas: la de arriba mirando `abajo` y la
+ * de abajo mirando `arriba`. ⭐ Esto **reemplaza a la suposición** de que el rack 01 está siempre
+ * enfrente del 02 (`[UB.RF.18]`), que sólo es cierta si la letra es un corredor.
+ */
+export function queTieneEnfrente(caras: readonly FixtureFace[], id: string): FixtureFace | null {
+  const c = caras.find((x) => x.id === id);
+  if (!c || !caraColocada(c)) return null;
+  const d = celdaDeEnfrente({ fila: c.fila as number, columna: c.columna as number }, c.mira as MiraHacia);
+  return caras.find((o) => o.fila === d.fila && o.columna === d.columna && o.mira === miraOpuesta(c.mira as MiraHacia)) ?? null;
+}
+
+/** El gesto: a qué celda va una cara y hacia dónde mira. `fila: null` la saca de la planta. */
+export interface SoltarCara {
+  id: string;
+  fila: number | null;
+  columna: number | null;
+  mira: MiraHacia | null;
+}
+
+export type CaraAcomodada = Pick<FixtureFace, 'id' | 'fila' | 'columna' | 'mira'>;
+
+export type AcomodoDeCara =
+  | { ok: true; cambios: CaraAcomodada[] }
+  | { ok: false; motivo: string };
+
+/**
+ * `[UB.PL.11]` Soltar una cara en una celda. Devuelve **sólo lo que cambió** —una cara, o ninguna
+ * si ya estaba ahí—, porque un arrastre tiene que ser una petición y no una por mueble.
+ *
+ * ⛔ Lo único que se rechaza es lo imposible: dos caras **mirando al mismo lado** en la misma celda.
+ * Eso no es una preferencia de diseño, es que no existe: un mueble tiene un frente por lado.
+ */
+export function acomodarCara(caras: readonly FixtureFace[], gesto: SoltarCara): AcomodoDeCara {
+  const movida = caras.find((c) => c.id === gesto.id);
+  if (!movida) return { ok: false, motivo: 'Esa cara no es de este croquis.' };
+
+  if (gesto.fila == null) {
+    if (!caraColocada(movida)) return { ok: true, cambios: [] };
+    return { ok: true, cambios: [{ id: movida.id, fila: null, columna: null, mira: null }] };
+  }
+
+  if (!Number.isInteger(gesto.fila) || gesto.fila < 1 || gesto.fila > CROQUIS_FILAS_MAX) {
+    return { ok: false, motivo: `Los renglones van del 1 al ${CROQUIS_FILAS_MAX}.` };
+  }
+  if (!Number.isInteger(gesto.columna) || (gesto.columna as number) < 1 || (gesto.columna as number) > CROQUIS_COLUMNAS_MAX) {
+    return { ok: false, motivo: `Los lugares de un renglón van del 1 al ${CROQUIS_COLUMNAS_MAX}.` };
+  }
+  if (!gesto.mira || !MIRAS.includes(gesto.mira)) {
+    return { ok: false, motivo: 'Falta decir hacia qué lado mira la cara.' };
+  }
+
+  const ocupa = caras.find((c) => c.id !== gesto.id && c.fila === gesto.fila && c.columna === gesto.columna && c.mira === gesto.mira);
+  if (ocupa) {
+    return { ok: false, motivo: 'Ya hay una cara mirando para ese lado en ese lugar: un mueble tiene un frente por lado.' };
+  }
+
+  if (movida.fila === gesto.fila && movida.columna === gesto.columna && movida.mira === gesto.mira) {
+    return { ok: true, cambios: [] };
+  }
+  return { ok: true, cambios: [{ id: movida.id, fila: gesto.fila, columna: gesto.columna, mira: gesto.mira }] };
+}
+
+/** Una celda de la planta: el mueble que vive ahí, con la cara que da a cada lado. */
+export interface CeldaDeLaPlanta {
+  fila: number;
+  columna: number;
+  /** La cara que mira hacia cada lado. Hasta cuatro: una isla se ve de los cuatro costados. */
+  caras: Partial<Record<MiraHacia, FixtureFace>>;
+  /** Cuántas caras tiene de verdad: 0 celda libre, 1 contra pared, 2 el mueble entre pasillos. */
+  cuantas: number;
+}
+
+/**
+ * `[UB.PL.11]` La planta dibujable: los renglones que ya tienen muebles **más uno libre al final**,
+ * y cada uno con sus celdas **más una libre al final**. Así siempre hay dónde seguir poniendo sin
+ * tener que buscar un botón de «agregar».
+ */
+export function plantaDeCaras(caras: readonly FixtureFace[]): CeldaDeLaPlanta[][] {
+  const puestas = caras.filter(caraColocada);
+  const filas = Math.min(CROQUIS_FILAS_MAX, Math.max(0, ...puestas.map((c) => c.fila as number)) + 1);
+  const columnas = Math.min(CROQUIS_COLUMNAS_MAX, Math.max(0, ...puestas.map((c) => c.columna as number)) + 1);
+  const planta: CeldaDeLaPlanta[][] = [];
+  for (let fila = 1; fila <= filas; fila++) {
+    const renglon: CeldaDeLaPlanta[] = [];
+    for (let columna = 1; columna <= columnas; columna++) {
+      const aqui = puestas.filter((c) => c.fila === fila && c.columna === columna);
+      const porLado: Partial<Record<MiraHacia, FixtureFace>> = {};
+      for (const c of aqui) porLado[c.mira as MiraHacia] = c;
+      renglon.push({ fila, columna, caras: porLado, cuantas: aqui.length });
+    }
+    planta.push(renglon);
+  }
+  return planta;
+}
+
+/** `[UB.PL.11]` Lo que la pantalla manda al soltar una cara: un gesto, una petición. */
+export interface AcomodoCarasBody {
+  warehouse_id: string;
+  zona: LocationZone;
+  gesto: SoltarCara;
+}
+
+/**
+ * `[UB.PL.11]` El nombre de una CARA en palabras de la tienda: «Anaquel de pasillo A · nones».
+ * Una pieza de una sola cara se llama como la pieza, sin sufijo: decir «Cabecera D · única» sería
+ * ruido sobre algo que no tiene alternativa.
+ */
+export function nombreDeCara(f: Pick<WarehouseFixture, 'tipo' | 'pasillo' | 'label'>, cara: CaraDePieza): string {
+  const base = nombrePieza(f);
+  return cara === 'unica' ? base : `${base} · ${cara}`;
 }

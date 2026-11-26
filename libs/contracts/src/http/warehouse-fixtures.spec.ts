@@ -1,5 +1,15 @@
 import {
+  CROQUIS_COLUMNAS_MAX,
+  MIRAS,
   CROQUIS_FILAS_MAX,
+  acomodarCara,
+  carasDePieza,
+  laOtraCaraDelMueble,
+  miraOpuesta,
+  plantaDeCaras,
+  queTieneEnfrente,
+  type FixtureFace,
+  type MiraHacia,
   FIXTURE_KINDS,
   acomodar,
   cabeEnElCroquis,
@@ -242,5 +252,163 @@ describe('[UB.PL.8] soltar una pieza en el croquis', () => {
     expect(cambios).toEqual([{ id: 'a', fila: 2, columna: 1 }]);
     // b y c conservan 2 y 3: las columnas sólo tienen que estar ORDENADAS, no ser consecutivas.
     expect(cambios.some((x) => x.id === 'b' || x.id === 'c')).toBe(false);
+  });
+});
+
+/**
+ * `[UB.PL.11]` **La planta se arma con caras.** Lo planteó Edgar el 2026-11-26: «¿y si los anaqueles
+ * están entre pasillos?». Colocar la pieza entera daba por hecho que una letra es un corredor con
+ * sus dos frentes enfrentados, y así un anaquel **entre** dos pasillos —cuyas caras pertenecen a
+ * letras distintas— no se podía decir. Al ofrecerle elegir entre los dos modelos contestó que no:
+ * «que todo pueda ser configurable, un sistema más libre acomodar».
+ */
+describe('[UB.PL.11] la planta se arma con caras', () => {
+  const cara = (id: string, fila: number | null, columna: number | null, mira: MiraHacia | null): FixtureFace =>
+    ({ id, fixture_id: 'f' + id, cara: 'nones', fila, columna, mira });
+
+  describe('cuántas caras tiene cada mueble', () => {
+    it('⭐ un anaquel de pasillo tiene dos caras; una cabecera, una sola', () => {
+      expect(carasDePieza('anaquel')).toEqual(['nones', 'pares']);
+      expect(carasDePieza('cabecera')).toEqual(['unica']);
+    });
+
+    it('⛔ NEGATIVA: una caja tampoco tiene dos frentes — no se le dibuja un corredor en medio', () => {
+      expect(carasDePieza('caja')).toEqual(['unica']);
+    });
+  });
+
+  describe('el anaquel ENTRE dos pasillos', () => {
+    // El caso de Edgar: A-pares y B-nones son el MISMO mueble, espalda con espalda.
+    const aPares = cara('a-pares', 2, 1, 'arriba');
+    const bNones = { ...cara('b-nones', 2, 1, 'abajo'), cara: 'pares' as const };
+    const aNones = cara('a-nones', 1, 1, 'abajo');
+    const todas = [aNones, aPares, bNones];
+
+    it('⭐ dos caras en la misma celda mirando a lados opuestos SON un solo mueble', () => {
+      expect(laOtraCaraDelMueble(todas, 'a-pares')?.id).toBe('b-nones');
+      expect(laOtraCaraDelMueble(todas, 'b-nones')?.id).toBe('a-pares');
+    });
+
+    it('⭐ y cada una sirve a SU corredor: A-pares mira al mismo pasillo que A-nones', () => {
+      expect(queTieneEnfrente(todas, 'a-pares')?.id).toBe('a-nones');
+      expect(queTieneEnfrente(todas, 'a-nones')?.id).toBe('a-pares');
+    });
+
+    it('⛔ NEGATIVA: la cara que da al otro lado NO está enfrente de nadie si ahí no hay nada', () => {
+      expect(queTieneEnfrente(todas, 'b-nones')).toBeNull();
+    });
+
+    it('⛔ NEGATIVA: un mueble contra la pared no tiene otra cara, y no se la inventa', () => {
+      expect(laOtraCaraDelMueble([aNones], 'a-nones')).toBeNull();
+    });
+  });
+
+  describe('soltar una cara', () => {
+    const a = cara('a', 1, 1, 'abajo');
+    const b = cara('b', 2, 1, 'arriba');
+    const suelta = cara('s', null, null, null);
+    const ok = (r: ReturnType<typeof acomodarCara>) => { if (!r.ok) throw new Error(r.motivo); return r.cambios; };
+
+    it('⭐ una cara de la bandeja cae en la celda que se eligió, y nadie más se mueve', () => {
+      expect(ok(acomodarCara([a, b, suelta], { id: 's', fila: 2, columna: 1, mira: 'abajo' })))
+        .toEqual([{ id: 's', fila: 2, columna: 1, mira: 'abajo' }]);
+    });
+
+    it('⛔ NEGATIVA: dos caras mirando al MISMO lado en la misma celda no existen', () => {
+      const r = acomodarCara([a, b, suelta], { id: 's', fila: 2, columna: 1, mira: 'arriba' });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.motivo).toContain('un frente por lado');
+    });
+
+    it('⭐ soltarla donde ya estaba no escribe nada', () => {
+      expect(ok(acomodarCara([a, b], { id: 'a', fila: 1, columna: 1, mira: 'abajo' }))).toEqual([]);
+    });
+
+    it('⭐ sacarla de la planta la devuelve a la bandeja', () => {
+      expect(ok(acomodarCara([a, b], { id: 'b', fila: null, columna: null, mira: null })))
+        .toEqual([{ id: 'b', fila: null, columna: null, mira: null }]);
+    });
+
+    it('⛔ NEGATIVA: sin decir hacia dónde mira, no se puede dibujar', () => {
+      const r = acomodarCara([a, suelta], { id: 's', fila: 1, columna: 2, mira: null });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.motivo).toContain('hacia qué lado mira');
+    });
+
+    it('⛔ NEGATIVA: renglones y lugares fuera de rango se rechazan con su motivo', () => {
+      expect(acomodarCara([a, suelta], { id: 's', fila: 0, columna: 1, mira: 'arriba' }).ok).toBe(false);
+      expect(acomodarCara([a, suelta], { id: 's', fila: CROQUIS_FILAS_MAX + 1, columna: 1, mira: 'arriba' }).ok).toBe(false);
+      expect(acomodarCara([a, suelta], { id: 's', fila: 1, columna: 0, mira: 'arriba' }).ok).toBe(false);
+      expect(acomodarCara([a, suelta], { id: 's', fila: 1, columna: CROQUIS_COLUMNAS_MAX + 1, mira: 'arriba' }).ok).toBe(false);
+    });
+  });
+
+  describe('la planta que se dibuja', () => {
+    it('⭐ una planta vacía abre con una celda libre: hay dónde empezar', () => {
+      const p = plantaDeCaras([cara('s', null, null, null)]);
+      expect(p.length).toBe(1);
+      expect(p[0].length).toBe(1);
+      expect(p[0][0]).toEqual({ fila: 1, columna: 1, caras: {}, cuantas: 0 });
+    });
+
+    it('⭐ crece un renglón y un lugar más allá de lo ocupado', () => {
+      const p = plantaDeCaras([cara('a', 2, 3, 'arriba')]);
+      expect(p.length).toBe(3);
+      expect(p[0].length).toBe(4);
+    });
+
+    it('⭐ la celda compartida trae sus DOS caras, cada una de su lado', () => {
+      const p = plantaDeCaras([cara('x', 1, 1, 'arriba'), cara('y', 1, 1, 'abajo')]);
+      expect(p[0][0].caras.arriba?.id).toBe('x');
+      expect(p[0][0].caras.abajo?.id).toBe('y');
+      expect(p[0][0].cuantas).toBe(2);
+    });
+
+    it('⛔ NEGATIVA: una cara a medio colocar no se dibuja — no se adivina su lugar', () => {
+      const p = plantaDeCaras([cara('a', 1, 1, null), cara('b', 1, null, 'arriba')]);
+      expect(p[0][0].cuantas).toBe(0);
+    });
+  });
+});
+
+/**
+ * `[UB.PL.11]` **Los pasillos no siempre corren en horizontal.** El croquis real de Padre Hidalgo
+ * (que mandó Edgar el 2026-11-26) tiene los anaqueles **en vertical**, con los corredores entre
+ * ellos: ahí las caras miran a izquierda y derecha, no arriba y abajo. Con dos direcciones el
+ * dibujo habría salido girado 90° respecto de la tienda, y nadie lo habría reconocido.
+ */
+describe('[UB.PL.11] los pasillos corren para donde corran', () => {
+  const cara = (id: string, fila: number, columna: number, mira: MiraHacia): FixtureFace =>
+    ({ id, fixture_id: 'f' + id, cara: 'nones', fila, columna, mira });
+
+  it('⭐ hay cuatro lados, y el de enfrente de cada uno es su opuesto', () => {
+    expect([...MIRAS].sort()).toEqual(['abajo', 'arriba', 'derecha', 'izquierda']);
+    expect(MIRAS.map(miraOpuesta)).toEqual(['abajo', 'izquierda', 'arriba', 'derecha']);
+  });
+
+  it('⭐ un corredor VERTICAL: dos muebles de columnas vecinas se miran por el costado', () => {
+    const izq = cara('izq', 1, 1, 'derecha');
+    const der = cara('der', 1, 2, 'izquierda');
+    expect(queTieneEnfrente([izq, der], 'izq')?.id).toBe('der');
+    expect(queTieneEnfrente([izq, der], 'der')?.id).toBe('izq');
+  });
+
+  it('⛔ NEGATIVA: mirarse de costado NO es estar enfrente si hay una columna de por medio', () => {
+    const izq = cara('izq', 1, 1, 'derecha');
+    const lejos = cara('lejos', 1, 3, 'izquierda');
+    expect(queTieneEnfrente([izq, lejos], 'izq')).toBeNull();
+  });
+
+  it('⭐ el mueble entre dos pasillos verticales: una celda, una cara a cada costado', () => {
+    const a = cara('a', 1, 2, 'izquierda');
+    const b = cara('b', 1, 2, 'derecha');
+    expect(laOtraCaraDelMueble([a, b], 'a')?.id).toBe('b');
+  });
+
+  it('⛔ NEGATIVA: dos caras al MISMO costado en la misma celda se rechazan', () => {
+    const a = cara('a', 1, 2, 'izquierda');
+    const suelta = { ...cara('s', 1, 1, 'arriba'), fila: null, columna: null, mira: null } as FixtureFace;
+    const r = acomodarCara([a, suelta], { id: 's', fila: 1, columna: 2, mira: 'izquierda' });
+    expect(r.ok).toBe(false);
   });
 });

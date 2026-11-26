@@ -20,7 +20,8 @@ import type {
   WarehouseLocationRow,
   WarehouseLocationsResponse,
   WarehouseFixture,
-  AcomodoBody,
+  AcomodoCarasBody,
+  FixtureFace,
   CroquisResponse,
   CrearPiezaBody,
   MoverPiezaBody,
@@ -63,7 +64,7 @@ export class WarehouseLocationsController {
 
   @Post()
   @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
-  @ApiOperation({ summary: 'Dar de alta UNA ubicación con el código [T|B][pasillo][rack 01-99][nivel 1-6].' })
+  @ApiOperation({ summary: 'Dar de alta UNA ubicación con el código [T|B][pasillo][rack 01-99][nivel 1-9].' })
   create(@Body() body: CreateWarehouseLocationBody): Promise<WarehouseLocationRow> {
     return this.svc.create(body);
   }
@@ -111,13 +112,15 @@ export class WarehouseLocationsController {
     return this.fixtures.derivar(body?.warehouse_id);
   }
 
-  // [UB.PL.8] Dibujar la planta es CONFIGURAR la sucursal, así que pide GESTIONAR (4 roles) y no
+  // [UB.PL.11] Dibujar la planta es CONFIGURAR la sucursal, así que pide GESTIONAR (4 roles) y no
   // ACOMODAR (7): acomodar es poner mercancía en su lugar, no redibujar dónde están los muebles.
+  // ⭐ Lo que se mueve es una CARA, no la pieza entera: así un anaquel ENTRE dos pasillos se puede
+  // decir (sus dos caras son de letras distintas y comparten celda). Reemplaza al de [UB.PL.8].
   @Put('fixtures/acomodo')
   @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
-  @ApiOperation({ summary: '[UB.PL.8] Acomoda el croquis: un arrastre, una petición. Sólo viajan las piezas que se movieron. NO toca ninguna ubicación.' })
-  acomodarCroquis(@Body() body: AcomodoBody): Promise<{ movidas: number; piezas: WarehouseFixture[] }> {
-    return this.fixtures.acomodo(body);
+  @ApiOperation({ summary: '[UB.PL.11] Suelta una CARA en una celda de la planta: un gesto, una petición. NO toca ninguna ubicación ni ningún código.' })
+  acomodarCroquis(@Body() body: AcomodoCarasBody): Promise<{ movidas: number; caras: FixtureFace[] }> {
+    return this.fixtures.acomodoDeCaras(body);
   }
 
   @Patch('fixtures/:id')
