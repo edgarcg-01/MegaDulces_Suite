@@ -102,6 +102,35 @@ export interface WarehouseFixture {
 
 export type FixtureSpec = Pick<WarehouseFixture, 'zona' | 'tipo' | 'pasillo' | 'racks' | 'niveles'>;
 
+/** Lo que la pantalla manda para agregar una pieza. */
+export interface CrearPiezaBody extends FixtureSpec {
+  warehouse_id: string;
+  fila?: number | null;
+  columna?: number | null;
+  label?: string | null;
+}
+
+/** Mover una pieza en el croquis o renombrarla. No toca ninguna ubicación. */
+export interface MoverPiezaBody {
+  fila?: number | null;
+  columna?: number | null;
+  label?: string | null;
+}
+
+export interface CroquisResponse {
+  warehouse: { id: string; code: string; name: string };
+  zona: LocationZone;
+  piezas: WarehouseFixture[];
+  /** Ubicaciones de la zona que todavía NO cuelgan de ninguna pieza: el hueco, dicho (ADR-056). */
+  sin_pieza: number;
+}
+
+export interface DerivarPiezasResult {
+  piezas: number;
+  ubicaciones: number;
+  ya_tenian: number;
+}
+
 export type FixtureExpand =
   | { ok: true; total: number; partes: LocationCodeParts[] }
   | { ok: false; motivo: string };
