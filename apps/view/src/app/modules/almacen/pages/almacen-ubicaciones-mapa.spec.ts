@@ -236,4 +236,3 @@ describe('[UB.RF.12] mapa · qué se imprime por omisión', () => {
     expect(formatoPorZona('B')).toBe('cartel');
   });
 });
-
