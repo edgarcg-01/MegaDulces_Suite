@@ -104,3 +104,28 @@ describe('[IC.F14] la misma cantidad se lee con UN solo formato', () => {
     }
   });
 });
+
+describe('[IC.F22] la pantalla vacía no afirma lo que no sabe', () => {
+  /**
+   * `/counts/mine` devuelve vacío por dos causas distintas —no hay folio abierto, o lo hay y no te
+   * asignaron— y la pantalla **no puede distinguirlas**. Decía «No hay ningún folio de inventario
+   * abierto para contar. Pedile a tu supervisor que abra uno.» con el folio vivo del otro lado: el
+   * supervisor que recibía el reclamo veía el folio abierto y no entendía el pedido.
+   */
+  it('⛔ ya no declara que no hay folio abierto', () => {
+    expect(CONTEO).not.toContain('No hay ningún folio de inventario abierto para contar');
+    expect(CONTEO).not.toContain('Pedile a tu supervisor que abra uno');
+  });
+
+  it('dice lo que sí sabe y nombra la acción que corresponde', () => {
+    expect(CONTEO).toContain('No tienes folios para contar.');
+    // La misma salida que ya daba `ContarOAsignadoGuard`: a quien arma el equipo, no al supervisor.
+    expect(CONTEO).toContain('pídele a quien arma el equipo que te agregue como contador');
+  });
+});
+
+describe('[IC.F13] la pantalla del contador ya no pinta un código suelto', () => {
+  it('muestra el nombre de la categoría, no el 341', () => {
+    expect(CONTEO).toContain('resolved()?.category_name');
+  });
+});

@@ -21,6 +21,16 @@ import { CantidadFisicaDirective } from '../../../shared/directives/cantidad-fis
 import { InventoryOfflineService } from '../../../core/services/inventory-offline.service';
 import type { InventoryScanPending } from '../../../core/services/offline-database.service';
 
+/**
+ * `[IC.F13]` Lo que el servidor reconoce de un código, con el nombre de la CATEGORÍA.
+ *
+ * ⚠️ **Deuda con nombre:** `category_name` va acá y no en `ResolvedProduct` porque al cerrar
+ * esto `comercial.service.ts` tenía trabajo sin commitear de otra sesión (`[IC.27]`, la lista
+ * universal de asignables) y tocarlo se lo habría llevado puesto en este commit. Cuando eso
+ * aterrice, el campo se muda al contrato y este alias se borra.
+ */
+type ProductoResuelto = ResolvedProduct & { category_name?: string | null };
+
 interface FeedEntry {
   sku: string | null;
   name: string | null;
@@ -68,8 +78,17 @@ interface FeedEntry {
       @if (!folios().length) {
         <div class="ic-empty">
           <i class="pi pi-inbox"></i>
-          <p>No hay ningún folio de inventario abierto para contar.</p>
-          <small>Pedile a tu supervisor que abra uno.</small>
+          <!--
+            [IC.F22] Esta pantalla NO sabe si no hay folio abierto o si lo hay y no te asignaron:
+            la lista de "mis folios" devuelve vacío en los dos casos. Decía «no hay ninguno
+            abierto» y mandaba a pedir algo que ya existía — el supervisor que recibía el reclamo
+            veía el folio vivo y no entendía nada. El texto ahora dice lo que sí sabe, y la
+            acción es la que ya está escrita en ContarOAsignadoGuard.
+
+            ⛔ Sin comillas invertidas acá adentro: parten el template literal (§8).
+          -->
+          <p>No tienes folios para contar.</p>
+          <small>Si ya abrieron uno, pídele a quien arma el equipo que te agregue como contador.</small>
         </div>
       } @else {
         <!-- Selector de folio (oculto mientras hay un conteo en curso) -->
@@ -190,7 +209,7 @@ interface FeedEntry {
                 <i class="pi pi-check-circle"></i>
                 <div class="ic-prod-info">
                   <span class="ic-prod-name">{{ resolved()?.product_name }}</span>
-                  <span class="ic-prod-meta">{{ resolved()?.sku }}@if (resolved()?.brand_name) { · {{ resolved()?.brand_name }} }@if (resolved()?.location) { · ubic. {{ resolved()?.location }} }</span>
+                  <span class="ic-prod-meta">{{ resolved()?.sku }}@if (resolved()?.brand_name) { · {{ resolved()?.brand_name }} }@if (resolved()?.category_name) { · {{ resolved()?.category_name }} }@if (resolved()?.location) { · ubic. {{ resolved()?.location }} }</span>
                 </div>
               </div>
             } @else if (notFound()) {
@@ -395,7 +414,7 @@ export class ComercialInventoryCountComponent {
 
   code = signal<string>('');
   qty = signal<number | null>(null);
-  resolved = signal<ResolvedProduct | null>(null);
+  resolved = signal<ProductoResuelto | null>(null);
   resolving = signal(false);
   notFound = signal(false);
 

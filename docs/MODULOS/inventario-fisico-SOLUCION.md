@@ -35,7 +35,7 @@ Eso es una decisión de PM, no técnica.
 | **C** | **La pantalla ante un 403** | F11, F17, F18 (F19 no) | ✅ **Arreglado 2026-11-26**, sin ver la pantalla |
 | **D** | **El tope de la lista del supervisor** | F5 (y F6, que era el mismo) | 🟡 **Declarado 2026-11-26**; falta paginar |
 | **E** | **Captura del contador** | F7, F8, F9, F14 (F10 no) | 🟡 **Arreglado 2026-11-26**; F10 sin mecanismo |
-| **F** | **Rótulos y estados que no dicen la verdad** | F3, F12, F13, F16, F22 | 🟠 |
+| **F** | **Rótulos y estados que no dicen la verdad** | F12, F13, F22 (F3 y F16 no) | 🟡 **2026-11-26**; F3 y F16 esperan firma |
 | **G** | **`reconcile` con defensa de capa única** | F20 | ✅ **Arreglado 2026-11-26** |
 
 ---
@@ -301,23 +301,91 @@ burbuja, y sin el `click`) y mutando el componente (sin la llamada ni el atribut
 
 ---
 
-## F · Rótulos y estados que no dicen la verdad
+## F · Rótulos y estados que no dicen la verdad — ✅ TRES DE CINCO, 2026-11-26
 
-- **F3** 🔴 — **«Resolver item» fija el `final_qty` pero no cuenta como conteo**: la cobertura siguió
-  en 0 %. Cerrar exige las dos cosas. Además **está disponible desde el minuto cero y muestra el
-  teórico** en un folio con doble conteo ciego — **21 personas** pueden hacerlo y sólo **17** pueden
-  reconciliar: *hay más gente capaz de anular el control que de cerrar el inventario*.
-- **F22** 🟡 — el contador sin asignación recibe «**Pedile a tu supervisor que abra uno**» cuando el
-  folio ya existe. ⭐ El mensaje correcto **ya está escrito** en `ContarOAsignadoGuard`; la pantalla
-  no lo usa.
-- **F16** 🟡 — asignar **restringe lo que se VE, no lo que se PUEDE**: el guard deja pasar a
-  cualquiera con `CONTAR` aunque no esté asignado. Con doble conteo ciego, **quién hizo C1 y quién
-  C2 no está garantizado por el candado**, sólo por la navegación.
-- **F13** 🟡 — `GET /counts/resolve` devuelve `product_id: null` **a propósito** (*«el conteo por sku
-  es parte del rework pendiente»*) y manda `categoria` en el campo `brand_name`; la pantalla pinta
-  ese valor —un «341»— junto al SKU como si fuera un dato del producto.
-- **F12** 🟡 — el teórico del mismo almacén pasó de **2,094 (junio) a 3,363 (hoy)**, +61 %. Puede ser
-  crecimiento real o cambio de fuente: **no está medido**. Toca **D-EX8**.
+| | Qué pasaba | Estado |
+|---|---|---|
+| **F13** 🟡 | La pantalla del contador pinta «00203 · **341**»: un código de categoría viajando en `brand_name` | ✅ ahora dice **PROMOCIONES** |
+| **F22** 🟡 | Al contador sin asignar: «no hay ningún folio abierto… pedile a tu supervisor que abra uno», con el folio vivo | ✅ el texto ya no afirma lo que no sabe |
+| **F12** 🟡 | El teórico del almacén pasó de 2,094 a 3,363 (+61 %): *«puede ser crecimiento real o cambio de fuente, no está medido»* | ✅ **medido** — ver abajo |
+| **F3** 🔴 | «Resolver item» anula el conteo ciego y no suma a la cobertura | ⏸️ **decisión de Edgar** |
+| **F16** 🟡 | El candado deja contar a cualquiera con la clave, esté o no asignado | ⏸️ **decisión de Edgar** |
+
+### F13 — era una categoría disfrazada de marca, y el nombre existe
+
+`resolveProduct` mandaba `brand_name: inv.categoria`. Medido en prod el 2026-11-26: de **10,266**
+productos de `inventory.products`, **9,321** traen categoría y los **9,321 son numéricos** (492
+códigos distintos). **Nunca fue un nombre de marca, en ninguna fila.**
+
+⭐ Y el nombre sí existe: el **97.1 %** de esos códigos casa con `catalog.categories.code`, donde
+`341` es **«PROMOCIONES»** — que es exactamente lo que era el producto del hallazgo
+(`$330 NESTLE = GRATIS 1 LONCHERA`). Así que el arreglo no fue borrar el dato sino **mandar el
+nombre, en un campo que dice qué trae** (`category_name`). Cuando el código no casa (2.9 %) no se
+manda nada: un «341» suelto no le dice nada a quien cuenta.
+
+⛔ **`product_id: null` sigue igual y es a propósito** (*«el conteo por sku es parte del rework
+pendiente»*): eso no se tocó.
+
+### F22 — el mensaje dice lo que la pantalla sabe, que es menos de lo que decía
+
+La pantalla **no puede distinguir** «no hay folio abierto» de «lo hay y no te asignaron»: la lista
+de folios propios vuelve vacía en los dos casos. Antes elegía la primera y mandaba a pedir algo que
+ya existía — el supervisor que recibía el reclamo veía el folio vivo y no entendía nada.
+
+Ahora: **«No tienes folios para contar · Si ya abrieron uno, pídele a quien arma el equipo que te
+agregue como contador»**. Es la misma salida que ya daba `ContarOAsignadoGuard`, y no afirma una
+causa que nadie midió.
+
+🟡 **Deuda con nombre:** para decir *cuál* de las dos causas es, el servidor tendría que contar los
+folios abiertos a los que esa persona **no** está asignada. Es un cambio de contrato y no se hizo de
+paso.
+
+### F12 — medido: NO es un cambio de fuente, y el folio no se está dejando nada
+
+Tres mediciones en prod, y **la segunda refuta a la primera** — por eso van las tres:
+
+1. **La fuente sí cambió.** Los folios de junio se sembraron de `commercial.stock` (`stock_source`
+   = `commercial`, 2,093 y 2,094 artículos); el de noviembre, del ERP derivado del ODS
+   (`stock_source` = `erp`, 3,364). Leído así, el caso parecía cerrado.
+2. ⛔ **Pero hoy las dos fuentes coinciden**: para ese mismo almacén, `commercial.stock` da **3,376**
+   SKUs con existencia y la vista del ERP **3,377**. O sea que **el cambio de fuente NO explica el
+   +61 %** — la fuente vieja daría hoy el mismo número. *Quedarse en la medición 1 habría publicado
+   una causa falsa.*
+3. **Y el folio de noviembre no se está dejando nada.** Los dos folios comparten sólo **1,164**
+   productos: **924** de junio no están hoy… y de esos 924, **sólo 11** siguen teniendo existencia.
+   Los otros 912 se fueron a cero de verdad. Un folio siembra lo que tiene existencia **el día que
+   se abre**, así que eso es rotación, no un hueco.
+
+**La conclusión que queda, y lo que todavía no se puede afirmar:** el almacén pasó de ~2,094 a
+~3,376 SKUs vivos en cinco meses, con rotación fuerte en los dos sentidos (2,200 productos de hoy no
+estaban en junio). Que eso sea rotación normal de una distribuidora de dulces es **plausible y no
+está probado**: para probarlo hace falta un testigo del movimiento, no un conteo de SKUs.
+
+⭐ **Lo que sí queda establecido, y es lo que importaba:** **comparar el inventario de junio con el
+de noviembre como si midieran lo mismo es incorrecto** — comparten **un tercio** de los artículos de
+hoy. Cualquier serie de exactitud que cruce los dos folios tiene que decirlo. Toca **D-EX8**.
+
+### ⏸️ F3 y F16 — no se tocan sin firma: cambian lo que la gente PUEDE hacer
+
+Los dos son defectos reales y los dos cambian permisos de personas, así que la decisión es de Edgar,
+no de quien programa. La recomendación va escrita para que sea un sí o un no:
+
+| | El defecto | Lo que se recomienda | A quién le cambia |
+|---|---|---|---|
+| **F3** | «Resolver item» fija la cantidad final **desde el minuto cero**, **mostrando el teórico**, en un folio de doble conteo ciego — y **no suma a la cobertura**: el folio queda con dos verdades paralelas | que el botón aparezca **sólo para artículos en discrepancia y después de C1 y C2**, y que resolver **cuente** para la cobertura | **21 personas** con `SUPERVISAR` dejan de poder fijar cantidades antes de que se cuente. Hoy son más que las **17** que pueden reconciliar: *hay más gente capaz de anular el control que de cerrar el inventario* |
+| **F16** | `ContarOAsignadoGuard` deja pasar a cualquiera con la clave `CONTAR` **aunque no esté asignado**; con doble conteo ciego, **quién hizo C1 y quién C2 no lo garantiza el candado**, sólo la navegación | que **si el folio tiene contadores asignados**, se exija estar entre ellos; si no tiene ninguno, que siga abierto como hoy | **31 personas** tienen `CONTAR`. El «modo abierto» —folio sin equipo— no cambia |
+
+⛔ **Hasta que eso se decida, F3 y F16 quedan abiertos y nombrados.** Arreglarlos por cuenta propia
+sería decidir, con código, quién puede anular el control de un inventario.
+
+Compuertas al cerrar: `check:templates` ✅ · `check:tokens` ✅ · `check:estilos` ✅ ·
+`check:pantalla -- comercial` ✅ **0 fallas NUEVAS**, los dos componentes con **0 errores
+semánticos** · 494 pruebas de `comercial` en el front y **102** de `commercial-inventory` en el
+back, en verde · prueba negativa del candado de F13 ejercida contra el fuente real (**2 rojos**).
+
+⚠️ **Y una que casi se va:** el comentario de F22 nació con comillas invertidas adentro del
+`template` y **partió el literal** — la trampa del §8, que ya lleva ocho. La cazó
+`npm run check:templates`, no una revisión.
 
 ---
 

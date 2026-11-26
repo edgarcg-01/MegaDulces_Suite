@@ -1103,12 +1103,27 @@ export class InventoryCountService {
       if (code) {
         const inv = await this.resolveInvByCode(trx, code);
         if (inv) {
+          // [IC.F13] `inventory.products.categoria` NO es la marca: es un CÓDIGO de categoría.
+          // Viajaba en `brand_name` y la pantalla del contador lo pintaba junto al SKU como si
+          // fuera un dato del producto — «00203 · 341».
+          //
+          // Medido en prod el 2026-11-26: de 10,266 productos, 9,321 traen categoría y los
+          // 9,321 son NUMÉRICOS (492 códigos distintos) — nunca fue un nombre de marca. El
+          // 97.1 % sí casa con `catalog.categories.code`, y ahí «341» resulta ser
+          // «PROMOCIONES», que es exactamente lo que era ese producto.
+          //
+          // Entonces se manda el NOMBRE, en un campo que dice lo que trae. Si el código no
+          // casa (2.9 %) no se manda nada: un «341» suelto no le dice nada a quien cuenta.
+          const cat = inv.categoria
+            ? await trx('catalog.categories').where({ code: inv.categoria }).first('name')
+            : null;
           return {
             product_id: null,
             sku: inv.sku,
             product_name: inv.nombre,
             barcode: inv.codigo_barras,
-            brand_name: inv.categoria ?? null,
+            brand_name: null,
+            category_name: cat?.name ?? null,
             location: null,
             unit_sale: inv.unidad_venta ?? null,
             source: 'inventory',
@@ -1133,6 +1148,9 @@ export class InventoryCountService {
         sku: prod.sku,
         product_name: prod.nombre,
         brand_name: brand?.nombre ?? null,
+        // Acá `brand_name` SÍ es la marca (`public.brands`). La categoría se manda en su
+        // propio campo para que las dos ramas tengan la misma forma y nadie lea una por otra.
+        category_name: null,
         location: prod.location ?? null,
         unit_sale: prod.unit_sale ?? null,
         source: 'catalog',
