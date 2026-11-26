@@ -329,3 +329,48 @@ ahora sabemos es que **eso no alcanza**: escribir bien las tablas no es capturar
 
 ⬜ **NO MEDIDO**: si existe esa vía de importación. Es lo único que falta para cerrar la pregunta, y **no se
 contesta midiendo la base**: se le pregunta a quien conoce el programa.
+
+## CC.25 — ⛔⛔ Se insertó un cobro real en Kepler: la escritura funcionó, el TIMBRE no (2026-11-26)
+
+> Edgar, después de leer `CC.24`: *«insertémoslo y veamos qué pasa»*. Era la única forma de contestarlo: no se
+> deduce. **Se hizo, en producción, sobre el caso real** — y la predicción se cumplió.
+
+### Qué se escribió
+
+El cobro del depósito del 23-nov que cuadra con el banco: **`06 / U-A-7 / 0000886`**, fecha del **depósito** (no de
+hoy: el complemento declara cuándo se pagó), capturista **`SUITE`**, con su referencia propia en `kdm1.c11`.
+
+| Lo que se escribió | Resultado |
+|---|---|
+| `kdm1` · `kdue` · `kdm5` | 1 fila cada uno ✓ |
+| póliza `kdc22611` nº 513 | 2 renglones, **cargo = abono = $15,539.63** ✓ |
+| el efecto | **el saldo de la factura `8-1-0001446` pasó a $0.00** ✓ |
+| ⛔ **el complemento de pago** | **NO SE TIMBRÓ** |
+
+### ⛔ La prueba de que no timbró, con su control
+
+El testigo es **`kdfe33pagm1` dentro de Kepler**, no `fiscal.cfdis` (ésa es la descarga del SAT, ~3 días).
+
+- El cobro `0000886` **no aparece** ahí.
+- ⭐ **Control del instrumento**: de los **24 cobros capturados HOY por una persona** en esa misma sucursal,
+  **los 24 sí aparecen**. El instrumento ve lo de hoy; lo que falta es el timbre del nuestro.
+
+**Confirma `CC.24` midiendo en vez de deduciendo: el timbre lo pone el programa de Kepler al guardar, y escribir
+las tablas lo saltea.** Escribir bien las tablas **no es** capturar un cobro.
+
+### ⛔ Lo que queda abierto AHORA, y hay que cerrar
+
+Hay **un cobro real en producción sin complemento de pago**. El plazo del complemento de un cobro de noviembre
+vence el **5 de diciembre**, así que hay tiempo — pero no se deja así.
+
+| | Camino | Qué se aprende |
+|---|---|---|
+| **A** ⭐ | Que alguien de Crédito **abra el cobro `0000886` en Kepler y lo guarde**. Si eso lo timbra, la respuesta al diseño es **D-CC2**: la Suite prepara y la persona confirma — sin teclear nada | mucho: define el diseño |
+| **B** | Cancelarlo (`c43='C'`) y que Crédito lo capture normal | nada nuevo, pero deja todo limpio |
+
+⛔ **No se hace ninguno sin que Edgar lo diga**: hay dinero y un documento de por medio.
+
+### Y un permiso que faltó
+
+`kepler_push` **no puede leer `md.kdfe33pagm1`** («permiso denegado»), así que el propio programa no pudo mirar si
+timbró y hubo que verlo por el ODS. Para que esto se pueda comprobar desde el carril: `GRANT SELECT` en esa tabla.

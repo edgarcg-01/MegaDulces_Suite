@@ -12,6 +12,8 @@ const path = require('node:path');
 const esbuild = require('esbuild');
 
 const salida = process.argv[2];
+// [CC.25] Segundo argumento: que archivo empaquetar (por omision el ensayo, que DESHACE).
+const entrada = process.argv[3] || 'ensayo.ts';
 if (!salida) { console.error('Uso: node empaquetar.js <salida.cjs>'); process.exit(1); }
 
 const NEST_MINIMO = `
@@ -21,7 +23,7 @@ class Logger { constructor(n) { this.n = n; }
 exports.Logger = Logger;`;
 
 esbuild.build({
-  entryPoints: [path.join(__dirname, 'ensayo.ts')],
+  entryPoints: [path.join(__dirname, entrada)],
   bundle: true,
   platform: 'node',
   target: 'node20',
@@ -37,4 +39,4 @@ esbuild.build({
   }],
   tsconfigRaw: { compilerOptions: { experimentalDecorators: true } },
   logLevel: 'warning',
-}).then(() => console.log(`ok → ${salida}`)).catch(() => process.exit(1));
+}).then(() => console.log(`ok → ${salida} (de ${entrada})`)).catch(() => process.exit(1));
