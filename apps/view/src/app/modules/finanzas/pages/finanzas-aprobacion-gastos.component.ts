@@ -31,7 +31,7 @@ import { lecturaKepler, solicitudKepler, type DetalleDeLaSolicitud, type KeplerD
 // `[PGP.123]` G.9 — La cola de comprobación: qué le falta a cada gasto autorizado, con las reglas puras de la cola.
 import type { ComprobacionEnLaCola } from '@megadulces/contracts';
 import { ETIQUETA_FALTA_EN_KEPLER, importeDelVale, lecturaDeLaCancelada } from '@megadulces/contracts';
-import { colaDeKepler, esCanceladaEnKepler, lecturaSinEscribir, lineaDelGasto, partirCanceladas, polizaCorta, puedeEscribirseYa, quienTexto, solicitudSinEscribir } from './esperan-kepler.ayudas';
+import { colaDeKepler, esCanceladaEnKepler, lecturaSinEscribir, lineaDelGasto, partirCanceladas, polizaCorta, pideComparar, pideGenerarOtraVez, puedeEscribirseYa, quienTexto, solicitudSinEscribir } from './esperan-kepler.ayudas';
 import { SolicitudGastoService } from '../solicitud-gasto.service';
 import { forkJoin } from 'rxjs';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
@@ -211,6 +211,17 @@ const ESTADO_LABEL: Record<string, string> = {
             <ng-template #item let-t><ng-container *ngTemplateOutlet="opcionLista; context: { $implicit: t }" /></ng-template>
           </p-select>
         </div>
+        <!-- [PGP.123] G-AUD.10 (2026-11-23): el selector se queda (GX.105, pedido de Edgar), pero lo que se resuelve con un
+             clic no puede vivir sólo adentro de él: medido, «Esperan a Kepler» guardaba 33 vales listos para generar
+             ($76,405.16) sin que la bandeja lo dijera. Si hay, se dice aquí, con su cifra y el camino. -->
+        @if (pestana() !== 'kepler' && keplerMedido() && cola().laSuite.length) {
+          <div class="ap-aviso ap-kep-aviso" role="status">
+            <i class="pi pi-bolt" aria-hidden="true"></i>
+            <span><strong>{{ cola().laSuite.length | number }} {{ cola().laSuite.length === 1 ? 'gasto listo' : 'gastos listos' }} para generar en Kepler</strong>
+              · {{ money(montoDe(cola().laSuite)) }}, un clic cada uno.</span>
+            <button pButton type="button" class="p-button-outlined p-button-sm" (click)="verPestana('kepler')">Ver los listos</button>
+          </div>
+        }
         <!-- [GX.105] Una lista como se ve cerrada y abierta: nombre, número y monto. -->
         <ng-template #opcionLista let-t>
           <span class="ap-op">
@@ -306,19 +317,17 @@ const ESTADO_LABEL: Record<string, string> = {
               <div class="ap-kep-cab">
                 @if (q.porComprobar.length) {
                   <h2 class="ap-kep-tot">{{ q.porComprobar.length | number }} por comprobar · {{ money(montoDe(q.porComprobar)) }}</h2>
-                  <span class="ap-kep-rep">listas para generar: {{ q.laSuite.length | number }} · con motivo: {{ conMotivoN() | number }}@if (sinCalcularN()) { · sin calcular: {{ sinCalcularN() | number }}}</span>
+                  <span class="ap-kep-rep">listas para generar: {{ q.laSuite.length | number }} · con motivo: {{ conMotivoN() | number }}@if (sinCalcularN()) { · sin calcular: {{ sinCalcularN() | number }}}@if (q.porAutorizar.length) { · <!-- G-AUD.20: lo que completa la cifra del selector -->esperan autorización en Kepler: {{ q.porAutorizar.length | number }}}</span>
                 } @else {
                   <h2 class="ap-kep-tot">Ningún gasto autorizado espera su comprobación</h2>
                 }
               </div>
+              <!-- [PGP.123] G-AUD.15 (2026-11-23): lo que se resuelve AQUÍ va primero. Antes «Listas para generar el gasto»
+                   iba debajo de los grupos que no se mueven desde esta pantalla (los que comprueba la sucursal en Kepler,
+                   los que decide Contabilidad): medido, 33 vales de un clic a ~6 pantallas y el firmado hoy a ~10.
+                   Orden: lo que la Suite intentó y necesita a una persona (lo raro, GX.96) → lo de un clic → lo demás. -->
               @for (g of q.conMotivo; track g.clave) {
-                <section class="ap-kep-sec" [attr.aria-labelledby]="'kep-' + g.clave">
-                  <h3 class="ap-kep-h" [id]="'kep-' + g.clave">{{ g.titulo }}
-                    <span class="ap-kep-n">{{ g.vales.length | number }} · {{ money(montoDe(g.vales)) }}</span></h3>
-                  <div class="ap-kep-lista">
-                    @for (v of g.vales; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
-                  </div>
-                </section>
+                @if (g.clave === 'fallo') { <ng-container *ngTemplateOutlet="grupoKepler; context: { $implicit: g }" /> }
               }
               @if (q.laSuite.length) {
                 <section class="ap-kep-sec" aria-labelledby="kep-la-suite">
@@ -329,6 +338,18 @@ const ESTADO_LABEL: Record<string, string> = {
                   </div>
                 </section>
               }
+              @for (g of q.conMotivo; track g.clave) {
+                @if (g.clave !== 'fallo') { <ng-container *ngTemplateOutlet="grupoKepler; context: { $implicit: g }" /> }
+              }
+              <ng-template #grupoKepler let-g>
+                <section class="ap-kep-sec" [attr.aria-labelledby]="'kep-' + g.clave">
+                  <h3 class="ap-kep-h" [id]="'kep-' + g.clave">{{ g.titulo }}
+                    <span class="ap-kep-n">{{ g.vales.length | number }} · {{ money(montoDe(g.vales)) }}</span></h3>
+                  <div class="ap-kep-lista">
+                    @for (v of g.vales; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
+                  </div>
+                </section>
+              </ng-template>
               <!-- Lo que espera otra cosa: a un clic, con su conteo, sin empujar la cola. -->
               @if (q.porAutorizar.length) {
                 <details class="ap-kep-pleg">
@@ -498,6 +519,28 @@ const ESTADO_LABEL: Record<string, string> = {
             <button pButton type="button" size="small" class="ap-kep-gen" [loading]="actuando() === v.id" [disabled]="!!actuando()"
                     (click)="reintentarGasto(v.id)" [attr.aria-label]="'Generar el gasto en Kepler de la solicitud ' + (v.folio_solicitud || '') + ' por ' + money(importeEnCola(v))">
               <span class="p-button-label">Generar gasto · {{ money(importeEnCola(v)) }}</span></button>
+          } @else if (!enCanceladas && v.espera === 'falta_generar_gasto' && !v.hallazgo && pideComparar(v.gasto_kepler)) {
+            <!-- [PGP.123] G.16 (DG12): el comprobante dice otro monto. El acto dice que se comparó antes de generar. -->
+            <button pButton type="button" size="small" [outlined]="true" class="ap-kep-gen" [loading]="actuando() === v.id" [disabled]="!!actuando()"
+                    (click)="reintentarGasto(v.id, true)" [attr.aria-label]="'Ya comparé el comprobante: generar el gasto en Kepler de la solicitud ' + (v.folio_solicitud || '') + ' por ' + money(importeEnCola(v))">
+              <span class="p-button-label">Ya lo comparé · Generar {{ money(importeEnCola(v)) }}</span></button>
+          } @else if (!enCanceladas && v.espera === 'falta_generar_gasto' && !v.hallazgo && pideGenerarOtraVez(v.gasto_kepler)) {
+            <!-- [PGP.123] G-AUD.14 (2026-11-23): Kepler canceló el gasto que escribió la Suite. No es el acto principal
+                 (alguien lo canceló, quizá a propósito): gris, y el segundo clic confirma que se escribe OTRO gasto. -->
+            @if (confirmarOtraVez() === v.id) {
+              <!-- modern-web-guidance (dialog): «DON'T let the confirmation move controls under the pointer». «No» va
+                   donde estaba «Generar otra vez»: un doble clic en el mismo lugar cae en lo seguro, no escribe otro gasto. -->
+              <span class="ap-kep-gen ap-kep-conf">
+                <button pButton type="button" size="small" [text]="true" severity="secondary" [disabled]="!!actuando()" (click)="confirmarOtraVez.set(null)">No</button>
+                <button pButton type="button" size="small" severity="danger" [loading]="actuando() === v.id" [disabled]="!!actuando()"
+                        (click)="generarOtraVez(v)" [attr.aria-label]="'Confirmar: escribir otro gasto en Kepler de la solicitud ' + (v.folio_solicitud || '') + ' por ' + money(importeEnCola(v))">
+                  <span class="p-button-label">Sí, escribir otro · {{ money(importeEnCola(v)) }}</span></button>
+              </span>
+            } @else {
+              <button pButton type="button" size="small" [outlined]="true" severity="secondary" class="ap-kep-gen" [disabled]="!!actuando()"
+                      (click)="confirmarOtraVez.set(v.id)" [attr.aria-label]="'Kepler canceló su gasto: generar otra vez el de la solicitud ' + (v.folio_solicitud || '') + ' por ' + money(importeEnCola(v))">
+                <span class="p-button-label">Generar otra vez · {{ money(importeEnCola(v)) }}</span></button>
+            }
           } @else {
             <span class="ap-kep-gen-vacio" aria-hidden="true"></span>
           }
@@ -717,6 +760,7 @@ const ESTADO_LABEL: Record<string, string> = {
       border-radius: var(--r-sm); background: var(--card-bg); }
     /* [PGP.123] G.14: «Generar gasto» va antes del folio; en pantalla angosta, en su propio renglón. */
     .ap-kep-gen { white-space: nowrap; }
+    .ap-kep-conf { display: inline-flex; align-items: baseline; gap: var(--sp-1); }
     @media (max-width: 40rem) { .ap-kep-gen, .ap-kep-gen-vacio { grid-column: 1 / -1; } .ap-kep-gen-vacio { display: none; } }
     /* [PGP.123] G.UI.7: el folio es un enlace NEUTRO (el color de acción tiene un solo papel, el botón principal). */
     .ap-kep-folio { border: 0; background: transparent; padding: 0; font-family: var(--font-mono); font-weight: var(--fw-bold);
@@ -836,8 +880,10 @@ const ESTADO_LABEL: Record<string, string> = {
     .ap-it-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
     .ap-chip { font-size: var(--fs-nano); border: 1px solid var(--border-color); color: var(--fg-2);
       border-radius: var(--r-sm); padding: 1px 7px; }
-    .ap-chip.ok { color: var(--ok-fg); border-color: var(--ok-border); }
-    .ap-chip.warn { color: var(--warn-fg); border-color: var(--warn-border); }
+    /* [PGP.123] G-AUD.11: como TEXTO, --ok-fg daba 3.30:1 y --warn-fg 2.15:1 (medido en prod, 11 px); los -soft-fg son
+       los de texto (>= 4.5:1 en claro y en oscuro). El -fg se queda en el borde. */
+    .ap-chip.ok { color: var(--ok-soft-fg); border-color: var(--ok-border); }
+    .ap-chip.warn { color: var(--warn-soft-fg); border-color: var(--warn-border); }
     .ap-chip.bad { color: var(--bad-fg); border-color: var(--bad-border); }
     .ap-it-nota { font-size: var(--fs-xs); color: var(--fg-2); font-style: italic; }
     .ap-it-nota.warn { color: var(--warn-fg); font-style: normal; }
@@ -1317,6 +1363,18 @@ export class FinanzasAprobacionGastosComponent {
   readonly lecturaSinEscribir = lecturaSinEscribir;
   /** `[PGP.123]` G.14: ¿se ofrece «Generar gasto» en la fila? La misma regla que el panel del vale. */
   readonly puedeEscribirseYa = puedeEscribirseYa;
+  /** `[PGP.123]` G.16: ¿se ofrece «Ya lo comparé · Generar» en la fila? */
+  readonly pideComparar = pideComparar;
+  readonly pideGenerarOtraVez = pideGenerarOtraVez;
+  /** `[PGP.123]` G-AUD.14 — El vale cuyo «Generar otra vez» espera el segundo clic (sólo uno a la vez). */
+  readonly confirmarOtraVez = signal<string | null>(null);
+
+  /** G-AUD.14 — Confirmado: escribe OTRO gasto. Si lo único que frena es la lectura del comprobante, cuenta como comparado. */
+  generarOtraVez(v: ValeEsperaKepler): void {
+    this.confirmarOtraVez.set(null);
+    const c = v.gasto_kepler?.comprobacion;
+    this.reintentarGasto(v.id, !!c && !c.listo && c.motivo === 'lectura_distinta');
+  }
 
   /**
    * `[PGP.123]` G.UI.5 — El gasto (X-A-10) del vale abierto, si está en la cola de comprobación. `undefined` = no espera
@@ -1334,15 +1392,21 @@ export class FinanzasAprobacionGastosComponent {
    * dice cómo quedó. Un clic, sin confirmación (D1): el botón lleva la cifra y se apaga mientras escribe; dos clics no
    * escriben dos gastos (el servidor reclama el vale antes de hablar con Kepler).
    */
-  reintentarGasto(id: string): void {
+  reintentarGasto(id: string, lecturaComparada = false): void {
     if (this.actuando()) return;
     this.actuando.set(id);
-    this.svc.reintentarGasto(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.reintentarGasto(id, lecturaComparada).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (e) => {
         this.actuando.set(null);
         if (e?.folio && (e.status === 'written' || e.status === 'seen_in_ods')) {
+          // [PGP.123] G-AUD.21: el aviso nombra el vale (en la cola convive otro «0000095» de otra serie).
+          const vale = this.esperanKepler()?.vales.find((x) => x.id === id);
+          const de = vale?.folio_solicitud ? `Gasto de la solicitud ${vale.folio_solicitud}: ` : '';
           this.toast.add({ severity: 'success', summary: 'Gasto generado en Kepler',
-            detail: `X-A-10 ${e.folio}${e.poliza ? ' · póliza ' + polizaCorta(e.poliza) : ''}.` });
+            detail: `${de}X-A-10 ${e.folio}${e.poliza ? ' · póliza ' + polizaCorta(e.poliza) : ''}.` });
+          // G-AUD.18: la fila se va en el momento. Antes seguía con «Generar gasto» activo mientras la cola se recargaba
+          // (medido: 3.3 s de escritura + 4.35 s de recarga): el aviso decía que salió y el botón que faltaba.
+          this.esperanKepler.update((r) => r ? { ...r, vales: r.vales.filter((x) => x.id !== id) } : r);
         } else {
           this.toast.add({ severity: 'warn', summary: 'Todavía no se genera', sticky: true, detail: e?.nota ?? 'La Suite no pudo escribirlo todavía.' });
         }

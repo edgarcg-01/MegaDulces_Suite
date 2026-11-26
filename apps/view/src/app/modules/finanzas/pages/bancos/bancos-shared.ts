@@ -5,7 +5,7 @@
  * funciones puras, así cada hijo importa lo que necesita sin acoplarse al shell.
  */
 
-export type BankView = 'cierre' | 'estados' | 'movimientos' | 'concentrado' | 'conciliacion' | 'contpaqi' | 'cuadre' | 'comisiones' | 'cuentas' | 'admin';
+export type BankView = 'cierre' | 'estados' | 'movimientos' | 'concentrado' | 'conciliacion' | 'contpaqi' | 'cuadre' | 'comisiones' | 'ingresos' | 'cuentas' | 'admin';
 export type BankAdminTab = 'catalogo' | 'cuentas';
 
 export const MONTHS_ES: Record<string, string> = {
@@ -69,6 +69,9 @@ export const WORK_VIEWS: { key: BankView; label: string; icon: string; grupo: Ba
   { key: 'cierre', label: 'Cierre', icon: 'pi pi-flag', grupo: 'cierre' },
   { key: 'estados', label: 'Estados de cuenta', icon: 'pi pi-file-import', grupo: 'entra' },
   // [CB.64] «Movimientos» ya no es pestaña: es una ventana que abre Cuentas (y el Cierre, y un archivo subido).
+  // [BFU.4.5.13] Ingresos y egresos (de dónde viene y a dónde va cada peso) y Cuentas (los saldos) son dos preguntas:
+  // juntas en una vista obligaban a desplazarse (Edgar, 2026-11-25: «para no hacer tanto scroll»).
+  { key: 'ingresos', label: 'Ingresos y egresos', icon: 'pi pi-arrow-right-arrow-left', grupo: 'revisa' },
   { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet', grupo: 'revisa' },
   { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync', grupo: 'kepler' },
   { key: 'cuadre', label: 'Cuadre 3 vías', icon: 'pi pi-check-square', grupo: 'kepler' },
@@ -96,6 +99,8 @@ export interface DatosDePestanas {
   conciliacionMedida?: boolean;
   /** [CB.62] Cargos de comisión listos para Kepler; `null` = la propuesta no se cargó o no se pudo medir. */
   comisionesListas?: number | null;
+  /** [BFU.4.5.13] Lo que falta explicar del periodo; `null` = el diagnóstico no lo midió. */
+  porLigar?: { n: number; atrasados: number } | null;
 }
 export function numeroDePestana(v: BankView, d: DatosDePestanas): NumeroDePestana | null {
   switch (v) {
@@ -104,6 +109,11 @@ export function numeroDePestana(v: BankView, d: DatosDePestanas): NumeroDePestan
       if (!c.length) return null;
       const con = c.filter((x) => x.hasta).length;
       return { texto: `${con}/${c.length}`, aria: `${con} de ${c.length} cuentas con su descarga`, aviso: con < c.length };
+    }
+    case 'ingresos': {
+      // Lo que falta explicar; es aviso sólo si algo lleva más de 5 días hábiles sin ligar.
+      const p = d.porLigar;
+      return p && p.n ? { texto: String(p.n), aria: `${p.n} movimientos por explicar${p.atrasados ? `, ${p.atrasados} con más de 5 días hábiles` : ''}`, aviso: p.atrasados > 0 } : null;
     }
     case 'cuentas':
       return d.descuadradas ? { texto: String(d.descuadradas), aria: `${d.descuadradas} sin cuadrar`, aviso: true } : null;

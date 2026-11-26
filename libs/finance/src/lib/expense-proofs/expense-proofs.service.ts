@@ -3382,7 +3382,24 @@ export class ExpenseProofsService {
    * el nombre del padrón) o **quien aprueba** (`esAprobador`: `COMPROBAR` o rol de plataforma, lo decide el
    * controller). También retoma lo atorado, lo rechazado y lo cancelado. Lo decide la regla G.5; si no toca, dice por qué.
    */
-  async generarGasto(id: string, quien: IdentidadQueDecide, esAprobador: boolean): Promise<EstadoKeplerDelGasto | null> {
+  /**
+   * `[PGP.123]` G-AUD.16 (2026-11-23) — El gasto (X-A-10) de UN vale validado, para el panel abierto desde cualquier
+   * pantalla. Antes sólo lo traía la cola «Esperan a Kepler»: medido, el vale de prueba quedó «Comprobado» y su panel,
+   * abierto desde el buscador, no decía su X-A-10 ni su póliza (el único lugar fue un aviso que se cierra solo). Sólo
+   * lee. `null` = no está validado o no se pudo calcular; el contrato de la cola declara lo que no se midió.
+   */
+  async gastoKeplerDe(id: string): Promise<ComprobacionEnLaCola | null> {
+    const limpio = String(id ?? '').trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(limpio)) throw new BadRequestException('Identificador de vale inválido');
+    if (!this.comprobacionGasto) return null;
+    // Con RLS: un vale de otro tenant no existe para esta lectura.
+    const v = await this.tk.run(async (trx) => trx('finance.expense_proofs').where({ id: limpio }).first('status') as Promise<{ status: string } | undefined>);
+    if (!v) throw new NotFoundException('El vale no existe');
+    if (v.status !== 'validada') return null;
+    return (await this.comprobacionGasto.enLaCola([limpio])).get(limpio) ?? null;
+  }
+
+  async generarGasto(id: string, quien: IdentidadQueDecide, esAprobador: boolean, opciones: { lecturaComparada?: boolean } = {}): Promise<EstadoKeplerDelGasto | null> {
     const limpio = String(id ?? '').trim().toLowerCase();
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(limpio)) throw new BadRequestException('Identificador de vale inválido');
     if (!this.comprobacionGasto) throw new ServiceUnavailableException('La comprobación del gasto en Kepler no está cargada en este servidor');
@@ -3394,7 +3411,8 @@ export class ExpenseProofsService {
     if (!v) throw new NotFoundException('El vale no existe');
     if (!esAprobador && !esDuenoDelVale(v, yo)) throw new ForbiddenException('Sólo quien pidió el gasto o quien aprueba gastos puede generarlo en Kepler.');
     if (v.status !== 'validada') throw new ConflictException('Sólo un vale validado tiene gasto que generar en Kepler');
-    return this.comprobacionGasto.generar(limpio, String(yo.full_name || yo.username || '').trim() || 'sistema');
+    // G.16: «Ya lo comparé» viaja tal cual; el servicio sólo lo toma si el vale trae una lectura distinta (DG12).
+    return this.comprobacionGasto.generar(limpio, String(yo.full_name || yo.username || '').trim() || 'sistema', { lecturaComparada: opciones.lecturaComparada === true });
   }
 
   /**

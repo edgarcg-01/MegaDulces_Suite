@@ -52,7 +52,8 @@ B  A  05  3
 
 - **Validación**: `^[TB][A-Z](0[1-9]|[1-9][0-9])[1-6]$`. Lo que no cumpla se rechaza **con su motivo**, en pantalla y en captura masiva.
 - **Se guarda en partes**: `zona`, `pasillo`, `rack`, `nivel`, cada una en su columna. El código es la concatenación, nunca se teclea suelto contra la base. Así no hay `BA5 3` contra `BA053`.
-- **Orden de recorrido** (hoja de surtido): zona → pasillo → rack → nivel. Se puede corregir por ubicación (`pick_sequence`) cuando el recorrido físico no sigue el alfabeto.
+- ⭐ **Un pasillo es un CORREDOR con dos frentes** (Edgar, 2026-11-25), y el frente **no se escribe en el código: se deduce del número de rack** — los nones de un lado y los pares del otro, como las calles. Los dos frentes son parejos, así que el rack `n` queda enfrente del `n + 1`. Por qué derivarlo: un dato que alguien captura se puede capturar mal y nadie lo nota; uno que sale del número, no. Y así el código sigue teniendo 5 caracteres, con el mismo CHECK, el mismo `normalizeBinCode` del escáner y el mismo ancho de CODE128 en la etiqueta. Se descartaron **el carácter de lado** (`BA05I3`: rompe el formato, el CHECK, el escáner y las etiquetas ya calibradas) y **dos letras por corredor** (obliga a declarar y mantener qué letras son el mismo pasillo, y el nombre del sistema deja de parecerse al letrero).
+- **Orden de recorrido** (hoja de surtido): zona → pasillo → **el pasillo en serpentina** → nivel: se baja por el frente de los nones (01, 03, 05…) y se vuelve por el de los pares (…, 06, 04, 02). El orden lineal de antes obligaba a cruzar el corredor una vez por rack: 24 cruces en un pasillo de 25. Se puede corregir por ubicación (`pick_sequence`) cuando el recorrido físico no sigue el alfabeto.
 - **Sin posición dentro del nivel**: varios productos comparten `BA053`. El producto se identifica por su etiqueta, y la ubicación dice dónde buscar.
 - **Otras familias** (D8), con prefijo propio que no choca con `T`/`B`: carretas `C01`–`C99`, espacios de espera `E01`…, contenedores de plástico `K01`… y estibas por vehículo. Comparten tabla y estados, pero no siguen la regla de 5 caracteres.
 - ⚠️ **Cambio obligado en el código actual**: `apps/view/.../almacen/shared/tipo-ubicacion.ts` deduce "tarima" de una `T` inicial. Con D2, la `T` es **tienda**. El tipo pasa a una **columna**, no se deduce del nombre.
@@ -488,6 +489,187 @@ rojo: quitar el ancho fijo de las barras tumba 1 prueba y volver a la hoja carta
 - que el rollo amarillo tenga de verdad la geometría del blanco. Lo dijo Edgar; no se midió;
 - la impresión real en la TSC y que la pistola de la tienda la lea;
 - si una etiqueta de 48 mm de alto cabe en el canto del anaquel o sobresale.
+
+### 8.6 El mapa dice lo que varía, y lo que no se midió se declara (UB.RF.17, 2026-11-25) 🧪
+
+**De dónde sale:** una auditoría de diseño de `/almacen/ubicaciones` pedida por Edgar. Nivel de
+evidencia **B** (prod en sólo lectura) + **C** (fuente); **nivel A, NO MEDIDO**: no hubo pantalla
+viva, así que nada de píxeles reales, recorrido con teclado, `forced-colors` ni lector de pantalla.
+
+**Lo que la medición encontró** (prod, 2026-11-25; 535 ubicaciones en 4 almacenes):
+
+| # | Lo que estaba mal | Cuánto costaba |
+|---|---|---|
+| 1 | El cuadro del mapa pintaba **cuántos niveles** tiene el rack | Es constante dentro de un almacén: los **75 racks de CEDIS tenían los mismos 5 niveles** y los **39 de Padre Hidalgo los mismos 4**. El mapa dibujaba 75 y 39 cuadros idénticos. Lo que sí variaba —**2 de esos 39 racks ya tenían producto asignado**, 29 asignaciones vivas en 21 productos— no se veía por ningún lado |
+| 2 | Los 4 KPI contaban **todas** las familias y **ambas** zonas; el mapa recorre una familia y una zona | **Zamora Centro publicaba «3 activas · de 3 dadas de alta» con el mapa vacío**: sus 3 son carretas, y sólo existen detrás de `?vista=carretas` |
+| 3 | «Con mercancía · acomodada con escaneo» publicaba **0** | `commercial.stock_lot_locations` tenía **una sola fila en todo prod** (5-oct, 8 Esquinas): el cero era del instrumento, no de la operación. Cero por defecto es indistinguible de cero por desuso |
+| 4 | Dos textos mandaban a **«Mantenimiento»** | Esa pantalla es **UB.4**: no tiene ruta, ni tab, ni endpoint. Bloquear, dar de baja, reactivar y recodificar **no se pueden hacer en ninguna parte de la suite** (0 ubicaciones no-activas en prod) |
+| 5 | El anillo de foco usaba `--action-ring` | **1.56:1** en claro, **1.52:1** en oscuro, **1.07:1** sobre una celda pintada. `tokens.css:257` dice que ése es el halo de un `box-shadow`; el anillo sólido es `--focus-ring` (5.00 / 5.23). Y el mapa se recorre con flechas: ese anillo es el único indicador de dónde está la persona |
+| 6 | «de N dadas de alta» incluía las **dadas de baja** | Latente: hoy no hay ninguna |
+| 7 | El dato principal del mapa iba a **10 px** (`--fs-nano`) | El piso del repo es 11 px (`[GP.RF.12]`), citado tres líneas más arriba en el mismo archivo |
+| 8 | «Dada de baja» y «sin dar de alta» se distinguían con **1.10:1** y **1.27:1** contra la tarjeta | Por debajo del 3:1 de un objeto que porta información |
+
+**Qué se hizo.**
+
+- **El número del cuadro es ahora «productos con lugar aquí»** (`productosDeRack`), que es el dato que
+  varía; los niveles siguen en el detalle del rack, que ya los listaba. Un nivel dado de baja no suma:
+  un lugar en una ubicación retirada no es un lugar.
+- **Los KPI se cuentan sobre lo que la pantalla muestra**, no sobre el almacén entero: el mapa de la zona
+  más la lista de código libre. Si se contaran sólo sobre el mapa, 8 Esquinas diría «0 con mercancía» con
+  su única ubicación —de código libre— diciendo «1 con mercancía» tres dedos más abajo.
+- **Lo que el mapa no recorre se declara** con su salida al lado: «Este almacén tiene 3 carretas fuera del
+  mapa» + «Ver carretas».
+- **«Con mercancía» dice «sin medir»** (`state: 'no_medido'`, ADR-056) mientras el acomodo con escaneo no
+  haya escrito nada en ese almacén. El testigo nuevo es `renglones_totales`, que cuenta los renglones
+  **sin mirar la cantidad**: un renglón en cero sí es medición (el acomodo pasó y la ubicación se vació).
+- **La leyenda es viva**: sólo los estados que esa zona tiene. Antes listaba los cinco siempre, y dos de
+  ellos no los puede producir nadie todavía. Se le quitó el `aria-hidden`.
+- **El número lleva a su lugar de arreglo** (`Q.4`): desde el detalle del rack se abre Asignación con
+  `?rack=TA01` —el filtro que el backend ya aceptaba por `[UB.RF.15]`— y la lista filtrada **lo dice**,
+  con «Ver todo el almacén» al lado. «Ver los que faltan por ubicar» suelta el rack: con rack puesto y
+  filtro «por ubicar» la lista salía siempre vacía y se leería como «ya está todo ubicado».
+- **Se quitaron las dos promesas de «Mantenimiento»**, en la pantalla y en el mensaje de la API.
+- **Accesibilidad:** `--focus-ring` en el anillo del mapa, 11 px en el número, «baja» con borde sólido y
+  guion y «vacío» con borde punteado (7.73:1 los dos, y ya no se distinguen sólo por color).
+
+**Medición antes/después de los KPI** (las dos fórmulas corridas sobre las filas reales de prod):
+
+| Almacén | Antes | Ahora |
+|---|---|---|
+| CEDIS | 375 activas · 0 con mercancía | 375 en tienda · 0 con producto · **sin medir** |
+| Padre Hidalgo | 156 activas · 0 con mercancía | 156 en tienda · **3 con producto** · **sin medir** |
+| Zamora Centro | **3 activas** con el mapa vacío | 0 en bodega · **3 carretas fuera del mapa**, con su enlace |
+| 8 Esquinas | 1 activa · 1 con mercancía | 0 en bodega · 1 con mercancía · 1 de código libre |
+
+**Compuertas:** `commercial` 21/21 · `view` 36/36 (2 archivos) · `check:templates` verde ·
+`check:cifra` 0 nuevas · `check:estilos`: los outlines con `--action-ring` bajan de 37 a **36** (el tope
+sigue en 39) · `ngc --noEmit` limpio, **con control negativo**: un `{{ controlNegativoQueNoExiste() }}`
+metido a propósito salió como `TS2339` y después se retiró.
+
+**NO MEDIDO:**
+- la pantalla viva: píxeles, recorrido real con flechas, `forced-colors`, lector de pantalla, 390 px;
+- si el 42 % de rechazos del alta individual (**5 de 12** llamadas en 30 días) es validación o permiso:
+  `analytics.ui_usage` no separa el código de 4xx;
+- **UB.4 sigue sin existir**: no se puede bloquear, dar de baja, reactivar ni recodificar una ubicación.
+  La pantalla ahora lo dice en vez de mandar a una pantalla inexistente, pero el hueco es el mismo.
+
+### 8.7 Un pasillo es un corredor con dos frentes (UB.RF.18, 2026-11-25) 🧪
+
+**El problema, de Edgar:** *«cada pasillo tiene dos frentes que se contraponen, y hoy no se considera
+como tal»*. El código `[T|B][pasillo][rack][nivel]` asume una sola cara, y `defaultPickSequence`
+ordenaba zona → pasillo → rack → nivel: un recorrido de ida, en una fila.
+
+**Por qué se resuelve HOY** (medido en prod el mismo día): las 531 ubicaciones con formato son tres
+rectángulos perfectos (A/B/C × 01–25 en CEDIS, A/B/C × 01–13 en Padre Hidalgo), **sin un solo hueco**:
+es un andamio generado por rango, no un censo del almacén. Las 29 asignaciones vivas están en **A01 y
+A02**, y no hay mercancía en ninguna. Dentro de un mes, cambiar la convención sería recoger etiquetas
+de piso.
+
+**La decisión (Edgar, 2026-11-25): par/non, y los dos frentes son parejos.**
+
+| | Qué cambia | Por qué no |
+|---|---|---|
+| **Par/non** ✔ | **nada** del código, el CHECK, el escáner ni el CODE128. El lado **se deriva** del número | — |
+| Dos letras por corredor | tampoco toca el código, pero hay que declarar y mantener qué letras son el mismo corredor | un dato más que cuidar, y el nombre del sistema deja de parecerse al letrero |
+| Un carácter de lado (`BA05I3`) | rompe el formato de 5, el CHECK, `normalizeBinCode` y el ancho del CODE128 ya calibrado | lo paga todo el sistema por un dato derivable |
+
+**Qué se hizo.**
+
+- `rackFace(rack)` y `rackOpuesto(rack)` en `contracts`: el frente y el rack de enfrente salen del
+  número. `describeLocationCode` lo dice: «Bodega · pasillo A · **frente de nones** · rack 05 · nivel 3».
+- **`defaultPickSequence` pasa a serpentina**: se baja por los nones (01, 03, 05…) y se vuelve por los
+  pares (…, 06, 04, 02). El orden lineal obligaba a cruzar el corredor **una vez por rack** — 24 cruces
+  en un pasillo de 25. La vuelta por los pares no se mete en el pasillo siguiente (hay prueba negativa).
+- **El mapa dibuja el corredor**: un bloque por pasillo, el frente de nones arriba, el de pares abajo y
+  la línea del corredor en medio. **Cada frente lleva su propia regleta de números** pegada a su fila
+  (arriba en los nones, abajo en los pares), para que nadie tenga que deducir cuál rack es cuál.
+- **Cada pasillo usa sólo sus columnas**: uno de 6 racks ya no arrastra las 25 del más largo.
+- **Las flechas cruzan el corredor**: arriba y abajo pasan de un frente al otro y al pasillo siguiente;
+  el tope de columnas se lee del frente al que se va, así que la flecha ya no deja el foco en una celda
+  que no existe.
+- **El detalle del rack dice su frente y qué tiene enfrente**: «Frente de nones, enfrente del A06».
+- **Migración `20261125131938`**: recalcula `pick_sequence` de las ubicaciones que ya existen, para que
+  no convivan dos órdenes.
+
+**Medición antes/después** (prod, sólo lectura): **531 de 531 ubicaciones tenían exactamente la fórmula
+vieja — 0 editadas a mano**, así que recalcular no pisa el trabajo de nadie. El WHERE de la migración
+alcanza **531 filas y deja fuera 4**: el código libre de 8 Esquinas y las 3 carretas de Zamora Centro,
+que no tienen pasillo ni rack. Recorrido del pasillo A de Padre Hidalgo, nivel 1: antes
+01→02→03→04→05→06 (cinco cruces del corredor), ahora **01→03→05→06→04→02** (uno solo, en el fondo).
+
+**Compuertas:** `contracts` 54/54 · `view` 43/43 · `check:templates` verde ·
+`check:mig-colisiones` sin colisiones · `ngc --noEmit` limpio.
+
+**NO MEDIDO:**
+- **el ensayo de la migración con escritura**: la credencial de prod es de sólo lectura (como debe ser),
+  así que se verificó su SQL y su alcance con `SELECT`, no ejerciéndola. La corre el CI;
+- **que los dos frentes de cada pasillo real sean parejos**: lo dijo Edgar, no se midió en piso. Si un
+  frente tiene bastantes menos racks, el mapa los sigue dibujando bien pero «enfrente del 05 está el 06»
+  deja de ser cierto en ese pasillo;
+- **la pantalla viva**: el dibujo del corredor no se vio en el navegador;
+- **el cartel de cabecera de pasillo** («PASILLO A · nones ← · pares →») todavía no se imprime: se
+  imprimen las etiquetas de cada ubicación, no el letrero del corredor.
+
+### 8.8 «Los productos no se están almacenando ni mostrando» (UB.RF.19, 2026-11-25) 🧪
+
+**El reporte, de Edgar.** Sí se estaban almacenando. Lo que no había era dónde verlos.
+
+**La traza, medida en prod el mismo día:**
+
+| Hora (MX) | Qué pasó |
+|---|---|
+| 13:54:37 | asignación guardada en **TA011 · Padre Hidalgo** (exhibición en tienda, PZA), por `viviana_flores` |
+| 13:55:40 | segunda asignación, misma ubicación |
+| **13:56:39** | **intento de dar de alta `TA011`** → `409`: «Ya existe la ubicación TA011 en ese almacén» |
+
+`POST /assignments` ese día: **2 hits, 0 errores**. 31 asignaciones vivas, en 3 ubicaciones de Padre
+Hidalgo: TA011 con **16 productos**, TA012 con 12, TA021 con 3. Un minuto después de guardar dos
+productos en TA011, alguien intentó crear TA011: es lo que hace quien no ve lo que acaba de hacer. Los
+5 intentos de alta de ese día fallaron los 5, todos por lo mismo.
+
+**Tres causas, las tres de presentación:**
+
+1. **El mapa no mostraba productos** (pintaba niveles, que son constantes): TA011, con 16 productos, se
+   veía idéntico a los otros 38 racks. Lo cierra `[UB.RF.17]`.
+2. **En Asignación, el producto recién ubicado desaparecía en el acto**: `trasGuardar()` recarga la lista
+   con el filtro de entrada —«Por ubicar»—, y el producto acaba de dejar de estarlo. El aviso de éxito
+   dura un momento y después no queda rastro: **la señal de que se guardó y la de que no existe eran la
+   misma**.
+3. **El almacén por defecto es el primero por código**: quien no tiene almacén en su ficha abre en
+   **CEDIS, con 375 ubicaciones y 0 productos**, y lee «no hay nada» sobre el almacén equivocado.
+   `viviana_flores` es superadmin y su ficha no tiene almacén.
+
+De fondo: **23 productos ubicados de 86,619 del catálogo de Kepler** (0.03 %). En una lista de «Por
+ubicar» con decenas de miles de renglones, dos productos más o menos no se notan.
+
+**Qué se hizo.**
+
+- **Todo lo que se ubica entra a la bandeja**, no sólo lo que se ubicó estando parado en esa ubicación,
+  y la bandeja **«Acabas de ubicar (N)»** se ve también en la lista, con el código donde quedó cada uno
+  y su «Quitar». Antes `hechos` sólo se llenaba con `aqui()` puesto.
+- **El alcance trae cuánto trabajo tiene cada almacén** (`ubicaciones` y `con_producto` por almacén, una
+  consulta agregada de **8 ms**), y el mapa lo usa para decir: «CEDIS todavía no tiene productos
+  ubicados. **Padre Hidalgo** tiene 23», con el botón para cambiarse. Un «no hay nada» sobre el almacén
+  equivocado se lee como «se perdió lo que guardé».
+- **El almacén va en el título**, no en gris chico al lado: `Ubicaciones · Padre Hidalgo`.
+
+⛔ **Un error que cazó el control de la consulta, no una prueba.** La primera versión de la consulta
+agregada usaba `count(*)` sobre un `LEFT JOIN` con las asignaciones, y el join **multiplica la ubicación
+por cada producto que tiene**: Padre Hidalgo daba **185 ubicaciones en vez de 156** (sus 3 bins con
+asignaciones contaban 32 veces). Salió porque el control exigía 156/23 de antemano. Va con
+`count(DISTINCT b.id)`.
+
+**Compuertas:** `view` 51/51 · `commercial` 21/21 · `contracts` 54/54 · `check:templates` verde ·
+`ngc --noEmit` limpio · `check:pantalla` sin fallas nuevas. **Con control de mutante:** al devolver la
+condición vieja (`if (this.aqui()?.code === u.code)`) se pone roja exactamente la prueba del arreglo, y
+sólo ésa.
+
+**NO MEDIDO:**
+- **la consulta agregada no tiene prueba automática**: se verificó contra prod con sus dos controles
+  (375/0 y 156/23) y su costo, no con un test. Las pruebas con Postgres real las corre el CI;
+- **la pantalla viva**: la bandeja y el aviso de almacén no se vieron en el navegador;
+- **si el 42 % de rechazos del alta individual** (5 de 12 llamadas en 30 días) es validación o permiso:
+  `analytics.ui_usage` no separa el código de 4xx. Los 5 de hoy sí: los cinco fueron «ya existe».
 
 ## 9. Preguntas abiertas
 

@@ -11,6 +11,8 @@ import {
   formatLocationCode,
   LOCATION_CODE_RE,
   parseLocationCode,
+  rackFace,
+  rackOpuesto,
   CART_CODE_RE,
   describeCart,
   formatCartCode,
@@ -23,7 +25,7 @@ describe('[UB.1] código de ubicación', () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.parts).toEqual({ zona: 'B', pasillo: 'A', rack: 5, nivel: 3 });
-      expect(describeLocationCode(r.parts)).toBe('Bodega · pasillo A · rack 05 · nivel 3');
+      expect(describeLocationCode(r.parts)).toBe('Bodega · pasillo A · frente de nones · rack 05 · nivel 3');
     }
   });
 
@@ -88,6 +90,52 @@ describe('[UB.1] código de ubicación', () => {
     const codes = ['BO011', 'BB011', 'TZ991', 'BN011', 'BA052', 'BA053', 'BA061'];
     const ordenados = [...codes].sort((a, b) => seq(a) - seq(b));
     expect(ordenados).toEqual(['TZ991', 'BA052', 'BA053', 'BA061', 'BB011', 'BN011', 'BO011']);
+  });
+
+  /**
+   * `[UB.RF.18]` Un pasillo es un corredor con dos frentes enfrentados (Edgar, 2026-11-25): los nones
+   * de un lado y los pares del otro. El recorrido baja por los nones y vuelve por los pares; antes iba
+   * 01, 02, 03…, que obliga a cruzar el corredor una vez por rack.
+   */
+  describe('[UB.RF.18] los dos frentes del pasillo', () => {
+    const seq = (c: string) => {
+      const r = parseLocationCode(c);
+      if (!r.ok) throw new Error(c);
+      return defaultPickSequence(r.parts);
+    };
+
+    it('⭐ el frente se DEDUCE del número: nones de un lado, pares del otro', () => {
+      expect(rackFace(1)).toBe('nones');
+      expect(rackFace(25)).toBe('nones');
+      expect(rackFace(2)).toBe('pares');
+      expect(rackFace(24)).toBe('pares');
+    });
+
+    it('⭐ enfrente del rack n está el n+1 (los dos frentes son parejos, Edgar 2026-11-25)', () => {
+      expect(rackOpuesto(5)).toBe(6);
+      expect(rackOpuesto(6)).toBe(5);
+      expect(rackOpuesto(1)).toBe(2);
+    });
+
+    it('⭐ el recorrido baja por los nones y vuelve por los pares (pasillo de 6 racks)', () => {
+      const codes = ['BA011', 'BA021', 'BA031', 'BA041', 'BA051', 'BA061'];
+      expect([...codes].sort((a, b) => seq(a) - seq(b))).toEqual(['BA011', 'BA031', 'BA051', 'BA061', 'BA041', 'BA021']);
+    });
+
+    it('⛔ NEGATIVA: ya NO es el orden viejo 01, 02, 03… (si vuelve, son 24 cruces del corredor en un pasillo de 25)', () => {
+      expect(seq('BA021')).toBeGreaterThan(seq('BA031'));
+      expect(seq('BA021')).toBeGreaterThan(seq('BA251'));
+    });
+
+    it('NEGATIVA: la vuelta por los pares no se mete en el pasillo siguiente', () => {
+      expect(seq('BA026')).toBeLessThan(seq('BB011'));
+      expect(seq('BA986')).toBeLessThan(seq('BB011'));
+    });
+
+    it('dentro de un rack, el nivel sigue mandando al final', () => {
+      expect(seq('BA051')).toBeLessThan(seq('BA052'));
+      expect(seq('BA062')).toBeLessThan(seq('BA042'));
+    });
   });
 
   it('la regla del CHECK de la base es la misma expresión (si cambia una, que se note)', () => {

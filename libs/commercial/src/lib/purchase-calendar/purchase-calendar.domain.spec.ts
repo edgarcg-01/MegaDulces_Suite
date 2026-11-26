@@ -311,3 +311,34 @@ describe('`[PQ.3.18]` el embudo de llenado', () => {
     expect(nm.peso.size).toBe(0);
   });
 });
+
+describe('`[PQ.3.17]` el calendario dice quién cambió cada regla y trae su historial', () => {
+  const hoy = '2026-11-20';
+  const cambio = { el: '2026-11-19T16:00:00Z', dia: '2026-11-19', por: 'Bea', campos: { note: { antes: null, despues: 'x' } }, nombres: {} };
+  const tocada = regla({ id: 't', fue_cambiada: true, cambiada_por: 'Bea', cambiada_el: '2026-11-19T16:00:00Z', vigente_desde: '2026-11-19' });
+  const intacta = regla({ id: 'i', supplier_code: 'P2', fue_cambiada: false, cambiada_por: 'Gerencia', cambiada_el: '2026-10-01T16:00:00Z' });
+
+  it('el último cambio sale de la regla (quién, el instante y el día de México); la que nadie tocó, null', () => {
+    const cal = armarCalendario(hoy, [tocada, intacta], [], [], SUC);
+    const por = Object.fromEntries(cal.reglas.map((r) => [r.id, r.ultimo_cambio]));
+    expect(por['t']).toEqual({ por: 'Bea', el: '2026-11-19T16:00:00Z', dia: '2026-11-19' });
+    expect(por['i']).toBeNull();
+  });
+
+  it('con historial medido, cada regla trae sus cambios y cuántos tiene (la que no tiene ninguno, lista vacía)', () => {
+    const cal = armarCalendario(hoy, [tocada, intacta], [], [], SUC, [], null,
+      { measured: true, note: null, por: new Map([['t', { cambios: [cambio], total: 3 }]]) });
+    const t = cal.reglas.find((r) => r.id === 't')!;
+    const i = cal.reglas.find((r) => r.id === 'i')!;
+    expect([t.cambios, t.cambios_total]).toEqual([[cambio], 3]);
+    expect([i.cambios, i.cambios_total]).toEqual([[], 0]);
+    expect(cal.historial).toEqual({ measured: true, note: null });
+  });
+
+  it('NEGATIVA: sin historial medido, ninguna regla trae `cambios` (no «sin cambios») y el calendario lo dice', () => {
+    const cal = armarCalendario(hoy, [tocada], [], [], SUC, [], null, { measured: false, note: 'no se leyó', por: new Map() });
+    expect('cambios' in cal.reglas[0]).toBe(false);
+    expect(cal.historial).toEqual({ measured: false, note: 'no se leyó' });
+    expect('historial' in armarCalendario(hoy, [tocada], [], [], SUC)).toBe(false);
+  });
+});

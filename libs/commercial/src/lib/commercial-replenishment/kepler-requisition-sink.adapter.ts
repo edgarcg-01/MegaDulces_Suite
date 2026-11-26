@@ -31,6 +31,39 @@ export const textoKepler = (v: number): string => String(Math.round((Number(v) |
 export const condicionDePlazo = (dias: number): string => (dias === 0 ? 'Pago de contado' : `${dias} días fecha factura`);
 
 /**
+ * `[AB.NI.8]` **Qué cuenta el tope diario del servidor.** Vive aparte y exportada porque es un
+ * gate, y un gate sin prueba negativa es una intención.
+ *
+ * ⛔⛔ Cuenta **SÓLO el tipo de documento que se está escribiendo**. Antes sumaba los dos —el
+ * `X-A-30` de la compra y el `U-D-40` del traspaso— contra un tope que el interruptor define POR
+ * TIPO (`kepler_push_switch.tipo`), así que el cupo de uno se lo comía el otro.
+ *
+ * Medido en prod el 2026-11-24: **la compra no tiene tope en ninguna de las 9 sucursales** y
+ * escribe hasta **15 `X-A-30` en un día**; el traspaso está encendido sólo en Morelia Madero y
+ * Morelia Abastos, con **tope 1**. En el servidor 08, **19 de los últimos 30 días** tuvieron al
+ * menos un `X-A-30`, o sea que el traspaso nacía bloqueado dos de cada tres días. *Resultado:
+ * **cero** `U-D-40` escritos por la Suite en toda la historia del ODS.* Y el motivo que leía la
+ * persona —«Tope diario alcanzado: 8 de 1»— hablaba de documentos que ella nunca pidió.
+ *
+ * Los tres parámetros son siempre `$1` servidor · `$2` fecha · `$3` marca de la Suite.
+ */
+export function conteoDelTope(esTraspaso: boolean): { sql: string; queCosa: string } {
+  return esTraspaso
+    ? {
+        queCosa: 'pedidos de sucursal',
+        sql: `SELECT count(*)::int AS n FROM md.kdm1
+               WHERE c1=$1 AND c9::date = $2::date
+                 AND c2='U' AND c3='D' AND btrim(c4::text)='40' AND btrim(c24) LIKE $3`,
+      }
+    : {
+        queCosa: 'requisiciones de compra',
+        sql: `SELECT count(*)::int AS n FROM md.kdm1
+               WHERE c1=$1 AND c9::date = $2::date
+                 AND c2='X' AND c3='A' AND btrim(c4::text)='30' AND btrim(c11) LIKE $3`,
+      };
+}
+
+/**
  * `[PQ.146]` El plazo del proveedor en la ficha de Kepler (`kdxd.c16`, días). Fail-closed: un plazo
  * que no es un entero ≥ 0 (hay un proveedor con −1 en los nueve servidores) NO se escribe ni se
  * reemplaza por el de la plantilla — se rechaza con el motivo, y lo corrige Compras en la ficha.
@@ -378,16 +411,24 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       // ⚠️ Dos aprobaciones simultáneas pueden pasar las dos (no hay candado): el pool es de 2.
       // `[PQ.20]` El tope lo decide la Suite (tabla `kepler_push_switch`); `null` = sin tope. La
       // variable sólo vale si el service no lo mandó (tabla todavía sin migrar).
+      //
+      // ⛔⛔ `[AB.NI.8]` **El tope cuenta SÓLO su propio tipo de documento.** Antes sumaba los dos
+      // —`X-A-30` de compra y `U-D-40` de traspaso— contra un tope que el interruptor define POR
+      // TIPO (`kepler_push_switch.tipo`), así que el cupo de uno se lo comía el otro.
+      //
+      // Medido en prod el 2026-11-24, y no era un caso raro: **la compra no tiene tope en ninguna
+      // de las 9 sucursales** y escribe hasta 15 `X-A-30` en un día, mientras el traspaso está
+      // encendido sólo en Morelia Madero y Morelia Abastos con **tope 1**. En el servidor 08, **19
+      // de los últimos 30 días** tuvieron al menos un `X-A-30`, o sea que el traspaso nacía
+      // bloqueado 2 de cada 3 días. *Resultado: **cero** `U-D-40` escritos por la Suite en toda la
+      // historia del ODS* — el primer pedido de sucursal nunca pudo salir, y el motivo que leía la
+      // persona («Tope diario alcanzado: 8 de 1») hablaba de documentos que ella no había pedido.
       const tope = e.tope_dia === undefined ? topeDiario(e.sucursal, process.env) : e.tope_dia;
       if (tope !== null) {
-        const hoy = await c.query(
-          `SELECT count(*)::int AS n FROM md.kdm1
-            WHERE c1=$1 AND c9::date = $2::date
-              AND ((c2='X' AND c3='A' AND btrim(c4::text)='30' AND btrim(c11) LIKE $3)
-                OR (c2='U' AND c3='D' AND btrim(c4::text)='40' AND btrim(c24) LIKE $3))`,
-          [e.sucursal, e.fecha, `${MARCA_SUITE}%`]);
+        const cuenta = conteoDelTope(esTraspaso);
+        const hoy = await c.query(cuenta.sql, [e.sucursal, e.fecha, `${MARCA_SUITE}%`]);
         if (hoy.rows[0].n >= tope) {
-          return { estado: 'rechazada', motivo: `Tope diario del servidor ${e.sucursal} alcanzado: ${hoy.rows[0].n} de ${tope} documentos hoy` };
+          return { estado: 'rechazada', motivo: `Tope diario del servidor ${e.sucursal} alcanzado: ${hoy.rows[0].n} de ${tope} ${cuenta.queCosa} hoy` };
         }
       }
 

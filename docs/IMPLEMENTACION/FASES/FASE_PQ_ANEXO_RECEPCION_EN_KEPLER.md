@@ -239,6 +239,103 @@ usa `reservarFolioKepler` tiene llave para `X-A-37`/`X-A-40` → ensayo contra e
 (sólo para D37). (3) La `c42` de la OC parcial (sólo 30 de 214 = total − vales). (4) Las 59 OC en N con
 vale vivo.
 
+## 3d. La aplicación como validación de costo, medida (`[PQ.157]` C0, 2026-11-25)
+
+Lo que Compras valida al aplicar, renglón por renglón, contra la OC. Base de datos:
+**`commercial.v_application_line_cost`** (mig `20261125214023`, derivada del ODS): cada renglón de aplicación
+viva encadenado a su OC por la orden de entrada y el vale, con el precio de la OC **llevado a la unidad de la
+aplicación** y un estado: `igual` · `sube` · `baja` · `sin_oc` · `sin_precio` · `otra_escala_sin_factor` ·
+`otra_escala_ambigua`. Scripts `m1`–`m8` en `C:\DEV\_tmp\pq157`; pg-prod en sólo lectura.
+
+**1. La cadena y el universo (60 días, sin CL005).** El 100 % de los renglones de aplicación viene de una orden de
+entrada, y ésta de un vale. **9,534 renglones ($85.2 M) llegan a una OC**; **2,374 ($22.2 M, 20 %) salen de un
+vale sin OC**: para ésos no hay precio pedido, y su referencia será la lista del proveedor (`[PQ.155]`).
+
+**2. El corte de «igual».** Entre un centavo y 0.5 % hay 67 renglones con $2,296 en 60 días; arriba empieza lo que
+pesa (0.5–3 %: 225 renglones, $52 mil; 3–10 %: 745, $771 mil; 10 %–2×: 231, $469 mil). Igual = a 1 centavo o
+menos, o a 0.5 % o menos.
+
+**3. ⭐ La escala: el rótulo miente y el factor sale de la ficha.** 1,240 renglones (13 %) tienen el precio de la OC
+y el de la aplicación fuera de 0.5–2× con el mismo rótulo: la OC en `CJA` aplicada por pieza (§3b.5). Compararlos
+tal cual da $453 M de «diferencia» falsa. Con los factores de la ficha de esa sucursal (`kdii.c81`, `c84`,
+`c84/c81`), **casan 1,236, ninguno ambiguo**. Testigo independiente: **en 1,074 (87 %) la cantidad también
+cambió por ese mismo factor** (la cantidad no se usa para elegirlo; placebo con el doble del factor: 0.2 %). Ya
+escalados: 755 iguales, **231 suben y 250 bajan (+$217 mil / −$168 mil)**. Redondear el cociente a un entero
+habría dado casi lo mismo, pero el veredicto sería circular: el factor tiene que venir de la ficha.
+
+**4. Lo que pasa hoy (60 días).** De 9,527 renglones comparables: **7,847 iguales · 1,029 suben (+$1.17 M) · 651
+bajan (−$511 mil)**: el **17.6 %** se aplica a un costo distinto al de la OC. *Matiz a §3c:* el 13.1 % de ayer
+dejaba fuera lo que está en otra escala; con el factor de la ficha también se ve.
+
+**5. ⭐⭐ El cambio no se registra, y se vuelve a validar.**
+
+| Pregunta | Medido | Control |
+|---|---|---|
+| Cuando la aplicación SUBE el costo, ¿la siguiente OC del mismo producto y proveedor trae el precio nuevo? (90–30 d) | **185 de 452 sí; 224 regresan al precio viejo**; 43 otro | sin diferencia: 86 % conserva el precio |
+| De los 220 renglones cuya OC siguiente regresó al precio viejo, ¿la siguiente aplicación lo volvió a subir? | **135 (61 %)** | sin diferencia: la siguiente difiere en 4.7 % |
+| De lo que la aplicación corrige (60 d), ¿el precio aplicado ya era el de la aplicación anterior? | **420 de 747 (56 %), $260 mil de $602 mil** | igual: 86.9 % |
+
+Compras valida el mismo cambio de precio una y otra vez, porque no queda en ningún lado: la OC siguiente nace
+con el precio viejo aunque la última entrada ya lo había corregido.
+
+**6. OC de la Suite contra OC de Kepler.** En bruto, 38.1 % de los renglones de OC de la Suite se aplica a otro
+costo, contra 14.4 % de Kepler. **Proveedor por proveedor no es general**: en los 89 que tienen las dos, la Suite
+sale peor en 26 y Kepler en 28. Ajustado por proveedor (cada uno con su tasa de Kepler) se esperaban 341 ± 21 y
+hubo 491, y la mitad del exceso es **un solo proveedor** (43 % en las OC de la Suite contra 8.5 % en las suyas de
+Kepler). La causa —la Suite pone el precio con `analytics.v_erp_unit_cost` y no con lo último aplicado a ese
+proveedor— es **hipótesis, NO MEDIDA**.
+
+**7. La factura y la nota de crédito** (por aplicación, con la liga de `[PQ.150]`; 90–30 días para dar tiempo a la
+nota). De 262 aplicaciones con algún renglón distinto de la OC, 185 tienen su factura ligada: **149 (80 %)
+cuadran con la factura** —el proveedor facturó otro precio y se aceptó sin dejar rastro— y **35 quedaron abajo de
+la factura**, donde se espera una nota. En todas las ligas: 109 aplicaciones abajo de su factura (6 proveedores,
+$743 mil); **81 (74 %) ya tienen una nota del SAT que relaciona esa factura** (`CfdiRelacionado` del XML), contra
+24 % de las que cuadran (placebo); la nota llega a los 20 días (p10 5, p90 35). En los dos proveedores grandes la
+nota ligada cubre la mitad de la diferencia; si el resto llegó en notas ligadas a otras facturas (los dos emiten
+muchas), **NO MEDIDO**. En Kepler la nota `X-D-55` se aplica a la aplicación (`kdxf`, cargo 55 → abono 20); dos
+cargas masivas (2,240 el 30-sep y 622 el 9-oct) se excluyen de esa cuenta.
+
+**Lo que esto pide de C1–C3.** (a) La decisión es **por renglón** y se registra: aceptar (y que la OC siguiente
+nazca con ese precio: la lista de `[PQ.155]`), reclamar (nota esperada, que se sigue hasta que llega) o
+promoción/cambio anunciado. (b) La pantalla dice cuando el precio ya se había aceptado antes —56 % de los casos—
+para que no se vuelva a pelear. (c) La nota esperada vive a nivel aplicación y espera a `[PQ.150]`.
+**NO MEDIDO todavía:** promociones y cambios anunciados (no hay fuente en el ODS); el margen contra el precio
+de venta (C1); «ya se sabía» lo calcula la API (C2) con una segunda consulta: una ventana en la vista impediría
+filtrar por fecha.
+
+## 3e. El flujo objetivo, paso por paso (Francisco, 2026-11-26)
+
+Cómo tiene que quedar el proceso en la Suite, dicho por Francisco, contra lo que ya existe y lo medido hoy
+(pg-prod en sólo lectura; prueba visual del 2026-11-25 en tres perfiles; scripts `b1`–`b2` en
+`C:\DEV\_tmp\pq157-visual`).
+
+| Paso | Lo que pide Francisco | Lo que ya existe | Lo medido hoy | Lo que falta |
+|---|---|---|---|---|
+| **OC** | La Suite la transmite **en el orden y las palabras de la factura del proveedor** (su código, su descripción, su unidad); por dentro quedan nuestras descripciones. Le llega «como su sistema», para que no haya discrepancias | Las equivalencias código del proveedor ↔ SKU, aprendidas de sus facturas (`[PQ.148]`, PR #624 sin fusionar). El papel de la OC (`[OC.3]`, `orden-proveedor-pdf.ts` y `-csv.ts`) imprime **nuestro** SKU y descripción | Con la historia de PQ.148: 1,899 de 2,797 códigos del proveedor con su SKU (67.9 %). Cuántos renglones de OC saldrían ya en sus palabras: **NO MEDIDO** | **`[PQ.158]`** |
+| **Vale (la cita)** | Se lee el **UUID** de la factura; las remisiones, por OCR o visión de IA. El sistema empareja: **lo que coincide al 100 % pasa solo; lo demás, a revisión manual** | El aviso de entrega `[PQ.149]`, emparejar `[PQ.151]`, recibir por factura `[PQ.153]` y la cita `[PQ.156]` (anexo P). La lectura del PDF y la regla «pasa sola / por revisar» existen, pero sobre la aplicación y después del camión (`/compras/revision-facturas`) | Entradas desde el 2026-08-01: **739 pasan solas, 1,253 por revisar, 41 sin CFDI aún** (36 % solas). La prueba visual encontró dos «Por revisar» con cifras distintas en esa pantalla (1,253 en la bandeja, 979 en el resumen) | La regla del 100 %, como criterio de PQ.151 (abajo) y DR9 |
+| **Orden de entrada** | Se **rastrilla**: se capturan caducidad y lote y se validan **piezas y peso** | El Andén (`[WMS-REC]`): recibe por vale, lee lote y caducidad con OCR, fecha por lote | **Casi sin uso:** 12 sesiones en octubre y **0 en noviembre**, contra 1,127 y 875 aplicaciones; 58 lotes capturados en total, 0 en noviembre. **El peso no existe en Kepler** (`kdii` no trae kilos por producto, [`ERP_KEPLER`](../../ERP_KEPLER.md) «Peso: No existe»); sólo el granel se compra en KG | **`[PQ.159]`** (peso) · PQ.112.3 (por qué no se usa) · DR8 |
+| **Aplicación** | Aterriza el costo contra las diferencias de la factura: **descontar con nota de crédito, o ajustar costos y precios** | `[PQ.157]` C0 (§3d): cada renglón contra su OC, en la unidad correcta | 1,680 de 9,527 renglones a otro costo en 60 días; 74 % de las aplicaciones abajo de su factura ya tiene la nota del SAT. La prueba visual: **ninguna pantalla muestra el precio de la OC** (tres pantallas, tres perfiles), y el panel que valida se titula «Orden de entrada» pero muestra la aplicación (un folio de aplicación de una sucursal coincide con el de una orden de entrada de otro proveedor) | PQ.157 C1: la decisión por renglón. **Reclamar** = descontar con la nota; **aceptar** = el costo nuevo pasa a la lista (`[PQ.155]`) y avisa a precios si el margen cambia |
+
+**La regla del 100 % (criterio de `[PQ.151]`, propuesta).** Un renglón de factura pasa solo cuando se cumplen
+las cuatro: (1) la factura está vigente en el SAT, el emisor es el proveedor de la OC y el receptor somos
+nosotros; (2) su código casa con un SKU por una equivalencia aprendida (`[PQ.148]`), no por la descripción;
+(3) cantidad × factor igual a lo pendiente del renglón de la OC; (4) precio igual al de la OC, a un centavo o
+0.5 % (el corte de §3d.2). La factura pasa sola si pasan todos sus renglones; si uno falla, va entera a
+revisión con ese renglón señalado. Lo que no se puede emparejar nunca se marca «Cuadra» (el caso de AUD-DAT.34:
+dos productos cruzados con el mismo número de cajas). **Hoy no se sabe cuántas facturas pasarían solas con
+esta regla: es el C0 de PQ.151**, con la vista de PQ.150 y la equivalencia de PQ.148.
+
+**Lo que la prueba visual del 2026-11-25 le pide a la pantalla de PQ.157** (nivel A, tres perfiles): el precio
+de la OC y la diferencia van en cada renglón del detalle que ya se usa para validar (la lista se cargó 12,600
+veces en 30 días); el panel se llama «Aplicación» y muestra el folio de su orden de entrada junto al de la OC y
+el vale; un solo «Por revisar»; y en el celular el costo no se esconde (hoy se pierden Cantidad, Unidad y Costo
+unitario). Deuda que se arregla de paso: la lista tarda 12.6 s (regla: 0.5 s) y en Fold 7 y celular no se ve
+ninguna fila sin desplazarse.
+
+**El orden, por dinero y esfuerzo:** (1) PQ.157 C1, la decisión por renglón: el dinero está medido y no espera
+a nadie; (2) PQ.158, en cuanto se fusione #624, porque la equivalencia ya está hecha; (3) PQ.151 con la regla
+del 100 %; (4) PQ.159, después de PQ.112.3 y DR8: pesar en un Andén que nadie usa no cambia nada.
+
 ## 4. Lo que creíamos y se matiza
 
 | # | Lo que decía | Lo que midió prod hoy |
@@ -289,6 +386,10 @@ vale vivo.
 > **DR5** unidad base, mostrando también la caja del proveedor · **DR6** la vista de Compras es que sí
 > (cambia `[KR.6]`, así que la firma Edgar) · **DR7** el vale se escribe al confirmar la cita. De Edgar
 > sin respuesta todavía: **DR1**, **DR3**, **D37**, **D38** (con `[PQ.157]` aparte).
+>
+> **Decididas por Francisco (Compras) el 2026-11-26, como se recomendaron:** **DR8 (a)** el peso estándar de
+> cada presentación se aprende en el Andén (con (c), la lista del proveedor, como respaldo) · **DR9 (b)** la
+> remisión leída por OCR o visión no pasa sola hasta medir su acierto contra facturas con UUID.
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
@@ -300,6 +401,9 @@ vale vivo.
 | **DR5** | ¿En qué unidad escribe la recepción? | (a) la de la OC, como Kepler (quien recibe sigue convirtiendo a mano) · (b) **en la unidad base de la ficha**, convertida en el servidor con el factor de la ficha de ESA sucursal, y rechazo si la unidad de la OC no está en la escalera | **(b).** Es lo que hace la persona en 954 de 1,143 renglones y la forma del 80 % de las entradas de Kepler; el kardex queda con el rótulo verdadero. El Andén muestra cajas y piezas, y se confirma lo contado en piezas. El pendiente de la OC (`c24`) se escribe en la unidad de la OC (Kepler lo resta sin convertir y queda negativo): se declara la diferencia |
 | **DR6** | ¿La OC que escribe la Suite nace en unidad base? | sí, como el traspaso (D24) · no, sigue en `CJA` (`[KR.6]`) | **Sí** (`[PQ.112.7]`). Quita las 1,143 conversiones a mano de cada mes **sin esperar al Andén**, y lo que faltaba en KR.6 ya está medido: el factor de la ficha es el que usa la gente (83.5 %). Con el contraste ficha ↔ Suite que ya tiene el traspaso, y rechazo si no coinciden. Toca una decisión del PM (KR.6/PQ.17): la firma Edgar |
 | **DR3** | ¿De quién es la cantidad recibida? | Kepler · la Suite también | **Kepler.** El Andén deja de escribir existencia propia y conserva lote, caducidad, ubicación e incidencia. Es D21 aplicado al Andén. ⚠️ Antes de apagarlo: medir quién lee esa existencia (alertas, caducidades, ubicaciones de UB) |
+| **DR8** (2026-11-26, §3e) | ¿De dónde sale el peso que valida la orden de entrada? Kepler no lo tiene | (a) **se aprende en el Andén**: la primera recepción pesada de cada presentación fija su peso estándar (dato propio, con quién y cuándo), y las siguientes se comparan con él · (b) lo captura Compras en la ficha · (c) lo manda el proveedor con su lista (`[PQ.155]`) | **(a)**, con (c) como respaldo cuando llegue la lista: es el único que no pide capturar un catálogo entero antes de empezar, y se puede verificar (dos pesadas de la misma presentación tienen que coincidir). El granel ya viene en KG y no lo necesita. Decide Francisco (Compras) |
+| **DR9** (2026-11-26, §3e) | ¿Una remisión leída por OCR o visión de IA puede pasar sola al 100 %? | (a) sí, con la misma regla que una factura · (b) **no, hasta medir la lectura**: va a revisión hasta que su acierto, medido contra facturas con UUID, alcance el umbral que se fije | **(b)**: la factura trae el dato firmado por el SAT y la remisión, lo que leyó una máquina. Lo que no se mide se declara (regla 11). Decide Francisco (Compras) |
+| **DR10** (2026-11-26, `[PQ.157]` C2) | ¿Quién guarda la decisión de costo de un renglón? | (a) **clave nueva sólo para Compras** (gerente_compras, compras, compras_operaciones, auxiliar_compras: 10 personas) · (b) lo mismo sin auxiliares (5) · (c) reusar `COMPRAS_ENTRADAS_VALIDAR` (también encargados de tienda, Finanzas y Tesorería) | **(a), decidida por Francisco el 2026-11-26:** `COMPRAS_COSTO_DECIDIR`, repartida por la mig `20261126003314`. Ver la información la sigue viendo quien ve Revisión de facturas |
 | **DR4** | Sucursal piloto | 08 · 00 · una chica (04/05) | **08**: la de más órdenes de entrada (321 en 30 días, 3 capturistas) y la segunda con más OC escritas por la Suite (54; la 00 tiene 71, §3.10), así que la cadena Suite → Kepler se prueba completa sin arrancar en la sucursal que mueve el 53 % del dinero. La 00 va después |
 
 ## 7. Qué NO incluye
@@ -373,13 +477,89 @@ sólo lectura no compite con ellos.
   que el vale. Sólo si PQ.112.1 muestra que se puede escribir igual que Kepler. **2026-11-24 (§3c):** es
   el rastrillo en vivo del almacén; ya no va «en la misma transacción que el vale» (el vale nace en la
   cita, DR7), sino al cerrar el conteo en el Andén.
-- **`[PQ.157]`** ⬜ **C0–C3 — Validar el costo al aplicar** (la mitad de D38 que no escribe en Kepler,
+- **`[PQ.157]`** 🔨 (**C0 🧪 2026-11-25, §3d**: `commercial.v_application_line_cost`, mig `20261125214023`;
+  **C1 🧪 2026-11-26**: `commercial.application_cost_decisions`, mig `20261126001925`; **C2 🧪 2026-11-26**: la API
+  `compras/costo-aplicado` y la clave `COMPRAS_COSTO_DECIDIR`, mig `20261126003314`; **C3 🧪 2026-11-26**: «Costo contra la
+  OC» en el panel de Revisión de facturas — ver abajo; falta enviar, soltar con sus 3 migraciones y medir en prod) **C0–C3 — Validar el costo al aplicar** (la mitad de D38 que no escribe en Kepler,
   §3c): por renglón, precio de la OC contra el de la factura (equivalencia del anexo P), nota de crédito
   esperada, cambio anunciado o promoción, y margen contra el precio de venta; Compras acepta, reclama o
   cambia el costo, y queda registrado quién y por qué. Base: la conciliación de Recepción (`[RE.53]`, que
   ya marca «difiere precio» entre la factura y lo capturado en Kepler) llevada a comparar contra la OC. Cierre: renglones
-  aplicados a un costo distinto al de la OC con su decisión registrada, antes/después (HOY 1,239 de 9,466
-  en 60 días, sin decisión registrada en ningún lado).
+  aplicados a un costo distinto al de la OC con su decisión registrada, antes/después (HOY 1,680 de 9,527
+  comparables en 60 días —con la escala de la ficha, §3d; la cifra de §3c era 1,239 de 9,466—, sin decisión
+  registrada en ningún lado). Métrica secundaria: el cambio que se repite (HOY 61 % contra 4.7 % del placebo).
+  **2026-11-26 (§3e):** reclamar = descontar con la nota; aceptar = el costo pasa a la lista y avisa a precios
+  si el margen cambia. La pantalla vive en el detalle de `/compras/revision-facturas` con lo que pidió la
+  prueba visual del 2026-11-25.
+  **C1 🧪 2026-11-26:** la tabla `commercial.application_cost_decisions` (mig `20261126001925`, dato propio, RLS
+  forzado, `app_runtime` sin DELETE) guarda **accept · claim · promotion** por renglón con la foto de lo que se vio
+  (precio aplicado, precio de la OC en la misma unidad, cantidad, estado), quién y por qué (10 letras o más). Reclamar
+  sólo lo que sube y nunca más que la diferencia (un centavo de holgura); promoción con fecha de fin; una decisión viva
+  por renglón y cambiarla es reemplazarla, no borrarla. El dominio (`libs/commercial/src/lib/application-cost`) da los
+  textos para la persona, la fecha de la promoción contra la de la aplicación y **«ya se aceptó antes»** (otra decisión
+  viva del mismo proveedor, producto y unidad con el mismo costo, con el corte de «igual» de la vista). Prueba de base
+  34/0/0 contra Postgres real como `app_runtime` y 8 mutantes en rojo; dominio 25/25. **C2:** la lista de renglones con
+  su decisión y su antecedente, y guardar la decisión (regla 13: probada contra base real con el payload de la pantalla).
+  **C2 🧪 2026-11-26:** `GET compras/costo-aplicado/aplicaciones/:sucursal/:folio` (ver entradas o decidir) da los
+  renglones de una aplicación con su cadena —**el folio de su orden de entrada**, el vale y la OC—, el precio de la OC en la
+  unidad de la aplicación y tal cual, lo más que se puede reclamar, la decisión viva y «ya se aceptó antes» (25 ms por
+  aplicación en prod). `POST compras/costo-aplicado/decisiones` (sólo `COMPRAS_COSTO_DECIDIR`, DR10) guarda la decisión con
+  la foto que lee de la vista, nunca la que mande la pantalla; reemplaza la viva en la misma transacción y, si dos personas
+  deciden a la vez, la segunda recibe 409. Alcance por sucursal igual que Revisión de facturas. Pruebas: 9 contra Postgres
+  real con el payload de la pantalla (`application-cost.servicio-real.spec.ts`, local: no está en el CI, como
+  `box-labels`) y 5 mutantes del servicio en rojo; arranque por metadata (10) y `design:paramtypes` leído del build igual
+  que el Calendario en prod. La clave se reparte con la mig `20261126003314` (sólo datos: a mano, después de la tabla) y
+  esas 10 personas vuelven a entrar.
+  **C3 — la pantalla, por escrito antes de dibujarla (`diseno` §0b, 2026-11-26).** La frase: *«¿esta aplicación se
+  aplicó al costo de su OC?»*. Va como sección «Costo contra la OC» dentro del panel de Revisión de facturas (la
+  lista se cargó 12,600 veces en 30 días), arriba de los renglones de Kepler, porque es lo que Compras decide.
+  (1) **Qué ve primero:** el veredicto en una línea —«N de M renglones a otro costo que su OC», cuánto sube, cuánto
+  baja y cuántos faltan por decidir— y debajo SÓLO los renglones que difieren, el que más pesos mueve primero; si
+  todo está al costo de la OC, una línea y nada más. Jerarquía: primario el veredicto; secundario cada renglón con su
+  diferencia y su decisión; terciario la cadena y el factor de caja. (2) **Qué no ve:** los renglones iguales (se
+  cuentan, no se pintan: ya están en la tabla de Kepler); botones donde no hay nada que decidir; color sin palabra
+  («Sube»/«Baja» con flecha). (3) **Accesibilidad:** cada renglón dice producto, cantidad, costo aplicado, costo de
+  la OC en la misma unidad (y la OC tal cual si venía en caja), diferencia en % y en pesos, y la decisión con quién,
+  cuándo y por qué, sin `title`. Decidir se hace en el mismo renglón (sin ventana encima), con teclado, y si hay
+  antecedente «Aceptar igual que antes» deja el motivo escrito. (4) **Ligas:** la cadena OC → vale → orden de
+  entrada → aplicación con sus folios (el de la orden de entrada faltaba, AUD-UI.3) y el panel se llama
+  «Aplicación». (5) **¿Le toca?:** sí: aquí se valida la factura de esa misma aplicación. Ver lo ve quien ve la
+  pantalla; decidir, sólo `COMPRAS_COSTO_DECIDIR`. Sin la clave, la decisión se lee pero no hay botón. Lo tecleado
+  y no guardado frena el cierre del panel («¿Descartar…?», `sucio` del panel). De paso: la tarjeta «Por revisar» del
+  resumen pasa a decir lo que cuenta, «No cuadra el importe» (AUD-DAT.35).
+  **C3 🧪 2026-11-26:** `costo-aplicado.component.ts` (pieza en `compras/components/`, no pantalla) dentro del panel,
+  antes de los productos; el panel se llama «Aplicación» y pregunta antes de cerrarse si hay una decisión tecleada. Las
+  reglas puras (tope del reclamo, textos, «ya se aceptó antes») pasaron al contrato para que la pantalla y la API usen
+  las mismas. **Prueba visual de nivel A, 73 de 73** (escritorio, Fold 7, celular y escritorio oscuro) contra la API y la
+  vista locales sobre Docker con la aplicación real 01/0000872 copiada de prod (sólo lectura; control: la vista local da
+  lo mismo que prod en los 4 renglones): veredicto «4 de 4 a otro costo · 1 sube +$210.87 · 3 bajan −$2,654.32»,
+  orden por pesos, «Orden de entrada 0000894», la OC en caja dicha («$1,357.14 por 30»), contraste ≥ 4.5 con su control,
+  44 px al dedo, apilado con rótulo en el celular, nada se sale; el proceso: reclamar con el tope prellenado, doble clic =
+  un POST, la foto en la base, «¿Descartar…?», promoción con fecha, sobrevive a recargar y un 409 se dice y recarga.
+  Encontró y se arregló: botones de 28 px al dedo (→ `comm-actions`) y la tabla sin `dt-scope` (no se apilaba).
+  **NO MEDIDO:** la vista sin la clave (sólo lectura) en pantalla viva —lo cubre la regla `puedeDecidir` y el 403 de la
+  API—, Alto Contraste de Windows y lector de pantalla.
+  **Revisión independiente del PR (2026-11-26):** un agente revisó el código sin ver mis conclusiones. Se arreglaron (1)
+  la decisión tecleada se tiraba sin preguntar por «Cerrar» del pie, «Siguiente», «Agregar otra remisión», lo que sigue a
+  validar o devolver y al cambiar de renglón → todos preguntan, y los demás renglones no deciden mientras hay algo escrito;
+  (2) «Los 0 renglones se aplicaron al costo» en verde cuando nada era comparable → «Ningún renglón se pudo comparar»;
+  (3) «Aceptar igual» volvía permanente una promoción → «Promoción igual», con su misma fecha; (4) un motivo de emoji,
+  una cantidad en cero o un reclamo de 0.004 daban 500 → las reglas cuentan como la base (letras por carácter, cantidad y
+  precios como se guardan) y un CHECK rechazado es 400; (5) los textos de lo no comparable nombran su causa (sin OC o
+  cadena rota, precio en cero, sin factor, dos factores). Prueba visual de nuevo: **79/79**, con la negativa del «Cerrar»
+  (mutado, cierra sin preguntar y la prueba lo caza). Se declaran, sin cambio: el factor de la ficha puede tapar un
+  cambio real cuando la cantidad no lo confirma (162 de 1,236 escalados sin ese testigo; candidato a un estado propio) y
+  la lectura por sucursal y folio sin subtipo (la misma llave que el resto de la pantalla).
+- **`[PQ.158]`** ⬜ **C0–C3 — La OC sale al proveedor en sus palabras** (§3e): el papel y el archivo de la OC
+  (`[OC.3]`) llevan su código, su descripción de factura y su unidad, en el orden en que él factura; nuestra
+  descripción se queda por dentro. Depende de `[PQ.148]` (#624). C0: cuántos renglones de OC tienen ya
+  equivalencia (HOY **NO MEDIDO**; los códigos con SKU son 1,899 de 2,797). Cierre: renglones de OC enviados
+  con el código del proveedor, y renglones de su factura que casan con la OC por código, antes y después.
+- **`[PQ.159]`** ⬜ DR8 — **C0–C3 — La orden de entrada valida piezas y peso** (§3e): el Andén pesa la
+  presentación y la compara con su peso estándar; lote y caducidad ya los captura. C0: Kepler no guarda peso
+  por producto, así que primero la fuente (DR8) y por qué el Andén no se usa (PQ.112.3: 0 sesiones en
+  noviembre contra 875 aplicaciones). Cierre: recepciones con piezas y peso validados, antes y después en la
+  piloto (DR4).
 
 ## 10. Riesgos y bloqueos
 
@@ -408,6 +588,12 @@ sólo lectura no compite con ellos.
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-26 | **`[PQ.157]` C3 🧪:** «Costo contra la OC» en el panel de Revisión de facturas (que ahora se llama «Aplicación» y dice el folio de su orden de entrada); decidir en el renglón, con el tope del reclamo y «ya se aceptó antes». Prueba visual en 4 corridas y el proceso entero, 73/73, contra la aplicación real 01/0000872 en Docker. De paso, «No cuadra el importe» en vez del segundo «Por revisar» (AUD-DAT.35) | Claude |
+| 2026-11-26 | **`[PQ.157]` C2 🧪:** la API `compras/costo-aplicado` lee una aplicación con su cadena (incluido el folio real de su orden de entrada) y guarda la decisión con la foto de la vista; la clave `COMPRAS_COSTO_DECIDIR` sólo para Compras (DR10, Francisco). 9 pruebas contra Postgres real con el payload de la pantalla, 5 mutantes en rojo, arranque verificado en el build | Claude |
+| 2026-11-26 | **`[PQ.157]` C1 🧪:** la decisión por renglón ya tiene dónde guardarse: `commercial.application_cost_decisions` (mig `20261126001925`) con accept · claim · promotion, quién y por qué, una viva por renglón y nada se borra; el dominio dice «ya se aceptó antes». Prueba de base 34/0/0 como `app_runtime`, 8 mutantes en rojo; dominio 25/25 | Claude |
+| 2026-11-26 | Francisco firma **DR8 (a)** (el peso se aprende en el Andén) y **DR9 (b)** (la remisión por OCR no pasa sola hasta medir su lectura) | Francisco |
+| 2026-11-26 | Francisco fija el flujo objetivo (§3e): la OC sale en las palabras de la factura del proveedor; el vale empareja por UUID (remisiones por OCR o visión) y lo que coincide al 100 % pasa solo; la orden de entrada rastrilla lote, caducidad, piezas y peso; la aplicación descuenta con nota o ajusta costos y precios. Medido: el Andén ya captura lote y caducidad pero tuvo 0 sesiones en noviembre (contra 875 aplicaciones); el peso no existe en Kepler; hoy pasan solas 739 de 2,033 entradas en revisión. Prueba visual del 2026-11-25 (tres perfiles): ninguna pantalla muestra el precio de la OC, dos «Por revisar» con cifras distintas y un panel que dice «Orden de entrada» y muestra la aplicación. Nacen `[PQ.158]`, `[PQ.159]`, DR8 y DR9 | Claude |
+| 2026-11-25 | **`[PQ.157]` C0 (§3d):** la vista `commercial.v_application_line_cost` (mig `20261125214023`) encadena cada renglón de aplicación con su OC y lleva el precio de la OC a la unidad de la aplicación con el factor de la ficha (1,236 de 1,240 renglones en otra escala casan; la cantidad confirma el factor en 87 % contra 0.2 % del placebo). 60 días: 17.6 % de los renglones comparables se aplica a otro costo (+$1.17 M / −$511 mil); el cambio no se registra y se repite (61 % contra 4.7 %); el 56 % de las correcciones ya estaba en la aplicación anterior; 74 % de las aplicaciones abajo de su factura ya tiene la nota del SAT ligada (placebo 24 %). La brecha OC de la Suite contra Kepler no es general proveedor por proveedor (26 contra 28). Prueba 32/0/0 en prod, 30/0/1 sin ODS, 9 mutantes en rojo | Claude |
 | 2026-11-24 | Francisco explica los tres documentos como tres momentos (§3c): **vale = la cita** (el proveedor), **orden de entrada = rastrillar en vivo** (el almacén), **aplicación = validar el costo** (Compras), y la deuda de Kepler que cierra la OC antes de tiempo. Medido: la orden de entrada no es en vivo (08: 1 min después del vale desde el papel; 00: 47 % en lotes, 90 min después); 13.1 % de los renglones se aplica a un costo distinto al de la OC (+$979 mil / −$344 mil en 60 días); 31 OC cerradas y 104 parciales con saldo ≤ 0 y productos por extraer. Nacen DR7 (el vale se escribe al confirmar la cita) y `[PQ.157]` (validar el costo sin esperar a D38) | Claude |
 | 2026-11-24 | El vale se alimenta desde antes del camión: el [anexo P](FASE_PQ_ANEXO_PROVEEDOR_AVISO_DE_ENTREGA.md) (pedido de Francisco) hace que el proveedor empareje su factura con la OC; el Andén recibe por factura (`[PQ.153]`) y se escribe un vale por factura (DP6). Medido allí: 1 vale → 1 orden → 1 aplicación en Kepler, y sólo 24 % de los vales lleva el folio de su factura | Claude |
 | 2026-11-24 | Francisco: «avanzamos a terminar el proceso desde la Suite: vale, orden de entrada y aplicación». **§3b, el testigo en el ODS:** cómo convierte Kepler OC → vale → orden → aplicación columna por columna, con qué estado nace cada uno y qué le hace a su padre; las 42 columnas del kardex salen del renglón salvo `c17` (existencia previa), `c29` y `c30`; el costo es promedio móvil (552 contra 3) con un 7.7 % sin regla; la aplicación deja `kdxe` (311 de 311). **PQ.112.2 ✅:** Kepler no convierte unidad en ningún paso, y 1,109 de los 1,128 renglones de entrada en CJA nacen de OC escritas por la Suite: quien recibe convierte a mano (954) y el kardex se queda con «CJA». Nacen DR5, DR6 y PQ.112.7; D38 anota que PQ.114 está ⏸️ por el PM | Claude |

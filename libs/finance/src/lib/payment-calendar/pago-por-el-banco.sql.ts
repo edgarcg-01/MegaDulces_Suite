@@ -112,7 +112,7 @@ SELECT jsonb_array_elements_text(h.detail -> 'banco' -> 'grupo') AS id
   FROM finance.payment_allocation_history h
   JOIN finance.payment_allocations a ON a.id = h.allocation_id, t
  WHERE a.tenant_id = t.tenant AND a.status <> 'cancelled'
-   AND h.event IN ('pagado_por_el_banco', 'confirmado_por_el_banco')
+   AND h.event IN ('pagado_por_el_banco', 'confirmado_por_el_banco', 'pagado_por_contrato')
    AND jsonb_typeof(h.detail -> 'banco' -> 'grupo') = 'array'`;
 
 /**

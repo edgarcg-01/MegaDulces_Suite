@@ -29,7 +29,10 @@ describe('[RH.15.9] la huella del CSV (sin base)', () => {
     expect(csv).toContain(`# sha256 de las líneas de datos: ${sha256}`);
     // PRUEBA NEGATIVA: una hora cambiada a mano ya no da la misma huella.
     expect(huellaDe(csv.replace('08:00:00', '07:00:00'))).not.toBe(sha256);
-  });
+    // `[RH.15.5x]` El plazo propio es para el PRIMER `import` del servicio, no para la huella:
+    // con la suite entera de `libs/hr` en paralelo pasaba de los 5 s por defecto y se ponía roja
+    // sola. Corrida sola, termina en segundos.
+  }, 60000);
 });
 
 suite('[RH.15.9] el registro de una persona, contra la base', () => {

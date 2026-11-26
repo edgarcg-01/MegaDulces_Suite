@@ -347,6 +347,107 @@ export interface ReglaCalendario extends ReglaRevision {
   readonly pedido_supplier_id: string | null;
   /** Los almacenes de Pedido de las sucursales del alcance; vacío = todas (corporativo). */
   readonly pedido_warehouse_ids: readonly string[];
+  /**
+   * `[PQ.3.17]` El último cambio DESPUÉS de crearla, según la regla misma (`updated_by` / `updated_at`): un patrón
+   * reemplazado, fuera de ciclo, el responsable. `null` = nadie la ha tocado desde que se definió. Existe aunque el
+   * historial no lo tenga (un cambio de antes de que se guardara).
+   */
+  readonly ultimo_cambio?: UltimoCambio | null;
+  /** `[PQ.3.17]` Los cambios guardados, el más nuevo primero (hasta `CAMBIOS_POR_REGLA`). */
+  readonly cambios?: readonly CambioDeRegla[];
+  /** `[PQ.3.17]` Cuántos cambios guardados tiene en total (puede haber más de los que vienen). */
+  readonly cambios_total?: number;
+}
+
+// ── [PQ.3.17] Quién creó, quién cambió y de qué a qué (anexo C §10.9, DC25) ──────────────────────────────────────
+
+/** Cuántos cambios de cada regla viajan con el calendario (los más nuevos). */
+export const CAMBIOS_POR_REGLA = 10;
+
+/** `[PQ.3.17]` El último cambio de una regla: quién y cuándo. */
+export interface UltimoCambio {
+  /** Nombre de quien lo hizo; `null` = no hay nombre registrado para ese usuario. */
+  readonly por: string | null;
+  /** El instante, UTC (`YYYY-MM-DDTHH:MM:SSZ`): con él se casa con su fila del historial. */
+  readonly el: string;
+  /** El día, hora de México (`YYYY-MM-DD`), para decirlo. */
+  readonly dia: string;
+}
+
+/** Una columna de la regla antes y después de un cambio, tal como la guardó el historial (JSON). */
+export interface CampoCambiado {
+  readonly antes: unknown;
+  readonly despues: unknown;
+}
+
+/**
+ * `[PQ.3.17]` Un cambio de la regla, de `analytics.master_data_history` (VP.3.1, el log compartido; sin tabla
+ * propia, ADR-056): cuándo, quién y SÓLO las columnas que se movieron.
+ */
+export interface CambioDeRegla extends UltimoCambio {
+  readonly campos: Readonly<Record<string, CampoCambiado>>;
+  /** Los nombres de los responsables que aparecen en el cambio (`reviewer_user_id` antes y después), por id. */
+  readonly nombres: Readonly<Record<string, string>>;
+}
+
+/** Lo que cambia la regla y se puede decir de qué a qué (la fila del historial trae SÓLO lo que se movió). */
+export type EstadoDeLaRegla = PatronDeRegla & Pick<ReglaRevision, 'reviewer_user_id' | 'out_of_cycle_until' | 'out_of_cycle_reason'>
+  & { readonly note: string | null };
+
+/** Un paso del historial: el cambio con la regla completa antes y después (para decir el patrón entero). */
+export interface PasoDelHistorial {
+  readonly cambio: CambioDeRegla;
+  readonly antes: EstadoDeLaRegla;
+  readonly despues: EstadoDeLaRegla;
+}
+
+const CAMPOS_DEL_ESTADO: readonly (keyof EstadoDeLaRegla)[] = [
+  'pattern', 'weekdays', 'month_days', 'month_last_day', 'every_n_days', 'weekend_shift', 'week_interval', 'week_anchor',
+  'month_week', 'reviewer_user_id', 'out_of_cycle_until', 'out_of_cycle_reason', 'note',
+];
+
+/** El JSON del historial con la forma de la regla: listas de números, el resto tal cual (`null` si no venía). */
+function valorDelHistorial(campo: keyof EstadoDeLaRegla, v: unknown): unknown {
+  if (v === undefined) return null;
+  if ((campo === 'weekdays' || campo === 'month_days') && Array.isArray(v)) return v.map(Number);
+  return v;
+}
+
+/**
+ * `[PQ.3.17]` Cada cambio con la regla completa antes y después. La fila del historial trae SÓLO lo que se movió:
+ * lo demás se reconstruye hacia atrás desde la regla de hoy (el «antes» de un cambio es la base del anterior). Lo que
+ * el cambio SÍ trae manda sobre lo reconstruido, en los dos lados: así un hueco (una escritura que no pasó por el
+ * disparador) no le atribuye a un cambio un valor que no escribió. Del más nuevo al más viejo, y así salen.
+ */
+export function historialDeLaRegla(actual: EstadoDeLaRegla, cambios: readonly CambioDeRegla[]): PasoDelHistorial[] {
+  const pasos: PasoDelHistorial[] = [];
+  let estado: Record<string, unknown> = { ...actual };
+  for (const cambio of cambios) {
+    const despues: Record<string, unknown> = { ...estado };
+    const antes: Record<string, unknown> = { ...estado };
+    for (const campo of CAMPOS_DEL_ESTADO) {
+      if (!(campo in cambio.campos)) continue;
+      despues[campo] = valorDelHistorial(campo, cambio.campos[campo].despues);
+      antes[campo] = valorDelHistorial(campo, cambio.campos[campo].antes);
+    }
+    pasos.push({ cambio, antes: antes as unknown as EstadoDeLaRegla, despues: despues as unknown as EstadoDeLaRegla });
+    estado = antes;
+  }
+  return pasos;
+}
+
+/** Holgura para casar el último cambio con su fila del historial (el disparador corre en la MISMA transacción). */
+const HOLGURA_MS = 2000;
+
+/**
+ * `[PQ.3.17]` ¿El último cambio de la regla falta en el historial? Entonces es anterior a que se guardara (la
+ * migración 20261124231747 vigila también `updated_at`, así que toda escritura posterior deja su fila): se sabe
+ * quién y cuándo, no de qué a qué. Sin último cambio, no falta nada.
+ */
+export function ultimoCambioSinHistorial(r: { readonly ultimo_cambio?: UltimoCambio | null; readonly cambios?: readonly CambioDeRegla[] }): boolean {
+  if (!r.ultimo_cambio) return false;
+  const t = Date.parse(r.ultimo_cambio.el);
+  return !(r.cambios ?? []).some((c) => Math.abs(Date.parse(c.el) - t) <= HOLGURA_MS);
 }
 
 /** Una zona de compra con sus sucursales (código de Kepler), para elegir el alcance de una regla. */
@@ -376,6 +477,11 @@ export interface CalendarioCompras {
    * quien ve todas). Se dice para que una lista recortada no se lea como la de toda la empresa.
    */
   readonly tu_alcance: AlcanceDeQuienVe;
+  /**
+   * `[PQ.3.17]` Si el historial de cambios de las reglas se pudo leer (el disparador de la migración 20261124231747
+   * activo y la lectura sin error). `measured: false` = la pantalla no dice «sin cambios»: dice que no se midió.
+   */
+  readonly historial?: { readonly measured: boolean; readonly note: string | null };
 }
 
 /** `[PQ.3.6]` Las sucursales de quien ve el calendario (`ScopeService`, área `compras`). */
@@ -451,6 +557,38 @@ export interface EmbudoLlenado {
   readonly total: AvanceDelEmbudo;
   /** Los tres escalones, en orden; vacío si no se midió. */
   readonly escalones: readonly AvanceDelEmbudo[];
+}
+
+/**
+ * `[PQ.3.18]` (c) Los ocasionales en bloque (DC27, anexo C §10.10): a cada uno, una regla para todas las sucursales
+ * «cada 180 días» y fuera de ciclo 26 semanas con motivo. No amanecen rezagados y en esa fecha regresan solos a
+ * «Por revisar» (que se vea si siguen siendo ocasionales). Cada regla se puede cambiar o dar de baja después.
+ */
+export const OCASIONAL_CADA_N_DIAS = 180;
+export const OCASIONAL_FUERA_DE_CICLO_DIAS = 182;
+export const OCASIONAL_MOTIVO = 'Ocasional: una o pocas compras en 12 meses (definido en bloque desde el embudo).';
+/** Más de esto en una sola llamada no es «los ocasionales» (hoy son 94): se rechaza. */
+export const OCASIONALES_MAX = 500;
+
+export interface DefinirOcasionalesDto {
+  /** Las claves que la pantalla mostró como ocasionales sin regla; el servidor sólo toca las que HOY lo siguen siendo. */
+  readonly supplier_codes: readonly string[];
+}
+
+export interface DefinirOcasionalesRespuesta {
+  readonly definidas: number;
+  /** Hasta cuándo quedan fuera de ciclo (`YYYY-MM-DD`). */
+  readonly hasta: string;
+  /** Las que no se tocaron y por qué (p. ej. ya tienen regla, o ya no son ocasionales). */
+  readonly omitidas: readonly { readonly supplier_code: string; readonly motivo: string }[];
+}
+
+/** `null` = válido. */
+export function validarOcasionales(d: DefinirOcasionalesDto): string | null {
+  if (!d || !Array.isArray(d.supplier_codes) || !d.supplier_codes.length) return 'Faltan los proveedores.';
+  if (d.supplier_codes.some((c) => typeof c !== 'string' || !c.trim())) return 'Cada proveedor va por su clave de Kepler.';
+  if (d.supplier_codes.length > OCASIONALES_MAX) return `Son más de ${OCASIONALES_MAX}: eso no son los ocasionales.`;
+  return null;
 }
 
 /** El orden de trabajo: escalón, luego lo que pesa en la compra, luego las OC. Sin peso, al final y en su orden. */

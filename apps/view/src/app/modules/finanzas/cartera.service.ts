@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import type { Freshness } from '@megadulces/contracts';
+import type { Freshness, CerrarRestosBody, ResultadoAjusteAbono } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 /** CXC (ADR-048) — cliente de Cartera de clientes / Partidas vivas (CxC). */
@@ -389,6 +389,25 @@ export class CarteraService {
   }
   enlaceDeposito(sucursal: string, cliente: string): Observable<{ url: string | null }> {
     return this.http.post<{ url: string | null }>(`${environment.apiUrl}/finance/collections/clientes/enlace`, { sucursal, cliente });
+  }
+  // ── `[GP.R.4]` Cerrar el resto de centavos de un cliente (Ajuste Abono `U-A-30` en Kepler) ──────
+  /**
+   * Si en esta sucursal se puede cerrar un resto desde la Suite. Se pregunta ANTES de ofrecer el acto: hoy el
+   * interruptor está encendido en **una** sucursal, y un botón que va a fallar es el error como primer recurso.
+   */
+  ajusteHabilitado(sucursal: string): Observable<{ habilitado: boolean; motivo?: string }> {
+    return this.http.get<{ habilitado: boolean; motivo?: string }>(
+      `${environment.apiUrl}/finance/ajuste-abono/${encodeURIComponent(sucursal)}`);
+  }
+
+  /**
+   * ⛔ **Escribe en Kepler.** Cierra de una vez los restos elegidos de UN cliente con un solo Ajuste Abono.
+   * La respuesta trae `cfdi_insoluto`: lo que las facturas **siguen debiendo ante el SAT**, porque el ajuste no
+   * timbra. `null` = no se pudo medir, que **no es cero**.
+   */
+  cerrarRestos(sucursal: string, body: CerrarRestosBody): Observable<ResultadoAjusteAbono> {
+    return this.http.post<ResultadoAjusteAbono>(
+      `${environment.apiUrl}/finance/ajuste-abono/${encodeURIComponent(sucursal)}`, body);
   }
   registrarContacto(sucursal: string, cliente: string, canal: CanalContacto): Observable<{ id: string; canal: CanalContacto; contacted_at: string }> {
     return this.http.post<{ id: string; canal: CanalContacto; contacted_at: string }>(

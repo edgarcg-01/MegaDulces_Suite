@@ -78,6 +78,8 @@ const leerVerHorario = (): boolean => { try { return localStorage.getItem(LLAVE_
                   <div class="rs-nom-in">
                     <span class="rs-nom-txt">
                       <span class="rs-n" [class.reloj]="!f.p.registrado">{{ f.p.nombreCompleto || f.p.nombre }}</span>
+                      <!-- [RH.21] De baja en la plaza y checó en el periodo: sale con sus horas (antes se borraba), y la fila lo DICE. -->
+                      @if (f.p.activo === false) { <span class="rs-debaja" title="Está de baja en esta plaza y checó en el periodo: cuentan sus horas, sin faltas. Ábrela para reactivarla.">de baja</span> }
                       @if (f.alta) { <span class="rs-pill alta" [title]="f.alta + ' irregularidad' + (f.alta === 1 ? '' : 'es') + ': abre su ficha para ver cuáles'">{{ f.alta }}</span> }
                       @else if (f.baja) { <span class="rs-pill baja" [title]="f.baja + ' aviso' + (f.baja === 1 ? '' : 's')">{{ f.baja }}</span> }
                       @for (i of f.incs; track i.codigo) { <span class="rs-inc" [title]="i.etiqueta">{{ i.codigo }}</span> }
@@ -222,6 +224,8 @@ const leerVerHorario = (): boolean => { try { return localStorage.getItem(LLAVE_
     .rs-pill { display: inline-block; margin-left: 4px; font: 700 var(--fs-micro)/1 var(--font-mono); padding: 2px 5px; border-radius: var(--r-pill); vertical-align: 1px; }
     .rs-pill.alta { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .rs-pill.baja { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .rs-debaja { display: inline-block; margin-left: 4px; font-size: var(--fs-micro); font-weight: 600; line-height: 1; padding: 2px 5px; border-radius: var(--r-pill);
+                 border: 1px dashed var(--border-color); color: var(--text-muted); vertical-align: 1px; }
     .rs-inc { display: inline-block; margin-left: 4px; font: 700 var(--fs-micro)/1 var(--font-mono); padding: 2px 4px; border-radius: var(--r-sm);
       background: var(--info-soft-bg); color: var(--info-soft-fg); vertical-align: 1px; }
     /* [RH.13.8] Un turno por renglón (sin partirse) y el sábado aparte. Con el horario entero en un renglón sin cortes,

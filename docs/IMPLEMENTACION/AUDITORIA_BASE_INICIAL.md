@@ -1203,3 +1203,38 @@ reportaban «al escanear, la Suite captura otro producto».
 - **Arreglo, sin hacer:**
   - Pasar `styleClass` a `class` en `p-table` en los 146 archivos, con prueba visual de los tres perfiles en las pantallas que cambien.
   - Que `check:tables` rechace `styleClass` en `p-table`, con su prueba negativa.
+## Addendum — `AUD-DAT.35`: «Por revisar» publica dos cifras distintas en la misma pantalla (2026-11-26)
+
+**Estado: EN CÓDIGO (`[PQ.157]` C3, 2026-11-26, local sin soltar): la tarjeta dice «No cuadra el importe».** Lo encontró la prueba visual de `[PQ.157]` (nivel A, tres perfiles, base de prod en sólo lectura).
+
+- **Qué pasa:** la bandeja dice **«Por revisar · 1,253»** y, debajo, la tarjeta del resumen dice **«Por revisar 979»**. Cuentan cosas distintas: la bandeja cuenta lo que el expediente manda a revisar (`conteosBandeja().por_cubo.revisar`); la tarjeta, las entradas recibidas cuyo importe no cuadra (`CUADRE_SQL = 'revisar' AND last_status = 'recibido'`, `goods-receipt-proofs.service.ts`). Las dos se llaman igual.
+- **Por qué importa:** son 274 entradas de diferencia y nada dice cuál número manda. Pasa igual con «Cuadran 1,121» contra «Pasan solas · 739».
+- **Arreglo, sin hacer:** un solo conteo por nombre. Si las dos preguntas sirven, dos nombres que digan qué cuenta cada uno. Va con la pantalla de `[PQ.157]` (anexo R §3e).
+
+---
+
+## Addendum — `AUD-UI.3`: el panel «Orden de entrada» de Revisión de facturas muestra la aplicación, y en el celular esconde el costo (2026-11-26)
+
+**Estado: EN CÓDIGO (`[PQ.157]` C3, 2026-11-26, local sin soltar): el panel se llama «Aplicación», «Costo contra la OC» dice el folio de su orden de entrada y en el celular la tabla se apila con el costo. La lista lenta (12.6 s) sigue ABIERTA.** Lo encontró la prueba visual de `[PQ.157]`.
+
+- **El rótulo:** el panel lateral se titula «Orden de entrada», pero el documento que abre es la **aplicación** (`X-A-20`): el servicio lee `kdm1` con `c4 = 20`. Medido en prod: el folio que mostró existe en esa sucursal como aplicación (el de la pantalla) y como orden de entrada `X-A-40` **de otro proveedor y por otro importe**. Quien lo busque en Kepler como orden de entrada encuentra otro documento. El panel muestra el folio de la OC y del vale, pero no el de su orden de entrada. Control: la OC y el vale del mismo panel salen como `X-A-35` y `X-A-37`.
+- **El celular (390 px):** la tabla de renglones de Kepler deja sólo #, SKU, Producto e Importe; se pierden **Cantidad, Unidad y Costo unitario**, y el producto se corta a siete letras. En la pantalla que valida el costo, el costo no se ve en el teléfono. Al dedo, 14 de 15 controles del panel miden menos de 44 px (los folios de OC y vale, 46×17; «Abrir el renglón», 7×16).
+- **Lo medido de paso:** la lista de la pantalla tarda 12.6 s en escritorio y 8.2 s en táctil (API local contra la base de prod; regla: 0.5 s). En Fold 7 y celular la primera fila queda fuera de la primera pantalla (894 de 832 px y 1,305 de 844).
+- **Arreglo, sin hacer:** se resuelve con la pantalla de `[PQ.157]` (anexo R §3e): el panel se llama «Aplicación» y muestra el folio de su orden de entrada; costo y diferencia no se esconden en el celular.
+
+---
+
+## Addendum — `AUD-UI.4`: el detalle de la requisición se encima en el celular (2026-11-26)
+
+**Estado: ABIERTO (Compras).** Lo encontró la misma prueba visual, al tocar una OC de `/compras/oc-abiertas` a 390 px: se abrió su requisición.
+
+- **Qué pasa:** el enlace «← Requisiciones» queda encimado con el botón «Exportar Excel»; el folio de la requisición ocupa tres renglones a tamaño de título y el nombre del proveedor va una palabra por renglón. La columna izquierda se angosta en vez de pasar a una sola columna.
+- **Evidencia:** captura de nivel A (celular, 390×844, DPR 3). No se midió en Fold 7 ni en escritorio, donde la fila abre un panel lateral y no la requisición.
+- **Arreglo, sin hacer:** que la cabecera del detalle pase a una columna en angosto y el botón baje de renglón; prueba visual de los tres perfiles.
+## Addendum — `AUD-CI.2`: la prueba de base de `[RE.43]` no carga desde el 2026-11-10 y nadie lo ve (2026-11-25)
+
+**Estado: ABIERTO (de quien lleva Recepción).** Lo encontró `[PQ.150]`, al cargar las mismas funciones TS desde su prueba.
+
+- **Qué pasa:** `database/tests/test-newdb-goods-receipt-match.js` carga `emparejar-papel.ts`, que importa `receipt-match.ts`, y éste re-exporta `COMERCIAL_CATS` de `@megadulces/contracts/finance/ajustes-kepler` (commit `b205651ec`, `[RE.67]`). Fuera de Nx ese alias no se resuelve: la prueba muere con `Cannot find module` antes de su primera aserción.
+- **Lo medido:** el registro del job «Pruebas contra Postgres real» lo muestra igual en `main` (`b995d6a2a`) y en #624. Es una de las 207 suites rojas del job informativo, así que no frena nada y nadie la mira: el espejo TS ≡ SQL del núcleo de referencia (`[RE.43]`, 10,596 pares medidos cuando nació) lleva dos semanas sin correr.
+- **Arreglo, sin hacer:** resolver los `paths` de `tsconfig.base.json` antes de cargar el `.ts`, como hace `test-newdb-pq150-invoice-application.js` (seis líneas, con el parser de TypeScript porque el archivo trae comentarios). O mover la re-exportación fuera de `receipt-match.ts`.

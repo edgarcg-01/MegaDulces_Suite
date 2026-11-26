@@ -24,6 +24,7 @@ import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ComprasEntradaExpedienteComponent } from './compras-entrada-expediente.component';
+import { ComprasCostoAplicadoComponent } from '../components/costo-aplicado.component';
 import { ComprasEntradaMismaFacturaComponent } from '../components/entrada-misma-factura.component';
 import { ComprasCapturaLoteComponent } from './compras-captura-lote.component';
 import { MultiSelectModule } from 'primeng/multiselect';
@@ -100,7 +101,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
   standalone: true,
   imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, SelectModule,
     DatePickerModule,
-    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent, ComprasEntradaExpedienteComponent, ComprasEntradaMismaFacturaComponent, ComprasCapturaLoteComponent, MultiSelectModule,
+    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent, ComprasEntradaExpedienteComponent, ComprasCostoAplicadoComponent, ComprasEntradaMismaFacturaComponent, ComprasCapturaLoteComponent, MultiSelectModule,
     LoadStateComponent, EntityInspectorComponent, PageTabsComponent, SidePeekComponent, DocViewerComponent,
     FreshnessPillComponent, ContextHelpComponent, TableDensityComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -938,7 +939,10 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     <!-- [RE.52] 1400px (el panel se recorta solo a la ventana): con la decisión dentro del panel la
          lista de atrás ya no hace falta verla, y la factura necesita su columna para leerse al lado
          de la conclusión. A 1060 la rejilla de dos columnas dejaba ~500px para cada lado. -->
-    <app-side-peek [(open)]="showDetail" [width]="1400" title="Orden de entrada"
+    <!-- [PQ.157] «Aplicación», no «Orden de entrada»: el folio es el de la aplicación X-A-20 (y Kepler usa el mismo
+         número para otra orden de entrada de otro proveedor, AUD-UI.3). El folio de su orden lo dice «Costo contra la OC». -->
+    <app-side-peek [(open)]="showDetail" [width]="1400" title="Aplicación" [sucio]="costoSucio()"
+                   textoDescartar="Se pierde la decisión de costo que escribiste y no guardaste."
                    [subtitle]="detailSubtitulo()">
       @if (detailLoading()) {
         <!-- Esqueleto con la FORMA del contenido (veredicto + 3 cifras + ficha + renglones):
@@ -1048,6 +1052,14 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
              avisar. El panel es el único que se desplaza. -->
         <!-- [RE.52] class, no styleClass: p-table de PrimeNG 22 no tiene esa entrada y la ignoraba
              en silencio (ni .cb-table ni el alineado a la derecha de los números se aplicaban). -->
+
+        <!-- [PQ.157] Costo contra la OC: lo que Compras decide al aplicar. Va antes de los productos porque es la
+             decisión; los renglones de Kepler siguen abajo como evidencia. -->
+        @if (!(detailTarget()?.source_branch ?? '').startsWith('wincaja_')) {
+          <!-- Wincaja no tiene aplicación de Kepler ni OC contra qué comparar: la sección no se pinta. -->
+          <app-compras-costo-aplicado class="cb-expediente" [sucursal]="d.entrada.sucursal" [folio]="d.entrada.folio"
+            [lineas]="d.lineas" (capturando)="costoSucio.set($event)" />
+        }
 
         <!-- RE.11 — Conciliación por línea: remisión del proveedor ↔ líneas Kepler ↔ SKU resuelto. -->
         @if (reconLoading()) {
@@ -1354,7 +1366,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
         @if (detailTarget(); as c) {
           <div class="cb-review-acts">
             <div class="cb-acts-izq">
-              <button pButton type="button" text severity="secondary" (click)="showDetail.set(false)"><span class="p-button-label">Cerrar</span></button>
+              <button pButton type="button" text severity="secondary" (click)="cerrarDetalleSeguro()"><span class="p-button-label">Cerrar</span></button>
               @if (c.deposit_id && canValidate() && c.deposit_status !== 'rechazado') {
                 <button pButton type="button" text severity="danger" (click)="openReject(c)"
                         [attr.aria-label]="'Devolver la remisión de la entrada ' + c.folio">
@@ -1368,7 +1380,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                 <button pButton type="button" text severity="secondary" (click)="fromDetailToAttach()"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">Agregar otra remisión</span></button>
               }
               @if (siguienteDe(c); as s) {
-                <button pButton type="button" outlined severity="secondary" (click)="openDetail(s)"
+                <button pButton type="button" outlined severity="secondary" (click)="abrirDetalleSeguro(s)"
                         [attr.aria-label]="'Abrir la siguiente: entrada ' + s.folio">
                   <span class="p-button-label">Siguiente</span><span class="p-button-icon p-button-icon-right pi pi-angle-right" aria-hidden="true"></span>
                 </button>
@@ -2290,6 +2302,8 @@ export class ComprasEntradasComponent {
   readonly showDetail = signal(false);
   readonly detailLoading = signal(false);
   readonly detailData = signal<EntradaDetail | null>(null);
+  /** `[PQ.157]` Hay una decisión de costo tecleada y sin guardar: el panel pregunta antes de cerrarse. */
+  readonly costoSucio = signal(false);
   readonly detailTarget = signal<EntradaRow | null>(null);
 
   // RE.11 — conciliación por línea (remisión ↔ Kepler ↔ SKU resuelto).
@@ -2435,7 +2449,9 @@ export class ComprasEntradasComponent {
       return [
         { label: 'Entradas', value: r.kpis.entradas },
         { label: 'Cuadran', value: r.kpis.cuadran ?? 0, tone: 'ok' },
-        { label: 'Por revisar', value: r.kpis.por_revisar ?? 0, tone: 'warn' },
+        // [PQ.157] AUD-DAT.35: la bandeja «Por revisar» cuenta lo que el expediente manda a revisar; esta tarjeta cuenta las
+        // recibidas cuyo importe no cuadra. Con el mismo nombre publicaban 1,253 y 979 en la misma pantalla.
+        { label: 'No cuadra el importe', value: r.kpis.por_revisar ?? 0, tone: 'warn' },
         { label: 'No se leyó', value: r.kpis.sin_datos ?? 0 },
         { label: '$ por comprobar', value: this.moneyShort(r.kpis.monto_pendiente), tone: 'warn' },
       ];
@@ -3426,6 +3442,8 @@ export class ComprasEntradasComponent {
   }
 
   openDetail(c: EntradaRow) {
+    // [PQ.157] Otra entrada = otro «Costo contra la OC», que nace limpio (el anterior se destruye con detailData).
+    this.costoSucio.set(false);
     this.detailTarget.set(c);
     this.detailData.set(null);
     this.recon.set(null);
@@ -3502,7 +3520,19 @@ export class ComprasEntradasComponent {
   adjGrupoLabel(g: AdjustmentGrupoVista): string { return ({ comercial: 'Comercial', operativo: 'Operativo', sin_clasificar: 'Sin clasificar' } as Record<string, string>)[g] || 'Sin clasificar'; }
   adjGrupoSev(g: AdjustmentGrupoVista): 'success' | 'warn' | 'secondary' { return ({ comercial: 'success', operativo: 'warn', sin_clasificar: 'secondary' } as Record<string, 'success' | 'warn' | 'secondary'>)[g] || 'secondary'; }
 
-  fromDetailToAttach() { const c = this.detailTarget(); this.showDetail.set(false); if (c) this.openAttach(c); }
+  fromDetailToAttach() { this.dejarDetalle(() => { const c = this.detailTarget(); this.showDetail.set(false); if (c) this.openAttach(c); }); }
+
+  /**
+   * `[PQ.157]` Salir del detalle (cerrarlo o abrir otra entrada) sin perder una decisión de costo tecleada y sin guardar:
+   * el panel sólo preguntaba por la X, el fondo y Esc; «Cerrar», «Siguiente», «Agregar otra remisión» y lo que sigue a
+   * validar o devolver la tiraban en silencio (lo encontró la revisión independiente del PR).
+   */
+  private dejarDetalle(accion: () => void): void {
+    if (!this.costoSucio()) { accion(); return; }
+    this.askDiscard('Se pierde la decisión de costo que escribiste y no guardaste.', () => { this.costoSucio.set(false); accion(); });
+  }
+  cerrarDetalleSeguro(): void { this.dejarDetalle(() => this.showDetail.set(false)); }
+  abrirDetalleSeguro(c: EntradaRow): void { this.dejarDetalle(() => this.openDetail(c)); }
   lineasTotal(lineas: EntradaLinea[]): number { return lineasTotal(lineas); }
   lineasDiff(d: EntradaDetail): number { return Math.abs(this.lineasTotal(d.lineas) - (Number(d.entrada.monto) || 0)); }
   lineasCuadra(d: EntradaDetail): boolean { return this.lineasDiff(d) <= ComprasEntradasComponent.EPS; }
@@ -3570,7 +3600,7 @@ export class ComprasEntradasComponent {
   private seguirTrasDecidir(c: EntradaRow, siguiente: EntradaRow | null): void {
     const t = this.detailTarget();
     if (!this.showDetail() || !t || t.sucursal !== c.sucursal || t.folio !== c.folio) return;
-    if (siguiente) this.openDetail(siguiente); else this.showDetail.set(false);
+    this.dejarDetalle(() => { if (siguiente) this.openDetail(siguiente); else this.showDetail.set(false); });
   }
 
   /** `[RE.52]` La fecha que leyó el OCR llega como ISO: se muestra como fecha, no como marca de tiempo. */

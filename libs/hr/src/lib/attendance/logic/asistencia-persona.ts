@@ -280,9 +280,17 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
     // podría salir en ambas o en ninguna. El código SIN ficha sí se mide en la vista de planta
     // (es alguien marcando sin estar en el padrón) y se salta en la de promotoras.
     const promotora = esPromotora(emp ? { es_promotora: emp.es_promotora ?? null, departamento: emp.departamento } : null);
+    // `[RH.21]` H2 — LA BAJA NO BORRA HACIA ATRÁS. Antes, `activo === false` saltaba a la persona en TODOS los
+    // periodos: sus horas trabajadas antes de la baja no llegaban al reporte, al PDF ni a la prenómina (medido el
+    // 2026-11-25: 10 fichas, ~106 días trabajados en 56 días). Ninguna de esas bajas trae fecha (casi todas vienen de
+    // la carga de Mega Talento), así que no se inventa una: quien está de baja sale en el periodo SÓLO si checó en él,
+    // y se le miden SÓLO los días que checó (sin faltas: de baja no se le espera). Sin checadas, sigue fuera.
+    const deBaja = !!emp && emp.activo === false;
+    const checoEnRango = (porCodigo.get(cod)?.enRango.length ?? 0) > 0;
+    const fueraPorBaja = deBaja && !checoEnRango;
     if (soloPromotoras) {
-      if (!emp || !promotora || emp.activo === false) continue;
-    } else if (emp && (promotora || emp.activo === false)) continue;
+      if (!emp || !promotora || fueraPorBaja) continue;
+    } else if (emp && (promotora || fueraPorBaja)) continue;
     const datos = porCodigo.get(cod);
     const dias = datos?.dias || [];
     const turnosConf = e.turnosConfirmados.get(cod) || null;
@@ -314,7 +322,8 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
     const techo = seFue && ultimaChecada && ultimaChecada < hasta ? ultimaChecada : hasta;
 
     const diasAMedir: hd.DiaCrudo[] = (datos?.enRango || []).slice();
-    if (datos && datos.enRango.length) {
+    // `[RH.21]` De baja: sólo los días que checó (ver arriba). Los ausentes no se agregan, así que no hay faltas.
+    if (datos && datos.enRango.length && !deBaja) {
       for (const f of fechasDelRango) {
         if (conMarca.has(f) || f < piso || f > techo) continue;
         diasAMedir.push({ fecha: f, marcas: [] });
@@ -491,6 +500,13 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
     }
     if (re && re.marcasFaltantes > 0) {
       marcas.push({ codigo: 'marcas_faltantes', gravedad: 'info', detalle: `${re.marcasFaltantes} día(s) con una sola marca en el rango: no generan retardo porque no se sabe si esa marca es la entrada o la salida.` });
+    }
+    if (deBaja) {
+      // `[RH.21]` H3 — Se DICE, no se esconde: el reloj la sigue aceptando y la baja vive sólo en la Suite.
+      marcas.push({
+        codigo: 'de_baja_y_checo', gravedad: 'media',
+        detalle: `Está de baja en esta plaza y checó ${diasAMedir.length} día(s) en el periodo: cuentan sus horas, sin faltas. Si sigue trabajando aquí, reactívala; si ya no, quítala del reloj.`,
+      });
     }
     if (!emp || !emp.registrado) {
       marcas.push({

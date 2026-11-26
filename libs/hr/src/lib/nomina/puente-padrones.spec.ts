@@ -73,6 +73,31 @@ describe('el puente', () => {
     expect(b.empates[0]?.como).toContain('uno solo vigente');
   });
 
+  it('`[NE.2.5]` el rechazo publica A QUIÉNES miró, para que la cola manual no invente otro emparejador', () => {
+    // Ambiguo: los dos candidatos vivos que empataron, en el rechazo.
+    const amb = tiendePuente(
+      [nom('A1', 'Mengana Gómez Ruiz')],
+      [suite('u1', 'Mengana Gómez Ruiz', 'invited'), suite('u2', 'Mengana Gómez Ruiz', 'invited')],
+    );
+    expect(amb.rechazos[0]?.candidatos.slice().sort()).toEqual(['u1', 'u2']);
+
+    // Juicio: el que coincide en apellidos y primer nombre.
+    const jui = tiendePuente(
+      [{ ...nom('A1', 'Mengana Patricia Gómez Ruiz'), aPaterno: 'Gómez', aMaterno: 'Ruiz' }],
+      [suite('u1', 'Mengana Leticia Gómez Ruiz')],
+    );
+    expect(jui.rechazos[0]?.candidatos).toEqual(['u1']);
+
+    // Sólo baja: el dado de baja con quien coincide; es a quien habría que reactivar o ligar.
+    const baja = tiendePuente([nom('A1', 'Perengano Soto Díaz')], [suite('u9', 'Perengano Soto Díaz', 'terminated')]);
+    expect(baja.rechazos[0]).toMatchObject({ motivo: 'solo-baja', candidatos: ['u9'] });
+
+    // ⛔ PRUEBA NEGATIVA: si no hay a quién mirar, la lista va VACÍA — no se rellena con el parecido
+    //    más cercano. Un candidato inventado es peor que ninguno: invita a ligar al que no es.
+    const nadie = tiendePuente([nom('A1', 'Zutano Quiroz Vela')], [suite('u1', 'Mengana Gómez Ruiz')]);
+    expect(nadie.rechazos[0]).toMatchObject({ motivo: 'sin-candidato', candidatos: [] });
+  });
+
   it('⛔ coincidir sólo en apellidos y primer nombre es un JUICIO, no se liga', () => {
     const p = tiendePuente(
       [{ ...nom('A1', 'Mengana Patricia Gómez Ruiz'), aPaterno: 'Gómez', aMaterno: 'Ruiz' }],

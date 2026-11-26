@@ -127,6 +127,17 @@ export enum Permission {
   // (mientras, `SIN_REPARTIR` del candado de reparto): un alias equivocado liga a una persona con
   // el sueldo de otra, así que no se concede antes de que haya dónde revisarlo.
   HR_NOMINA_GESTIONAR = 'HR_NOMINA_GESTIONAR',
+  // Módulo: RH / Nómina — frente NE, `[NE.2.6]` / **D12**. Partida de la de arriba el 2026-11-25,
+  // y la razón se midió: con UNA sola clave para los cinco verbos, el frente entero quedó
+  // desplegado en prod y **sin poder producir una fila** —las tres tablas en 0— porque la clave
+  // espera a una pantalla que a su vez espera a que la API esté probada. Un círculo.
+  // ⭐ Esta clave gatea SÓLO el verbo que **no toca personas**: poblar el calendario de semanas
+  // de nómina derivándolo de ContPAQi (idempotente; omite y reporta lo que no cae en viernes).
+  // No muestra nombres, no escribe identidad y no pide firma, así que **no necesita pantalla
+  // para repartirse con seguridad** — lo que sí necesita es que el PM lo autorice (D12).
+  // ⛔ Lo que NO entra acá y se queda en `HR_NOMINA_GESTIONAR`: el puente (escribe identidad por
+  // empate de NOMBRE) y la cola (muestra nombres y pide firma). Ésos sí esperan la pantalla.
+  HR_NOMINA_CALENDARIO = 'HR_NOMINA_CALENDARIO',
   // Módulo: RH / Reclutamiento — `[RH.2.2]`, lo que antes vivía en el portal de Mega Talento.
   // VER lee candidatos y vacantes; GESTIONAR mueve de etapa, registra eventos, marca (no
   // recontratable, spam), fusiona duplicados, manda a la papelera y publica vacantes. La pantalla es
@@ -602,6 +613,8 @@ export enum Permission {
   FINANCE_CARTERA_TELEFONOS = 'FINANCE_CARTERA_TELEFONOS',
   /** `[GP.A.2]` Autorizar, regresar, rechazar o pasar a Dirección un pedido TELEMARK (bandeja «Por autorizar»). Autorizar y regresar escriben `kdm1.c11` en Kepler. */
   FINANCE_PEDIDOS_AUTORIZAR = 'FINANCE_PEDIDOS_AUTORIZAR',
+  /** `[GP.R.2]` Cerrar restos de centavos de clientes con el Ajuste Abono `U-A-30` de Kepler (hasta $10, D-R1), en vez del «Cobro» de centavos que dice que entró dinero y no entró. ⛔ No emite CFDI: la factura PPD queda con su insoluto ante el SAT y el registro lo declara. */
+  FINANCE_RESTOS_CERRAR = 'FINANCE_RESTOS_CERRAR',
   // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
   FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
   // MA — marca "recibe tareas de conciliación": define el pool del área de Finanzas
@@ -730,6 +743,10 @@ export enum Permission {
   COMPRAS_CALENDARIO_VER = 'COMPRAS_CALENDARIO_VER',
   COMPRAS_CALENDARIO_GESTIONAR = 'COMPRAS_CALENDARIO_GESTIONAR',
   COMPRAS_CALENDARIO_CICLO = 'COMPRAS_CALENDARIO_CICLO',
+  // `[PQ.157]` Decidir el costo de un renglón aplicado a otro costo que el de su OC: aceptarlo, reclamar la nota
+  // de crédito o marcar promoción (anexo R §3d–§3e). Clave PROPIA: `COMPRAS_ENTRADAS_VALIDAR` la tienen también
+  // los encargados de tienda, Finanzas y Tesorería, y el costo lo decide Compras (Francisco, 2026-11-26).
+  COMPRAS_COSTO_DECIDIR = 'COMPRAS_COSTO_DECIDIR',
   // Descuentos y apoyos (ajustes X-D-40/55) + facturas duplicadas.
   COMPRAS_DESCUENTOS_VER = 'COMPRAS_DESCUENTOS_VER',
   COMPRAS_DESCUENTOS_GESTIONAR = 'COMPRAS_DESCUENTOS_GESTIONAR',

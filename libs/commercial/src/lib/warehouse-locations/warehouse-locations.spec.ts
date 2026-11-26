@@ -37,6 +37,30 @@ describe('[UB.1] ubicaciones · permisos', () => {
     expect(g).not.toContain('ALMACEN_UBICACIONES_ACOMODAR');
   });
 
+  /**
+   * `[UB.PL]` El croquis de la sucursal. **D4 del anexo:** configurarlo es el mismo acto que dar de
+   * alta ubicaciones, así que usa `GESTIONAR` y NO se inventa una clave nueva — una clave más es un
+   * permiso más que repartir en prod (regla 20) y un módulo que nace sin que nadie pueda usarlo.
+   */
+  it('⭐ [UB.PL] leer el croquis lo puede quien lee el catálogo: es la misma pantalla', () => {
+    const g = gateDe('Get', 'fixtures');
+    for (const k of ['VER', 'ACOMODAR', 'GESTIONAR']) expect(g).toContain(`Permission.ALMACEN_UBICACIONES_${k}`);
+  });
+
+  it.each([
+    ['Post', 'fixtures'],
+    ['Post', 'fixtures/derivar'],
+    ['Patch', 'fixtures/:id'],
+  ] as const)('⭐ [UB.PL] %s %s pide GESTIONAR, y sólo GESTIONAR', (m, ruta) => {
+    const g = gateDe(m, ruta);
+    expect(g).toContain('@RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)');
+    expect(g).not.toContain('RequireAnyPermission');
+  });
+
+  it('⛔ NEGATIVA [UB.PL]: configurar el croquis NO inventa una clave nueva que nadie tendría', () => {
+    expect(FUENTE).not.toMatch(/Permission\.ALMACEN_(CROQUIS|PLANOGRAMA|FIXTURES)/);
+  });
+
   it.each([
     ['Post', 'bulk/preview'],
     ['Post', 'bulk'],
@@ -77,21 +101,49 @@ describe('[UB.1] ubicaciones · permisos', () => {
 const fila = (p: Partial<WarehouseLocationRow>): WarehouseLocationRow => ({
   id: 'x', warehouse_id: 'w', warehouse_code: '01', code: 'BA053', label: null, familia: 'ubicacion',
   zona: 'B', pasillo: 'A', rack: 5, nivel: 3, tipo: null, estado: 'activa', motivo_estado: null,
-  pick_sequence: 1, renglones_con_cantidad: 0, updated_at: '2026-10-08T00:00:00.000Z', ...p,
+  pick_sequence: 1, renglones_con_cantidad: 0, renglones_totales: 0, productos_asignados: 0, updated_at: '2026-10-08T00:00:00.000Z', ...p,
 });
 
 describe('[UB.1] ubicaciones · resumen', () => {
   it('cuenta estados, familias y contenido por separado', () => {
     const s = resumir([
       fila({}),
-      fila({ estado: 'bloqueada', motivo_estado: 'rack dañado', renglones_con_cantidad: 2 }),
+      fila({ estado: 'bloqueada', motivo_estado: 'rack dañado', renglones_con_cantidad: 2, renglones_totales: 2 }),
       fila({ estado: 'baja', motivo_estado: 'retirado' }),
-      fila({ familia: 'legado', code: '40174', zona: null, pasillo: null, rack: null, nivel: null, renglones_con_cantidad: 1 }),
+      fila({ familia: 'legado', code: '40174', zona: null, pasillo: null, rack: null, nivel: null, renglones_con_cantidad: 1, renglones_totales: 1 }),
     ]);
-    expect(s).toEqual({ total: 4, activas: 2, bloqueadas: 1, bajas: 1, con_formato: 3, legado: 1, con_contenido: 2 });
+    expect(s).toEqual({ total: 4, activas: 2, bloqueadas: 1, bajas: 1, con_formato: 3, legado: 1, con_contenido: 2, contenido_medido: true, con_producto: 0, fuera_del_mapa: 0 });
   });
 
   it('vacío es cero, no undefined', () => {
-    expect(resumir([])).toEqual({ total: 0, activas: 0, bloqueadas: 0, bajas: 0, con_formato: 0, legado: 0, con_contenido: 0 });
+    expect(resumir([])).toEqual({ total: 0, activas: 0, bloqueadas: 0, bajas: 0, con_formato: 0, legado: 0, con_contenido: 0, contenido_medido: false, con_producto: 0, fuera_del_mapa: 0 });
+  });
+
+  /**
+   * `[UB.RF.17]` El defecto que esto cierra, medido el 2026-11-25: `stock_lot_locations` tenía UNA fila
+   * en todo prod y el mapa publicaba «0 con mercancía» sobre 531 ubicaciones. Cero por defecto es
+   * indistinguible de cero por desuso: el resumen tiene que decir cuál de los dos es.
+   */
+  it('⭐ un almacén donde el acomodo nunca escribió NO queda medido (el cero se declara, no se publica)', () => {
+    const s = resumir([fila({}), fila({ nivel: 4 })]);
+    expect(s.con_contenido).toBe(0);
+    expect(s.contenido_medido).toBe(false);
+  });
+
+  it('NEGATIVA: un renglón en CERO sí es medición — el acomodo pasó y la ubicación se vació', () => {
+    const s = resumir([fila({ renglones_con_cantidad: 0, renglones_totales: 3 })]);
+    expect(s.con_contenido).toBe(0);
+    expect(s.contenido_medido).toBe(true);
+  });
+
+  it('⭐ lo que el mapa no recorre se cuenta aparte (3 carretas en Zamora Centro se publicaban como «3 activas» sin lista)', () => {
+    const s = resumir([fila({ familia: 'carreta', code: 'C01', zona: null, pasillo: null, rack: null, nivel: null })]);
+    expect(s.con_formato).toBe(0);
+    expect(s.legado).toBe(0);
+    expect(s.fuera_del_mapa).toBe(1);
+  });
+
+  it('cuenta las ubicaciones con producto asignado, que es lo único que varía entre racks', () => {
+    expect(resumir([fila({ productos_asignados: 4 }), fila({ nivel: 2 })]).con_producto).toBe(1);
   });
 });

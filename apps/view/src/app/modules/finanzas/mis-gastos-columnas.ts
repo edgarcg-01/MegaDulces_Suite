@@ -96,6 +96,11 @@ export interface FilaConSituacion extends FilaUbicable {
   motivo_rechazo?: string | null;
   /** `[GX.54]` Aprobado pero debiendo la factura del pago. */
   debeFactura?: boolean;
+  /**
+   * `[PGP.123]` G.16b — Lo único que frena su gasto es la lectura del comprobante y se ofrece «Ya lo comparé · Generar»
+   * (`pideComparar`). Edgar, 2026-11-25: «falta generar el gasto» parecía un paso pendiente sin más; el acto es comparar.
+   */
+  lecturaDistinta?: boolean;
 }
 
 /** `null` = un estado que esta regla no conoce: la pantalla lo cuenta y lo dice. */
@@ -113,13 +118,16 @@ export function situacionDe(f: FilaConSituacion): Situacion | null {
       return { aQuien: 'tu', etapaNombre: 'Pendiente de comprobación', mal: false,
         texto: f.debeFactura ? 'Te toca subir la factura del pago' : 'Te toca subir la evidencia' };
     case 'recibida':
-      return { aQuien: 'finanzas', etapaNombre: 'Solicitud', texto: 'Espera «Revisado» de Finanzas', mal: false };
+      return { aQuien: 'finanzas', etapaNombre: 'Solicitud', texto: 'Espera la firma de quien aprueba gastos', mal: false };
     case 'revision':
       return { aQuien: 'finanzas', etapaNombre: 'Pendiente de comprobación', texto: 'Finanzas revisa lo que subiste', mal: false };
     case 'validada': {
       const cierre = motivoDeCierre(f);
       if (cierre) return { aQuien: 'cerrado', etapaNombre: 'Expediente', texto: ETIQUETA_CIERRE[cierre], mal: false };
       const espera = esperaDeKepler(f);
+      if (espera === 'falta_generar_gasto' && f.lecturaDistinta) {
+        return { aQuien: 'kepler', etapaNombre: 'Expediente', mal: false, texto: 'Compara el comprobante y genera el gasto' };
+      }
       return { aQuien: 'kepler', etapaNombre: 'Expediente', mal: false,
         texto: espera ? ETIQUETA_ESPERA_KEPLER[espera] : 'Espera a Kepler' };
     }

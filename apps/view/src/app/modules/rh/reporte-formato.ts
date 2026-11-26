@@ -322,6 +322,32 @@ export function faltasDelPeriodo(d: HrAsistenciaResponse | null, hoy: string): F
 
 export const SIN_DEPARTAMENTO = 'SIN DEPARTAMENTO';
 
+/** Palabras de relleno en secciones y nombres de plaza heredados de Mega Talento («SUC.», «STAFF»…). */
+const RELLENO_PLAZA = new Set(['SUC', 'SUCURSAL', 'STAFF', 'PLAZA', 'RELOJ']);
+const normPlaza = (s: string): string =>
+  s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ')
+    .split(' ').filter((w) => w && !RELLENO_PLAZA.has(w)).join(' ');
+
+/**
+ * `[RH.21]` H5 — ¿La sección lleva el nombre de OTRA plaza? Devuelve el nombre de esa plaza, o null.
+ *
+ * La sección es sólo un grupo del reporte de la plaza donde la persona checa; la plaza la decide el RELOJ. Las
+ * secciones heredadas de Mega Talento mezclaban áreas con plazas («PH» dentro de 8-Esquinas, «STAFF LA PIEDAD» en otras
+ * cinco), y elegir una así PARECE mover a la persona de plaza sin moverla (medido el 2026-11-25: ~15 personas). La
+ * ficha lo usa para decirlo ANTES de guardar. Compara por palabras completas: «PH» es «Sucursal PH», no «PHILIPS».
+ */
+export function plazaEnLaSeccion(seccion: string | null | undefined, plazas: ReadonlyArray<{ code: string; name: string }>, actual: string | null): string | null {
+  const s = normPlaza(String(seccion || ''));
+  if (!s) return null;
+  for (const p of plazas) {
+    if (p.code === actual) continue;
+    const n = normPlaza(p.name);
+    if (!n) continue;
+    if (s === n || ` ${s} `.includes(` ${n} `) || ` ${n} `.includes(` ${s} `)) return p.name;
+  }
+  return null;
+}
+
 /** El departamento como lo lee RH: el nombre (sin el código interno), en mayúsculas. */
 export function departamentoDe(p: HrPersonaAsistencia): string {
   const d = String(p.departamento || '').split(' · ')[0].trim();

@@ -1047,6 +1047,16 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('⛔ ni le agrega una → 403', (await req('POST', `${SD}/config/categories`, coord.token, { queue_id: qMto, code: 'smoke_x', name: 'x' })).status === 403);
       check('⛔ ni renombra la cola → 403', (await req('PUT', `${SD}/config/queues/${qMto}`, coord.token, { name: 'robada' })).status === 403);
       check('la coordinación de Mantenimiento SÍ edita su categoría', (await req('PUT', `${SD}/config/categories/${catMto}`, coordMto.token, { name: 'SMOKE Mto categoría' })).status === 200);
+      // `[MS.8.5]` Renombrar con el payload de la pantalla («Renombrar» manda SÓLO { name }): la coordinación de ESA cola sí, recortado, sin tocar el código.
+      const ren = await req('PUT', `${SD}/config/queues/${qMto}`, coordMto.token, { name: '  SMOKE Mantenimiento renombrada  ' });
+      const qRen = (ren.body?.queues ?? []).find((q) => q.id === qMto);
+      check('⭐ [MS.8.5] la coordinación de Mantenimiento SÍ renombra su cola, con el nombre recortado', ren.status === 200 && qRen?.name === 'SMOKE Mantenimiento renombrada', dump(ren));
+      check('[MS.8.5] y el código no cambia', qRen?.code === 'smoke_mto76', qRen?.code);
+      check('[MS.8.5] el nombre nuevo queda en la base', (await knex('servicedesk.queues').where({ id: qMto }).first('name'))?.name === 'SMOKE Mantenimiento renombrada');
+      check('⛔ [MS.8.5] un nombre vacío → 400', (await req('PUT', `${SD}/config/queues/${qMto}`, coordMto.token, { name: '   ' })).status === 400);
+      check('⛔ [MS.8.5] y el rechazo no tocó el nombre', (await knex('servicedesk.queues').where({ id: qMto }).first('name'))?.name === 'SMOKE Mantenimiento renombrada');
+      check('⛔ [MS.8.5] el técnico (sin la clave de coordinar) no renombra → 403', (await req('PUT', `${SD}/config/queues/${qMto}`, tecMto.token, { name: 'robada' })).status === 403);
+      await req('PUT', `${SD}/config/queues/${qMto}`, coordMto.token, { name: 'SMOKE Mantenimiento' }); // de vuelta, por si algo más abajo la busca por su nombre
       const nueva = await req('POST', `${SD}/config/queues`, coordMto.token, { code: 'smoke_mto76_b', name: 'SMOKE cola creada' });
       const colaB = (nueva.body?.queues ?? []).find((q) => q.code === 'smoke_mto76_b');
       const mB = colaB ? await req('GET', `${SD}/config/queues/${colaB.id}/members`, coordMto.token) : null;

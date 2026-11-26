@@ -174,7 +174,9 @@ export function lineaDelGasto(g: ComprobacionEnLaCola | null | undefined): { tex
   // Lo que la Suite intentó y no quedó lo atiende Finanzas: decide si se reintenta (el botón está en su panel) o se
   // captura a mano. Lo que la Suite todavía no escribe lo sigue comprobando la sucursal, como hoy.
   const persona = QUIEN_RESUELVE_TEXTO.finanzas;
-  if (e?.status === 'cancelled') return { texto: e.nota || 'Kepler canceló su gasto: no se reescribe solo', tono: 'bad', quien: persona };
+  // `[PGP.123]` G-AUD.14 (2026-11-23): la nota del servidor mandaba a «Reintentar el gasto», un botón que no existe; y un
+  // gasto que alguien canceló a propósito no se vuelve a escribir de primera. Se dice qué pasó y cuál es el botón.
+  if (e?.status === 'cancelled') return { texto: textoCancelado(e.nota), tono: 'bad', quien: persona };
   if (e?.status === 'stuck' || e?.status === 'rejected_by_kepler') return { texto: `No se pudo escribir: ${e.nota || 'sin motivo'}`, tono: 'bad', quien: persona };
   if (e?.status === 'writing') return { texto: 'Escribiéndose en Kepler', tono: 'neutro', quien: null };
   if (e?.status === 'in_doubt') {
@@ -212,7 +214,41 @@ export function puedeEscribirseYa(g: ComprobacionEnLaCola | null | undefined): b
   if (!g || !g.comprobacion.listo || !g.escritura.abierta) return false;
   const e = g.gasto;
   if (e?.folio && e.status !== 'cancelled') return false;
-  return !['writing', 'written', 'seen_in_ods'].includes(String(e?.status ?? ''));
+  // G-AUD.14: lo que Kepler canceló no se ofrece de primera (ver `pideGenerarOtraVez`).
+  return !['writing', 'written', 'seen_in_ods', 'cancelled'].includes(String(e?.status ?? ''));
+}
+
+/**
+ * `[PGP.123]` G-AUD.14 (2026-11-23) — ¿Se ofrece «Generar otra vez»? Cuando Kepler canceló el gasto que la Suite había
+ * escrito y hoy se escribiría de nuevo. No es el acto principal: alguien lo canceló, quizá a propósito. El botón pide
+ * confirmar antes de escribir (medido: los tres gastos de prueba que Edgar canceló salían arriba de la cola con «Generar
+ * gasto» en rojo, a un clic de reescribirse).
+ */
+export function pideGenerarOtraVez(g: ComprobacionEnLaCola | null | undefined): boolean {
+  if (!g || !g.escritura.abierta || g.gasto?.status !== 'cancelled') return false;
+  return g.comprobacion.listo || g.comprobacion.motivo === 'lectura_distinta';
+}
+
+/** La nota de un gasto cancelado, sin el botón viejo que nombraba («Reintentar el gasto»), y con el que existe. */
+export function textoCancelado(nota: string | null | undefined): string {
+  // G-RED.1: la nota del servidor trae la póliza como se guarda (`kdc22611/D/371`); se dice como se busca en Kepler.
+  // G-RED.1b: dentro de un paréntesis, el mes va tras una coma («(póliza D 371, nov 2026)»), no en otro paréntesis.
+  const base = String(nota ?? '').replace(/:\s*el vale vuelve a esperar su gasto.*$/s, '').trim()
+    .replace(/\(póliza (kdc2\d{4}\/D\/\d+)\)/g, (_m, p: string) => `(póliza ${polizaCorta(p).replace(/ \((.+)\)$/, ', $1')})`)
+    .replace(/kdc2\d{4}\/D\/\d+/g, (p) => polizaCorta(p)) || 'Kepler canceló su gasto';
+  return `${base}. No se vuelve a escribir solo: si fue un error, «Generar otra vez»`;
+}
+
+/**
+ * `[PGP.123]` G.16 — ¿Se ofrece «Ya lo comparé · Generar»? Sólo cuando lo ÚNICO que frena es la lectura del comprobante
+ * (DG12: dice otro monto que la solicitud), en una base que escribe y sin gasto escrito o escribiéndose. Si además fallara
+ * otra condición, el servidor la diría al generar.
+ */
+export function pideComparar(g: ComprobacionEnLaCola | null | undefined): boolean {
+  if (!g || g.comprobacion.listo || g.comprobacion.motivo !== 'lectura_distinta' || !g.escritura.abierta) return false;
+  const e = g.gasto;
+  if (e?.folio && e.status !== 'cancelled') return false;
+  return !['writing', 'written', 'seen_in_ods', 'cancelled'].includes(String(e?.status ?? ''));
 }
 
 /**
