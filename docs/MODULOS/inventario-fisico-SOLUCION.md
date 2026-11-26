@@ -83,14 +83,25 @@ No se da por bueno hasta ejercerlo. El guion está probado:
 5. Cancelar el folio.
 
 ```sql
--- el testigo, en una consulta
+-- El testigo correcto: el TOTAL antes y después del escaneo, y el artículo tocado.
 SELECT count(*) AS total,
-       count(*) FILTER (WHERE count_1 IS NOT NULL) AS contados,
-       count(*) FILTER (WHERE expected_qty = 0)    AS con_teorico_cero
+       count(*) FILTER (WHERE count_1 IS NOT NULL) AS contados
 FROM commercial.inventory_count_items WHERE count_id = '<folio>';
+
+-- Y el artículo que se escaneó: su teórico tiene que ser el REAL, no 0.
+SELECT i.expected_qty, i.count_1, i.status, p.sku
+FROM commercial.inventory_count_items i JOIN public.products p ON p.id = i.product_id
+WHERE i.count_id = '<folio>' AND i.count_1 IS NOT NULL;
 ```
 
-⛔ `con_teorico_cero` **mayor que cero es el defecto volviendo**.
+⛔ **El defecto volvió si `total` CRECIÓ** tras escanear, o si el artículo escaneado quedó con
+`expected_qty = 0` y `sku` vacío.
+
+> ⚠️ **NO sirve como testigo «cuántos artículos tienen `expected_qty = 0`» a secas** —era el
+> criterio de la primera versión de este documento y **da falso positivo**—. Medido el 2026-11-26:
+> los folios de La Piedad tienen **233 artículos con teórico cero y sólo 0 o 1 conteos**, así que
+> no pueden venir de un escaneo: son **productos sembrados en la apertura con existencia 0**, que
+> son legítimos. Lo que delata al defecto es que el **total crezca**, no que haya ceros.
 
 ---
 
