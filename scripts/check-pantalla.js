@@ -181,6 +181,20 @@ function pantallas() {
 /** Sólo las PÁGINAS: un componente de `components/` es una pieza, no una pantalla. */
 const esPagina = (p) => /[\\/]pages[\\/]/.test(p);
 
+const DEUDA = leerDeuda();
+/** ¿Esta falla ya estaba declarada para ESTA pantalla? */
+const esDeuda = (f, id) => (DEUDA[rel(f)] || []).includes(id);
+
+/**
+ * ⛔ **La decisión completa de «esto es una falla NUEVA», en UN lugar, para que la prueba negativa la
+ * pueda ejercer.** El primer intento de esa prueba verificaba `esPagina()` por separado y se quedaba
+ * VERDE al quitarle el guardia al contador: probaba el predicado, no la decisión. Al vivir la decisión
+ * acá y usarse en los dos lados, el `--self-test` ve el mismo rojo que vería un dev.
+ *
+ * Una falla sólo es NUEVA si está en una PÁGINA (el sello sólo contiene páginas) y no estaba declarada.
+ */
+const esNueva = (f, id) => esPagina(f) && !esDeuda(f, id);
+
 function auditar(file) {
   const s = fs.readFileSync(file, 'utf8');
   const fallas = [];
@@ -207,8 +221,19 @@ if (process.argv.includes('--self-test')) {
   const falsos = REGLAS.filter((r) => (!r.soloSi || r.soloSi(buena)) && !r.busca(buena));
   console.log(`  pantalla INVENTADA que viola todo -> ${cazadas.length} regla(s) cazadas: ${cazadas.map((r) => r.id).join(', ')}`);
   console.log(`  pantalla que CUMPLE              -> ${falsos.length} falso(s) positivo(s): ${falsos.map((r) => r.id).join(', ') || 'ninguno'}`);
-  const ok = cazadas.length >= 5 && falsos.length === 0;
-  console.log(ok ? '\n  ✔ la compuerta ve el rojo y no inventa' : '\n  ✖ CONTROL fallido');
+  /**
+   * La segunda prueba negativa: **sólo una página puede tener una falla NUEVA.** Sin esto, el modo
+   * `-- <módulo>` contaba como NUEVA cada falla de un diálogo o un peek, que el sello no puede cubrir
+   * (68 contra 0 en el mismo árbol, el 2026-11-26). Se verifica la REGLA, no un caso: que `esPagina`
+   * separe las dos poblaciones, y que la del sello sea la misma que audita el barrido.
+   */
+  const dePagina = path.join(RAIZ, 'apps/view/src/app/modules/finanzas/pages/bancos/x.component.ts');
+  const noPagina = path.join(RAIZ, 'apps/view/src/app/modules/finanzas/components/x-dialog.component.ts');
+  // ⛔ Se ejerce `esNueva`, la MISMA función que cuenta: si alguien le quita el guardia, esto se pone rojo.
+  const poblacionOk = esNueva(dePagina, 'Q.1') === true && esNueva(noPagina, 'Q.1') === false;
+  console.log(`  esNueva() en pagina / en no-pagina -> ${esNueva(dePagina, 'Q.1')} / ${esNueva(noPagina, 'Q.1')} (sólo la pagina puede ser NUEVA)`);
+  const ok = cazadas.length >= 5 && falsos.length === 0 && poblacionOk;
+  console.log(ok ? '\n  ✔ la compuerta ve el rojo, no inventa, y no llama NUEVA a lo que nunca sello' : '\n  ✖ CONTROL fallido');
   process.exit(ok ? 0 : 1);
 }
 
@@ -230,9 +255,6 @@ if (!objetivo.length) {
   process.exit(1);
 }
 
-const DEUDA = leerDeuda();
-/** ¿Esta falla ya estaba declarada para ESTA pantalla? */
-const esDeuda = (f, id) => (DEUDA[rel(f)] || []).includes(id);
 
 // ── Sellar: regenera el archivo de deuda con el estado de hoy ─────────────────────────────
 if (process.argv.includes('--sellar-deuda')) {
@@ -251,6 +273,9 @@ if (process.argv.includes('--sellar-deuda')) {
 let conFallas = 0;
 let totalFallas = 0;
 let nuevas = 0;
+/** Los que NO son página: se auditan y se muestran, pero el sello no los cubre (ver abajo). */
+const fueraDelSello = [];
+let fallasFueraDelSello = 0;
 for (const f of objetivo.sort()) {
   const { fallas, avisos } = auditar(f);
   const nom = path.basename(f).replace('.component.ts', '');
@@ -274,8 +299,32 @@ for (const f of objetivo.sort()) {
   if (!fallas.length && !avisos.length) { if (!todas) console.log(`  ✔ ${nom}: cumple las ${REGLAS.length} reglas`); continue; }
   if (fallas.length) { conFallas++; totalFallas += fallas.length; }
 
-  const frescas = fallas.filter((r) => !esDeuda(f, r.id));
+  /**
+   * ⛔⛔ **Sólo una PÁGINA puede tener una falla «NUEVA», porque el sello sólo contiene páginas.**
+   *
+   * El barrido audita `esPagina(p)` y `--sellar-deuda` siembra el sello con esa MISMA población. Pero
+   * `check:pantalla -- <módulo>` filtra por `p.includes(arg)`, que además de las páginas trae diálogos,
+   * peeks, tabs y demás componentes del módulo. Ninguno de ésos puede estar en el sello **por
+   * construcción**, así que cada falla suya se contaba como NUEVA para siempre, y el pie afirmaba de
+   * ellos algo falso: «estas reglas no fallaban en esas pantallas al 2026-10-19» — nunca se midieron
+   * ese día.
+   *
+   * *Medido el 2026-11-26, con el mismo árbol y en el mismo minuto:* `-- finanzas` daba **68 fallas
+   * NUEVAS en 26 archivos**, y `--todas` daba **0 NUEVAS** (331 páginas, 594 fallas, 594 en deuda).
+   * De esos 26 archivos, **0 estaban en `/pages/`**. Dos de ellos (`caja-pasos`, `pagos-tabs`) nacieron
+   * ANTES del sello y no se tocaron ni una vez desde entonces: no había regresión que encontrar.
+   *
+   * ⭐ Y era peor que un rojo: la skill `diseno` manda correr justo el modo por módulo, así que la
+   * compuerta salía ROJA a mano y VERDE en el push (`gate-push` la invoca sin argumentos → barrido).
+   * Una compuerta que parpadea enseña a ignorarla.
+   *
+   * Lo que NO se hace acá: esconder esas fallas. Se siguen imprimiendo —son reales y vale verlas
+   * mientras se trabaja el módulo— pero no cuentan como NUEVAS ni frenan el push, porque no tienen
+   * contra qué compararse. Para que cuenten, el sello tendría que cubrirlas, y eso es otra decisión.
+   */
+  const frescas = fallas.filter((r) => esNueva(f, r.id));
   nuevas += frescas.length;
+  if (!esPagina(f) && fallas.length) { fueraDelSello.push(rel(f)); fallasFueraDelSello += fallas.length; }
 
   // En el barrido sólo se imprime lo que frena; a mano se imprime todo, que es cuando se
   // está trabajando la pantalla y se quiere ver el cuadro entero.
@@ -316,8 +365,19 @@ if (todas) {
   }
 }
 
-const enDeuda = totalFallas - nuevas;
-console.log(`\n  ${objetivo.length} pantalla(s) · ${conFallas} con falla(s) · ${totalFallas} falla(s) · ${enDeuda} en deuda declarada · ${nuevas} NUEVA(S)`);
+if (fueraDelSello.length) {
+  console.log(`\n  ⓘ ${fueraDelSello.length} de los auditados NO son página (diálogos, peeks, tabs): el sello sólo cubre`);
+  console.log('     páginas, así que sus fallas se muestran pero no cuentan como NUEVAS ni frenan el push.');
+}
+
+/**
+ * ⛔ Las tres cuentas no se enciman y suman `totalFallas`. **`enDeuda` es sólo de páginas**: las de un
+ * componente que no es página no están declaradas en ningún lado —el sello no las puede contener—, así que
+ * llamarlas «deuda declarada» sería la misma afirmación falsa, movida de lugar.
+ */
+const enDeuda = totalFallas - nuevas - fallasFueraDelSello;
+const fuera = fallasFueraDelSello ? ` · ${fallasFueraDelSello} fuera del sello (no son página)` : '';
+console.log(`\n  ${objetivo.length} pantalla(s) · ${conFallas} con falla(s) · ${totalFallas} falla(s) · ${enDeuda} en deuda declarada${fuera} · ${nuevas} NUEVA(S)`);
 
 if (nuevas) {
   console.error(`\n❌ ${nuevas} falla(s) NUEVA(S) de contrato de producto (DESIGN.md).`);

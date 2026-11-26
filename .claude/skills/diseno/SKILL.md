@@ -441,6 +441,7 @@ npm run check:motion             # techo de 350 ms, en ms y en s
 npm run check:templates          # el literal de template cierra (ver §8)
 npm run check:pantalla           # ⭐ el barrido: ninguna falla NUEVA de contrato de producto
 npm run check:pantalla -- <mod>  # ⭐ UNA pantalla, con su chequeo de tipos (~10 s)
+npm run check:pantalla -- --self-test   # la prueba negativa de la compuerta
 ```
 
 Las **doce** que cobran una regla de `DESIGN.md`: `templates` · `templates-types` · `tokens CSS` ·
@@ -452,6 +453,17 @@ Las **doce** que cobran una regla de `DESIGN.md`: `templates` · `templates-type
 > en el `pre-push`—, así que sólo se ejecutaba si alguien se acordaba. **Esta skill lo pedía, y
 > una skill es una instrucción, no un mecanismo.** Lo que midió no ejecutarse: 247 de 267
 > pantallas con falla.
+>
+> ⛔⛔ **El modo por módulo audita MÁS que el sello, y hasta el 2026-11-26 llamaba NUEVA a lo que el
+> sello no puede contener.** El barrido audita sólo **páginas** (`/pages/`) y `--sellar-deuda` siembra
+> el sello con esa misma población; pero `-- <módulo>` filtra por «la ruta contiene el nombre», así que
+> arrastra diálogos, peeks y tabs. *Medido el mismo día y sobre el mismo árbol: `-- finanzas` daba **68
+> fallas NUEVAS en 26 archivos** y `--todas` daba **0**; de esos 26, **ninguno** estaba en `/pages/`, y
+> dos nacieron antes del sello sin que nadie los tocara después.* Y era peor que un rojo: esta skill
+> manda correr justo ese modo, así que la compuerta salía **roja a mano y verde en el push**
+> (`gate-push` la invoca sin argumentos → barrido). Arreglado: lo que no es página se sigue mostrando
+> —son fallas reales— pero sale como «fuera del sello», no como NUEVA. La decisión vive en `esNueva()`
+> y el `--self-test` la ejerce: quitarle el guardia pone la compuerta en rojo.
 >
 > ⛔ **Nace con la deuda sellada** en `scripts/check-pantalla.deuda.json` (ruta → ids de regla) y
 > frena **sólo lo NUEVO**: encendida en duro sobre el árbol entero nacería roja para los cuatro y
