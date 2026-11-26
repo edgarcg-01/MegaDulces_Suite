@@ -166,6 +166,12 @@ const COMPUERTAS = [
   //     la suite sigue creciendo y nadie mira la línea de archivos. Medido el 2026-10-06:
   //     13 archivos de libs/ así, 166 pruebas sin correr una sola vez, entre ellas el candado
   //     del teclado de todas las tablas.
+  //   · import-colgado: un archivo VERSIONADO que importa una ruta relativa SIN VERSIONAR compila en
+  //     todas las laptops (tsc resuelve contra el disco) y revienta en el CI, que construye desde el commit.
+  //     Medido 2026-11-26: tiro `main` por TERCERA vez al empujar 74 commits, y lo cazaba recien
+  //     `Imagenes (GHCR)`, el paso mas lento y mas tarde del carril. Resuelve contra `git ls-files`, NO
+  //     contra el disco: mirar el disco es exactamente como se escapa.
+  { nombre: 'import-colgado', script: 'check-import-colgado.js', que: 'ningun archivo versionado importa una ruta relativa que no esta versionada', push: true, ms: 420 },
   { nombre: 'spec-vivo', script: 'check-spec-vivo.js', que: 'ningún spec de libs/ importa de "vitest" (cargaría en cero)', push: true, ms: 180 },
   //   · sidebar-tabs: una pantalla que sólo está en una barra de pestañas, para quien no
   //     conoce la pestaña, NO EXISTE — es la lección que `[AU.3]` ya había dejado escrita y

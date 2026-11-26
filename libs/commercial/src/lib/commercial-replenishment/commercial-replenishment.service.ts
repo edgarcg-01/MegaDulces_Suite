@@ -370,6 +370,7 @@ export interface WorkbookQuery {
   iad?: string;             // RA-PRO.36.2 — filtro de tendencia server-side: 'accel' (IAD≥0.25) | 'decel' (IAD≤−0.25)
   only_overstock?: boolean; // RA-PRO.36.2 — solo productos con sobrestock (algún territorio con >90 días en mano)
   agotados?: boolean;       // [PQ.37] sólo los agotados en toda la red que SÍ vendieron en 12 meses (entran en cero)
+  freno?: boolean;          // [PQ.95] sólo productos con freno: fin de pico en alguna sucursal o temporada confirmada
 }
 
 interface RequisitionLineDto {
@@ -2314,6 +2315,10 @@ export class CommercialReplenishmentService {
       if (q.iad === 'accel') wbConds.push('da.iad >= 0.25');
       else if (q.iad === 'decel') wbConds.push('da.iad <= -0.25');
       if (q.only_overstock) wbConds.push('p.has_over');
+      // [PQ.95] «Con freno»: donde aplica una regla que mueve el sugerido (fin de pico en alguna
+      // sucursal) o donde hay una temporada confirmada. Es la UNIÓN a propósito: así el conteo por
+      // etiqueta (abajo, en las ventanas) da lo mismo con el filtro puesto que sin él.
+      if (q.freno) wbConds.push('(p.fin_pico_n > 0 OR tem.sku IS NOT NULL)');
       if (agotados) wbConds.push('p.fuera_calculo');
       const wbWhere = wbConds.length ? `WHERE ${wbConds.join(' AND ')}` : '';
       // `[RA-PERF.1]` La vista del factor de caja se lee de su COPIA MATERIALIZADA.
@@ -2551,6 +2556,12 @@ export class CommercialReplenishmentService {
                  COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz,
                  max(b.rop_xyz) AS xyz,
                  max(b.season_ratio) AS season_ratio, max(b.season_src) AS season_src,
+                 -- [PQ.95] El freno de fin de pico de ESTA celda (AB.17): la razon con la que el motor
+                 -- bajo la venta de 30 dias a la venta normal. NULL = aqui no freno. Viaja aparte de
+                 -- season_src porque el max() de arriba lo tapa: sku gana a fin_pico por orden de texto,
+                 -- y el freno BAJA la razon, asi que el max tampoco la ve.
+                 -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
+                 min(b.season_ratio) FILTER (WHERE b.season_src = 'fin_pico') AS fp_ratio,
                  bool_or(b.fuera) AS fuera
             FROM base b
            GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code
@@ -2571,6 +2582,9 @@ export class CommercialReplenishmentService {
                    'mx', max_cjs_cell, 'rop', reorder_cjs_cell,
                    'trf', CASE WHEN traspaso THEN true END,
                    'sr', CASE WHEN sobre_reorden THEN true END,
+                   -- En GENERAL la columna suma la venta de todas y fp seria el minimo de una sola:
+                   -- la cifra de la sucursal saldria mezclada. Ahi no viaja.
+                   'fp', ${general ? 'NULL' : 'round(fp_ratio::numeric, 3)'},
                    'rung', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_veredicto END,
                    'nat',  CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN exis_nativa END,
                    'natu', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_base_label END
@@ -2584,7 +2598,17 @@ export class CommercialReplenishmentService {
                  -- columnas del renglon; max() lo sube sin mezclar nada.
                  -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
                  max(fill_erp) AS fill_rate,
-                 round(max(season_ratio)::numeric, 3) AS season_ratio, max(season_src) AS season_src,
+                 -- [PQ.95] La ESTACIONALIDAD del producto (la columna Est.) sale sólo de las columnas SIN
+                 -- freno. Antes el max() mezclaba las dos cosas: con la temporalidad de la categoria
+                 -- (cat < fin_pico por orden de texto) bastaba UNA sucursal frenada para que el renglon
+                 -- dijera fin_pico con la razon de la categoria, y la pantalla lo leia como el freno.
+                 -- Todas frenadas = NULL: el freno lo dice la etiqueta del renglon, no esta columna.
+                 round(max(season_ratio) FILTER (WHERE fp_ratio IS NULL)::numeric, 3) AS season_ratio,
+                 max(season_src) FILTER (WHERE fp_ratio IS NULL) AS season_src,
+                 -- [PQ.95] En cuantas columnas freno el fin de pico. La etiqueta del renglon dice EN
+                 -- CUALES (616 de 821 productos frenan en una sola sucursal, medido 2026-11-25).
+                 -- En la vista GENERAL (una sola columna de red) no se puede decir en cuales: NULL.
+                 ${general ? 'NULL::int' : 'count(*) FILTER (WHERE fp_ratio IS NOT NULL)::int'} AS fin_pico_n,
                  -- U.2 — sum() ignora los NULL: el pedido de red suma SOLO los almacenes cuyo
                  -- peldaño está verificado. almacenes_sin_pedido dice cuántos quedaron fuera,
                  -- para que un total más chico no se lea como "no hace falta comprar".
@@ -2617,10 +2641,36 @@ export class CommercialReplenishmentService {
                da.iad, da.band AS iad_band, da.status AS iad_status,
                da.z_short AS iad_z_short, da.z_seasonal AS iad_z_seasonal, da.has_seasonal AS iad_has_seasonal,
                CASE WHEN p.fuera_calculo THEN (SELECT max(z.sale_date)::text FROM (SELECT s.sale_date, s.units FROM analytics.sales_daily s
-                                               WHERE s.tenant_id = :t AND s.product_id = p.product_id OFFSET 0) z WHERE z.units > 0) END AS ultima_venta
+                                               WHERE s.tenant_id = :t AND s.product_id = p.product_id OFFSET 0) z WHERE z.units > 0) END AS ultima_venta,
+               -- [PQ.95] La temporada CONFIRMADA del producto (Compras > Temporadas, una sola puerta de
+               -- escritura), tal como la publica la vista: en venta, pasado el corte, en remate o por
+               -- iniciar. Un solo objeto y NULL para el resto: 104 de los renglones la traen hoy y
+               -- ocho columnas sueltas en nulo engordarian cada pagina sin decir nada.
+               -- Las fechas viajan como TEXTO: un date de node-pg llega como medianoche local.
+               CASE WHEN tem.sku IS NOT NULL THEN jsonb_build_object(
+                 'nombre', tem.season_name, 'estado', tem.state,
+                 'reposicion', tem.replenishment, 'repone', tem.replenish_allowed,
+                 'desde', tem.venta_desde, 'hasta', tem.venta_hasta,
+                 'corte', tem.corte, 'remate', tem.remate_desde) END AS temporada
           FROM prod p
           LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = p.supplier_id
           LEFT JOIN analytics.demand_acceleration da ON da.tenant_id = :t AND da.product_id = p.product_id
+          -- [PQ.95] Una temporada por producto: la que manda. Primero la que esta EN VENTA (es la que
+          -- vive hoy: el remate de otra temporada no le puede decir no lo pidas en plena venta), luego
+          -- pasado el corte, luego en remate, luego por iniciar; a empate, la que empieza antes.
+          -- Se resuelve UNA vez y se une por la clave: nunca por renglon.
+          LEFT JOIN (
+            SELECT DISTINCT ON (vs.sku) vs.sku, vs.season_name, vs.state, vs.replenishment, vs.replenish_allowed,
+                   to_char(vs.sale_from, 'YYYY-MM-DD') AS venta_desde,
+                   to_char(vs.sale_to, 'YYYY-MM-DD') AS venta_hasta,
+                   to_char(COALESCE(vs.cutoff, vs.sale_to), 'YYYY-MM-DD') AS corte,
+                   to_char(COALESCE(vs.clearance_from, vs.sale_to + 1), 'YYYY-MM-DD') AS remate_desde
+              FROM catalog.v_product_season_status vs
+             WHERE vs.tenant_id = :t
+             ORDER BY vs.sku,
+                      CASE vs.state WHEN 'en_venta' THEN 0 WHEN 'pasado_el_corte' THEN 1 WHEN 'en_remate' THEN 2 ELSE 3 END,
+                      vs.sale_from, vs.season_key
+          ) tem ON tem.sku = p.sku
          ${wbWhere}`;
 
       // `[RA-PERF.4]` LOS TOTALES VIAJAN EN LA MISMA PASADA, en ventanas `OVER ()`.
@@ -2651,7 +2701,8 @@ export class CommercialReplenishmentService {
       // NO SE INVENTA EL PATRON: `transferPlan` y `overstockList`, en este mismo archivo, ya
       // publican su `_total` / `_total_valor` exactamente asi.
       const TOT_COLS = ['_c', '_total_pedido', '_total_venta', '_total_exis', '_total_venta_costo',
-        '_exis_sin_valuar_skus', '_exis_sin_valuar_celdas', '_exis_sin_valuar_arbitrado'] as const;
+        '_exis_sin_valuar_skus', '_exis_sin_valuar_celdas', '_exis_sin_valuar_arbitrado',
+        '_freno_fin_pico', '_freno_temporada'] as const;
       const win = `, count(*) OVER ()::int AS _c,
                round(SUM(pedido_valor) OVER ()::numeric, 2)                              AS _total_pedido,
                round(SUM(valor_venta) OVER ()::numeric, 2)                               AS _total_venta,
@@ -2659,7 +2710,9 @@ export class CommercialReplenishmentService {
                round(SUM(valor_vta_costo) OVER ()::numeric, 2)                           AS _total_venta_costo,
                (COUNT(*) FILTER (WHERE almacenes_sin_valuar > 0) OVER ())::int           AS _exis_sin_valuar_skus,
                (COALESCE(SUM(almacenes_sin_valuar) OVER (), 0))::int                     AS _exis_sin_valuar_celdas,
-               round(COALESCE(SUM(valor_exis_arbitrado) OVER (), 0)::numeric, 2)         AS _exis_sin_valuar_arbitrado`;
+               round(COALESCE(SUM(valor_exis_arbitrado) OVER (), 0)::numeric, 2)         AS _exis_sin_valuar_arbitrado,
+               (COUNT(*) FILTER (WHERE p.fin_pico_n > 0) OVER ())::int                   AS _freno_fin_pico,
+               (COUNT(*) FILTER (WHERE tem.sku IS NOT NULL) OVER ())::int                AS _freno_temporada`;
       const innerWin = inner.replace('\n          FROM prod p\n', `${win}\n          FROM prod p\n`);
       if (innerWin === inner) throw new Error('[RA-PERF.4] no se pudo inyectar el bloque de totales en la consulta del workbook');
       // [PQ.37] Los agotados no tienen venta de 30 d que ordene: van por la venta más reciente.
@@ -2692,6 +2745,7 @@ export class CommercialReplenishmentService {
               exis_sin_valuar_skus: w0._exis_sin_valuar_skus,
               exis_sin_valuar_celdas: w0._exis_sin_valuar_celdas,
               exis_sin_valuar_arbitrado: w0._exis_sin_valuar_arbitrado,
+              freno_fin_pico: w0._freno_fin_pico, freno_temporada: w0._freno_temporada,
             }
           : (await trx.raw(`SELECT count(*)::int c,
           round(SUM(pedido_valor)::numeric,2) total_pedido,
@@ -2700,7 +2754,9 @@ export class CommercialReplenishmentService {
           round(SUM(valor_vta_costo)::numeric,2) total_venta_costo,
           COUNT(*) FILTER (WHERE almacenes_sin_valuar > 0)::int          exis_sin_valuar_skus,
           COALESCE(SUM(almacenes_sin_valuar), 0)::int                    exis_sin_valuar_celdas,
-          round(COALESCE(SUM(valor_exis_arbitrado), 0)::numeric, 2)      exis_sin_valuar_arbitrado
+          round(COALESCE(SUM(valor_exis_arbitrado), 0)::numeric, 2)      exis_sin_valuar_arbitrado,
+          COUNT(*) FILTER (WHERE fin_pico_n > 0)::int                    freno_fin_pico,
+          COUNT(*) FILTER (WHERE temporada IS NOT NULL)::int             freno_temporada
         FROM (${inner}) z`, binds)).rows[0];
         // Los ocho acarreos salen del payload: son del CONJUNTO, no de la fila, y repetirlos en cada
         // renglón engordaría el export (hasta 100,000 filas) sin decir nada nuevo.
@@ -2831,6 +2887,16 @@ export class CommercialReplenishmentService {
           skus: Number(tot?.exis_sin_valuar_skus || 0),
           celdas: Number(tot?.exis_sin_valuar_celdas || 0),
           arbitrado: Number(tot?.exis_sin_valuar_arbitrado || 0),
+        },
+        /**
+         * `[PQ.95]` Dónde aplica cada regla, sobre el universo filtrado: productos con fin de pico en
+         * alguna sucursal y productos con temporada confirmada. Son conteos de PRODUCTOS, no de
+         * sucursales. El filtro «Con freno» es la unión de los dos, así que estos números son los
+         * mismos con el filtro puesto o sin él.
+         */
+        frenos: {
+          fin_pico: Number(tot?.freno_fin_pico || 0),
+          temporada: Number(tot?.freno_temporada || 0),
         },
         rows,
       };

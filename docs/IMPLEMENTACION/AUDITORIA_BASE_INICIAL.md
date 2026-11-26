@@ -1164,3 +1164,13 @@ reportaban «al escanear, la Suite captura otro producto».
      promotoras se quedarían sin nada que elegir.
 - **No medido:** cuántos códigos se rechazaron por alcance (`resolveCode` no deja rastro) y quién borró
   `CAD-05-2026-00003`.
+
+---
+
+## Addendum — `AUD-CI.2`: la prueba de base de `[RE.43]` no carga desde el 2026-11-10 y nadie lo ve (2026-11-25)
+
+**Estado: ABIERTO (de quien lleva Recepción).** Lo encontró `[PQ.150]`, al cargar las mismas funciones TS desde su prueba.
+
+- **Qué pasa:** `database/tests/test-newdb-goods-receipt-match.js` carga `emparejar-papel.ts`, que importa `receipt-match.ts`, y éste re-exporta `COMERCIAL_CATS` de `@megadulces/contracts/finance/ajustes-kepler` (commit `b205651ec`, `[RE.67]`). Fuera de Nx ese alias no se resuelve: la prueba muere con `Cannot find module` antes de su primera aserción.
+- **Lo medido:** el registro del job «Pruebas contra Postgres real» lo muestra igual en `main` (`b995d6a2a`) y en #624. Es una de las 207 suites rojas del job informativo, así que no frena nada y nadie la mira: el espejo TS ≡ SQL del núcleo de referencia (`[RE.43]`, 10,596 pares medidos cuando nació) lleva dos semanas sin correr.
+- **Arreglo, sin hacer:** resolver los `paths` de `tsconfig.base.json` antes de cargar el `.ts`, como hace `test-newdb-pq150-invoice-application.js` (seis líneas, con el parser de TypeScript porque el archivo trae comentarios). O mover la re-exportación fuera de `receipt-match.ts`.

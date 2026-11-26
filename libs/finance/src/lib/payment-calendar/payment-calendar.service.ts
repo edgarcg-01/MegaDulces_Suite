@@ -276,6 +276,33 @@ type FilaDePago = AllocationRowLite & {
   lot_date: string; lot_status: string | null; status: string; classification: string;
   authorized_at?: Date | string | null; created_at?: Date | string | null;
 };
+/** `[PGP.168.1]` Lo que la póliza lee de cada renglón del pago armado (`armarFilas`). */
+export interface ItemDePoliza {
+  applied_amount: number;
+  beneficiary: string | null;
+  obligation_source: string;
+  /** El folio de Kepler en una factura derivada; el concepto en las demás. */
+  concept: string | null;
+  branch_code: string | null;
+  doc_ref?: string | null;
+  vence?: string | null;
+  payee_code?: string | null;
+  discount_amount: number;
+  discount_lines?: unknown;
+  discount_reason?: unknown;
+  discount_rate?: unknown;
+  discount_note?: unknown;
+  cfdi?: { estado: string; cfdi: { uuid: string } | null } | null;
+}
+/** `[PGP.168.1]` El pago con lo que su cheque y su póliza necesitan (`pagoParaPoliza`). */
+export interface PagoParaPoliza extends PagoParaCheque {
+  dia: string;
+  banco_alias: string | null;
+  /** La cuenta del banco en ContPAQi (`bank_accounts.contpaqi_cuenta`); null si no la tiene. */
+  cuenta_banco: { cuenta: string; nombre: string | null } | null;
+  classification: string;
+  items: ItemDePoliza[];
+}
 /** `[TP.15]` Lo que el candado de saldo lee de una obligación a proveedor (columnas de la mig 20261016002604). */
 /** `[PGP.76]` El turno que quedó a cada pago del día después de reordenarlo. */
 export interface DayOrderRank { id: string; priority_rank: number }
@@ -1277,6 +1304,47 @@ export class PaymentCalendarService {
         reference_text: r.reference_text ?? null,
         amount_assigned: r.amount_assigned,
         items: (pago.items ?? []).map((it) => ({ applied_amount: it.applied_amount, beneficiary: (it.beneficiary ?? null) as string | null })),
+      };
+    });
+  }
+
+  /**
+   * `[PGP.168.1]` **Un pago con lo que su póliza necesita**: lo mismo que el cheque (`dictamenCheque` se repite con estos
+   * datos) más cada documento completo —folio, sucursal, referencia, vencimiento, descuento— con su CFDI, que aquí se
+   * lee SIEMPRE (en el día cuesta ~330 ms para todos los pagos; aquí, para uno: y un cheque de mañana también lleva
+   * póliza), la clasificación del pago y la cuenta contable del banco. El beneficiario sale de `armarFilas`, la misma
+   * regla del día: la póliza y el cheque no pueden decir dos nombres. Sólo lectura.
+   */
+  async pagoParaPoliza(allocationId: string): Promise<PagoParaPoliza | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(allocationId ?? ''))) return null;
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const a = (await trx('finance.payment_allocations as a')
+        .join('finance.payment_calendar_lots as l', 'l.id', 'a.lot_id')
+        .leftJoin('finance.bank_accounts as ba', 'ba.id', 'a.bank_account_id')
+        .where({ 'a.id': allocationId, 'a.tenant_id': tenantId })
+        .whereNot('a.status', 'cancelled')
+        .first('a.*', trx.raw("to_char(l.lot_date, 'YYYY-MM-DD') AS lot_date"), 'l.status AS lot_status',
+          'ba.bank AS banco', 'ba.alias AS banco_alias', 'ba.contpaqi_cuenta AS banco_cuenta', 'ba.contpaqi_cuenta_nombre AS banco_cuenta_nombre',
+          // El importe como TEXTO del numeric: los centavos se leen exactos, sin pasar por un flotante.
+          trx.raw('a.amount_assigned::text AS amount_texto'))) as (FilaDePago & {
+          banco: string | null; banco_alias: string | null; banco_cuenta: string | null; banco_cuenta_nombre: string | null;
+          amount_texto: string; payment_method: string | null; reference_text: string | null;
+        }) | undefined;
+      if (!a) return null;
+      const [pago] = await this.armarFilas(trx, tenantId, [a], { conCfdi: () => true, validarDias: [] });
+      if (!pago) return null;
+      const cuenta = (a.banco_cuenta ?? '').trim();
+      return {
+        dia: a.lot_date,
+        banco: a.banco ?? null,
+        banco_alias: a.banco_alias ?? null,
+        cuenta_banco: cuenta ? { cuenta, nombre: (a.banco_cuenta_nombre ?? '').trim() || null } : null,
+        classification: String(a.classification ?? ''),
+        payment_method: a.payment_method ?? null,
+        reference_text: a.reference_text ?? null,
+        amount_assigned: a.amount_texto,
+        items: ((pago.items ?? []) as unknown as ItemDePoliza[]),
       };
     });
   }

@@ -172,6 +172,14 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // `20261008111426`): esa estimación sigue sin confirmarse con la versión corregida.
   // ⚠️ Va sin JIT y con tope de 3 min (`AJUSTES_REFRESCO`, abajo).
   { name: 'analytics.mv_new_products', everyMin: 30 },
+  // `[PQ.150]` (mig 20261125090951) La factura del SAT ligada a su aplicación X-A-20, uno a uno: copia de
+  // `commercial.v_supplier_invoice_application` sin un cambio de lógica. Existe por COSTO: la vista entera
+  // cuesta **8.3 s** (5,243 pares, medido en prod el 2026-11-25) y filtrarla por proveedor NO es más barato
+  // (el uno a uno se decide contra todos los candidatos; con el filtro el plan se fue a 92 s).
+  // `everyMin: 60` y no 30: la factura llega de ContPAQi una vez al día y la aplicación se captura al
+  // recibir; quien la lee (lo que aprende la historia de `[PQ.148]`, la validación de costo de `[PQ.157]`)
+  // no cambia de respuesta en media hora. 24 corridas/día ≈ 3.5 min de CPU. Tope de 2 min abajo.
+  { name: 'analytics.mv_supplier_invoice_application', everyMin: 60 },
   // NOTA: analytics.mv_wincaja_sales_daily NO va en este array de 15 min. Se alimenta de una carga
   // Access→Postgres que aterriza ~05:00 MX una vez al día (el resto del histórico está congelado) →
   // se refresca NIGHTLY en refreshWincajaDaily() (06:20 MX, tras la carga). Refrescarlo cada 15 min
@@ -195,6 +203,8 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
  */
 const AJUSTES_REFRESCO: Readonly<Record<string, readonly string[]>> = {
   'analytics.mv_new_products': ['SET LOCAL jit = off', "SET LOCAL statement_timeout = '180s'"],
+  // `[PQ.150]` Un pase medido de 8.3 s: con 2 min de tope, un plan que se tuerza no detiene al resto del ciclo.
+  'analytics.mv_supplier_invoice_application': ["SET LOCAL statement_timeout = '120s'"],
   // `[CAT-COSTO.9]` Antes de refrescar la historia de costos, la foto del costo estándar de hoy
   // (Kepler no guarda la historia de la ficha). Va en la MISMA transacción: si el REFRESH falla, la
   // foto tampoco queda, y la matview nunca lee una foto que no se pudo historiar.

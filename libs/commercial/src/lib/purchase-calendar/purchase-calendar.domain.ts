@@ -1,6 +1,6 @@
 import {
   diaIso, diasEntre, ESCALON1_COMPRA_PCT, ESCALON1_OCS_PCT, ESCALONES_LLENADO, estadoDeRegla, PERIODOS_DIA_FIJO, sumarDias, VENTANA_REZAGO_DIAS,
-  type AlcanceDeQuienVe, type AvanceDelEmbudo, type EmbudoLlenado, type EscalonLlenado, type PesoProveedor, type CalendarioCompras, type EstadoRevision, type FuenteActividad, type MarcaVista, type PropuestaDiaFijo,
+  type AlcanceDeQuienVe, type AvanceDelEmbudo, type CambioDeRegla, type EmbudoLlenado, type EscalonLlenado, type PesoProveedor, type CalendarioCompras, type EstadoRevision, type FuenteActividad, type MarcaVista, type PropuestaDiaFijo,
   type ReglaCalendario, type ReglaRevision, type ZonaDeCompra,
 } from '@megadulces/contracts';
 
@@ -257,9 +257,24 @@ export interface ReglaLeida extends ReglaRevision {
   readonly definida_el: string;
   /** Día (México) de la última modificación: la regla no debe fechas de antes. */
   readonly vigente_desde: string;
+  /** `[PQ.3.17]` ¿Se tocó después de crearla? (`updated_at` > `created_at`: un alta deja los dos iguales). */
+  readonly fue_cambiada?: boolean;
+  /** `[PQ.3.17]` Quién la tocó por última vez (`updated_by`) y cuándo (UTC). */
+  readonly cambiada_por?: string | null;
+  readonly cambiada_el?: string;
   readonly note: string | null;
   /** La ficha con productos en Pedido para esta clave (R5); `null` si no hay. */
   readonly pedido_supplier_id: string | null;
+}
+
+/**
+ * `[PQ.3.17]` Lo leído de `analytics.master_data_history`: los cambios de cada regla (el más nuevo primero) y
+ * cuántos tiene en total. `measured: false` = no se pudo leer (o el disparador no está): se DICE, no se pinta vacío.
+ */
+export interface HistorialLeido {
+  readonly measured: boolean;
+  readonly note: string | null;
+  readonly por: ReadonlyMap<string, { readonly cambios: readonly CambioDeRegla[]; readonly total: number }>;
 }
 
 /** Un almacén de Pedido (`commercial.warehouses`) por código de sucursal. */
@@ -326,6 +341,8 @@ export function armarCalendario(
   almacenes: readonly AlmacenPedido[] = [],
   /** `[PQ.3.6]` Las sucursales de quien ve; `null` = todas. El resumen cuenta SÓLO lo que ve. */
   permitidas: readonly string[] | null = null,
+  /** `[PQ.3.17]` El historial de cambios; sin él, el calendario no trae `cambios` ni dice nada del historial. */
+  historial: HistorialLeido | null = null,
 ): CalendarioCompras {
   const filas: ReglaCalendario[] = reglas.filter((r) => reglaEnAlcance(r, sucursales, permitidas)).map((r) => {
     const act = actividadDeLaRegla(r, actividad, sucursales);
@@ -359,6 +376,12 @@ export function armarCalendario(
       ultima_marca: marcaVista,
       definida_por: r.definida_por,
       definida_el: r.definida_el,
+      ultimo_cambio: r.fue_cambiada && r.cambiada_el
+        ? { por: r.cambiada_por ?? null, el: r.cambiada_el, dia: r.vigente_desde }
+        : null,
+      ...(historial?.measured
+        ? { cambios: historial.por.get(r.id)?.cambios ?? [], cambios_total: historial.por.get(r.id)?.total ?? 0 }
+        : {}),
       note: r.note,
       pedido_supplier_id: r.pedido_supplier_id,
       pedido_warehouse_ids: almacenesDelAlcance(r, sucursales, almacenes),
@@ -375,5 +398,6 @@ export function armarCalendario(
     hoy, reglas: filas, resumen, actividad_desde: sumarDias(hoy, -VENTANA_REZAGO_DIAS), fuente: FUENTE_CALENDARIO,
     zonas: zonasDeCompra(sucursales), sucursales: sucursales.map((s) => s.branch_code),
     tu_alcance: alcanceDeQuienVe(sucursales, permitidas),
+    ...(historial ? { historial: { measured: historial.measured, note: historial.note } } : {}),
   };
 }

@@ -19,10 +19,16 @@ import type {
   UndoLocationBatchResult,
   WarehouseLocationRow,
   WarehouseLocationsResponse,
+  WarehouseFixture,
+  CroquisResponse,
+  CrearPiezaBody,
+  MoverPiezaBody,
+  DerivarPiezasResult,
 } from '@megadulces/contracts';
 import { WarehouseLocationsService } from './warehouse-locations.service';
 import { WarehouseLocationsBulkService } from './warehouse-locations-bulk.service';
 import { WarehouseLocationsAssignService } from './warehouse-locations-assign.service';
+import { WarehouseFixturesService } from './warehouse-fixtures.service';
 
 /**
  * `[UB.1]` Catálogo de ubicaciones (Fase UB, ADR-090) — pantalla `/almacen/ubicaciones`.
@@ -41,6 +47,9 @@ export class WarehouseLocationsController {
     private readonly svc: WarehouseLocationsService,
     private readonly bulk: WarehouseLocationsBulkService,
     private readonly assign: WarehouseLocationsAssignService,
+    // ⚠️ Un parámetro más en el constructor de un controlador de Nest: es exactamente lo que tiró la
+    // API en prod con el CI en verde (#414). Lo cubre el job `boot-api`, que arranca la aplicación.
+    private readonly fixtures: WarehouseFixturesService,
   ) {}
 
   // Leer el catálogo es parte de acomodar y de gestionar: quien tiene cualquiera de las tres lo lee.
@@ -74,6 +83,38 @@ export class WarehouseLocationsController {
   @ApiOperation({ summary: 'Aplicar una captura masiva: crea las nuevas como UN lote que se puede deshacer.' })
   bulkApply(@Body() body: BulkLocationsBody): Promise<BulkLocationsResult> {
     return this.bulk.apply(body);
+  }
+
+  // ── `[UB.PL]` El croquis de la sucursal ────────────────────────────────────────────────────
+  // Leerlo es parte de ver el catálogo; configurarlo es gestionar (D4 del anexo: no se inventa una
+  // clave nueva, que sería un permiso más que repartir — regla 20).
+
+  @Get('fixtures')
+  @RequireAnyPermission(Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'El croquis de un almacén y zona: sus piezas (?warehouse_id=&zona=T|B) y cuántas ubicaciones no cuelgan de ninguna.' })
+  croquis(@Query('warehouse_id') warehouseId: string, @Query('zona') zona: string): Promise<CroquisResponse> {
+    return this.fixtures.croquis(warehouseId, zona);
+  }
+
+  @Post('fixtures')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'Agrega una PIEZA (anaquel, cabecera, isla, caja) y crea sus ubicaciones. Reemplaza al rango cartesiano.' })
+  crearPieza(@Body() body: CrearPiezaBody): Promise<WarehouseFixture> {
+    return this.fixtures.crear(body);
+  }
+
+  @Post('fixtures/derivar')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: '[UB.PL.2] Deriva las piezas del catálogo que YA existe y cuelga cada ubicación de la suya. No crea ni borra ubicaciones.' })
+  derivarPiezas(@Body() body: { warehouse_id: string }): Promise<DerivarPiezasResult> {
+    return this.fixtures.derivar(body?.warehouse_id);
+  }
+
+  @Patch('fixtures/:id')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'Mueve una pieza en el croquis o la renombra. NO toca ninguna ubicación ni ningún código.' })
+  moverPieza(@Param('id') id: string, @Body() body: MoverPiezaBody): Promise<WarehouseFixture> {
+    return this.fixtures.mover(id, body);
   }
 
   @Get('batches')

@@ -84,6 +84,8 @@ import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
     // acoplar TP a la clase concreta (BUDGET_LEDGER_PORT).
     { provide: BUDGET_LEDGER_PORT, useExisting: BudgetLinesService },
   ],
-  exports: [BudgetCapacityService, BudgetExpenseObligationsService, FinancialCommitmentsService, PaymentCalendarService],
+  // `[CB.62.4]` KeplerPagoSinkAdapter se EXPORTA para que las comisiones de la terminal (Bancos) escriban su
+  // X-D-26 con el MISMO escritor probado contra el Kepler vivo, no con una copia.
+  exports: [BudgetCapacityService, BudgetExpenseObligationsService, FinancialCommitmentsService, PaymentCalendarService, KeplerPagoSinkAdapter],
 })
 export class FinancePaymentCalendarModule {}

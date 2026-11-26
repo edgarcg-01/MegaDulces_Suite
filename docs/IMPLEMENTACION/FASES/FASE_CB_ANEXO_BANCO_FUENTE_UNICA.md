@@ -380,6 +380,7 @@ Cada movimiento de la descarga tiene **categoría con su evidencia, o un motivo 
 | BFU.7.7 | C3 · Bancos: «N por resolver», por qué y de quién (con BFU.4.5) | ⬜ | Pantalla viva + `diseno` §0b |
 | BFU.7.8 | C1 · El vocabulario del banco: las abreviaturas de comisión de BBVA | ✅ | Su IVA del 16 % el mismo día, al centavo |
 | BFU.7.11 | C1 · Más vocabulario del banco: «COM. VTA. NAL. AMEX» es comisión bancaria, no compra con tarjeta (35 desde agosto); la compra con tarjeta en gasolinera o caseta es gasto logístico ([investigación](FASE_CB_ANEXO_BFU_INVESTIGACION_AREAS.md) P7). ⚠️ Toca `clasificador.ts`, que otra sesión tiene a medias (BFU.7.10) | ⬜ | Testigo independiente de la comisión (su IVA o el abono de la venta del mismo día) |
+| BFU.7.12 | C1 · **El grupo de UN acreedor el mismo día deja de ser débil** (2026-11-26). **🧪 2026-11-26:** el pase 4 guarda `motor-tes-group-acreedor` cuando todos los documentos son del mismo acreedor a ≤1 día, y el motor de categoría decide con él. Control negativo: 117 de 168 grupos reales cumplen; 0 de 336 con el importe movido | 🧪 | Falta volver a conciliar noviembre (en seco, respaldo, real) |
 
 ## 9. Riesgos y bloqueos
 
@@ -456,3 +457,4 @@ falta; terciario = el detalle de cada movimiento.
 | 2026-11-25 | BFU.4.5.13 en código: Bancos se parte en «Ingresos y egresos» y «Cuentas» (Edgar: «para no hacer tanto scroll»), después de auditar Cuentas con `auditoria-diseno` y `modern-web-guidance` en la pantalla viva. «Entre tus cuentas» se aparta de lo que entró y salió (no es ingreso ni egreso) y las cifras ya no se animan al cargar | Claude |
 | 2026-11-25 | BFU.4.5.14 en código: Edgar revisó la captura de «Ingresos y egresos» y pidió corregir lo que se veía. Cuatro rótulos afirmaban algo falso; el más caro, que «Total ingresos» sumaba lo que la misma pantalla decía que no es ingreso. Lo de entre tus cuentas es ahora un grupo en las dos direcciones y queda fuera de los dos totales | Claude |
 | 2026-11-25 | BFU.4.5.15 en código: «un poco de color» en Ingresos y egresos, con significado y nunca solo — verde explicado, ámbar por explicar a tiempo, rojo tarde — y una barra de esos tres estados por tabla | Claude |
+| 2026-11-26 | BFU.7.12 en código: retiros ya casados con Kepler seguían sin categoría porque el pase por grupo era débil sin excepción. El grupo de un solo acreedor el mismo día pasa a decidir; el control negativo con importes movidos no acepta ninguno | Claude |

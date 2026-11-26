@@ -468,6 +468,20 @@ export class PaymentCalendarController {
     res.end(pdf);
   }
 
+  /**
+   * `[PGP.168.1]` **La póliza del cheque**: media carta, ORIGINAL y COPIA (las dos hojas que van detrás del cheque). Lo
+   * pide quien prepara los pagos; «Hecho por» es quien la imprime (la sesión, no la pantalla). No escribe nada.
+   */
+  @Get('allocations/:id/poliza.pdf')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'PGP.168.1 — la póliza del cheque del pago (media carta, original y copia): la copia del cheque, los documentos pagados y sus sumas iguales al centavo. 409 con el motivo si el pago no puede salir en cheque.' })
+  async polizaPdf(@Param('id') id: string, @Req() req: AuthedRequest, @Res() res: Response): Promise<void> {
+    const { pdf, folio } = await this.docs.renderPoliza(id, req.user?.full_name || req.user?.username || null);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="poliza-cheque-${folio}.pdf"`);
+    res.end(pdf);
+  }
+
   /** `[PGP.165]` La hoja de prueba sin pago (nombre y cantidad largos a propósito), para calibrar la impresora. */
   @Get('cheques/prueba.pdf')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)

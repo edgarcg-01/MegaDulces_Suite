@@ -132,6 +132,8 @@ export * from './http/autoabasto-mesa.contract';
 // [AB.40] El motor único de cantidad (tope de 45 días) para Autoabasto y Compras.
 export * from './http/cantidad-pedido.contract';
 export * from './http/warehouse-locations.contract';
+export * from './http/warehouse-fixtures.contract';
+export * from './http/warehouse-retiro.contract';
 // [GP.2] Pool de surtido con pedidos de Kepler (U-D-40) y armado de olas por tamaño.
 export * from './http/warehouse-picking-kepler.contract';
 // `[RE.ETQ]` Etiquetas de caja de la orden de entrada (TSC TE200): cola, bitácora y reglas de la etiqueta.
@@ -254,6 +256,8 @@ export * from './finance/pago-vencido.contract';
 export * from './finance/importe-con-letra';
 // `[PGP.165]` El cheque impreso: la plantilla en mm (BanBajío), los campos ya escritos y si el pago puede salir en cheque.
 export * from './finance/cheque-impreso';
+// `[PGP.168.1]` La póliza del cheque: la copia del cheque, los documentos pagados y sus sumas iguales, al centavo.
+export * from './finance/poliza-cheque';
 // `[PGP.118]` Anticipos a proveedor: el submódulo de Deuda con proveedores.
 export * from './finance/anticipos.contract';
 export * from './finance/venta-vendedor.contract';

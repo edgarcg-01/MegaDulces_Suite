@@ -92,6 +92,18 @@ correr(async () => {
     if (!usuario) noMedido('la base no tiene usuarios del tenant');
     const quien = { userId: usuario.id, username: usuario.username ?? null, escribe: null };
 
+    // [PQ.3.18] (c) Un proveedor OCASIONAL (una sola OC hace 30 días, monto mínimo) sembrado en el ODS de Kepler, como
+    // postgres y DENTRO de esta transacción (se revierte): sin él, la base local no tiene escalón 3 y la escritura en
+    // bloque no se ejercería. Si la tabla no lo acepta (otra forma), la sección (c) se declara NO MEDIDA.
+    const OCAS = 'PQ318OCAS';
+    const sembroOcasional = (await errorDe(trx, async () => {
+      const f = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+      await trx('kepler_ods.kdm1').insert({
+        sucursal: '01', c1: '01', c2: 'X', c3: 'A', c4: 35, c5: 0, c6: 'PQ318-0001', c9: `${f} 12:00:00`,
+        c10: OCAS, c32: 'OCASIONAL DE PRUEBA PQ318', c16: 1, c43: 'F',
+      });
+    })) === null;
+
     // Desde aquí, como la API en producción: rol de la app y tenant puesto (RLS + GRANT reales).
     await trx.raw('SET LOCAL ROLE app_runtime');
     await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
@@ -338,6 +350,42 @@ correr(async () => {
       }
       const viva2 = await trx.raw('SELECT 1 AS ok').then((r) => r.rows[0].ok === 1).catch(() => false);
       check('[PQ.3.18] tras leer la compra de 12 meses la transacción sigue viva (el fallo, si lo hubo, quedó en su SAVEPOINT)', viva2, viva2);
+
+      // [PQ.3.18] (c) Los ocasionales en bloque (DC27), con el payload de la pantalla: las claves que ella muestra en el escalón 3.
+      const propC = await R.leerPropuestas(trx, TENANT);
+      const ocas = propC.sin_regla.filter((p) => p.peso && p.peso.escalon === 3).map((p) => p.supplier_code);
+      if (sembroOcasional && propC.embudo.measured && ocas.includes(OCAS)) {
+        const reglasDe = async (code) => Number((await trx('commercial.purchase_review_rules')
+          .where({ tenant_id: TENANT, supplier_code: code }).whereNull('deleted_at').count({ n: '*' }).first()).n);
+        const noOcas = propC.sin_regla.find((p) => p.peso && p.peso.escalon !== 3)?.supplier_code ?? P.code;
+        const noOcasAntes = await reglasDe(noOcas);
+        const eVacio = await errorDe(trx, () => R.definirOcasionales(trx, TENANT, quien, { supplier_codes: [] }));
+        const unaSuc = sucursales.find((x) => x.zona_code)?.branch_code ?? '01';
+        const eAlcance = await errorDe(trx, () => R.definirOcasionales(trx, TENANT, { ...quien, escribe: [unaSuc] }, { supplier_codes: [OCAS] }));
+        // Sin NINGÚN ocasional en la lista no se llega a guardar nada: el alcance se exige igual, antes (si no, 200 con todo omitido).
+        const eAlcance2 = await errorDe(trx, () => R.definirOcasionales(trx, TENANT, { ...quien, escribe: [unaSuc] }, { supplier_codes: [noOcas] }));
+        check(`[PQ.3.18] (c) sin proveedores → invalida («${eVacio?.message}»); con alcance de una sucursal → fuera_de_alcance, también si la lista no trae ningún ocasional; nada escrito`,
+          eVacio?.tipo === 'invalida' && eAlcance?.tipo === 'fuera_de_alcance' && eAlcance2?.tipo === 'fuera_de_alcance' && (await reglasDe(OCAS)) === 0,
+          { e1: eVacio?.message, e2: eAlcance?.message, e3: eAlcance2?.message ?? 'sin error' });
+        const r = await R.definirOcasionales(trx, TENANT, quien, { supplier_codes: [OCAS, noOcas] });
+        const fila = await trx('commercial.purchase_review_rules').where({ tenant_id: TENANT, supplier_code: OCAS }).whereNull('deleted_at')
+          .first('scope', 'pattern', 'every_n_days', 'out_of_cycle_reason', 'created_by', trx.raw(`to_char(out_of_cycle_until, 'YYYY-MM-DD') AS hasta`));
+        check(`[PQ.3.18] (c) define al ocasional: corporativa «cada 180 días», fuera de ciclo hasta ${sumar(hoy, 182)} con motivo y con quién; ${noOcas} queda omitida con su motivo`,
+          r.definidas === 1 && r.hasta === sumar(hoy, 182) && r.omitidas.length === 1 && r.omitidas[0].supplier_code === noOcas && !!r.omitidas[0].motivo
+            && !!fila && fila.scope === 'corporate' && fila.pattern === 'every_n_days' && Number(fila.every_n_days) === 180 && fila.hasta === r.hasta
+            && /Ocasional/.test(fila.out_of_cycle_reason ?? '') && String(fila.created_by) === String(usuario.id),
+          { r, fila });
+        check(`[PQ.3.18] (c) PRUEBA NEGATIVA: la clave que NO es ocasional (${noOcas}) no recibió regla nueva aunque vino en la lista`,
+          (await reglasDe(noOcas)) === noOcasAntes, { antes: noOcasAntes, despues: await reglasDe(noOcas) });
+        const r2 = await R.definirOcasionales(trx, TENANT, quien, { supplier_codes: [OCAS] });
+        check('[PQ.3.18] (c) otra vez con la misma clave: ya tiene regla → omitida, sin duplicar ni reemplazar',
+          r2.definidas === 0 && r2.omitidas.length === 1 && (await reglasDe(OCAS)) === 1, r2);
+        const enCal = (await leerCalendario(null)).reglas.find((x) => x.supplier_code === OCAS);
+        check('[PQ.3.18] (c) en el calendario sale «fuera de ciclo» con su fecha de regreso: no amanece rezagado',
+          enCal?.estado.estado === 'fuera_de_ciclo' && enCal?.out_of_cycle_until === r.hasta, enCal && { estado: enCal.estado, hasta: enCal.out_of_cycle_until });
+      } else {
+        NM(`[PQ.3.18] (c) los ocasionales en bloque: ${!sembroOcasional ? 'no se pudo sembrar el ocasional en kepler_ods.kdm1' : !propC.embudo.measured ? 'el embudo no se midió' : 'el ocasional sembrado no salió en el escalón 3'}`);
+      }
     } else {
       NM('la vista commercial.v_purchase_calendar_proposal no existe en esta base (PQ.3.1 sin fuente)');
     }

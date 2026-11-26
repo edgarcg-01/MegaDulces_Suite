@@ -1,13 +1,13 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
 import type {
-  CalendarioCompras, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta, MarcarRevisionDto, PropuestasCalendario,
-  ResponsablesCalendario,
+  CalendarioCompras, DefinirOcasionalesDto, DefinirOcasionalesRespuesta, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta,
+  MarcarRevisionDto, PropuestasCalendario, ResponsablesCalendario,
 } from '@megadulces/contracts';
 import { ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
-  CalendarioError, darDeBaja, fueraDeCiclo, guardarRegla, leerCalendario, leerPosiblesResponsables, leerPropuestas, marcar, type Quien,
-  type ResponsableResuelto,
+  CalendarioError, darDeBaja, definirOcasionales, fueraDeCiclo, guardarRegla, leerCalendario, leerPosiblesResponsables, leerPropuestas,
+  marcar, type Quien, type ResponsableResuelto,
 } from './purchase-calendar.repo';
 
 /** El error del dominio, en el código HTTP que la pantalla sabe leer (con su mensaje en español). */
@@ -107,6 +107,13 @@ export class PurchaseCalendarService {
       }
     }
     return { personas };
+  }
+
+  /** `[PQ.3.18]` (c) Los ocasionales en bloque (DC27): regla «cada 180 días» y fuera de ciclo 26 semanas, en una transacción. */
+  async definirOcasionales(sesion: Sesion, dto: DefinirOcasionalesDto): Promise<DefinirOcasionalesRespuesta> {
+    const tenant = this.tenantCtx.requireTenantId();
+    const quien = await this.conAlcance(sesion);
+    return this.tk.run((trx: Knex.Transaction) => definirOcasionales(trx, tenant, quien, dto)).catch(traducir);
   }
 
   async darDeBaja(sesion: Sesion, id: string): Promise<{ id: string }> {

@@ -11,12 +11,22 @@ import { HrNominaPuenteService } from './nomina-puente.service';
 /**
  * Fase RH · frente NE · `[NE.2.3]` — el puente entre el padrón de nómina y el de la Suite.
  *
- * Dos verbos y una sola clave, `HR_NOMINA_GESTIONAR`: consultar el empate y registrarlo son el
- * mismo acto de nómina, y la superficie es chica. ⚠️ La clave **todavía no se reparte**: gatea la
- * API y se entrega con la pantalla de `[NE.2.5]`, igual que hicieron las claves de asistencia hasta
- * que existieron sus pantallas (`SIN_REPARTIR` del candado de reparto).
+ * ⛔⛔ **DOS claves, no una — partidas el 2026-11-25 (`[NE.2.6]` / D12), y la razón se midió:**
+ * con una sola clave para los cinco verbos, el frente quedó desplegado en prod **sin poder
+ * producir una fila** (las tres tablas en 0), porque la clave espera a una pantalla que a su vez
+ * espera a que esta API esté probada. Un círculo. Se parte por **naturaleza del verbo**, que es
+ * lo que ADR-054 pide (el permiso es una CLAVE, no una tupla):
  *
- * ⛔ Ninguna de las dos respuestas lleva nombres de personas: códigos, identificadores y conteos.
+ * - `HR_NOMINA_CALENDARIO` — sólo `periodos/sincronizar`. **No toca personas**: deriva el
+ *   calendario de semanas de ContPAQi, es idempotente y reporta lo que no encaja. No muestra
+ *   nombres, no escribe identidad, no pide firma → **no necesita pantalla para repartirse**.
+ * - `HR_NOMINA_GESTIONAR` — el puente y la cola. **Sí** escriben identidad (por empate de NOMBRE)
+ *   y la cola además muestra nombres y exige firma. Ésas **siguen sin repartirse** hasta que
+ *   exista la pantalla de `[NE.2.5]` (`SIN_REPARTIR` del candado de reparto): un alias equivocado
+ *   liga a una persona con el sueldo de otra.
+ *
+ * ⚠️ Hoy **ninguna de las dos está repartida**: partir la clave es decisión técnica, repartirla es
+ * de quien manda en los accesos (D12, pendiente). Esto deja la puerta construida, no abierta.
  */
 @ApiTags('hr')
 @ApiBearerAuth()
@@ -29,8 +39,10 @@ export class HrNominaController {
     private readonly colaSrv: HrNominaColaService,
   ) {}
 
+  // ⭐ El único verbo del módulo que NO toca personas: por eso lleva su propia clave y puede
+  //    repartirse sin pantalla. Ver el encabezado del archivo y D12.
   @Post('periodos/sincronizar')
-  @RequirePermissions(Permission.HR_NOMINA_GESTIONAR)
+  @RequirePermissions(Permission.HR_NOMINA_CALENDARIO)
   @ApiOperation({
     summary: 'RH · nómina — poblar hr.payroll_periods con las semanas que declara ContPAQi (sábado→viernes). Idempotente; omite y reporta lo que no cae en viernes, y lo que no puede derivar lo declara desconocido.',
   })

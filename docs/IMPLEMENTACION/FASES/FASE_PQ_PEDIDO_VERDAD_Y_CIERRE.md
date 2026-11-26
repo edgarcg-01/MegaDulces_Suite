@@ -2618,6 +2618,121 @@ haya que ir.
 
 **Pendiente del PM:** ¿se le da `COMPRAS_TEMPORADAS_VER` a la mercadotecnia de plaza? Darlo al rol
 `administrativo` lo abriría a todo ese rol; la alternativa es por puesto. Es un cambio de permisos en prod.
+
+### 19.15 `[PQ.95]` tramo 1 — la etiqueta del freno en Pedido (2026-11-25)
+
+Paso 2 de D48. **Evidencia:** nivel B (prod en sólo lectura, `system_identifier` verificado) y la consulta
+**real** de Pedido (`workbook()` del servicio, cargado con ts-node) contra prod en una transacción de sólo
+lectura. Nivel A (pantalla viva): **no**.
+
+**Lo medido el 2026-11-25:**
+
+| Freno | Dato | Hoy |
+|---|---|---|
+| Fin de pico (AB.17) | `replenishment_plan.season_src = 'fin_pico'` | **821 productos, 1,112 pares** en 8 sucursales; 616 productos frenan en **una sola** sucursal |
+| Temporada | `catalog.v_product_season_status` | Navidad y posadas 2026 **confirmada** el 24-nov (la primera confirmación desde PQ.94) con 129 productos, anuales, que se reponen hasta el corte (24-dic); remate desde el 26-dic. 104 tienen renglón en el plan y 92 entran a la lista de Pedido |
+| Fin de temporada / compra única / remate | — | sin caso hoy: la única temporada confirmada está en venta y se repone |
+| Venta única (PQ.47) | — | C1 espera D31: no hay dato que etiquetar |
+| Agotado N días (PQ.42) | — | el motor no lo aplica: no es un freno que haya movido el número |
+
+⛔ **Lo que la pantalla escondía:** la fila de Pedido es por producto y agrega `max(season_src)`. Como «sku»
+gana a «fin_pico» por orden de texto, y el freno *baja* la razón (el `max` tampoco la ve), un producto
+frenado en una sucursal y no en las otras salía sin rastro del freno. El renglón de red no puede decir
+«fin de pico» sin decir **en cuáles**.
+
+**Las cinco preguntas (skill `diseno` §0b), por escrito:**
+
+1. **Qué ve y en qué orden.** En el renglón del producto, junto a la clave y a «perdió $X» / «ya
+   requisado», **una** etiqueta, la que manda: «Navidad y posadas · pasó el corte» (cuando la regla de la
+   temporada ya no deja reponer) › «fin de pico · Padre Hidalgo» (o «· N sucursales») › «Navidad y
+   posadas · se repone hasta 24-dic» (aviso). Con dos temporadas confirmadas, manda la que está en venta.
+   Al abrir el producto, en «Qué hacer», **la explicación en
+   texto**: «Se pide menos en Padre Hidalgo y Canindo (fin de pico: la semana pasada vendió menos del 40 %
+   de su semana más alta…)» y «Repón sólo hasta el 24-dic (Navidad y posadas; el remate empieza el
+   26-dic)»; y en el renglón de cada sucursal frenada, la marca «fin de pico» con su cifra (≈X cajas al
+   mes, el N % de la venta de 30 días).
+2. **Qué no ve.** Un renglón sin freno no lleva etiqueta (criterio 2). Las temporadas **propuestas** no
+   etiquetan (ADR-056). «Venta única» y «Agotado N días» no aparecen: no hay dato o el motor no las aplica.
+   La columna «Est.» conserva su factor.
+3. **Accesibilidad.** Palabra, nunca sólo color; la evidencia está en texto a la vista al abrir el
+   producto (el `title` sólo resume); sucursales por nombre; el filtro es un botón con `aria-pressed`.
+4. **Ligado a otro proceso.** Viene de Compras › Temporadas (una sola puerta de escritura) y del motor
+   común (AB.17). La mesa de Autoabasto muestra el mismo dato del mismo motor: ver «Fuera» abajo.
+5. **¿Le toca a esta pantalla?** Sí: Pedido es donde se decide la cantidad, y el freno explica por qué
+   el sugerido bajó (o por qué no bajó).
+
+**Lo construido:**
+
+- **C2** (`workbook()`): por celda, `fp` = la razón del freno de fin de pico **de esa sucursal**; por
+  producto, `fin_pico_n` y `temporada` (un objeto: nombre, estado, reposición, si repone hoy, fechas como
+  texto), unida UNA vez por clave a la vista (nada de una consulta por renglón). Filtro `freno` = la
+  **unión** de las dos etiquetas, para que el conteo por etiqueta (`frenos`, en la misma pasada que los
+  totales) sea el mismo con el filtro puesto o sin él. El Excel recibe el mismo filtro.
+- **C3** (Pedido): la etiqueta del renglón, las líneas de «Qué hacer», la marca por sucursal y el botón
+  «Con freno» en «Más filtros», que al ponerse dice cuántos productos tiene cada etiqueta. La regla de
+  cuál manda y los textos viven en `pedido-freno.ts` (funciones puras, con spec): el componente sólo los
+  llama.
+- ⛔ **Honestidad del texto:** donde la regla de la temporada dice no reponer, la etiqueta lo dice **y**
+  avisa que «el sugerido todavía no lo frena» (tramo 2). Ninguna etiqueta afirma un freno que el número
+  no cumple.
+
+**Verificación:**
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| La consulta real | `workbook()` contra prod, sólo lectura | 5,633 productos; `frenos` = 821 con fin de pico · 92 con temporada |
+| El filtro no mueve el conteo | con y sin «Con freno», sin búsqueda | 821 · 92 en los dos; total con filtro 903 (= 821 + 92 − 10 que tienen las dos) |
+| Ningún número cambió | firma SHA-1 de clave, pedido, valor y razón de los renglones, nuevo contra `origin/main` | **idéntica**; los totales de pedido y de venta, iguales al centavo |
+| Costo | en caliente, alternando nuevo y `origin/main` | 2.50 / 2.77 s contra 2.46 / 2.68 s (dentro del ruido) |
+| Controles de §19.3 | por clave | 17050 ALTOS NAVIDEÑA → Navidad y posadas · 70012 bombón → fin de pico en Morelia Madero (0.36) · 95775 PELAFRUT → nada · 39025 CALAVERITAS → nada (Muertos no está confirmada) |
+| Arranque | `design:paramtypes` emitido (transpile en memoria) | `workbook` 14 → 15 `String`, `workbookXlsx` 13 → 14; un decorador por parámetro |
+| Tipos | `tsc` de `libs/commercial` contra `origin/main` | 103 contra 103 (todos TS1272 heredados) |
+| La regla de cuál manda | `pedido-freno.ts` (funciones puras) con `pedido-freno.spec.ts` | 16/16; **tres mutantes en rojo**: el fin de pico ganándole a la temporada que no repone, el texto sin «todavía no lo frena», una etiqueta sin freno |
+| Lo demás no se rompió | specs de Compras · specs del servidor de reabasto · `ngc` de la vista · `check:pantalla` | 72 archivos / 1,105 · 525 · exit 0 · 0 nuevas |
+| La pantalla viva (nivel A) | API y vista locales contra prod en sólo lectura; Playwright en escritorio 1440×900 (claro y oscuro), Fold 7 abierto 750×832 táctil y celular 390×844 táctil | en los tres: la etiqueta en el renglón (70012 «fin de pico · Morelia Madero», 17050 «Navidad y posadas · se repone hasta 24-dic», 88022 «fin de pico · 5 sucursales»), «Qué hacer» con su línea, la marca en cada sucursal frenada con su cifra (70012: 18.7 cj en 30 días → ≈5.7 al mes, 31 %), el filtro con `aria-pressed` y su línea de estado; sin desplazamiento lateral; cero errores de consola |
+
+**Lo que encontró la prueba visual:**
+
+- **Arreglado aquí:** en celular las tarjetas de «Qué hacer» cortaban el texto a la derecha, **todas**, también
+  las que ya existían («Sube el precio…», «Pide el pronto pago…»): heredaban el `nowrap` de la celda de la
+  tabla. `white-space: normal` en la tarjeta, el mismo arreglo que ya tenía `.pr-tra-de`. Verificado a 390 px.
+- **Ajustado aquí:** la línea del fin de pico ocupaba 4 renglones en escritorio contra 1–2 de sus vecinas.
+  Quedó «Se pide menos en N sucursales (fin de pico: se pide con la venta normal, sin el pico)»; el «40 % de su
+  semana más alta» vive en la marca de cada sucursal.
+**Lo que encontró la revisión independiente del PR (corregido antes de enviarlo):**
+
+- 🔴 **La columna «Est.» atribuía al freno un número que no era suyo.** La razón de red agrega `max()` y
+  «cat» < «fin_pico» por orden de texto: con la temporalidad de la categoría, UNA sucursal frenada hacía que
+  el renglón dijera «fin de pico» con la razón de la categoría (el primer intento de este tramo hasta lo
+  escribía así en el `title`). Ahora la razón y su origen salen **sólo de las sucursales sin freno**; si
+  todas están frenadas, «—» con su porqué. **Antes/después contra prod, los 5,633 productos:** el pedido
+  cambia en **0** renglones; el factor de «Est.» en **9** (todas sus sucursales frenadas: mostraban la razón
+  del freno como estacionalidad y ahora «—»); y **97** renglones dejaban de decir «fin_pico» como origen.
+- 🟠 «Con freno» y su línea de estado llamaban «freno» a la temporada, que todavía no mueve el sugerido:
+  ahora dicen «freno o temporada» y que la temporada **avisa**.
+- 🟡 Con dos temporadas, una en remate le ganaba a otra en venta («Remata… no lo pidas» en plena venta):
+  ahora manda la que está **en venta**, luego pasado el corte, remate y por iniciar.
+- 🟡 En la vista «General» (que esta pantalla no usa) la cifra de la sucursal saldría mezclada: ahí no
+  viaja.
+
+- **Heredado, no se toca aquí:** con el dedo, **todos** los botones de filtros de Pedido miden 26 px de alto
+  («Solo con pedido», «Más filtros», «Con sobrestock», «Acelerando»…; la regla pide 44): es la clase compartida
+  `.pr-chip`. «Con freno» la hereda. Va como item aparte, porque cambiarla mueve toda la barra de filtros.
+
+**Fuera de este tramo, con su item:**
+
+- `[PQ.95.2]` **El freno de temporada en el número**: sugerir 0 cuando la regla no deja reponer (compra
+  única, pasado el corte, remate; D27, D30, §19.7). Hoy no cambia nada (la única temporada confirmada se
+  repone hasta el corte); **desde el 25-dic, los productos de Navidad**. Decisión técnica antes de
+  codear: el motor común es el importer (regla 1 y D17 prohíben crecerlo), así que va en la consulta de
+  Pedido **y** en la de la mesa con UNA expresión compartida en `libs/` (ADR-056), o en la vista de
+  demanda de D17. **Antes del 24-dic.**
+- `[PQ.95.3]` **El motivo obligatorio** al subir la cantidad sobre un freno (criterio 3): es escritura,
+  con prueba contra base real.
+- `[PQ.95.4]` **La etiqueta en la mesa de Autoabasto**: la mesa la está rediseñando el PM (anexo de
+  interfaz del 2026-11-23); el dato ya viaja del mismo motor y se le entrega como insumo, no se toca su
+  pantalla en medio del rediseño.
+
 ## 20. El menú de Compras de Kepler dentro de la Suite (2026-11-09)
 
 > ⭐ **Completado y reemplazado por el [anexo K](FASE_PQ_ANEXO_MENU_COMPRAS_KEPLER.md)
@@ -2744,6 +2859,7 @@ tiene a propósito** (KR). Ahí D40 tendría que decidir si se le da o si la Sui
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-25 | **§19.15 `[PQ.95]` tramo 1**: la etiqueta del freno en Pedido (fin de pico por sucursal y temporada confirmada) y el filtro «Con freno» con su conteo por etiqueta; consulta real contra prod sin mover ningún número. Nacen `[PQ.95.2]` (el freno de temporada en el número, antes del 24-dic), `[PQ.95.3]` (motivo obligatorio) y `[PQ.95.4]` (la mesa de Autoabasto, dentro del rediseño del PM) | sesión Claude + Francisco |
 | 2026-11-20 | **§19.14 Navidad 2026 en caliente**: análisis de sobra, falta, parados y traspasos fuera del repo; página compartida y junta de los lunes (D45); dueños por puesto (D46); confirman fechas y productos la jefatura de compras con la dirección comercial (D47); orden en la Suite: `[PQ.132]` bandeja → `[PQ.95]` → «En curso» (D48, falta ratificar). Medido: la mercadotecnia de plaza no puede abrir Temporadas | sesión Claude + Francisco |
 | 2026-11-12 | **Anexo K**: el menú Compras de Kepler completo, 10 módulos y 25 opciones, cada una con su destino (cero pantallas nuevas). Medido: una de cada 8 OC se cancela; la autorización no frena nada; «Saldar» es un documento de cuentas por pagar (corrige §20). Nacen **PQ.122–PQ.123** y **DK1–DK3**, sin firma | Claude |
 | 2026-11-10 | **§19.11 base de partida**: propuesta de temporadas × productos desde la historia (Wincaja + Kepler, sell-out canónico diario): 495 propuestas en CSV fuera del repo. La lista de temporadas sale del Plan Anual de Mercadotecnia 2026; la ventana es la del MAYORISTA (Muertos 1-sep → 2-nov), y con ella la repetición 2025→2026 sube de 1/16 a 26/58. PQ.94 corregida: siembra, regla de la mitad del mes, 45/45 | sesión Claude + Francisco |

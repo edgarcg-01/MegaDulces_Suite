@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type {
-  CalendarioCompras, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta, MarcarRevisionDto, PropuestasCalendario,
-  ResponsablesCalendario,
+  CalendarioCompras, DefinirOcasionalesDto, DefinirOcasionalesRespuesta, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta,
+  MarcarRevisionDto, PropuestasCalendario, ResponsablesCalendario,
 } from '@megadulces/contracts';
 import { Permission, RequireAnyPermission, RequirePermissions } from '@megadulces/platform-core';
 import { PurchaseCalendarService } from './purchase-calendar.service';
@@ -57,6 +57,14 @@ export class PurchaseCalendarController {
   @ApiOperation({ summary: 'PQ.3.4: definir la regla de un proveedor en un alcance (si ya hay una viva, se reemplaza su patrón). PQ.3.21: con varias zonas o sucursales, una regla por lugar, todas o ninguna' })
   guardarRegla(@Body() dto: GuardarReglaDto, @Req() req: Sesion): Promise<GuardarReglaRespuesta> {
     return this.service.guardarRegla(quien(req), dto);
+  }
+
+  /** `[PQ.3.18]` (c) Los ocasionales en bloque (DC27): sólo las claves que HOY son ocasionales sin regla; las demás vuelven como omitidas. */
+  @Post('reglas/ocasionales')
+  @RequirePermissions(Permission.COMPRAS_CALENDARIO_CICLO)
+  @ApiOperation({ summary: 'PQ.3.18: los ocasionales en bloque: regla «cada 180 días» y fuera de ciclo 26 semanas, con motivo (sólo los que hoy son ocasionales sin regla)' })
+  definirOcasionales(@Body() dto: DefinirOcasionalesDto, @Req() req: Sesion): Promise<DefinirOcasionalesRespuesta> {
+    return this.service.definirOcasionales(quien(req), dto);
   }
 
   @Post('reglas/:id/baja')

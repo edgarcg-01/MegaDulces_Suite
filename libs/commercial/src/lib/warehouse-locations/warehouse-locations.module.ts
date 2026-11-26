@@ -5,6 +5,7 @@ import { WarehouseLocationsBulkService } from './warehouse-locations-bulk.servic
 import { WarehouseLocationsAssignService } from './warehouse-locations-assign.service';
 import { WarehouseCartsController } from './warehouse-carts.controller';
 import { WarehouseCartsService } from './warehouse-carts.service';
+import { WarehouseFixturesService } from './warehouse-fixtures.service';
 
 /**
  * `[UB.1]` Ubicaciones de mercancía (Fase UB, ADR-090).
@@ -13,7 +14,7 @@ import { WarehouseCartsService } from './warehouse-carts.service';
  */
 @Module({
   controllers: [WarehouseLocationsController, WarehouseCartsController],
-  providers: [WarehouseLocationsService, WarehouseLocationsBulkService, WarehouseLocationsAssignService, WarehouseCartsService],
-  exports: [WarehouseLocationsService, WarehouseLocationsBulkService, WarehouseLocationsAssignService],
+  providers: [WarehouseLocationsService, WarehouseLocationsBulkService, WarehouseLocationsAssignService, WarehouseCartsService, WarehouseFixturesService],
+  exports: [WarehouseLocationsService, WarehouseLocationsBulkService, WarehouseLocationsAssignService, WarehouseFixturesService],
 })
 export class WarehouseLocationsModule {}
