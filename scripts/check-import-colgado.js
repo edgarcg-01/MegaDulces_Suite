@@ -24,6 +24,11 @@
  * en verde — que es exactamente cómo se escapó. El universo es `git ls-files`: lo que está
  * versionado o preparado, o sea lo que el CI va a ver.
  *
+ * Alcance medido el 2026-11-26: `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs`. Los `.js` entran porque los
+ * guiones de `ops/prod/ensayo-*` se empaquetan con esbuild FUERA de Nx y resuelven a `libs/` por
+ * ruta relativa: ah� una pieza sin versionar funciona en la laptop y el CI ni se entera, porque Nx
+ * no los compila. Comprobado: `origin/main` queda en CERO con esa extensi�n (11 imports m�s).
+ *
  * ⚠️ Lo que NO afirma: no resuelve alias de `tsconfig` (`@megadulces/*`) ni paquetes de
  * `node_modules` — sólo rutas relativas (`./` y `../`), que son las que el árbol compartido
  * rompe. Tampoco mira `templateUrl`/`styleUrls`.
@@ -102,7 +107,7 @@ const versionados = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8', 
 const universo = new Set(versionados);
 const hallazgos = [];
 for (const f of versionados) {
-  if (!/\.ts$/.test(f) || /node_modules/.test(f)) continue;
+  if (!/\.(ts|tsx|js|mjs|cjs)$/.test(f) || /node_modules/.test(f)) continue;
   let src; try { src = fs.readFileSync(f, 'utf8'); } catch { continue; }
   for (const rel of colgados(f, src, universo)) hallazgos.push([f, rel]);
 }
