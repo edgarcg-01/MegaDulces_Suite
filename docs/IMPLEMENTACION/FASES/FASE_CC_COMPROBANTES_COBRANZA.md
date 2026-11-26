@@ -236,3 +236,53 @@ abono inatribuible en una obligación fiscal con dueño y con fecha**. De los 4,
 
 **Lo que esta nota NO midió:** cuántos de los 4,445 abonos sin cobro son pagos de factura PPD —sin
 atribución no hay cifra, y no se estima—; y los 14 complementos de octubre con importe cero.
+
+## CC.23 — ⭐⭐ SÍ se puede insertar el abono en Kepler: probado escribiendo y deshecho (2026-11-26, a pedido de Edgar)
+
+> Edgar, sobre el caso real de `CC.22`: *«sería el primer paso para probar que podemos insertar los abonos
+> adecuadamente»*. Esto es la respuesta, medida escribiendo contra el Kepler vivo. El ensayo vive en
+> [`ops/prod/ensayo-cobro-kepler/`](../../../ops/prod/ensayo-cobro-kepler/README.md).
+
+### La respuesta: sí, y aquí está la huella
+
+**Pasó de punta a punta, dos veces**, sobre el depósito del 23-nov que cuadra con el banco y no tiene cobro:
+folio del contador real (`KFUA0701.06`) · `kdm1` + `kdue` + `kdm5` (1 fila cada uno) · **póliza de 2 renglones con
+cargo = abono** · y **el saldo de la factura pasó de $15,539.63 a $0.00** dentro de la transacción. Deshecho:
+0 documentos con la referencia del ensayo, saldos iguales.
+
+⭐ El caso es limpio porque **el cliente pagó una factura completa al peso**: el depósito y la factura del 18-nov
+son por el mismo importe exacto. No hubo que decidir a qué aplicarlo.
+
+| Tabla | Cobro `U-A-7` | Ajuste Abono `U-A-30` |
+|---|---|---|
+| `kdm1` · `kdue` · `kdm5` | sí — **el mismo carril ya probado** | sí |
+| `kdm2` | no | no |
+| **la póliza** `kdc2AAMM` | ⛔ **sí**: cargo a `102` (bancos), abono a `115` (clientes) | **no** |
+| **CFDI** | ⛔⛔ **sí, y solo**: 783 de 785 cobros de noviembre tienen su complemento timbrado | no |
+
+### ⛔⛔ Lo que esto cambia, y por eso no se enciende nada todavía
+
+**En cuanto el cobro existe, el comprobante fiscal sale solo.** Un cobro mal escrito no se corrige: se cancela.
+Eso lo vuelve distinto de todo lo que la Suite escribe hoy en Kepler —el Ajuste Abono, la autorización, el
+teléfono—, donde un error se arregla. **Antes de encender una escritura de cobros hay que ver qué mueve el
+programa de Kepler al postear uno**, y eso no se ve escribiendo desde afuera: las tablas tienen cero disparadores.
+
+### Tres cosas que aparecieron midiendo
+
+1. ⭐ **La caja (`kdm1.c12`) no se puede adivinar.** Es un código por sucursal (la 06 usa `30003` y `30004`; la 08,
+   `20003`–`20006`) y **decide a qué cuenta entra el dinero**. El ensayo la **deriva del cobro anterior del mismo
+   cliente** y se niega si no hay uno: elegir por omisión habría metido el dinero en la caja equivocada.
+2. ⛔ **El primer control del ensayo estaba mal y salió rojo con todo bien.** Comparaba el contador de folios
+   antes/después, pero era jueves por la tarde y **Crédito seguía capturando**. La prueba de que el `ROLLBACK`
+   funcionó fue otra: el folio que el ensayo reservó **lo tomó una persona minutos después**. Un control que
+   parpadea enseña a ignorarlo; ahora mira sólo lo que es del ensayo.
+3. ⚠️ **Y de ahí sale una regla para el adaptador, cuando exista:** entre reservar el folio y escribir, una persona
+   puede tomar el mismo. La llave primaria lo impide, así que **el choque es reintentable, no un error de negocio**.
+
+### Lo que esto cierra y lo que no
+
+- ✅ **`CC.22.c` cerrado**: «Marcar el abono como suyo» ya dice qué hace y qué no. La bandeja avisa que falta
+  capturar el cobro en Kepler y qué pasa mientras no se haga (`[CC.22]`, con su prueba negativa).
+- ⬜ Siguen abiertos `CC.22.a` (la fila no dice qué factura cuadra, aunque el importe coincide al centavo) y
+  `CC.22.b` (no se declara la obligación fiscal ni su fecha).
+- ⬜ Y el caso de la captura **sigue sin cobro en Kepler**: esto prueba que se puede escribir, no lo escribe.
