@@ -29,8 +29,9 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { UbicacionesCapturaComponent } from './ubicaciones-captura.component';
 import { UbicacionesCarretasComponent } from './ubicaciones-carretas.component';
-import { elegirAlmacen, guardarAlmacenPreferido } from '../shared/almacen-preferido';
+import { elegirAlmacen, guardarAlmacenPreferido, recordarRollo, rolloRecordado } from '../shared/almacen-preferido';
 import { AndenCartelComponent, type CartelUbicacion, type FormatoCartel } from '../anden/components/anden-cartel.component';
+import { ROLLOS_AMARILLOS, ROLLO_POR_OMISION, type RolloAmarillo } from '../anden/etiqueta-ubicacion';
 
 /** Estado de un rack en el mapa: el más urgente de sus niveles. */
 export type EstadoRack = 'bloqueada' | 'contenido' | 'activa' | 'baja' | 'vacio';
@@ -161,15 +162,15 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
 
           @if (carteles().length) {
             <section class="ub-block ub-carteles" [attr.aria-label]="formatoCartel() === 'etiqueta' ? 'Etiquetas para imprimir' : 'Carteles para imprimir'">
-              <app-anden-cartel [ubicaciones]="carteles()" [formato]="formatoCartel()" (cerrar)="cerrarImpresion()" />
+              <app-anden-cartel [ubicaciones]="carteles()" [formato]="formatoCartel()" [rollo]="rolloCartel()" (cerrar)="cerrarImpresion()" />
             </section>
           } @else if (imprimirAbierto() && !enCaptura()) {
             <section class="ub-block ub-step ub-imprimir" aria-labelledby="ub-h-imp">
               <h3 id="ub-h-imp">Imprimir · {{ zona() === 'B' ? 'bodega' : 'tienda' }}</h3>
               @if (pasillosCartel().length) {
-                <app-segmented [options]="formatosCartel" [value]="formatoCartel()" (valueChange)="formatoElegido.set($any($event))" ariaLabel="Tamaño" />
+                <app-segmented [options]="formatosCartel" [value]="opcionCartel()" (valueChange)="pickFormato($any($event))" ariaLabel="Tamaño del papel" />
                 <app-segmented [options]="pasillosCartel()" [value]="pasilloCartel()" (valueChange)="pasilloCartel.set($any($event))" ariaLabel="Pasillo" />
-                <p class="ub-hint">{{ formatoCartel() === 'etiqueta' ? 'Etiquetas de 5.5 × 2.5 cm en la TSC TE200, rollo amarillo.' : 'Salen dos por hoja carta; se recorta por la línea punteada.' }} Para uno solo o un rack, tócalo en el mapa.</p>
+                <p class="ub-hint">{{ formatoCartel() === 'etiqueta' ? 'Etiquetas en la TSC TE200, rollo amarillo de ' + medidaRollo().cm + '.' : 'Salen dos por hoja carta; se recorta por la línea punteada.' }} Para uno solo o un rack, tócalo en el mapa.</p>
                 <div class="ub-acts">
                   <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="cerrarImpresion()"><span class="p-button-label">Cancelar</span></button>
                   <button pButton type="button" class="p-button-sm" (click)="verCarteles({ pasillo: pasilloCartel() === '*' ? null : pasilloCartel() })"><span class="p-button-label">Ver {{ cuentaCartel() }} {{ nombreCartel(cuentaCartel()) }}</span></button>
@@ -448,10 +449,35 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
    */
   readonly formatoElegido = signal<FormatoCartel | null>(null);
   readonly formatoCartel = computed<FormatoCartel>(() => this.formatoElegido() ?? formatoPorZona(this.zona()));
+  /**
+   * `[UB.RF.20]` Hay **dos rollos amarillos** y conviven: distintas sucursales tienen cargado uno u otro
+   * (Edgar, 2026-11-25), los dos medidos con regla. Las opciones dicen los **milímetros**, no «chica» y
+   * «grande»: la persona tiene el rollo en la mano y lo que puede contrastar es la medida.
+   */
   readonly formatosCartel: SegOption[] = [
-    { label: 'Etiqueta · TSC amarilla', value: 'etiqueta' },
+    { label: 'Etiqueta 55 × 25', value: 'etiqueta:55x25' },
+    { label: 'Etiqueta 60 × 29', value: 'etiqueta:60x29' },
     { label: 'Cartel · media carta', value: 'cartel' },
   ];
+
+  /**
+   * El rollo se recuerda **por máquina**, no por persona ni por sucursal: el rollo está cargado en la
+   * impresora que tiene al lado quien imprime. Quien cambia de equipo elige una vez y queda.
+   */
+  readonly medidaRollo = computed(() => ROLLOS_AMARILLOS[this.rolloCartel()]);
+  readonly rolloCartel = computed<RolloAmarillo>(() => this.rolloElegido() ?? rolloRecordado() ?? ROLLO_POR_OMISION);
+  readonly rolloElegido = signal<RolloAmarillo | null>(null);
+
+  /** El valor del control: formato y rollo en una sola opción, porque elegir «etiqueta» sin el rollo no sirve. */
+  readonly opcionCartel = computed(() => (this.formatoCartel() === 'etiqueta' ? `etiqueta:${this.rolloCartel()}` : 'cartel'));
+
+  pickFormato(v: string): void {
+    if (v === 'cartel') { this.formatoElegido.set('cartel'); return; }
+    const rollo = v.split(':')[1] as RolloAmarillo;
+    this.formatoElegido.set('etiqueta');
+    this.rolloElegido.set(rollo);
+    recordarRollo(rollo);
+  }
   nombreCartel(n: number): string {
     return this.formatoCartel() === 'etiqueta' ? (n === 1 ? 'etiqueta' : 'etiquetas') : n === 1 ? 'cartel' : 'carteles';
   }
