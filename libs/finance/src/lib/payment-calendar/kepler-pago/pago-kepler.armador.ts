@@ -125,11 +125,33 @@ export interface PagoKeplerEntrada {
   destino: string | null;
   proveedor: ProveedorKepler;
   facturas: FacturaAPagar[];
+  /**
+   * `[PGP.171]` El número del cheque cobrado. Presente = el pago es un `X-D-25` (cheque), no un `X-D-26`. Se escribe al
+   * cobro (DCH5 b): la fecha es la del cobro y la referencia, la que pone Tesorería, `CHEQUE <número>`.
+   */
+  cheque?: string | null;
+}
+
+/** `[PGP.171]` El tipo de documento del pago en Kepler: `X-D-26` transferencia, `X-D-25` cheque. */
+export const TIPO_TRANSFERENCIA = 26;
+export const TIPO_CHEQUE = 25;
+export function tipoDelPago(e: Pick<PagoKeplerEntrada, 'cheque'>): number {
+  return e.cheque ? TIPO_CHEQUE : TIPO_TRANSFERENCIA;
+}
+/**
+ * `[PGP.171]` La referencia (`kdm1.c11` = `kdxe.c16` = la póliza `c7`) de un cheque, como la escribe Tesorería: medido el
+ * 2026-11-26 en los `X-D-25` de 30 días, `CHEQUE 5397`, `CHEQUE 17228` (a veces con dos espacios; aquí, uno). No es
+ * `CH-<folio>` como decía ERP_KEPLER §3.z.5.
+ */
+export function referenciaDeCheque(numero: string): string {
+  return `CHEQUE ${numero.trim().replace(/^0+/, '')}`;
 }
 
 type Valor = string | number;
 
 export interface PlanPagoKepler {
+  /** `[PGP.171]` `kdm1.c4`: 26 transferencia, 25 cheque. Manda la plantilla, el contador y la póliza que usa el adapter. */
+  tipo: number;
   /** Columnas que se pisan en el clon de la plantilla `kdm1` (el folio `c6` lo pone el adapter, `MAX+1`). */
   kdm1: Record<string, Valor>;
   /** Columnas que se pisan en el clon del renglón `kdxe` de la plantilla (sin `c6`). */
@@ -215,6 +237,8 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
   if (!c45) motivos.push('Sin cuenta de tesorería de Kepler (kdm1.c45): no se sabe de qué banco salió');
   else if (c45 === C45_CAJA_GENERAL) motivos.push('Sale de Caja General: el efectivo espera el dictamen de Contabilidad (D1)');
   if (!e.facturas.length) motivos.push('El pago no salda ninguna factura');
+  // [PGP.171] El cheque lleva su número (el de la chequera, 3 dígitos o más): sin él no hay referencia.
+  if (e.cheque != null && !/^[0-9]{3,}$/.test(String(e.cheque).trim().replace(/^0+/, ''))) motivos.push(`El cheque no trae un número válido («${e.cheque}»)`);
 
   for (const f of e.facturas) {
     const id = `${f.tipo}-${f.subtipo}-${f.folio}`;
@@ -241,7 +265,9 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
 
   if (motivos.length) return { ok: false, motivos };
 
-  const clabe = clabeDeTexto(e.destino);
+  const tipo = tipoDelPago(e);
+  // [PGP.171] Un cheque no tiene CLABE destino: el banco destino (`c85`) va vacío, como en los X-D-25 de Tesorería.
+  const clabe = tipo === TIPO_CHEQUE ? null : clabeDeTexto(e.destino);
   const { c81, c82, c84 } = ivaProporcional(e.facturas);
   const importe = r2(e.importe);
   // La póliza: el nombre y la referencia son los del documento (`kdm1.c32` / `c11`), igual en los N+1 renglones.
@@ -261,12 +287,13 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
   return {
     ok: true,
     plan: {
+      tipo,
       kdm1: {
         c9: e.fecha, c68: e.fecha, c69: e.hora, c67: CAPTURISTA_SUITE,
         c10: prov.codigo, c22: prov.rfc, c32: prov.nombre,
         c33: prov.domicilio[0], c34: prov.domicilio[1], c35: prov.domicilio[2],
         c11: e.referencia, c12: concepto, c48: SUCURSAL_DEL_CONCEPTO[concepto] ?? '',
-        c16: importe, c42: importe, c43: 'N', c45: c45, c31: 'Tra',
+        c16: importe, c42: importe, c43: 'N', c45: c45, c31: tipo === TIPO_CHEQUE ? 'Che' : 'Tra',
         ...(prov.dias == null ? {} : { c17: prov.dias }),
         c81, c82, c84,
         // El código de banco es lo que la CLABE dice por definición (3 primeros dígitos, ABM).
@@ -277,12 +304,12 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
         c2: prov.codigo, c7: e.fecha, c11: importe, c17: importe, c16: e.referencia, c18: concepto, c20: 0, c22: c45,
       },
       kdxf: e.facturas.map((f) => ({
-        c1: e.sucursal, c2: prov.codigo, c3: e.fecha, c4: 26, c5: 1,
+        c1: e.sucursal, c2: prov.codigo, c3: e.fecha, c4: tipo, c5: 1,
         c7: f.tipo, c8: f.subtipo, c9: f.folio, c10: r2(f.aplicado), c11: r2(f.aplicado),
       })),
       saldos: e.facturas.map((f) => ({ almacen: f.almacen, acreedor: prov.codigo, tipo: f.tipo, subtipo: f.subtipo, folio: f.folio, menos: r2(f.aplicado) })),
       kdm5: e.facturas.map((f, i) => ({
-        c1: e.sucursal, c2: 'X', c3: 'D', c4: 26, c5: 1, c7: i + 1,
+        c1: e.sucursal, c2: 'X', c3: 'D', c4: tipo, c5: 1, c7: i + 1,
         c8: 'A', c9: f.tipo, c10: f.subtipo, c11: f.folio, c12: r2(f.aplicado), c13: r2(f.aplicado), c14: (f.referencia ?? '').trim(),
       })),
       poliza,
@@ -363,6 +390,8 @@ export interface PagoSuite {
    * sabe y no retiene (los llamadores de antes de `[PGP.192]`).
    */
   autorizado?: boolean;
+  /** `[PGP.171]` El número del cheque (de su referencia, `folioDelCheque`). Sólo para `payment_method = 'cheque'`. */
+  cheque_numero?: string | null;
 }
 
 /**
@@ -372,6 +401,9 @@ export interface PagoSuite {
  */
 export const MOTIVO_SIN_AUTORIZAR_SOLO_COMPROBANTE =
   'Lo pagó su comprobante sin autorización en la Suite: se escribe en Kepler cuando el estado de cuenta confirme la salida';
+
+/** `[PGP.171]` El cheque va a Kepler con la fecha de su cobro: mientras el banco no lo muestre cobrado, espera. */
+export const MOTIVO_CHEQUE_SIN_COBRO = 'El cheque se escribe en Kepler al cobrarse: el estado de cuenta todavía no muestra su cobro';
 
 const LOTES_FIRMADOS = new Set(['released', 'executing', 'closed']);
 
@@ -387,7 +419,11 @@ export function motivosParaNoEscribir(p: PagoSuite): string[] {
   if (p.probado_por_comprobante && !p.probado_por_el_banco && p.autorizado === false) m.push(MOTIVO_SIN_AUTORIZAR_SOLO_COMPROBANTE);
   if (p.status !== 'executed') m.push('El pago no está marcado como pagado');
   if (!probado && p.validacion_estado !== 'validado') m.push('El pago no está validado con el estado de cuenta y su comprobante');
-  if (p.payment_method !== 'transferencia') m.push('Por ahora sólo se escriben transferencias (D1)');
+  // [PGP.171] El cheque se escribe al COBRO (DCH5 b): cuando el estado de cuenta muestra su cobro (`[PGP.166]`), con su número.
+  if (p.payment_method === 'cheque') {
+    if (!p.probado_por_el_banco) m.push(MOTIVO_CHEQUE_SIN_COBRO);
+    if (!p.cheque_numero) m.push('El cheque no trae su número en la referencia: no se sabe qué cheque es');
+  } else if (p.payment_method !== 'transferencia') m.push('Por ahora sólo se escriben transferencias y cheques cobrados (D1)');
   if (p.origen_kind !== 'bank') m.push('La cuenta de origen no es una cuenta bancaria');
   if (p.kepler_payment_folio) m.push(`Ya está ligado al pago ${p.kepler_payment_folio} de Kepler: escribirlo otra vez lo duplicaría`);
   if (!p.items.length) m.push('El pago no tiene facturas');

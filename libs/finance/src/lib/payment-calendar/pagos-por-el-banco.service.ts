@@ -145,31 +145,33 @@ export class PagosPorElBancoService implements OnModuleInit, OnModuleDestroy {
     }
     const e = lectura.entrega;
     // Antes de escribir: ¿ya hay un X-D-26 de la Suite con esta referencia? (un intento anterior que sí llegó)
-    const antes = await this.kepler.foliosConReferencia(e.sucursal, e.referencia);
+    // [PGP.171] El cheque es un X-D-25: se busca y se liga con su tipo.
+    const tipo = e.cheque ? 25 : 26;
+    const antes = await this.kepler.foliosConReferencia(e.sucursal, e.referencia, tipo);
     if (antes === null) {
       await this.soltar(tenantId, id, { motivos: [`No se pudo preguntar a Kepler ${e.sucursal}: se reintenta con la siguiente carga del banco`] });
       return 'no_escrito';
     }
-    if (antes.length) return this.ligar(tenantId, id, e.sucursal, null, antes, 'ya estaba en Kepler (un intento anterior llegó)');
+    if (antes.length) return this.ligar(tenantId, id, e.sucursal, null, antes, 'ya estaba en Kepler (un intento anterior llegó)', tipo);
 
     const r = await this.kepler.entregar(e);
-    if (r.estado === 'escrito') return this.ligar(tenantId, id, r.kepler.sucursal, r.kepler.serie, r.kepler.folios, null);
+    if (r.estado === 'escrito') return this.ligar(tenantId, id, r.kepler.sucursal, r.kepler.serie, r.kepler.folios, null, r.kepler.tipo);
 
     // «Rechazado» puede ser un COMMIT que llegó y cuya respuesta se perdió: se pregunta antes de soltar.
-    const despues = await this.kepler.foliosConReferencia(e.sucursal, e.referencia);
+    const despues = await this.kepler.foliosConReferencia(e.sucursal, e.referencia, tipo);
     if (despues === null) {
       await this.historial(tenantId, id, EVENTO_KEPLER_INCIERTO, { motivo: r.motivo, nota: 'Kepler respondió con error y no se pudo confirmar si escribió: el pago queda reclamado hasta que una persona lo revise' });
       this.logger.error(`pago ${id}: Kepler incierto (${r.motivo}); queda reclamado`);
       return 'incierto';
     }
-    if (despues.length) return this.ligar(tenantId, id, e.sucursal, null, despues, `Kepler respondió «${r.motivo}» pero el documento sí está`);
+    if (despues.length) return this.ligar(tenantId, id, e.sucursal, null, despues, `Kepler respondió «${r.motivo}» pero el documento sí está`, tipo);
     await this.soltar(tenantId, id, { motivos: [r.motivo] });
     return 'no_escrito';
   }
 
   /** Liga el pago a su primer `X-D-26` (los demás, P7, quedan en la bitácora) y suelta el reclamo. */
-  private async ligar(tenantId: string, id: string, sucursal: string, serie: string | null, folios: string[], nota: string | null): Promise<'escrito'> {
-    const prefijo = `XD26${String(serie ?? '1').padStart(2, '0')}`;
+  private async ligar(tenantId: string, id: string, sucursal: string, serie: string | null, folios: string[], nota: string | null, tipo = 26): Promise<'escrito'> {
+    const prefijo = `XD${tipo}${String(serie ?? '1').padStart(2, '0')}`;
     await this.tk.run(async (trx) => {
       await trx('finance.payment_allocations').where({ tenant_id: tenantId, id, kepler_payment_linked_by: ESCRIBIENDO }).update({
         kepler_payment_sucursal: sucursal, kepler_payment_doc_prefix: prefijo, kepler_payment_folio: folios[0],

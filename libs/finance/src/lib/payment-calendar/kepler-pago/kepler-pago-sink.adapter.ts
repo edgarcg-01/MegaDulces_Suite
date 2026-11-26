@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { normalizarSucursal, reservarFolioKepler, urlDeServidor, valorDeEnv, type Env, type FolioReservado, type Resolucion } from '@megadulces/platform-core';
 
-import { armarPagosKepler, escrituraDePagoEncendida, type FacturaAPagar, type PlanPagoKepler, type ProveedorKepler } from './pago-kepler.armador';
+import { TIPO_CHEQUE, TIPO_TRANSFERENCIA, armarPagosKepler, escrituraDePagoEncendida, type FacturaAPagar, type PlanPagoKepler, type ProveedorKepler } from './pago-kepler.armador';
 import { columnaAbonoKdxg, columnasKdc126, tablaPolizaDelMes } from '../../shared/kepler-contable';
 
 /** Una factura del pago, como la conoce la Suite: la llave del documento en Kepler y lo aplicado. */
@@ -27,11 +27,13 @@ export interface EntregaPagoKepler {
   origen: { bank: string; account_label: string };
   destino: string | null;
   facturas: FacturaDelPago[];
+  /** `[PGP.171]` El número del cheque cobrado: presente = `X-D-25` (cheque), ausente = `X-D-26` (transferencia). */
+  cheque?: string | null;
 }
 
 export type ResultadoPagoKepler =
   /** `folios`: un `X-D-26` por concepto (P7); todos con la misma referencia, escritos en una transacción. */
-  | { estado: 'escrito'; kepler: { sucursal: string; folios: string[]; facturas: number; /** `kdm1.c5` de la plantilla: arma el prefijo `XD26` + serie a 2 dígitos. */ serie: string } }
+  | { estado: 'escrito'; kepler: { sucursal: string; folios: string[]; facturas: number; /** `kdm1.c5` de la plantilla: arma el prefijo `XD26` + serie a 2 dígitos. */ serie: string; /** `[PGP.171]` 26 o 25. */ tipo: number } }
   | { estado: 'rechazado'; motivo: string };
 
 /** Lo que `confirmar` pasa de las temporales a Kepler: los documentos ya armados y la tabla de pólizas del mes. */
@@ -48,13 +50,15 @@ export interface EscrituraPagoKepler {
  * plantilla se elige leyéndola entera en el Kepler vivo (candidata en `00`: `1/0023768`). Sin la
  * variable, la escritura del pago en ese servidor queda apagada.
  */
-export function plantillaPagoDe(sucursal: string, env: Env): Resolucion<{ serie: string; folio: string }> {
+export function plantillaPagoDe(sucursal: string, env: Env, tipo: number = TIPO_TRANSFERENCIA): Resolucion<{ serie: string; folio: string }> {
   const n = normalizarSucursal(sucursal);
   if (!n.ok) return n;
-  const folio = valorDeEnv(env, `KEPLER_PAGO_TEMPLATE_FOLIO_${n.valor}`);
-  const serie = valorDeEnv(env, `KEPLER_PAGO_TEMPLATE_SERIE_${n.valor}`) || '1';
+  // [PGP.171] El cheque (`X-D-25`) clona un cheque que Kepler ya aceptó: su plantilla es otra variable.
+  const pre = tipo === TIPO_CHEQUE ? 'KEPLER_CHEQUE_TEMPLATE' : 'KEPLER_PAGO_TEMPLATE';
+  const folio = valorDeEnv(env, `${pre}_FOLIO_${n.valor}`);
+  const serie = valorDeEnv(env, `${pre}_SERIE_${n.valor}`) || '1';
   if (!/^\d{7}$/.test(folio)) {
-    return { ok: false, motivo: `Falta KEPLER_PAGO_TEMPLATE_FOLIO_${n.valor}: no hay pago plantilla elegido en el servidor ${n.valor}` };
+    return { ok: false, motivo: `Falta ${pre}_FOLIO_${n.valor}: no hay ${tipo === TIPO_CHEQUE ? 'cheque' : 'pago'} plantilla elegido en el servidor ${n.valor}` };
   }
   return { ok: true, valor: { serie, folio } };
 }
@@ -175,8 +179,8 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
     const ajenas = (await c.query(
       `SELECT count(*)::int n FROM md.${w.tablaPoliza}
         WHERE c8='E' AND c1 = ANY($1::numeric[])
-          AND NOT (btrim(c15)='X' AND btrim(c16)='D' AND btrim(c17::text)='26' AND btrim(c19) = ANY($2::text[]))`,
-      [w.documentos.map((d) => d.poliza), w.documentos.map((d) => d.folio)])).rows[0].n;
+          AND NOT (btrim(c15)='X' AND btrim(c16)='D' AND btrim(c17::text)=$3 AND btrim(c19) = ANY($2::text[]))`,
+      [w.documentos.map((d) => d.poliza), w.documentos.map((d) => d.folio), String(w.documentos[0].plan.tipo)])).rows[0].n;
     if (ajenas) throw new Error(`Otro documento tomó el número de póliza ${w.documentos.map((d) => d.poliza).join(', ')} en ${w.tablaPoliza}`);
 
     // Los acumulados. Todos los documentos son del mismo acreedor, año y mes (los arma un solo pago).
@@ -214,7 +218,7 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
    * soltar el pago para reintentarlo, quien llama pregunta aquí. Si no se puede preguntar (sin conexión), devuelve
    * `null` y quien llama NO suelta el pago.
    */
-  async foliosConReferencia(sucursal: string, referencia: string): Promise<string[] | null> {
+  async foliosConReferencia(sucursal: string, referencia: string, tipo: number = TIPO_TRANSFERENCIA): Promise<string[] | null> {
     const srv = urlDeServidor(sucursal, this.env);
     if (!srv.ok) return null;
     try {
@@ -222,8 +226,8 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
       try {
         const r = await c.query(
           `SELECT btrim(c6) AS folio FROM md.kdm1
-            WHERE c1 = $1 AND c2 = 'X' AND c3 = 'D' AND btrim(c4::text) = '26' AND btrim(c11) = $2 AND btrim(c67) = 'SUITE'
-            ORDER BY c6`, [sucursal, referencia]);
+            WHERE c1 = $1 AND c2 = 'X' AND c3 = 'D' AND btrim(c4::text) = $3 AND btrim(c11) = $2 AND btrim(c67) = 'SUITE'
+            ORDER BY c6`, [sucursal, referencia, String(tipo)]);
         return r.rows.map((x: { folio: string }) => x.folio);
       } finally {
         c.release();
@@ -238,7 +242,8 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
     if (!escrituraDePagoEncendida(this.env)) return { estado: 'rechazado', motivo: 'La escritura de pagos a Kepler está apagada (KEPLER_PAGO_ESCRITURA)' };
     const srv = urlDeServidor(e.sucursal, this.env);
     if (!srv.ok) return { estado: 'rechazado', motivo: srv.motivo };
-    const pl = plantillaPagoDe(e.sucursal, this.env);
+    const tipo = e.cheque ? TIPO_CHEQUE : TIPO_TRANSFERENCIA;
+    const pl = plantillaPagoDe(e.sucursal, this.env, tipo);
     if (!pl.ok) return { estado: 'rechazado', motivo: pl.motivo };
     const { serie, folio: folioPlantilla } = pl.valor;
     const tablaPoliza = tablaPolizaDelMes(e.fecha);
@@ -258,7 +263,7 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
       const prev = (await c.query(
         `SELECT coalesce(c22,'') c22, coalesce(c32,'') c32, coalesce(c33,'') c33, coalesce(c34,'') c34, coalesce(c35,'') c35,
                 btrim(coalesce(c12,'')) c12
-           FROM md.kdm1 WHERE c1=$1 AND c2='X' AND c3='D' AND btrim(c4::text)='26' AND btrim(c10)=$2 AND c43 <> 'C'
+           FROM md.kdm1 WHERE c1=$1 AND c2='X' AND c3='D' AND btrim(c4::text) IN ('25','26') AND btrim(c10)=$2 AND c43 <> 'C'
           ORDER BY c6 DESC LIMIT 1`, [e.sucursal, e.acreedor])).rows[0];
       const dias = Number(d.dias);
       // [PGP.180] El concepto del último pago: el del gasto de un acreedor de gasto, que su X-A-10 no trae.
@@ -294,7 +299,7 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
 
       const armado = armarPagosKepler({
         sucursal: e.sucursal, fecha: e.fecha, hora: e.hora, referencia: e.referencia, importe: e.importe,
-        cuentaTesoreria: cuentas[0].code, destino: e.destino, proveedor, facturas,
+        cuentaTesoreria: cuentas[0].code, destino: e.destino, proveedor, facturas, cheque: e.cheque ?? null,
       });
       if (!armado.ok) return { estado: 'rechazado', motivo: armado.motivos.join(' · ') };
 
@@ -305,15 +310,15 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
       // ── Las filas base: el pago plantilla, su renglón de CxP y el abono 102 de su póliza ────
       const h = await c.query(
         `CREATE TEMP TABLE _h0 ON COMMIT DROP AS SELECT * FROM md.kdm1
-          WHERE c1=$1 AND c2='X' AND c3='D' AND btrim(c4::text)='26' AND btrim(c5::text)=$2 AND c6=$3`,
-        [e.sucursal, serie, folioPlantilla]);
+          WHERE c1=$1 AND c2='X' AND c3='D' AND btrim(c4::text)=$4 AND btrim(c5::text)=$2 AND c6=$3`,
+        [e.sucursal, serie, folioPlantilla, String(tipo)]);
       const ex = await c.query(
         `CREATE TEMP TABLE _e0 ON COMMIT DROP AS SELECT * FROM md.kdxe
-          WHERE btrim(c1)=$1 AND c3='D' AND btrim(c4::text)='26' AND btrim(c5::text)=$2 AND c6=$3`,
-        [e.sucursal, serie, folioPlantilla]);
+          WHERE btrim(c1)=$1 AND c3='D' AND btrim(c4::text)=$4 AND btrim(c5::text)=$2 AND c6=$3`,
+        [e.sucursal, serie, folioPlantilla, String(tipo)]);
       if (h.rowCount !== 1 || ex.rowCount !== 1) {
         await c.query('ROLLBACK');
-        return { estado: 'rechazado', motivo: `No existe el pago plantilla X-D-26 ${e.sucursal}/${serie}/${folioPlantilla} en Kepler (kdm1 ${h.rowCount} · kdxe ${ex.rowCount})` };
+        return { estado: 'rechazado', motivo: `No existe el pago plantilla X-D-${tipo} ${e.sucursal}/${serie}/${folioPlantilla} en Kepler (kdm1 ${h.rowCount} · kdxe ${ex.rowCount})` };
       }
       // El renglón base de la póliza: el abono 102 más reciente de un X-D-26 en la tabla del MES DEL PAGO (y, si es
       // el primer pago del mes, del mes anterior). No el de la plantilla: Kepler tiene una tabla por mes y el permiso
@@ -350,8 +355,8 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
       const documentos: EscrituraPagoKepler['documentos'] = [];
       const reservas: FolioReservado[] = [];
       for (const [i, { plan }] of armado.planes.entries()) {
-        const reserva = await reservarFolioKepler(c, { sucursal: e.sucursal, grupo: 'X', naturaleza: 'D', tipo: 26, serie: Number(serie) });
-        if (!reserva.ok) { await c.query('ROLLBACK'); return { estado: 'rechazado', motivo: `Folio Kepler X-D-26 (${e.sucursal}): ${reserva.motivo}` }; }
+        const reserva = await reservarFolioKepler(c, { sucursal: e.sucursal, grupo: 'X', naturaleza: 'D', tipo, serie: Number(serie) });
+        if (!reserva.ok) { await c.query('ROLLBACK'); return { estado: 'rechazado', motivo: `Folio Kepler X-D-${tipo} (${e.sucursal}): ${reserva.motivo}` }; }
         const folio = reserva.valor.folio;
         reservas.push(reserva.valor);
         const poliza = maxPoliza + 1 + i;
@@ -360,15 +365,15 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
         for (const f of plan.kdxf) await insertarFila(c, '_f', { ...f, c6: folio });
         for (const r of plan.kdm5) await insertarFila(c, '_m5', { ...r, c5: serie, c6: folio });
         for (const r of plan.poliza.renglones) {
-          await clonarFila(c, '_p0', '_p', { ...r, c1: poliza, c2: plan.poliza.fecha, c8: plan.poliza.tipo, c15: 'X', c16: 'D', c17: 26, c18: serie, c19: folio });
+          await clonarFila(c, '_p0', '_p', { ...r, c1: poliza, c2: plan.poliza.fecha, c8: plan.poliza.tipo, c15: 'X', c16: 'D', c17: tipo, c18: serie, c19: folio });
         }
         documentos.push({ folio, poliza, plan });
       }
 
       await this.confirmar(c, { sucursal: e.sucursal, tablaPoliza, documentos });
       const folios = documentos.map((x) => x.folio);
-      this.logger.log(`Pago ${e.referencia} → Kepler ${e.sucursal}/X-D-26/${folios.join(', ')} (${e.facturas.length} facturas, póliza ${tablaPoliza} E ${documentos.map((x) => x.poliza).join(', ')}; contador ${reservas[0].llave} ${reservas[0].contadorAntes} → ${reservas[reservas.length - 1].contadorNuevo}${reservas.some((r) => r.contadorAtrasado) ? ', VENÍA ATRASADO' : ''})`);
-      return { estado: 'escrito', kepler: { sucursal: e.sucursal, folios, facturas: e.facturas.length, serie: String(serie) } };
+      this.logger.log(`Pago ${e.referencia} → Kepler ${e.sucursal}/X-D-${tipo}/${folios.join(', ')} (${e.facturas.length} facturas, póliza ${tablaPoliza} E ${documentos.map((x) => x.poliza).join(', ')}; contador ${reservas[0].llave} ${reservas[0].contadorAntes} → ${reservas[reservas.length - 1].contadorNuevo}${reservas.some((r) => r.contadorAtrasado) ? ', VENÍA ATRASADO' : ''})`);
+      return { estado: 'escrito', kepler: { sucursal: e.sucursal, folios, facturas: e.facturas.length, serie: String(serie), tipo } };
     } catch (err) {
       await c.query('ROLLBACK').catch(() => undefined);
       const motivo = (err as Error).message;

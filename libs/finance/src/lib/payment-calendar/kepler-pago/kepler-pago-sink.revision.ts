@@ -14,6 +14,9 @@ export async function revisarEscrituraPago(c: PoolClient, w: EscrituraPagoKepler
   const no: string[] = [];
   const n = w.documentos.length;
   const folios = w.documentos.map((d) => d.folio);
+  // [PGP.171] El tipo del documento (26 transferencia, 25 cheque): su propio MAX y su propio contador `KFXD<tipo>01`.
+  const tipo = String(w.documentos[0]?.plan.tipo ?? 26);
+  const contador = `KFXD${tipo}01.${w.sucursal}`;
 
   const h = (await c.query(`SELECT c6, btrim(c10) c10, c16::text c16, c42::text c42, btrim(c45) c45, btrim(c12) c12, btrim(c67) c67 FROM _h ORDER BY c6`)).rows;
   const e = (await c.query(`SELECT c6, c11::text c11, c17::text c17, c20::text c20, btrim(c22) c22 FROM _e ORDER BY c6`)).rows;
@@ -24,12 +27,12 @@ export async function revisarEscrituraPago(c: PoolClient, w: EscrituraPagoKepler
   // ── kdm1 / kdxe: un documento por plan. Folios del CONTADOR de Kepler ([PGP.122.4]): sin choque
   // (todos > el MAX existente), consecutivos, y `sqliov.c4` quedó avanzado a folio_final+1 (lo que
   // distingue este arreglo del viejo `MAX+1` pelón, que no tocaba el contador). ──────────────────────
-  const max = Number((await c.query(`SELECT coalesce(max(c6::int), 0) m FROM md.kdm1 WHERE c1=$1 AND c2='X' AND c3='D' AND btrim(c4::text)='26' AND btrim(c5::text)='1'`, [w.sucursal])).rows[0].m);
+  const max = Number((await c.query(`SELECT coalesce(max(c6::int), 0) m FROM md.kdm1 WHERE c1=$1 AND c2='X' AND c3='D' AND btrim(c4::text)=$2 AND btrim(c5::text)='1'`, [w.sucursal, tipo])).rows[0].m);
   if (h.length !== n || e.length !== n) no.push(`_h ${h.length} / _e ${e.length} filas para ${n} documentos`);
   if (n && Number(folios[0]) <= max) no.push(`folio inicial ${folios[0]} ≤ MAX existente (${max}): chocaría con un folio ya usado`);
   folios.forEach((fo, i) => { if (i && Number(fo) !== Number(folios[0]) + i) no.push(`folio ${fo} no es consecutivo (esperado ${Number(folios[0]) + i})`); });
-  const cont = (await c.query(`SELECT c4::text c4 FROM md.sqliov WHERE c1=$1 AND c2=0 AND c3=0`, [`KFXD2601.${w.sucursal}`])).rows[0];
-  if (n && (!cont || Number(cont.c4) !== Number(folios[n - 1]) + 1)) no.push(`sqliov.c4 (KFXD2601.${w.sucursal}) = ${cont?.c4} ≠ folio final+1 (${Number(folios[n - 1]) + 1}): el contador no avanzó`);
+  const cont = (await c.query(`SELECT c4::text c4 FROM md.sqliov WHERE c1=$1 AND c2=0 AND c3=0`, [contador])).rows[0];
+  if (n && (!cont || Number(cont.c4) !== Number(folios[n - 1]) + 1)) no.push(`sqliov.c4 (${contador}) = ${cont?.c4} ≠ folio final+1 (${Number(folios[n - 1]) + 1}): el contador no avanzó`);
   w.documentos.forEach((d, i) => {
     const H = h[i] ?? {}, E = e[i] ?? {};
     if (H.c6 !== d.folio || E.c6 !== d.folio) no.push(`documento ${i + 1}: kdm1.c6 ${H.c6} · kdxe.c6 ${E.c6} ≠ ${d.folio}`);
