@@ -1,5 +1,5 @@
 import { FIXTURE_KINDS, nombrePieza, type WarehouseLocationRow } from '@megadulces/contracts';
-import { ariaDeRack, armarPasillos, cartelesDe, elAlmacenQueSiTieneTrabajo, estadoDeRack, formatoPorZona, productosDeRack, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
+import { ariaDeRack, armarPasillos, cartelesDe, elAlmacenQueSiTieneTrabajo, estaAcomodada, estadoDeRack, formatoPorZona, productosDeRack, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
 
 const nivel = (p: Partial<WarehouseLocationRow>): WarehouseLocationRow => ({
   id: 'x', warehouse_id: 'w', warehouse_code: '01', code: 'BA051', label: null, familia: 'ubicacion',
@@ -171,6 +171,26 @@ describe('[UB.PL] mapa · cómo se dibuja cada pieza', () => {
   it('⭐ cada pieza se nombra en palabras de la tienda, y su nombre propio manda', () => {
     expect(nombrePieza({ tipo: 'cabecera', pasillo: 'D', label: null })).toBe('Cabecera D');
     expect(nombrePieza({ tipo: 'caja', pasillo: null, label: 'Caja 3' })).toBe('Caja 3');
+  });
+});
+
+/**
+ * `[UB.PL.10]` El botón «Configurar el croquis» armaba 8 piezas en Padre Hidalgo y la pantalla
+ * quedaba **idéntica**: el aviso que las nombraba vivía dentro de `@if (hayCroquis())`, y una pieza
+ * recién armada nunca cumple esa condición. Medido en prod el 2026-11-26: 8 piezas, 0 acomodadas,
+ * seis clics seguidos y un `ThrottlerException`.
+ */
+describe('[UB.PL.10] mapa · una pieza recién armada todavía no tiene lugar', () => {
+  it('⛔ NEGATIVA: la pieza que arma «Configurar el croquis» NO está acomodada — por eso el aviso no puede depender de que lo esté', () => {
+    expect(estaAcomodada({ fila: null, columna: null })).toBe(false);
+  });
+
+  it('con fila pero sin columna tampoco se puede dibujar', () => {
+    expect(estaAcomodada({ fila: 1, columna: null })).toBe(false);
+  });
+
+  it('⭐ el renglón 0 y la columna 0 son lugares válidos: no se confunden con «sin lugar»', () => {
+    expect(estaAcomodada({ fila: 0, columna: 0 })).toBe(true);
   });
 });
 

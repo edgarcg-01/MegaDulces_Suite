@@ -99,6 +99,17 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
 };
 
 /**
+ * `[UB.PL.10]` Una pieza está acomodada cuando tiene **fila y columna**. Las que arma
+ * «Configurar el croquis» nacen SIN lugar, así que `hayCroquis()` sigue en falso: por eso ningún
+ * aviso sobre ellas puede vivir dentro de esa condición — ahí es una rama muerta.
+ * *Medido el 2026-11-26 en prod: 8 piezas armadas en Padre Hidalgo, 0 acomodadas, y la pantalla
+ * quedó idéntica; se tocó el botón 6 veces hasta sacar un `ThrottlerException`.*
+ */
+export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): boolean {
+  return p.fila != null && p.columna != null;
+}
+
+/**
  * `[UB.1]` Mapa de ubicaciones (Fase UB, ADR-090).
  *
  * Los pasillos en renglones y los racks en columnas, por zona (bodega / tienda). Cada cuadro es
@@ -268,9 +279,6 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
                     </div>
                   }
                 </div>
-                @if (piezasSinLugar().length) {
-                  <p class="ub-hint"><b>{{ piezasSinLugar().length }}</b> pieza(s) todavía sin lugar en el croquis: {{ nombresSinLugar() }}. Se ven abajo, en el mapa por pasillos.</p>
-                }
               }
 
               @if (filas().length) {
@@ -317,8 +325,14 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
                   <p class="ub-note">
                     <i class="pi pi-info-circle" aria-hidden="true"></i>
                     <span>Este mapa dibuja todo como pasillos. Si {{ data()?.warehouse?.name }} tiene cabeceras, islas o cajas, el croquis las muestra como son.</span>
-                    <button pButton type="button" class="p-button-sm p-button-text" (click)="configurarCroquis()"><span class="p-button-label">Configurar el croquis</span></button>
+                    <button pButton type="button" class="p-button-sm p-button-text" [disabled]="croquisArmando()" (click)="configurarCroquis()"><span class="p-button-label">{{ croquisArmando() ? 'Armando…' : 'Configurar el croquis' }}</span></button>
                   </p>
+                }
+                <!-- [UB.PL.10] El botón hace trabajo real y tiene que DECIRLO. Este aviso vive FUERA
+                     del bloque del croquis a propósito: las piezas nacen sin lugar, así que adentro era
+                     una rama muerta — se armaban 8 piezas y la pantalla quedaba idéntica. -->
+                @if (piezasSinLugar().length) {
+                  <p class="ub-hint" role="status"><b>{{ piezasSinLugar().length }}</b> piezas armadas, sin lugar todavía: {{ nombresSinLugar() }}. Falta acomodarlas en el croquis.</p>
                 }
                 @if (croquisErr(); as e) { <p class="ub-hint ub-bad" role="alert">{{ e }}</p> }
                 <p class="ub-hint">Cada pasillo tiene dos frentes, uno a cada lado del corredor: los racks <b>nones</b> de un lado y los <b>pares</b> del otro, así que el <b class="num">{{ dos(1) }}</b> queda enfrente del <b class="num">{{ dos(2) }}</b>. El número del cuadro es cuántos productos ya tienen su lugar ahí; tócalo para ver sus niveles.</p>
@@ -728,11 +742,13 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   readonly croquis = signal<CroquisResponse | null>(null);
   readonly acomodando = signal(false);
   readonly croquisErr = signal<string | null>(null);
+  /** `[UB.PL.10]` Mientras se arma, el botón no acepta otro clic (la causa del 429 del 26-nov). */
+  readonly croquisArmando = signal(false);
 
   /** Las piezas de la zona que se está mirando, ya acomodadas en el croquis. */
   private readonly piezasDeZona = computed(() => (this.croquis()?.piezas ?? []).filter((p) => p.zona === this.zona()));
-  readonly piezasAcomodadas = computed(() => this.piezasDeZona().filter((p) => p.fila != null && p.columna != null));
-  readonly piezasSinLugar = computed(() => this.piezasDeZona().filter((p) => p.fila == null || p.columna == null));
+  readonly piezasAcomodadas = computed(() => this.piezasDeZona().filter(estaAcomodada));
+  readonly piezasSinLugar = computed(() => this.piezasDeZona().filter((p) => !estaAcomodada(p)));
   /** Hay croquis cuando alguien ya acomodó al menos una pieza: si no, se dibuja el mapa de siempre. */
   readonly hayCroquis = computed(() => this.piezasAcomodadas().length > 0);
 
@@ -746,13 +762,19 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   /** `[UB.PL.2]` Configura el croquis a partir de lo que ya existe. No crea ni borra ubicaciones. */
   configurarCroquis(): void {
     const w = this.warehouseId();
-    if (!w) return;
+    // [UB.PL.10] El segundo clic NO vuelve a pedir: armar es idempotente, pero repetirlo gastaba el
+    // limite de peticiones y la pantalla terminaba en «Too Many Requests» por no decir nada.
+    if (!w || this.croquisArmando()) return;
     this.croquisErr.set(null);
+    this.croquisArmando.set(true);
     this.api.derivarPiezas(w).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => this.cargarCroquis(),
+      next: () => { this.croquisArmando.set(false); this.cargarCroquis(); },
       error: (e: HttpErrorResponse) => {
+        this.croquisArmando.set(false);
         const m = e.error?.message;
-        this.croquisErr.set(typeof m === 'string' ? m : 'No se pudo configurar el croquis.');
+        this.croquisErr.set(typeof m === 'string' ? m
+          : e.status === 429 ? 'Demasiadas peticiones seguidas. Espera un momento y vuelve a intentar.'
+          : 'No se pudo configurar el croquis.');
       },
     });
   }
