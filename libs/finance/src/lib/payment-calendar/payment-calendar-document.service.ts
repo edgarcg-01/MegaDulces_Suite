@@ -1,9 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
 import { todayMx } from '@megadulces/platform-core';
-import { PLANTILLAS_CHEQUE, camposDelCheque, datosDeChequeDePrueba, dictamenCheque, plantillaDeCheque, warehouseName, type PlantillaCheque } from '@megadulces/contracts';
+import { PLANTILLAS_CHEQUE, camposDelCheque, datosDeChequeDePrueba, dictamenCheque, plantillaDeCheque, polizaDelCheque, warehouseName, type PlantillaCheque } from '@megadulces/contracts';
 import { chequeHtml, hojaDePruebaHtml, opcionesPdfCheque, type OpcionesCheque } from './cheque-svg';
-import { PaymentCalendarService, type ExpedienteLinea } from './payment-calendar.service';
+import { opcionesPdfPoliza, polizaHtml } from './poliza-html';
+import { PaymentCalendarService, type ExpedienteLinea, type PagoParaPoliza } from './payment-calendar.service';
 import { lineasDeDescuento, rotuloDescuentos } from './descuento-al-pagar';
 import { facturasQueDebenMenos } from './debe-menos';
 
@@ -22,6 +23,41 @@ const CLASSIFICATION_LABEL: Record<string, string> = {
 const METHOD_LABEL: Record<string, string> = {
   transferencia: 'Transferencia', cheque: 'Cheque', efectivo: 'Efectivo', cargo_automatico: 'Cargo automático',
 };
+
+/**
+ * `[PGP.168.1]` Un `date` de Postgres como `YYYY-MM-DD`. Llega como `Date` a medianoche LOCAL (el repo no fija
+ * `setTypeParser`): se leen sus partes locales — `toISOString` lo correría de día en un huso al este de UTC.
+ */
+export function diaDeColumna(v: unknown): string | null {
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return null;
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  return /^\d{4}-\d{2}-\d{2}/.exec(String(v ?? ''))?.[0] ?? null;
+}
+
+/**
+ * `[PGP.168.1]` Los documentos de la póliza, de los renglones del pago armado. El folio sólo en una factura de Kepler
+ * (en las demás el «concepto» es su texto); el UUID sólo si se ligó UN CFDI; el rótulo del descuento, el mismo del
+ * Preliminar (`rotuloDescuentos`).
+ */
+export function documentosDePoliza(p: Pick<PagoParaPoliza, 'items'>) {
+  return p.items.map((it) => {
+    const deKepler = it.obligation_source === 'kepler_payable';
+    const desc = Number(it.discount_amount || 0);
+    return {
+      folio: deKepler ? (it.concept ?? '').trim() || null : null,
+      sucursal: deKepler ? it.branch_code ?? null : null,
+      referencia: deKepler ? (it.doc_ref ?? '').trim() || null : null,
+      uuid: it.cfdi?.estado === 'unico' ? it.cfdi.cfdi?.uuid ?? null : null,
+      vence: diaDeColumna(it.vence),
+      aplicado: it.applied_amount,
+      descuento: desc,
+      descuentoRotulo: desc > 0 ? rotuloDescuentos(lineasDeDescuento(it)) || null : null,
+      concepto: deKepler ? null : it.concept ?? null,
+    };
+  });
+}
 
 function esc(s: any): string {
   return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
@@ -231,6 +267,44 @@ export class PaymentCalendarDocumentService {
     const pl = plantillaDeCheque(banco);
     if (!pl) throw new NotFoundException(`No hay plantilla de cheque para «${banco}»: hoy, ${PLANTILLAS_CHEQUE.map((p) => `${p.nombre} (${p.banco})`).join(' y ')}.`);
     return this.renderPdfCheque(hojaDePruebaHtml(pl, camposDelCheque(datosDeChequeDePrueba(todayMx())), o), pl, true, 'hoja de prueba');
+  }
+
+  /**
+   * `[PGP.168.1]` **La póliza del cheque**: media carta, ORIGINAL y COPIA, con la copia del cheque (las mismas cadenas
+   * que el cheque impreso), los documentos pagados como parciales del cargo al beneficiario, el abono al banco con su
+   * cuenta de ContPAQi y las sumas iguales. ⛔ La misma compuerta que el cheque: si el pago no puede salir en cheque,
+   * 409 con el motivo — una póliza sin cheque no existe. Sólo lectura.
+   */
+  async renderPoliza(allocationId: string, hechoPor: string | null): Promise<{ pdf: Buffer; folio: string }> {
+    const p = await this.calendar.pagoParaPoliza(allocationId);
+    if (!p) throw new NotFoundException('Ese pago no existe o está cancelado.');
+    const d = dictamenCheque(p);
+    if (!d.ok) throw new ConflictException(d.texto);
+    const acreedores = [...new Set(p.items.map((it) => (it.payee_code ?? '').trim()).filter((c) => !!c))];
+    const poliza = polizaDelCheque({
+      folio: d.folio,
+      campos: camposDelCheque({ fecha: p.dia, beneficiario: d.beneficiario, centavos: d.centavos }),
+      centavos: d.centavos,
+      banco: [d.plantilla.nombre, p.banco_alias].filter(Boolean).join(' · '),
+      cuentaBanco: p.cuenta_banco,
+      clasificacion: CLASSIFICATION_LABEL[p.classification] ?? (p.classification || 'Pago'),
+      dia: p.dia,
+      acreedor: acreedores.length === 1 ? acreedores[0] : null,
+      documentos: documentosDePoliza(p),
+      hechoPor,
+    });
+    const impreso = new Intl.DateTimeFormat('es-MX', {
+      timeZone: 'America/Mexico_City', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(new Date());
+    const browser = await PaymentCalendarDocumentService.getBrowser();
+    const page = await browser.newPage();
+    try {
+      await page.setContent(polizaHtml(poliza, impreso), { waitUntil: 'load', timeout: 30000 });
+      return { pdf: Buffer.from(await page.pdf(opcionesPdfPoliza())), folio: d.folio };
+    } finally {
+      await page.close().catch(() => undefined);
+      PaymentCalendarDocumentService.touchIdle();
+    }
   }
 
   /**

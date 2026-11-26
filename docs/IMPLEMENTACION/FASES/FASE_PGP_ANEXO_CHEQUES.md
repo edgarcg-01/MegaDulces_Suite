@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 46 KB, 377 líneas, 13 secciones.
+> **Índice navegable** — 48 KB, 386 líneas, 13 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_CHEQUES.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -8,18 +8,18 @@
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
 | 25 | 57 | 2 | Fase PGP — Anexo CH: el cheque nace, se imprime y se sigue en la Suite |
-| 58 | 80 | 6 | 0. El pedido |
-| 81 | 114 | 5 | 1. En una pantalla |
-| 115 | 125 | 1 | 2. El universo y el trabajo |
-| 126 | 145 | 3 | 3. Lo que creíamos y cayó |
-| 146 | 179 | 9 | 4. Decisiones a firmar |
-| 180 | 192 | 1 | 5. Qué NO incluye |
-| 193 | 214 | 3 | 6. El orden |
-| 215 | 307 | 7 | 7. Las capas |
-| 308 | 321 | 1 | 8. Riesgos y bloqueos |
-| 322 | 346 | 2 | 9. NO MEDIDO — preguntas para Tesorería |
-| 347 | 356 | 1 | 10. DoD |
-| 357 | 402 | 5 | 11. Bitácora |
+| 58 | 81 | 7 | 0. El pedido |
+| 82 | 115 | 5 | 1. En una pantalla |
+| 116 | 126 | 1 | 2. El universo y el trabajo |
+| 127 | 146 | 3 | 3. Lo que creíamos y cayó |
+| 147 | 180 | 9 | 4. Decisiones a firmar |
+| 181 | 193 | 1 | 5. Qué NO incluye |
+| 194 | 215 | 3 | 6. El orden |
+| 216 | 308 | 7 | 7. Las capas |
+| 309 | 322 | 1 | 8. Riesgos y bloqueos |
+| 323 | 347 | 2 | 9. NO MEDIDO — preguntas para Tesorería |
+| 348 | 357 | 1 | 10. DoD |
+| 358 | 411 | 5 | 11. Bitácora |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP — Anexo CH: el cheque nace, se imprime y se sigue en la Suite
@@ -71,6 +71,7 @@ Control: los mismos números del Calendario desplazados +1000 y +5000 casan **0*
 | 10 | Francisco, mismo día: *«se canceló el cheque 5399; sí, se acomodan en la impresora centrados: cheque, y 2 hojas de póliza en blanco para que reimprima el cheque, anexe los documentos pagados, el nombre de quien firma»*; el puesto de Analista de Egresos quedó **vacante** la semana pasada | Los 7 cheques pagados por SPEI están cancelados. **Se imprime cheque por cheque, centrado** (no la hoja de 3), seguido de **2 pólizas** en hoja blanca: cada una repite el cheque, lista los documentos pagados y lleva el nombre de **quien recibe el cheque** (aclarado por Francisco). Mientras el puesto esté vacante, la llamada la reciben Tesorería o Caja General |
 | 11 | Francisco, 2026-11-20: *«aquí están las medidas de cheques y pólizas»* — fotos con regla del cheque de BAJÍO 4166 («Conecta»), del de SANTANDER 2169 y de la póliza | **Cheques ≈ 160 × 70 mm** los dos. Las posiciones de BAJÍO se midieron sobre la foto con el perfil de oscuridad de cada línea (±0.5 mm; §7 C1) y quedan en la plantilla, **sin calibrar** hasta la hoja de prueba. ⚠️ **La póliza no es hoja blanca: es un talonario preimpreso de media carta** (≈ 14 × 21.5 cm) con recuadro en blanco para la copia del cheque, casillas de banco, concepto, referencia, firma y nombre de quien recibe, una tabla de ~6 renglones (cuenta, subcuenta, nombre, parcial, cargo, abono), sumas iguales y hecho/revisado/sello/número: DCH10. Las fotos (con datos del titular y de la cuenta) **no entran al repo** |
 | 12 | Francisco, 2026-11-25: *«avanzamos para los cheques de Santander cuenta 2169»* · *«son las únicas 2 cuentas que se pagan cheque»* | `[PGP.165.1]`: la plantilla de SANTANDER 2169, medida sobre sus dos fotos. **Mide 162.3 × 72.1 mm, no 160 × 70** (§3 fila 13). Con ella sale impreso todo pago del Calendario con cheque de 2169 (medido ese día: 1, el 17252 del 26-nov). La nómina (121 de los 131 cheques de 2169 en 90 días) no pasa por el Calendario: sigue siendo el cheque suelto, `[PGP.172]` |
+| 13 | Francisco, 2026-11-25: *«la impresión de la póliza de cheque, avanzamos de una vez»* | `[PGP.168.1]`: la póliza sale del mismo pago que el cheque, con DCH10-b (la recomendada): media carta en hoja blanca, ORIGINAL y COPIA |
 
 **Lo que este anexo cambia de D7** (anexo C): D7 decía que la Suite «asigna el número al autorizar» y que «la `BAJÍO
 4166` queda bloqueada para cheques hasta revisarla». Se proponen DCH4 (el folio se confirma al imprimir) y DCH6
@@ -157,7 +158,7 @@ efectivo, E-22), y las cuentas sin chequera.
 | **DCH9** | La llamada de «confirmado». **Quién la recibe, contestado** (Francisco, 2026-11-19): **Tesorería; en su ausencia, Analista de Egresos o Caja General** | contra qué se valida | Quien la recibe marca quién llamó, a qué hora y desde qué teléfono; **libera Caja General**. El permiso de confirmar va **a la persona, no al puesto**: Analista de Egresos está **vacante** (2026-11-19) y en `MATRIZ_ACCESOS` figura «sin definir»; mientras tanto confirman Tesorería o Caja General. **Se valida contra un contacto registrado del proveedor, no contra el número que da quien llama**: un cheque robado más una llamada es una liberación. Hoy la Suite no guarda ningún teléfono de proveedor: se registra el contacto de los acreedores que se pagan con cheque (9 con hábito «cheque»; 81 acreedores con algún cheque en 2026, incluido gasto). Mientras no exista, el «confirmado» lleva la nota «sin contacto registrado» |
 | **DCH8** | Leyenda y nombre | — | **«PARA ABONO EN CUENTA DEL BENEFICIARIO»** en todo cheque a proveedor (los 16 cobros con número de 4166 en nov fueron por Cámara de compensación: depositados); nómina sin leyenda (2169 se cobra en ventanilla). **El nombre sale de la factura del SAT** (emisor del CFDI), no de Kepler (2 de 81 con la Ñ perdida); si no hay CFDI, lo confirma una persona. **El nombre impreso y el que Caja General libera son la misma cadena**: el portal lo pide, y un nombre reescrito es otra forma de que no coincidan |
 
-| **DCH10** | La póliza: **talonario preimpreso de media carta** (§0 fila 11), hoy con papel carbón y el número a mano | (a) imprimir sobre el talonario: calibrar ~12 campos contra un papel que cambia de lote, y la tabla de ~6 renglones alcanza para 33 de 34 cheques · (b) **la Suite imprime la póliza completa en hoja blanca de media carta**: el mismo contenido (copia del cheque, banco, concepto, documentos pagados, recibí, sumas, número) dibujado por la Suite | **(b).** No hay que calibrar nada contra el talonario, caben todos los documentos (el de 7 renglones también, en una segunda hoja si hace falta), la póliza lleva el número del cheque impreso y lo único a mano son las firmas. El titular y el logo salen de la cuenta y del sistema, **no del repo**. La cuenta contable del banco ya está (`finance.bank_accounts.contpaqi_cuenta`); la del proveedor, NO MEDIDA. Decide Tesorería con Edgar |
+| **DCH10** | La póliza: **talonario preimpreso de media carta** (§0 fila 11), hoy con papel carbón y el número a mano | (a) imprimir sobre el talonario: calibrar ~12 campos contra un papel que cambia de lote, y la tabla de ~6 renglones alcanza para 33 de 34 cheques · (b) **la Suite imprime la póliza completa en hoja blanca de media carta**: el mismo contenido (copia del cheque, banco, concepto, documentos pagados, recibí, sumas, número) dibujado por la Suite | **(b).** No hay que calibrar nada contra el talonario, caben todos los documentos (el de 7 renglones también, en una segunda hoja si hace falta), la póliza lleva el número del cheque impreso y lo único a mano son las firmas. El titular y el logo salen de la cuenta y del sistema, **no del repo**. La cuenta contable del banco ya está (`finance.bank_accounts.contpaqi_cuenta`); la del proveedor, NO MEDIDA. Decide Tesorería con Edgar. ⚠️ **2026-11-25: construida (b)** a pedido de Francisco (§0 fila 13, `[PGP.168.1]`): si se firma (a), cambia la hoja, no los datos |
 
 Lo que firmar no destraba: DCH1 espera **la hoja de prueba sobre un cheque real** (las medidas ya llegaron). Ninguna
 decisión frena `[PGP.173]` ni los frentes 0 y 1.
@@ -399,3 +400,11 @@ esperar al papel ni a ninguna firma.
   primera lectura salió corrida 1.4 mm en la línea de la fecha y hasta 4 mm en el recuadro del importe (la búsqueda
   caía en el rótulo; el recuadro es una línea CLARA, no oscura). La hoja de prueba sale de la chequera de la cuenta elegida en
   Preparar (antes, siempre BanBajío). Sin calibrar con papel real.
+- **2026-11-25** — `[PGP.168.1]` la póliza (Francisco: *«avanzamos de una vez»*), con DCH10-b: media carta, ORIGINAL y
+  COPIA. Lleva lo mismo que el talonario: la copia del cheque (las mismas cadenas que el cheque impreso), el concepto,
+  cuenta · sub-cuenta · nombre · parcial · cargo · abono con sus sumas iguales, el recibí, hecho / revisado / sello /
+  número. Cada documento es un parcial del cargo al beneficiario, con su CFDI (o «sin ligar») y su descuento al pagar;
+  el abono al banco lleva su cuenta de ContPAQi (medido: llena en 4166 y 2169). ⛔ En blanco a propósito: la cuenta del
+  beneficiario (la Suite no la tiene) y el nombre de quien recibe (no hay contacto del proveedor). Medido sobre el PDF:
+  con 7 documentos (el máximo de un cheque) cada copia mide 201 mm y cabe en su hoja; la primera versión, con el nombre
+  del documento en una columna de 45 mm, medía 227 y se iba a dos hojas.

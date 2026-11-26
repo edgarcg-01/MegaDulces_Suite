@@ -1015,6 +1015,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           @if (canGestionar() && chequeImprimible(a)) {
                             <button type="button" class="pg-saldada-btn" [disabled]="printing()" (click)="imprimirCheque(a)"
                                     [attr.aria-label]="'Imprimir el cheque ' + a.reference_text + ' de ' + allocationTitle(a)"><i class="pi pi-print" aria-hidden="true"></i> Imprimir cheque</button>
+                            <!-- [PGP.168.1] Las 2 hojas de póliza (original y copia, media carta) que van detrás del cheque. -->
+                            <button type="button" class="pg-saldada-btn" [disabled]="printing()" (click)="imprimirPoliza(a)"
+                                    [attr.aria-label]="'Imprimir la póliza del cheque ' + a.reference_text + ' de ' + allocationTitle(a)"><i class="pi pi-file" aria-hidden="true"></i> Póliza</button>
                           }
                           <!-- [PGP.114] En la etapa no se repite lo que dice la etapa («Preparado · por autorizar» en «Por autorizar»). -->
                           @if (day || a.status !== 'pending' || !!cs.falta || etapa(a) !== 'autorizar') {
@@ -6408,6 +6411,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
   /** `[PGP.165]` El cheque en PDF del tamaño del cheque: importe al centavo, letra y fecha del día los pone el servidor. */
   imprimirCheque(a: PaymentCalendarAllocation): void { this.openPdf(`${this.base}/allocations/${a.id}/cheque.pdf`); }
+  /** `[PGP.168.1]` La póliza del cheque en media carta (original y copia): la copia del cheque y lo que paga, al centavo. */
+  imprimirPoliza(a: PaymentCalendarAllocation): void { this.openPdf(`${this.base}/allocations/${a.id}/poliza.pdf`); }
   /**
    * `[PGP.165]` El banco de la cuenta elegida en «Preparar». Cada chequera tiene su papel (BanBajío 160 × 70 mm,
    * Santander 162.3 × 72.1): la hoja de prueba es la de ESA cuenta. Null = todavía no se elige la cuenta.
