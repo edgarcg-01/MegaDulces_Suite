@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Internal — Compras: cada factura del proveedor, ligada a su aplicación en Kepler (PQ.150 · 2026-11-25 · en código, sin soltar)
+- La Suite sabe qué factura del SAT cerró cada aplicación de Kepler. Liga primero por el folio del proveedor que Kepler guarda en la referencia, también cuando a su acreedor le falta el RFC (6 de cada 10 aplicaciones). En 60 días, las aplicaciones con su factura pasan de 28.5 % a 49.6 %, y el dinero de 41 % a 77 %.
+- Todavía no cambia ninguna pantalla. Es la base para que la historia de PQ.148 aprenda de más proveedores y para validar el costo al aplicar (PQ.157).
+- Migración `20261125090951`: la vista `commercial.v_supplier_invoice_application` y su matvista `analytics.mv_supplier_invoice_application`, que se refresca cada hora.
+
 ### Fixed — Almacén › Ubicaciones: lo que acabas de ubicar ya no desaparece (UB.RF.19 · 2026-11-25 · **en producción**)
 - Reporte: «los productos no se están almacenando ni mostrando». **Sí se estaban guardando** — dos asignaciones ese mismo día en TA011 de Padre Hidalgo, sin un solo error. Lo que no había era dónde verlos: al guardar, el producto salía de la lista (el filtro de entrada es «Por ubicar» y ya había dejado de estarlo) y la única señal era un aviso que se va.
 - Ahora **«Acabas de ubicar (N)»** queda a la vista en la lista, con el código donde quedó cada producto y su «Quitar». Antes esa bandeja sólo se llenaba si trabajabas parado en una ubicación.
