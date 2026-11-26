@@ -11,8 +11,11 @@ import { InputTextModule } from 'primeng/inputtext';
 import {
   aisleOrder,
   describeLocationCode,
+  CROQUIS_FILAS_MAX,
   FIXTURE_KINDS,
   LOCATION_KINDS,
+  LOCATION_LEVEL_MAX,
+  acomodar,
   nombrePieza,
   parseLocationCode,
   rackFace,
@@ -107,6 +110,30 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
  */
 export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): boolean {
   return p.fila != null && p.columna != null;
+}
+
+/** `[UB.PL.8]` Un renglón de la planta mientras se acomoda: su número y lo que ya hay en él. */
+export interface RenglonEditor {
+  fila: number;
+  piezas: WarehouseFixture[];
+}
+
+/**
+ * `[UB.PL.8]` Los renglones que se dibujan al acomodar: los que ya tienen piezas **más uno libre
+ * al final**. Sin ese renglón de más no habría dónde empezar la primera corrida —la planta nace
+ * vacía— y haría falta un botón «agregar renglón» que nadie tendría por qué buscar.
+ */
+export function renglonesDeLaPlanta(piezas: readonly WarehouseFixture[]): RenglonEditor[] {
+  const usadas = piezas.filter(estaAcomodada).map((p) => p.fila as number);
+  const hasta = Math.min(CROQUIS_FILAS_MAX, Math.max(0, ...usadas) + 1);
+  const renglones: RenglonEditor[] = [];
+  for (let fila = 1; fila <= hasta; fila++) {
+    renglones.push({
+      fila,
+      piezas: piezas.filter((p) => p.fila === fila).sort((a, b) => (a.columna ?? 0) - (b.columna ?? 0)),
+    });
+  }
+  return renglones;
 }
 
 /**
@@ -233,10 +260,62 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
                 </div>
               </div>
 
+              <!-- [UB.PL.8] Acomodar: se dice DÓNDE está cada mueble. Se toma una pieza y se suelta
+                   en un renglón. El mouse arrastra y el teclado toma y suelta por el MISMO camino:
+                   una sola regla que probar, y la tarea se termina sin mouse. -->
+              @if (acomodando()) {
+                <div class="ub-acomodo">
+                  <p class="ub-hint" role="status" aria-live="polite">
+                    @if (tomada(); as t) {
+                      <b>{{ nombreDeId(t) }}</b> en la mano: elige dónde va.
+                    } @else {
+                      Toma una pieza y suéltala en un renglón. Esto no cambia ningún código ni ninguna etiqueta.
+                    }
+                  </p>
+                  @for (f of renglonesDelEditor(); track f.fila) {
+                    <div class="ub-ac-fila">
+                      <span class="ub-ac-n num" aria-hidden="true">{{ f.fila }}</span>
+                      <button type="button" class="ub-ac-hueco" [disabled]="!tomada() || guardandoAcomodo()"
+                        [attr.aria-label]="'Soltar al principio del renglón ' + f.fila"
+                        (dragover)="$event.preventDefault()" (drop)="soltar(f.fila, idEn(f.piezas, 0))"
+                        (click)="soltar(f.fila, idEn(f.piezas, 0))"></button>
+                      @for (p of f.piezas; track p.id; let i = $index) {
+                        <button type="button" class="ub-ac-pieza ub-pieza-{{ p.tipo }}" draggable="true"
+                          [class.tomada]="tomada() === p.id" [attr.aria-pressed]="tomada() === p.id"
+                          (dragstart)="tomar(p.id)" (click)="tomar(p.id)">{{ nombreDePieza(p) }}</button>
+                        <button type="button" class="ub-ac-hueco" [disabled]="!tomada() || guardandoAcomodo()"
+                          [attr.aria-label]="'Soltar en el renglón ' + f.fila + ', después de ' + nombreDePieza(p)"
+                          (dragover)="$event.preventDefault()" (drop)="soltar(f.fila, idEn(f.piezas, i + 1))"
+                          (click)="soltar(f.fila, idEn(f.piezas, i + 1))"></button>
+                      }
+                      @if (!f.piezas.length) { <span class="ub-ac-vacio">renglón libre</span> }
+                    </div>
+                  }
+                  <div class="ub-ac-bandeja">
+                    <h3 class="ub-ph">Sin lugar<span class="num"> · {{ piezasSinLugar().length }}</span></h3>
+                    @if (piezasSinLugar().length) {
+                      <div class="ub-ac-chips">
+                        @for (p of piezasSinLugar(); track p.id) {
+                          <button type="button" class="ub-ac-pieza ub-pieza-{{ p.tipo }}" draggable="true"
+                            [class.tomada]="tomada() === p.id" [attr.aria-pressed]="tomada() === p.id"
+                            (dragstart)="tomar(p.id)" (click)="tomar(p.id)">{{ nombreDePieza(p) }}</button>
+                        }
+                      </div>
+                    } @else {
+                      <p class="ub-hint">Todas las piezas tienen su lugar.</p>
+                    }
+                    <button type="button" class="ub-ac-hueco ub-ac-sacar" [disabled]="!tomada() || guardandoAcomodo()"
+                      [attr.aria-label]="'Sacar del croquis la pieza que tienes en la mano'"
+                      (dragover)="$event.preventDefault()" (drop)="soltar(null, null)" (click)="soltar(null, null)">sacar del croquis</button>
+                  </div>
+                  @if (acomodoErr(); as e) { <p class="ub-hint ub-bad" role="alert">{{ e }}</p> }
+                </div>
+              }
+
               <!-- [UB.PL] Si la sucursal ya tiene croquis, el mapa dibuja LA TIENDA: cada pieza en su
                    lugar, y cada una como lo que es. Una cabecera no lleva corredor en medio porque es
                    de una cara. Sin croquis se dibuja el mapa de siempre, que no desaparece. -->
-              @if (hayCroquis()) {
+              @if (!acomodando() && hayCroquis()) {
                 <div class="ub-croquis" role="group" aria-label="Croquis de la sucursal: flechas para moverse, Enter para ver el rack" (keydown)="onGridKey($event)">
                   @for (f of filasDelCroquis(); track f.fila) {
                     <div class="ub-cro-fila">
@@ -286,7 +365,9 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
                      tales, los nones arriba y los pares abajo, con el corredor en medio. Cada frente
                      lleva su propia regleta de numeros pegada a su fila, para que nadie tenga que
                      deducir cual rack es cual. Una sola parada de tabulador; las flechas mueven (D.4a). -->
-                <div class="ub-grid-wrap" role="group" aria-label="Mapa de pasillos: flechas para moverse, Enter para ver el rack" (keydown)="onGridKey($event)">
+                <!-- Mientras se acomoda, la rejilla de pasillos se guarda: son dos vistas del mismo
+                     croquis y tenerlas juntas es el doble de pantalla para la misma pregunta. -->
+                <div class="ub-grid-wrap" role="group" aria-label="Mapa de pasillos: flechas para moverse, Enter para ver el rack" (keydown)="onGridKey($event)" [hidden]="acomodando()">
                   @for (p of pasillos(); track p.pasillo) {
                     <section class="ub-pasillo" [attr.aria-label]="'Pasillo ' + p.pasillo">
                       <h3 class="ub-ph">Pasillo <b class="num">{{ p.pasillo }}</b></h3>
@@ -321,17 +402,25 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
                 </div>
                 <!-- [UB.PL] La salida para que el mapa deje de ser una rejilla: se arma de lo que YA
                      existe, sin recapturar ni borrar nada. -->
-                @if (!hayCroquis() && puedeGestionar()) {
-                  <p class="ub-note">
-                    <i class="pi pi-info-circle" aria-hidden="true"></i>
-                    <span>Este mapa dibuja todo como pasillos. Si {{ data()?.warehouse?.name }} tiene cabeceras, islas o cajas, el croquis las muestra como son.</span>
-                    <button pButton type="button" class="p-button-sm p-button-text" [disabled]="croquisArmando()" (click)="configurarCroquis()"><span class="p-button-label">{{ croquisArmando() ? 'Armando…' : 'Configurar el croquis' }}</span></button>
-                  </p>
+                @if (puedeGestionar()) {
+                  @if (!piezasDeZona().length) {
+                    <p class="ub-note">
+                      <i class="pi pi-info-circle" aria-hidden="true"></i>
+                      <span>Este mapa dibuja todo como pasillos. Si {{ data()?.warehouse?.name }} tiene cabeceras, islas o cajas, el croquis las muestra como son.</span>
+                      <button pButton type="button" class="p-button-sm p-button-text" [disabled]="croquisArmando()" (click)="configurarCroquis()"><span class="p-button-label">{{ croquisArmando() ? 'Armando…' : 'Configurar el croquis' }}</span></button>
+                    </p>
+                  } @else {
+                    <p class="ub-note">
+                      <i class="pi pi-th-large" aria-hidden="true"></i>
+                      <span>{{ acomodando() ? 'Acomodando la planta: dónde está cada mueble.' : 'El croquis dibuja la tienda como es, cuando cada pieza tiene su lugar.' }}</span>
+                      <button pButton type="button" class="p-button-sm" [class.p-button-text]="!acomodando()" (click)="acomodando.set(!acomodando()); tomada.set(null)"><span class="p-button-label">{{ acomodando() ? 'Listo' : 'Acomodar el croquis' }}</span></button>
+                    </p>
+                  }
                 }
                 <!-- [UB.PL.10] El botón hace trabajo real y tiene que DECIRLO. Este aviso vive FUERA
                      del bloque del croquis a propósito: las piezas nacen sin lugar, así que adentro era
                      una rama muerta — se armaban 8 piezas y la pantalla quedaba idéntica. -->
-                @if (piezasSinLugar().length) {
+                @if (!acomodando() && piezasSinLugar().length) {
                   <p class="ub-hint" role="status"><b>{{ piezasSinLugar().length }}</b> piezas armadas, sin lugar todavía: {{ nombresSinLugar() }}. Falta acomodarlas en el croquis.</p>
                 }
                 @if (croquisErr(); as e) { <p class="ub-hint ub-bad" role="alert">{{ e }}</p> }
@@ -438,6 +527,23 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
     .ub-grid-wrap { overflow-x:auto; padding:.75rem .85rem .25rem; display:flex; flex-direction:column; gap:var(--sp-5); }
     /* [UB.PL] El croquis: los renglones de la tienda, y en cada uno sus piezas de izquierda a
        derecha. Se agrupa con ESPACIO; el borde de 1px es lo unico que delimita cada mueble. */
+    /* [UB.PL.8] La planta mientras se acomoda: renglones y chips, sin el detalle de los racks. */
+    .ub-acomodo { display:flex; flex-direction:column; gap:var(--sp-3); padding:.75rem .85rem; }
+    .ub-ac-fila { display:flex; align-items:center; gap:.15rem; flex-wrap:wrap; min-height:2.4rem; padding:.2rem .3rem; border-radius:var(--r-md); background:var(--surface-2); }
+    .ub-ac-n { min-width:1.4rem; text-align:center; color:var(--text-muted); font-size:var(--fs-xs); }
+    .ub-ac-pieza { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main);
+      padding:.3rem .6rem; font:inherit; font-size:var(--fs-xs); cursor:grab; white-space:nowrap; }
+    .ub-ac-pieza:hover { border-color:var(--action); }
+    .ub-ac-pieza.tomada { background:var(--action); color:var(--action-ink); border-color:var(--action); cursor:grabbing; }
+    .ub-ac-hueco { width:.85rem; min-height:1.9rem; border:1px dashed transparent; border-radius:var(--r-sm); background:none; padding:0; }
+    .ub-ac-hueco:not(:disabled) { border-color:var(--action); background:color-mix(in srgb, var(--action) 12%, transparent); cursor:pointer; }
+    .ub-ac-hueco:not(:disabled):hover { background:color-mix(in srgb, var(--action) 28%, transparent); }
+    .ub-ac-vacio { color:var(--text-muted); font-size:var(--fs-xs); font-style:italic; padding-left:.3rem; }
+    .ub-ac-bandeja { display:flex; flex-direction:column; gap:var(--sp-2); padding:.5rem .3rem 0; border-top:1px solid var(--border-color); }
+    .ub-ac-chips { display:flex; flex-wrap:wrap; gap:.35rem; }
+    .ub-ac-sacar { width:auto; padding:.3rem .6rem; font:inherit; font-size:var(--fs-xs); color:var(--text-muted); align-self:flex-start; }
+    .ub-ac-sacar:not(:disabled) { color:var(--text-main); }
+    @media (pointer:coarse) { .ub-ac-hueco { width:2.75rem; min-height:2.75rem; } .ub-ac-pieza { padding:.6rem .8rem; } }
     .ub-croquis { display:flex; flex-direction:column; gap:var(--sp-5); padding:.75rem .85rem .25rem; overflow-x:auto; }
     .ub-cro-fila { display:flex; gap:var(--sp-5); align-items:flex-start; min-width:min-content; }
     .ub-pieza { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.5rem .6rem; display:flex; flex-direction:column; gap:.3rem; min-width:min-content; }
@@ -746,7 +852,7 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   readonly croquisArmando = signal(false);
 
   /** Las piezas de la zona que se está mirando, ya acomodadas en el croquis. */
-  private readonly piezasDeZona = computed(() => (this.croquis()?.piezas ?? []).filter((p) => p.zona === this.zona()));
+  readonly piezasDeZona = computed(() => (this.croquis()?.piezas ?? []).filter((p) => p.zona === this.zona()));
   readonly piezasAcomodadas = computed(() => this.piezasDeZona().filter(estaAcomodada));
   readonly piezasSinLugar = computed(() => this.piezasDeZona().filter((p) => !estaAcomodada(p)));
   /** Hay croquis cuando alguien ya acomodó al menos una pieza: si no, se dibuja el mapa de siempre. */
@@ -758,6 +864,65 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
    * mueble**, no de suponer que todo es un pasillo.
    */
   readonly nombresSinLugar = computed(() => this.piezasSinLugar().map((p) => nombrePieza(p)).join(', '));
+
+  // ── `[UB.PL.8]` Acomodar: decir DÓNDE está cada mueble ──────────────────────────────────────
+  /** La pieza que está «en la mano». Es lo mismo para el mouse (arrastre) y para el teclado. */
+  readonly tomada = signal<string | null>(null);
+  readonly acomodoErr = signal<string | null>(null);
+  readonly guardandoAcomodo = signal(false);
+
+  /**
+   * Los renglones de la planta: los que ya tienen piezas, **más uno libre al final** para que
+   * siempre haya dónde empezar una corrida nueva sin tener que pedir «agregar renglón».
+   */
+  readonly renglonesDelEditor = computed<RenglonEditor[]>(() => renglonesDeLaPlanta(this.piezasDeZona()));
+
+  nombreDePieza(p: WarehouseFixture): string { return nombrePieza(p); }
+
+  nombreDeId(id: string | null): string {
+    const p = id ? this.piezasDeZona().find((x) => x.id === id) : null;
+    return p ? nombrePieza(p) : 'la pieza';
+  }
+
+  /** El id de la pieza que está en esa posición del renglón, o `null` si es el final. */
+  idEn(piezas: readonly WarehouseFixture[], i: number): string | null {
+    return piezas[i]?.id ?? null;
+  }
+
+  /** Tomar y volver a tocar para soltar: el equivalente del arrastre que sí funciona sin mouse. */
+  tomar(id: string): void {
+    this.acomodoErr.set(null);
+    this.tomada.set(this.tomada() === id ? null : id);
+  }
+
+  /**
+   * Soltarla. El lugar nuevo lo calcula `acomodar` del contrato —la misma regla que probó el
+   * test—, y sólo viaja lo que cambió: **un gesto, una petición**.
+   */
+  soltar(fila: number | null, antesDe: string | null): void {
+    const id = this.tomada();
+    if (!id || this.guardandoAcomodo()) return;
+    const r = acomodar(this.piezasDeZona(), { id, fila, antes_de: antesDe });
+    if (!r.ok) { this.acomodoErr.set(r.motivo); return; }
+    this.tomada.set(null);
+    this.acomodoErr.set(null);
+    if (!r.cambios.length) return; // soltarla donde ya estaba no le pide nada a nadie
+    const w = this.warehouseId();
+    if (!w) return;
+    this.guardandoAcomodo.set(true);
+    this.api.acomodarCroquis({ warehouse_id: w, zona: this.zona(), piezas: r.cambios })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (res) => {
+          this.guardandoAcomodo.set(false);
+          this.croquis.update((c) => (c ? { ...c, piezas: res.piezas } : c));
+        },
+        error: (e: HttpErrorResponse) => {
+          this.guardandoAcomodo.set(false);
+          const m = e.error?.message;
+          this.acomodoErr.set(typeof m === 'string' ? m : 'No se pudo acomodar. Nada se guardó a medias.');
+        },
+      });
+  }
 
   /** `[UB.PL.2]` Configura el croquis a partir de lo que ya existe. No crea ni borra ubicaciones. */
   configurarCroquis(): void {
@@ -933,7 +1098,7 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
 
   ayudaCodigo(): string {
     const p = this.parsed();
-    if (!this.codigo()) return 'Zona (T/B) · pasillo · rack 01–99 · nivel 1–6. Ejemplo: BA053.';
+    if (!this.codigo()) return `Zona (T/B) · pasillo · rack 01–99 · nivel 1–${LOCATION_LEVEL_MAX}. Ejemplo: BA053.`;
     return p.ok ? describeLocationCode(p.parts) : p.motivo;
   }
 

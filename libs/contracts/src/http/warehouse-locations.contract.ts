@@ -5,7 +5,7 @@
  *
  * ```
  *   B  A  05  3
- *   │  │  │   └─ nivel dentro del rack: 1–6
+ *   │  │  │   └─ nivel dentro del rack: 1–9 (era 1–6 hasta el 2026-11-26)
  *   │  │  └───── rack: 01–99
  *   │  └──────── pasillo: A–Z (sin Ñ: ver abajo)
  *   └─────────── zona general: T = tienda · B = bodega
@@ -53,14 +53,26 @@ export const LOCATION_KINDS: ReadonlyArray<{ key: LocationKind; label: string }>
   { key: 'merma', label: 'Merma' },
 ];
 
-export const LOCATION_LEVEL_MAX = 6;
+/**
+ * `[UB.NV.1]` El nivel más alto que admite un rack. Subió de **6 a 9** el 2026-11-26, a pedido de
+ * Edgar, porque la tienda tiene anaqueles más altos que el tope: **11 racks de Padre Hidalgo ya
+ * estaban topados en el 6** y no había forma de dar de alta el séptimo entrepaño.
+ *
+ * ⛔ **Nueve es el techo, y no es arbitrario.** Tres cosas lo fijan a la vez, y las tres se rompen
+ * al pasar a dos dígitos: el código tiene **5 caracteres** y el nivel ocupa el último, así que un
+ * `BA0510` sería de 6 — otro formato de etiqueta, otro ancho de CODE128 y un escáner que ya no
+ * reconoce lo que lee; y `defaultPickSequence` reserva **un solo dígito** al nivel (`… * 10 +
+ * nivel`), de modo que un 10 se le mete al rack vecino y el recorrido de surtido sale mal.
+ * Pasar de 9 no es cambiar esta constante: es cambiar el código, y con él cada etiqueta ya pegada.
+ */
+export const LOCATION_LEVEL_MAX = 9;
 export const LOCATION_RACK_MAX = 99;
 
 /**
  * La regla del código. La misma expresión va en el CHECK de la base
  * (`20261008*_ub1_ubicaciones_catalogo`): si se cambia acá, se cambia allá.
  */
-export const LOCATION_CODE_RE = /^([TB])([A-Z])(0[1-9]|[1-9][0-9])([1-6])$/;
+export const LOCATION_CODE_RE = /^([TB])([A-Z])(0[1-9]|[1-9][0-9])([1-9])$/;
 
 export interface LocationCodeParts {
   zona: LocationZone;

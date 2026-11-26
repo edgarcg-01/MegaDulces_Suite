@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import {
+  CROQUIS_FILAS_MAX,
   FIXTURE_KINDS,
   cabeEnElCroquis,
   defaultPickSequence,
@@ -8,6 +9,7 @@ import {
   formatLocationCode,
   nombrePieza,
   piezasDerivadas,
+  type AcomodoBody,
   type CrearPiezaBody,
   type CroquisResponse,
   type FixtureKind,
@@ -239,6 +241,82 @@ export class WarehouseFixturesService {
         })
         .returning([...COLUMNAS]);
       return aPieza(row);
+    });
+  }
+
+  /**
+   * `[UB.PL.8]` **Acomodar: un arrastre, una petición.** La pantalla calcula el lugar nuevo con
+   * `acomodar` del contrato y manda SÓLO las piezas que se movieron; acá se validan y se escriben
+   * en una transacción. ⭐ No toca ninguna ubicación ni ningún código: acomodar la tienda jamás
+   * puede invalidar una etiqueta ya pegada.
+   *
+   * ⛔⛔ Se escribe en DOS PASADAS, y el motivo no es cosmético: `commercial_fixtures_celda_unica`
+   * es un índice único sobre `(tenant_id, warehouse_id, zona, fila, columna)` y **no se puede
+   * diferir**. Al correr un renglón (b: 2→3, c: 3→4), poner a `b` en la 3 mientras `c` todavía
+   * está ahí violaría el índice a media transacción. La primera pasada manda a todas las afectadas
+   * a una columna negativa distinta —una celda donde nadie vive— y la segunda las deja en su lugar.
+   */
+  async acomodo(body: AcomodoBody): Promise<{ movidas: number; piezas: WarehouseFixture[] }> {
+    this.tenantCtx.requireTenantId();
+    const zona = this.zonaValida(body?.zona);
+    const cambios = Array.isArray(body?.piezas) ? body.piezas : [];
+    if (cambios.length === 0) throw new BadRequestException('No hay nada que acomodar.');
+    if (cambios.length > 200) throw new BadRequestException('Demasiadas piezas en un solo movimiento.');
+
+    for (const c of cambios) {
+      if (c.fila == null) {
+        if (c.columna != null) throw new BadRequestException('Una pieza fuera del croquis no lleva columna.');
+        continue;
+      }
+      if (!Number.isInteger(c.fila) || c.fila < 1 || c.fila > CROQUIS_FILAS_MAX) {
+        throw new BadRequestException(`Los renglones van del 1 al ${CROQUIS_FILAS_MAX}.`);
+      }
+      if (!Number.isInteger(c.columna) || (c.columna as number) < 1) {
+        throw new BadRequestException('El lugar dentro del renglón empieza en 1.');
+      }
+    }
+    const ids = [...new Set(cambios.map((c) => String(c.id)))];
+    if (ids.length !== cambios.length) throw new BadRequestException('Una misma pieza no puede ir a dos lugares.');
+
+    const ctx = await contextoDeAlcance(this.scope, 'warehouse/locations');
+    return this.tk.run(async (trx) => {
+      const wh = await almacenDeUbicaciones(trx, this.scope, ctx, String(body.warehouse_id ?? '').toLowerCase(), true);
+      // ⭐ El control de pertenencia: las piezas tienen que ser de ESTE almacén y ESTA zona. Sin
+      // esto, un id de otra sucursal se escribiría sin que nadie lo notara.
+      const suyas: WarehouseFixture[] = (
+        await trx('commercial.warehouse_fixtures')
+          .where({ warehouse_id: wh.id, zona })
+          .whereNull('deleted_at')
+          .whereIn('id', ids)
+          .select(...COLUMNAS)
+      ).map(aPieza);
+      if (suyas.length !== ids.length) {
+        throw new NotFoundException('Alguna de esas piezas no es de este croquis.');
+      }
+
+      const usuario = this.tenantCtx.get()?.userId || null;
+      // Pasada 1: a una celda que nadie ocupa (columna negativa, una por pieza).
+      let n = 0;
+      for (const c of cambios) {
+        n -= 1;
+        await trx('commercial.warehouse_fixtures').where({ id: c.id }).update({ columna: n });
+      }
+      // Pasada 2: su lugar de verdad.
+      for (const c of cambios) {
+        await trx('commercial.warehouse_fixtures')
+          .where({ id: c.id })
+          .update({ fila: c.fila, columna: c.fila == null ? null : c.columna, updated_at: trx.fn.now(), updated_by: usuario });
+      }
+
+      const piezas: WarehouseFixture[] = (
+        await trx('commercial.warehouse_fixtures')
+          .where({ warehouse_id: wh.id, zona })
+          .whereNull('deleted_at')
+          .orderBy(['fila', 'columna', 'pasillo'])
+          .select(...COLUMNAS)
+      ).map(aPieza);
+      this.logger.log(`[UB.PL.8] croquis de ${wh.code}/${zona}: ${cambios.length} pieza(s) acomodada(s)`);
+      return { movidas: cambios.length, piezas };
     });
   }
 }

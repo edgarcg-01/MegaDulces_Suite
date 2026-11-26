@@ -1,5 +1,5 @@
-import { FIXTURE_KINDS, nombrePieza, type WarehouseLocationRow } from '@megadulces/contracts';
-import { ariaDeRack, armarPasillos, cartelesDe, elAlmacenQueSiTieneTrabajo, estaAcomodada, estadoDeRack, formatoPorZona, productosDeRack, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
+import { CROQUIS_FILAS_MAX, FIXTURE_KINDS, nombrePieza, type WarehouseFixture, type WarehouseLocationRow } from '@megadulces/contracts';
+import { ariaDeRack, armarPasillos, cartelesDe, elAlmacenQueSiTieneTrabajo, estaAcomodada, estadoDeRack, renglonesDeLaPlanta, formatoPorZona, productosDeRack, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
 
 const nivel = (p: Partial<WarehouseLocationRow>): WarehouseLocationRow => ({
   id: 'x', warehouse_id: 'w', warehouse_code: '01', code: 'BA051', label: null, familia: 'ubicacion',
@@ -234,5 +234,43 @@ describe('[UB.RF.12] mapa · qué se imprime por omisión', () => {
   it('⭐ en tienda, la etiqueta chica (un cartel grande le quita vista al producto); en bodega, el cartel', () => {
     expect(formatoPorZona('T')).toBe('etiqueta');
     expect(formatoPorZona('B')).toBe('cartel');
+  });
+});
+
+/**
+ * `[UB.PL.8]` La planta mientras se acomoda. El editor es lo único que convierte 8 piezas sin lugar
+ * en un croquis; sin él, `hayCroquis()` nunca se cumple y el mapa dibuja todo como pasillos.
+ */
+describe('[UB.PL.8] los renglones de la planta', () => {
+  const p = (id: string, fila: number | null, columna: number | null): WarehouseFixture => ({
+    id, warehouse_id: 'w', zona: 'T', tipo: 'anaquel', pasillo: id.toUpperCase(), racks: 10, niveles: 5,
+    fila, columna, orden: null, label: null,
+  });
+
+  it('⭐ una planta vacía abre con UN renglón libre: hay dónde empezar sin pedir nada', () => {
+    const r = renglonesDeLaPlanta([p('a', null, null), p('b', null, null)]);
+    expect(r.map((x) => x.fila)).toEqual([1]);
+    expect(r[0].piezas).toEqual([]);
+  });
+
+  it('⭐ con piezas hasta el renglón 2, se dibujan 3: el de más es el que deja crecer', () => {
+    const r = renglonesDeLaPlanta([p('a', 1, 1), p('b', 2, 1), p('c', null, null)]);
+    expect(r.map((x) => x.fila)).toEqual([1, 2, 3]);
+    expect(r[2].piezas).toEqual([]);
+  });
+
+  it('⭐ dentro del renglón, las piezas salen en orden de columna aunque lleguen al revés', () => {
+    const r = renglonesDeLaPlanta([p('c', 1, 3), p('a', 1, 1), p('b', 1, 2)]);
+    expect(r[0].piezas.map((x) => x.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('⛔ NEGATIVA: una pieza SIN lugar no aparece en ningún renglón — vive en la bandeja', () => {
+    const r = renglonesDeLaPlanta([p('a', 1, 1), p('z', null, null)]);
+    expect(r.flatMap((x) => x.piezas).map((x) => x.id)).toEqual(['a']);
+  });
+
+  it('⛔ NEGATIVA: el renglón de más no empuja el total más allá del tope', () => {
+    const r = renglonesDeLaPlanta([p('a', CROQUIS_FILAS_MAX, 1)]);
+    expect(r.length).toBe(CROQUIS_FILAS_MAX);
   });
 });

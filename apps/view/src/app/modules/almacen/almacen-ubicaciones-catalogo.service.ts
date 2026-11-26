@@ -20,6 +20,7 @@ import type {
   UndoLocationBatchResult,
   WarehouseLocationRow,
   WarehouseLocationsResponse,
+  AcomodoBody,
   CroquisResponse,
   CrearPiezaBody,
   DerivarPiezasResult,
@@ -77,6 +78,14 @@ export class AlmacenUbicacionesCatalogoService {
 
   crearPieza(body: CrearPiezaBody): Observable<WarehouseFixture> {
     return this.http.post<WarehouseFixture>(`${this.base}/fixtures`, body);
+  }
+
+  /**
+   * `[UB.PL.8]` Acomoda el croquis: **un arrastre, una petición**. Van sólo las piezas que se
+   * movieron, que es lo que calcula `acomodar` del contrato. No toca ninguna ubicación.
+   */
+  acomodarCroquis(body: AcomodoBody): Observable<{ movidas: number; piezas: WarehouseFixture[] }> {
+    return this.http.put<{ movidas: number; piezas: WarehouseFixture[] }>(`${this.base}/fixtures/acomodo`, body);
   }
 
   /** Mueve una pieza en el croquis o la renombra. No toca ninguna ubicación ni ningún código. */

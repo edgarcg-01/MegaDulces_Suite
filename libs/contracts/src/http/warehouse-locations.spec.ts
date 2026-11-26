@@ -48,9 +48,10 @@ describe('[UB.1] código de ubicación', () => {
     if (!r.ok) expect(r.motivo).toContain('sin Ñ');
   });
 
-  it('el nivel va de 1 a 6', () => {
+  // [UB.NV.1] De 1 a 9 desde el 2026-11-26: antes era 1 a 6 y 11 racks de Padre Hidalgo ya estaban topados.
+  it('el nivel va de 1 a 9', () => {
     expect(parseLocationCode('BA016').ok).toBe(true);
-    expect(parseLocationCode('BA017').ok).toBe(false);
+    expect(parseLocationCode('BA019').ok).toBe(true);
     expect(parseLocationCode('BA010').ok).toBe(false);
   });
 
@@ -62,7 +63,7 @@ describe('[UB.1] código de ubicación', () => {
     ['B1053', 'pasillo'],
     ['BA003', 'del 01 al 99'],
     ['BAA53', 'del 01 al 99'],
-    ['BA059', 'nivel'],
+    ['BA050', 'nivel'],
   ])('rechaza %j', (raw, motivo) => {
     const r = parseLocationCode(raw);
     expect(r.ok).toBe(false);
@@ -78,7 +79,7 @@ describe('[UB.1] código de ubicación', () => {
 
   it('formatear rechaza partes imposibles', () => {
     expect(() => formatLocationCode({ zona: 'B', pasillo: 'A', rack: 100, nivel: 1 })).toThrow();
-    expect(() => formatLocationCode({ zona: 'B', pasillo: 'A', rack: 1, nivel: 7 })).toThrow();
+    expect(() => formatLocationCode({ zona: 'B', pasillo: 'A', rack: 1, nivel: 10 })).toThrow();
   });
 
   it('orden de recorrido: tienda antes que bodega, luego pasillo, rack y nivel', () => {
@@ -139,7 +140,38 @@ describe('[UB.1] código de ubicación', () => {
   });
 
   it('la regla del CHECK de la base es la misma expresión (si cambia una, que se note)', () => {
-    expect(LOCATION_CODE_RE.source).toBe('^([TB])([A-Z])(0[1-9]|[1-9][0-9])([1-6])$');
+    expect(LOCATION_CODE_RE.source).toBe('^([TB])([A-Z])(0[1-9]|[1-9][0-9])([1-9])$');
+  });
+});
+
+/**
+ * `[UB.NV.1]` El tope del nivel subió de 6 a 9 el 2026-11-26: 11 racks de Padre Hidalgo ya estaban
+ * topados en el 6 y no se podía dar de alta el entrepaño siguiente. Nueve es el techo porque el
+ * código son 5 caracteres y el nivel es el último.
+ */
+describe('[UB.NV.1] el nivel llega al 9', () => {
+  const seq = (c: string) => {
+    const r = parseLocationCode(c);
+    if (!r.ok) throw new Error(c);
+    return defaultPickSequence(r.parts);
+  };
+
+  it('⭐ el 7, el 8 y el 9 son niveles válidos', () => {
+    for (const code of ['BA057', 'BA058', 'BA059']) {
+      expect(parseLocationCode(code).ok).toBe(true);
+    }
+  });
+
+  it('⛔ NEGATIVA: el 0 y el 10 siguen fuera — un nivel de dos dígitos haría un código de 6 caracteres', () => {
+    expect(parseLocationCode('BA050').ok).toBe(false);
+    expect(parseLocationCode('BA0510').ok).toBe(false);
+  });
+
+  it('⭐ el nivel 9 NO se le mete al rack siguiente en el recorrido de surtido', () => {
+    // El rack 05 entero (hasta su nivel 9) va antes que el primer nivel del 07: por eso el nivel
+    // sólo puede ocupar UN dígito — un 10 caería dentro del rack vecino.
+    expect(seq('BA059')).toBeLessThan(seq('BA071'));
+    expect(seq('BA031')).toBeLessThan(seq('BA059'));
   });
 });
 
@@ -166,8 +198,8 @@ describe('[UB.2] expandir un rango', () => {
     [{ pasillo_hasta: 'Ñ' }, 'sin Ñ'],
     [{ rack_desde: 0 }, 'del 01 al 99'],
     [{ rack_hasta: 100 }, 'del 01 al 99'],
-    [{ nivel_hasta: 7 }, 'del 1 al 6'],
-    [{ nivel_desde: 3, nivel_hasta: 1 }, 'del 1 al 6'],
+    [{ nivel_hasta: 10 }, 'del 1 al 9'],
+    [{ nivel_desde: 3, nivel_hasta: 1 }, 'del 1 al 9'],
     [{ zona: 'X' }, 'T (tienda) o B (bodega)'],
   ])('rechaza %j', (cambio, motivo) => {
     const r = expandLocationRange({ ...base, ...(cambio as object) } as typeof base);

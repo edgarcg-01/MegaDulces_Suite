@@ -1,5 +1,7 @@
 import {
+  CROQUIS_FILAS_MAX,
   FIXTURE_KINDS,
+  acomodar,
   cabeEnElCroquis,
   expandFixture,
   nombrePieza,
@@ -74,7 +76,8 @@ describe('[UB.PL.4] los códigos que produce una pieza', () => {
 
   it('NEGATIVA: 0 racks o más niveles de los que existen, tampoco', () => {
     expect(expandFixture({ zona: 'T', tipo: 'anaquel', pasillo: 'A', racks: 0, niveles: 3 }).ok).toBe(false);
-    expect(expandFixture({ zona: 'T', tipo: 'anaquel', pasillo: 'A', racks: 3, niveles: 7 }).ok).toBe(false);
+    // [UB.NV.1] El tope subió a 9 el 2026-11-26: el 7 ya es un nivel legítimo, el 10 no.
+    expect(expandFixture({ zona: 'T', tipo: 'anaquel', pasillo: 'A', racks: 3, niveles: 10 }).ok).toBe(false);
   });
 });
 
@@ -173,5 +176,71 @@ describe('[UB.PL.2] las piezas se deducen del catálogo que ya existe', () => {
     expect(nombrePieza({ tipo: 'cabecera', pasillo: 'D', label: null })).toBe('Cabecera D');
     expect(nombrePieza({ tipo: 'anaquel', pasillo: 'A', label: null })).toBe('Anaquel de pasillo A');
     expect(nombrePieza({ tipo: 'caja', pasillo: null, label: 'Caja 3' })).toBe('Caja 3');
+  });
+});
+
+/**
+ * `[UB.PL.8]` **Acomodar.** El croquis existe recién cuando alguien dice dónde está cada mueble;
+ * hasta entonces las piezas nacen sin fila ni columna y el mapa las dibuja a todas como pasillos.
+ * Un arrastre tiene que ser UNA petición: por eso `acomodar` devuelve sólo lo que se movió.
+ */
+describe('[UB.PL.8] soltar una pieza en el croquis', () => {
+  const a = pieza({ id: 'a', pasillo: 'A', fila: 1, columna: 1 });
+  const b = pieza({ id: 'b', pasillo: 'B', fila: 1, columna: 2 });
+  const c = pieza({ id: 'c', pasillo: 'C', fila: 1, columna: 3 });
+  const nueva = pieza({ id: 'n', pasillo: 'D', fila: null, columna: null });
+  const ok = (r: ReturnType<typeof acomodar>) => { if (!r.ok) throw new Error(r.motivo); return r.cambios; };
+
+  it('⭐ una pieza de la bandeja cae al final del renglón, y NADIE más se mueve', () => {
+    expect(ok(acomodar([a, b, c, nueva], { id: 'n', fila: 1 }))).toEqual([{ id: 'n', fila: 1, columna: 4 }]);
+  });
+
+  it('⭐ soltarla ANTES de otra empuja sólo a las que quedan atrás', () => {
+    const cambios = ok(acomodar([a, b, c, nueva], { id: 'n', fila: 1, antes_de: 'b' }));
+    expect(cambios).toEqual([
+      { id: 'n', fila: 1, columna: 2 },
+      { id: 'b', fila: 1, columna: 3 },
+      { id: 'c', fila: 1, columna: 4 },
+    ]);
+    // La que quedó DELANTE del punto de insercion no viaja: es la mitad del ahorro.
+    expect(cambios.some((x) => x.id === 'a')).toBe(false);
+  });
+
+  it('⭐ sacarla del croquis la devuelve a la bandeja sin renumerar a las demás', () => {
+    expect(ok(acomodar([a, b, c], { id: 'b', fila: null }))).toEqual([{ id: 'b', fila: null, columna: null }]);
+  });
+
+  it('⛔ NEGATIVA: sacar algo que YA estaba en la bandeja no escribe nada', () => {
+    expect(ok(acomodar([a, nueva], { id: 'n', fila: null }))).toEqual([]);
+  });
+
+  it('⛔ NEGATIVA: soltarla donde ya estaba no escribe nada', () => {
+    expect(ok(acomodar([a, b, c], { id: 'c', fila: 1 }))).toEqual([]);
+  });
+
+  it('⛔ NEGATIVA: un renglón 0, uno fraccionario o uno más allá del tope se rechazan con su motivo', () => {
+    for (const fila of [0, 1.5, CROQUIS_FILAS_MAX + 1]) {
+      const r = acomodar([a, nueva], { id: 'n', fila });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.motivo).toContain(`del 1 al ${CROQUIS_FILAS_MAX}`);
+    }
+  });
+
+  it('⛔ NEGATIVA: una pieza no se suelta sobre sí misma, ni sobre una que no está en ese renglón', () => {
+    expect(acomodar([a, b], { id: 'a', fila: 1, antes_de: 'a' }).ok).toBe(false);
+    expect(acomodar([a, b, nueva], { id: 'n', fila: 2, antes_de: 'b' }).ok).toBe(false);
+  });
+
+  it('⛔ NEGATIVA: una pieza que no es de este croquis no se puede mover', () => {
+    const r = acomodar([a, b], { id: 'fantasma', fila: 1 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain('no está en el croquis');
+  });
+
+  it('⭐ mover una pieza a OTRO renglón la renumera allá y deja el hueco acá', () => {
+    const cambios = ok(acomodar([a, b, c], { id: 'a', fila: 2 }));
+    expect(cambios).toEqual([{ id: 'a', fila: 2, columna: 1 }]);
+    // b y c conservan 2 y 3: las columnas sólo tienen que estar ORDENADAS, no ser consecutivas.
+    expect(cambios.some((x) => x.id === 'b' || x.id === 'c')).toBe(false);
   });
 });

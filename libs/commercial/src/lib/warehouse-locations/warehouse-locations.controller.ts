@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequireAuthGuard, RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import type {
@@ -20,6 +20,7 @@ import type {
   WarehouseLocationRow,
   WarehouseLocationsResponse,
   WarehouseFixture,
+  AcomodoBody,
   CroquisResponse,
   CrearPiezaBody,
   MoverPiezaBody,
@@ -108,6 +109,15 @@ export class WarehouseLocationsController {
   @ApiOperation({ summary: '[UB.PL.2] Deriva las piezas del catálogo que YA existe y cuelga cada ubicación de la suya. No crea ni borra ubicaciones.' })
   derivarPiezas(@Body() body: { warehouse_id: string }): Promise<DerivarPiezasResult> {
     return this.fixtures.derivar(body?.warehouse_id);
+  }
+
+  // [UB.PL.8] Dibujar la planta es CONFIGURAR la sucursal, así que pide GESTIONAR (4 roles) y no
+  // ACOMODAR (7): acomodar es poner mercancía en su lugar, no redibujar dónde están los muebles.
+  @Put('fixtures/acomodo')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: '[UB.PL.8] Acomoda el croquis: un arrastre, una petición. Sólo viajan las piezas que se movieron. NO toca ninguna ubicación.' })
+  acomodarCroquis(@Body() body: AcomodoBody): Promise<{ movidas: number; piezas: WarehouseFixture[] }> {
+    return this.fixtures.acomodo(body);
   }
 
   @Patch('fixtures/:id')

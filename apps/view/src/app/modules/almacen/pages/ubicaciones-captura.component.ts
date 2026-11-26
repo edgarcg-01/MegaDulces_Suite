@@ -17,6 +17,7 @@ import {
   type BulkLocationsBody,
   type BulkLocationsPreview,
   type BulkLocationsResult,
+  LOCATION_LEVEL_MAX,
   type LocationCaptureBatch,
   type LocationKind,
   type LocationRangeSpec,
@@ -82,9 +83,9 @@ const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: S
           </div>
           <div class="uc-pair">
             <span class="uc-l">Niveles</span>
-            <label class="uc-mini"><span class="sr-only">Nivel desde</span><input pInputText type="number" class="mono" name="nd" min="1" max="6" [ngModel]="rango().nivel_desde" (ngModelChange)="setRango('nivel_desde', $event)" /></label>
+            <label class="uc-mini"><span class="sr-only">Nivel desde</span><input pInputText type="number" class="mono" name="nd" min="1" [max]="nivelMax" [ngModel]="rango().nivel_desde" (ngModelChange)="setRango('nivel_desde', $event)" /></label>
             <span class="uc-a">a</span>
-            <label class="uc-mini"><span class="sr-only">Nivel hasta</span><input pInputText type="number" class="mono" name="nh" min="1" max="6" [ngModel]="rango().nivel_hasta" (ngModelChange)="setRango('nivel_hasta', $event)" /></label>
+            <label class="uc-mini"><span class="sr-only">Nivel hasta</span><input pInputText type="number" class="mono" name="nh" min="1" [max]="nivelMax" [ngModel]="rango().nivel_hasta" (ngModelChange)="setRango('nivel_hasta', $event)" /></label>
           </div>
           <label class="uc-field" for="uc-tipo-r"><span class="uc-l">Tipo</span>
             <p-select inputId="uc-tipo-r" name="tipo" [options]="tipos" optionLabel="label" optionValue="key" [ngModel]="tipo()" (onChange)="tipo.set($event.value); limpiarPrevia()" appendTo="body" placeholder="Sin tipo" [showClear]="true" />
@@ -231,6 +232,8 @@ const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: S
   `],
 })
 export class UbicacionesCapturaComponent {
+  /** [UB.NV.1] El tope del nivel sale del contrato (9 desde el 2026-11-26), no de un literal. */
+  readonly nivelMax = LOCATION_LEVEL_MAX;
   private readonly api = inject(AlmacenUbicacionesCatalogoService);
   private readonly destroyRef = inject(DestroyRef);
 
