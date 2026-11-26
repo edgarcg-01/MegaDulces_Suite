@@ -41,6 +41,7 @@ import {
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
   InTransitOc, InTransitResponse, MonthlySalesResponse, WorklistRow, AgendaProveedorRow,
 } from '../compras.service';
+import { accionFinPico, accionTemporada, etiquetaFreno, finPicoSucursalTitle } from '../pedido-freno';
 import { MetricStripComponent, MetricStripItem, MetricTone } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
@@ -115,6 +116,11 @@ interface BranchBuy {
   cc: number;            // costo de caja DE ESA SUCURSAL
   /** `[PQ.44]` D33: el reorden frenó una cantidad que sí faltaba (la marca `sr` del motor). */
   sr?: boolean;
+  /**
+   * `[PQ.95]` El fin de pico (AB.17) frenó ESTA sucursal: con qué fracción de la venta de 30 días pide
+   * el motor (0.33 = un tercio). `null` = aquí no frenó.
+   */
+  fp: number | null;
   /** U.2 — peldaño de unidad contradicho por el costo: acá no se puede ni convertir ni pedir. */
   rung: string | null;
   nat: number;           // existencia en la unidad nativa del almacén (lo que sí es verdad)
@@ -374,6 +380,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                            [filter]="true" filterBy="label" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
                            appendTo="body" class="pr-sel" ariaLabel="Sucursales que entran al pedido y al desglose"></p-multiselect>
               <button type="button" class="pr-chip" [attr.aria-pressed]="wbOnlyOver()" [class.pr-chip-on]="wbOnlyOver()" (click)="toggleOnlyOver()" title="Ver solo productos con sobrestock (capital inmovilizado)">Con sobrestock</button>
+              <!-- [PQ.95] Donde aplica una regla que mueve el sugerido, en una vista (plan PQ 19.3, criterio 4). -->
+              <button type="button" class="pr-chip" [attr.aria-pressed]="wbFreno()" [class.pr-chip-on]="wbFreno()" (click)="toggleFreno()" title="Solo los productos con fin de pico en alguna sucursal (el motor pide con la venta normal) o con su temporada confirmada en Compras › Temporadas (la temporada avisa; todavía no cambia el sugerido)">Con freno</button>
               <button type="button" class="pr-chip" [attr.aria-pressed]="fIad()==='accel'" [class.pr-chip-on]="fIad()==='accel'" (click)="toggleIad('accel')" title="Solo productos con demanda acelerando (IAD ≥ +0.25)">▲ Acelerando</button>
               <button type="button" class="pr-chip" [attr.aria-pressed]="fIad()==='decel'" [class.pr-chip-on]="fIad()==='decel'" (click)="toggleIad('decel')" title="Solo productos con demanda desacelerando (IAD ≤ −0.25)">▼ Desacelerando</button>
           </div>
@@ -429,6 +437,16 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               en los últimos 12 meses y no {{ wbAgotadosN() === 1 ? 'sale' : 'salen' }} en esta lista: sin venta reciente, el sugerido es cero.
               <button type="button" class="pr-zlink" (click)="setAgotados(true)">Verlos</button></p>
           }
+          <!-- [PQ.95] Con el filtro puesto, el conteo por etiqueta: DONDE aplica cada regla. Son productos,
+               no sucursales; un producto puede tener las dos. -->
+          @if (wbFreno()) {
+            <p class="pr-agotados" role="status">Sólo los productos con <strong>freno o temporada</strong>:
+              @if (wbFrenos(); as fz) {
+                <strong>{{ fz.fin_pico | number }}</strong> con fin de pico en alguna sucursal (se pide con la venta normal, no con la del pico) ·
+                <strong>{{ fz.temporada | number }}</strong> con su temporada confirmada en Compras › Temporadas (avisa; todavía no cambia el sugerido).
+              } @else { el conteo por etiqueta no se pudo medir. }
+              <button type="button" class="pr-zlink" (click)="toggleFreno()">Quitar el filtro</button></p>
+          }
           <div class="pr-wb-scroll" #wbScroll>
             <p-table [value]="wbRows()" [loading]="loading()"
                      class="p-datatable-sm pr-table pr-wb" tableStyleClass="pr-wb-tbl">
@@ -461,7 +479,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <th class="pr-c-m pr-r" title="Unidades del artículo según Kepler (1, 2 o 3): cuánto trae la unidad mayor en la base, y el paquete del medio si existe.">Unidad</th>
                   <th class="pr-c-m pr-r">Costo/Cja</th>
                   <th class="pr-c-m pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
-                  <th class="pr-c-m pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano.">Est.</th>
+                  <th class="pr-c-m pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano. Si el fin de pico frenó alguna sucursal, lo dice el renglón del producto y, al abrirlo, la sucursal.">Est.</th>
                   <th class="pr-c-m pr-r" title="Cumplimiento del proveedor medido en Kepler (orden de compra vs vale de entrada), ponderado por dinero. El Pedido YA viene dividido por él, topado en +30%. — = no se midió (menos de 25 renglones, o nombre repetido en el catálogo): en ese caso el pedido NO se tocó.">Surt.</th>
                   <th class="pr-c-m pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
                   <th class="pr-c-m pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
@@ -477,7 +495,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <td><div class="pr-prod"><input type="checkbox" class="pr-chk" [checked]="isSel(r)" [disabled]="!isSel(r) && sumCajas(r) <= 0 && prodTrCajas(r.product_id) <= 0"
                            (click)="$event.stopPropagation()" (change)="toggleSel(r)"
                            [title]="(sumCajas(r) > 0 || prodTrCajas(r.product_id) > 0) ? 'En la requisición en armado (la barra de abajo)' : 'Sin pedido ni traspaso: no hay nada que requerir'"
-                           [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (r.fuera_calculo) { <span class="pr-bflag pr-bflag-pend">sin existencia en la red · {{ ultimaVentaTexto(r) }}</span> }@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" class="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" class="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" class="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} {{ etOf(r).mayor }}@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
+                           [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (r.fuera_calculo) { <span class="pr-bflag pr-bflag-pend">sin existencia en la red · {{ ultimaVentaTexto(r) }}</span> }@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" class="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" class="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" class="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} {{ etOf(r).mayor }}@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }@if (frenoFila(r); as fz) { <span class="pr-bflag" [ngClass]="fz.cls" [title]="fz.title">{{ fz.txt }}</span> }</div></td>
                   <!-- Los totales son la SUMA VIVA del desglose de abajo: al editar una sucursal
                        se mueven acá. Arrancan en el sugerido del motor, que es lo mismo que
                        publicaba antes la columna por sucursal. -->
@@ -538,7 +556,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <td class="pr-c-m pr-r">
                     @if (seasonOn(r)) {
                       <p-tag [value]="seasonLabel(r)" [severity]="seasonSev(r)" class="pr-cov-tag" [title]="seasonTitle(r)"></p-tag>
-                    } @else { <span class="pr-muted" title="Mes plano — la estacionalidad no mueve el pedido">—</span> }
+                    } @else { <span class="pr-muted" [title]="seasonVacioTitle(r)">—</span> }
                   </td>
                   <!-- [RA-DYN.U7] El inflado por cumplimiento se VE. Sin este chip el pedido
                        crecia hasta +30% sin que el comprador supiera de donde salio.
@@ -2024,7 +2042,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-acc-grid { list-style: none; margin: 0 0 .55rem; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .35rem; }
     .pr-acc { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: .5rem; align-items: baseline; padding: .3rem .6rem;
       border: 1px solid var(--border-color); border-left: 3px solid var(--warn-fg); border-radius: var(--r-sm, 8px);
-      background: var(--surface-ground); font-size: var(--fs-sm); line-height: 1.35; }
+      background: var(--surface-ground); font-size: var(--fs-sm); line-height: 1.35;
+      /* [PQ.95] En celular la celda de la tabla trae nowrap y la tarjeta lo heredaba: el texto se cortaba a
+         la derecha en TODAS las tarjetas (prueba visual del 2026-11-26). Mismo arreglo que .pr-tra-de. */
+      white-space: normal; }
     .pr-acc.pr-acc-info { border-left-color: var(--info-fg); }
     .pr-acc-haz { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--warn-soft-fg); }
     .pr-acc-info .pr-acc-haz { color: var(--info-fg); }
@@ -2608,6 +2629,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   /** `[PQ.37]` Cuántos agotados que vendían no salen en la lista (mismos filtros). `null` = sin medir. */
   wbAgotadosN = signal<number | null>(null);
   wbOnlyOver = signal(false);   // RA-PRO.33 — filtrar a productos CON sobrestock (capital inmovilizado)
+  /** `[PQ.95]` «Con freno»: sólo productos con fin de pico en alguna sucursal o con temporada confirmada. */
+  readonly wbFreno = signal(false);
+  /** `[PQ.95]` Dónde aplica cada regla, contado por el servidor sobre el universo filtrado. `null` = no medido. */
+  readonly wbFrenos = signal<{ fin_pico: number; temporada: number } | null>(null);
   wbWarehouses: string[] = [];                          // sucursales elegidas (vacío = todas con stock)
   // RA-PRO.47 — las sucursales ya NO son columnas (bajaron al desglose), así que el ancho es fijo
   // y la tabla tiene un solo renglón de encabezado.
@@ -2664,6 +2689,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
           mx: c.mx == null ? null : Number(c.mx),
           rop: c.rop == null ? null : Number(c.rop),
           sr: !!c.sr,
+          fp: c.fp == null ? null : Number(c.fp),
           added: false,
         });
       }
@@ -2683,6 +2709,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
           cc: Number(r.caja_cost) || 0,
           rung: null, nat: 0, natu: 'u', natuRaw: '',
           hub: !!meta.get(code)?.hub,
+          // Sin venta no hay pico que frenar: el motor no la vio.
+          fp: null,
           mx: null, rop: null, added: true,
         });
       }
@@ -2973,6 +3001,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   /** Banderas por sucursal que vienen de las señales: bajo costo y venta perdida. */
   branchSignalFlags(r: WorkbookRow, b: BranchBuy): { txt: string; cls: string; title: string }[] {
     const out: { txt: string; cls: string; title: string }[] = [];
+    // `[PQ.95]` El freno, en la sucursal donde aplicó: explica por qué «Pedir» salió chico.
+    if (b.fp != null) out.push({ txt: 'fin de pico', cls: '', title: finPicoSucursalTitle(this.sucNom(b.code), b.vta, b.fp, this.etOf(r).mayor) });
     const m = r.signals?.margin?.por_sucursal?.[b.code];
     if (m?.bc) out.push({ txt: 'bajo costo', cls: 'pr-bflag-bad', title: `En ${this.sucNom(b.code)} se vende bajo costo al precio de hoy (margen ${m.m?.toFixed(1) ?? '—'}% sobre costo).` });
     const net = r.signals?.margin?.margen_pct;
@@ -4400,6 +4430,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    */
   accionesDe(r: WorkbookRow): AccionDesglose[] {
     const out: AccionDesglose[] = [];
+    // `[PQ.95]` Primero lo que EXPLICA el número: qué regla lo movió y por qué, en texto a la vista
+    // (un `title` no cuenta como dicho: sin mouse no existe).
+    const fp = accionFinPico(this.frenadas(r));
+    if (fp) out.push({ clave: 'finpico', ...fp, boton: null, detalle: null });
+    if (r.temporada) out.push({ clave: 'temporada', ...accionTemporada(r.temporada), boton: null, detalle: null });
     const enCamino = Number(r.transito_cajas) || 0;
     if (enCamino > 0) {
       out.push({ clave: 'revisa', verbo: 'Revisa', que: `${this.cj1(enCamino)} cj en camino`, por: '(no se restan del pedido)', tono: 'warn', boton: 'transito', detalle: null });
@@ -4419,6 +4454,18 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return out;
   }
   private cj1(v: number): string { return (Math.round(v * 10) / 10).toLocaleString('es-MX'); }
+
+  // ── `[PQ.95]` La etiqueta del freno (plan PQ §19.3) ─────────────────────────────────────────
+  // La regla de cuál manda y lo que dice cada texto viven en `pedido-freno.ts`, con su spec.
+  /** La etiqueta del renglón: UNA, la que manda, o `null` si no hay freno. */
+  frenoFila(r: WorkbookRow): { txt: string; cls: string; title: string } | null {
+    const e = etiquetaFreno(r.temporada ?? null, this.frenadas(r));
+    return e ? { txt: e.txt, cls: e.tono === 'warn' ? 'pr-bflag-warn' : '', title: e.title } : null;
+  }
+  /** Las sucursales donde frenó el fin de pico, por nombre y en el orden del desglose. */
+  private frenadas(r: WorkbookRow): string[] {
+    return this.branchBuys(r).filter((b) => b.fp != null).map((b) => this.sucNom(b.code));
+  }
 
   /**
    * «No compres para N sucursales» → resta de lo que se pide lo que ya le llega por traspaso.
@@ -4615,6 +4662,17 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.loadWorkbook();
   }
   toggleIad(mode: 'accel' | 'decel'): void { this.fIad.set(this.fIad() === mode ? 'all' : mode); this.loadWorkbook(); }
+  /**
+   * `[PQ.95]` «Con freno». Apaga «Solo con pedido» igual que el sobrestock: un freno suele dejar la
+   * sucursal en cero (el RICOLINO 88022, frenado en 6, sólo pide en 2), y con los dos puestos lo
+   * frenado desaparecería justo cuando se quiere ver.
+   */
+  toggleFreno(): void {
+    const on = !this.wbFreno();
+    this.wbFreno.set(on);
+    if (on && this.wbScopeNeeded()) this.wbScopeNeeded.set(false);
+    this.loadWorkbook();
+  }
 
   // RA-PRO.36 — IAD (Índice de Aceleración de Demanda): etiqueta/severidad/tooltip por SKU.
   private readonly IAD_BANDS: Record<string, { txt: string; sev: Sev }> = {
@@ -4712,8 +4770,18 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   seasonSev(r: WorkbookRow): Sev { return Number(r.season_ratio ?? 1) > 1 ? 'warn' : 'info'; }
   seasonTitle(r: WorkbookRow): string {
     const v = Number(r.season_ratio ?? 1);
+    // `[PQ.95]` La razón de esta columna ya no trae el freno: el servidor la calcula sólo con las sucursales
+    // SIN fin de pico. Si hay alguna frenada, se dice aparte, con su etiqueta en el renglón.
     const src: Record<string, string> = { sku: 'historia del propio SKU', cat: 'historia de su categoría', global: 'estación de toda la red' };
-    return `Los próximos 30 días venden ×${v.toFixed(2)} vs los últimos 30 (${src[r.season_src ?? ''] ?? 'historia'}). El Pedido ya lo incluye.`;
+    const fp = Number(r.fin_pico_n) || 0;
+    const aparte = fp > 0 ? ` En ${fp === 1 ? '1 sucursal' : `${fp} sucursales`} el fin de pico pide con menos: lo dice la etiqueta del renglón.` : '';
+    return `Los próximos 30 días venden ×${v.toFixed(2)} vs los últimos 30 (${src[r.season_src ?? ''] ?? 'historia'}). El Pedido ya lo incluye.${aparte}`;
+  }
+  /** `[PQ.95]` Sin factor que mostrar: mes plano, o todas las sucursales frenadas por fin de pico (no es lo mismo). */
+  seasonVacioTitle(r: WorkbookRow): string {
+    return (Number(r.fin_pico_n) || 0) > 0 && r.season_ratio == null
+      ? 'Todas sus sucursales con venta están frenadas por fin de pico: lo dice la etiqueta del renglón.'
+      : 'Mes plano — la estacionalidad no mueve el pedido';
   }
   // `[RA-DYN.U7]` — cumplimiento del proveedor. El Pedido ya viene dividido por él; el chip lo
   // hace visible, que es la mitad del trabajo: un número que crece sin decir por qué no se discute
@@ -4978,8 +5046,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         this.loading.set(false);
         // `[RA-PERF.8]` Una consulta que falló NO deja en pantalla la frescura de la anterior:
         // sería la edad de un dato que ya no se está mostrando.
-        if (!r) { this.error.set(true); this.wbRows.set([]); this.frescura.set(FRESCURA_SIN_MEDIR); return; }
+        if (!r) { this.error.set(true); this.wbRows.set([]); this.frescura.set(FRESCURA_SIN_MEDIR); this.wbFrenos.set(null); return; }
         this.wbRows.set(r.rows); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
+        this.wbFrenos.set(r.frenos ?? null);
         this.cobCols.set(r.coverage_mode === 'sucursal' ? (r.cobertura_columnas ?? null) : null);
         this.wbRung.set(r.unit_rung ?? null);
         this.wbAgotadosN.set(r.agotados_con_venta ?? null);
@@ -5034,6 +5103,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       iad: iad === 'all' ? undefined : iad,
       only_overstock: this.wbOnlyOver() || undefined,
       agotados: this.wbAgotados() || undefined,
+      freno: this.wbFreno() || undefined,
     };
   }
 
@@ -5195,6 +5265,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (!this.coberturaSucursal) n++;
     if (this.wbScopeNeeded()) n++;
     if (this.wbOnlyOver()) n++;
+    if (this.wbFreno()) n++;
     if (this.wbAgotados()) n++;
     if (this.fIad() !== 'all') n++;
     return n;
@@ -5209,6 +5280,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (this.fCategory) n++;
     if (this.wbWarehouses.length) n++;
     if (this.wbOnlyOver()) n++;
+    if (this.wbFreno()) n++;
     if (this.fIad() !== 'all') n++;
     return n;
   });
@@ -5258,6 +5330,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.coberturaSucursal = true;
     this.wbScopeNeeded.set(false);
     this.wbOnlyOver.set(false);
+    this.wbFreno.set(false);
     this.wbAgotados.set(false);
     this.fIad.set('all');
     this.toolbarIdx.set(0);
@@ -6482,6 +6555,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       scope: this.wbScopeNeeded() ? 'needed' : undefined,
       warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: 'branch',
       iad: iad === 'all' ? undefined : iad, only_overstock: this.wbOnlyOver() || undefined,
+      freno: this.wbFreno() || undefined,
     } as const;
   }
 
