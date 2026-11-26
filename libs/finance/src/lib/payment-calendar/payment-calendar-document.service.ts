@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
 import { todayMx } from '@megadulces/platform-core';
-import { PLANTILLAS_CHEQUE, camposDelCheque, datosDeChequeDePrueba, dictamenCheque, plantillaDeCheque, polizaDelCheque, warehouseName, type PlantillaCheque } from '@megadulces/contracts';
+import { PLANTILLAS_CHEQUE, camposDelCheque, datosDeChequeDePrueba, dictamenCheque, plantillaDeCheque, polizaDelCheque, warehouseName, type DocumentoParaPoliza, type PlantillaCheque } from '@megadulces/contracts';
 import { chequeHtml, hojaDePruebaHtml, opcionesPdfCheque, type OpcionesCheque } from './cheque-svg';
 import { opcionesPdfPoliza, polizaHtml } from './poliza-html';
 import { PaymentCalendarService, type ExpedienteLinea, type PagoParaPoliza } from './payment-calendar.service';
@@ -41,7 +41,7 @@ export function diaDeColumna(v: unknown): string | null {
  * (en las demás el «concepto» es su texto); el UUID sólo si se ligó UN CFDI; el rótulo del descuento, el mismo del
  * Preliminar (`rotuloDescuentos`).
  */
-export function documentosDePoliza(p: Pick<PagoParaPoliza, 'items'>) {
+export function documentosDePoliza(p: Pick<PagoParaPoliza, 'items'>): DocumentoParaPoliza[] {
   return p.items.map((it) => {
     const deKepler = it.obligation_source === 'kepler_payable';
     const desc = Number(it.discount_amount || 0);
