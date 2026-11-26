@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos › Preparar pago: la ✕ para quitar una transferencia se ve (PGP.190.2 · 2026-11-26 · en código, sin soltar)
+- Al partir un pago en tres o más transferencias, cada renglón tiene una ✕ para quitarlo. Desde la actualización de PrimeNG salía vacía: se podía tocar, pero no se veía. Ahora se ve, alineada con el importe y la cuenta, y con el dedo mide 44 px.
+- Internal: en PrimeNG 22 `pButton` ya no tiene `icon` ni `label`; el ícono va dentro del botón (`[iconOnly]`). Hay 28 botones más con el mismo defecto en otras pantallas (AUD-UI.5).
+
 ### Fixed — Almacén › Ubicaciones: lo que acabas de ubicar ya no desaparece (UB.RF.19 · 2026-11-25 · **en producción**)
 - Reporte: «los productos no se están almacenando ni mostrando». **Sí se estaban guardando** — dos asignaciones ese mismo día en TA011 de Padre Hidalgo, sin un solo error. Lo que no había era dónde verlos: al guardar, el producto salía de la lista (el filtro de entrada es «Por ubicar» y ya había dejado de estarlo) y la única señal era un aviso que se va.
 - Ahora **«Acabas de ubicar (N)»** queda a la vista en la lista, con el código donde quedó cada producto y su «Quitar». Antes esa bandeja sólo se llenaba si trabajabas parado en una ubicación.

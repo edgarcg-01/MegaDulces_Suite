@@ -1164,3 +1164,24 @@ reportaban «al escanear, la Suite captura otro producto».
      promotoras se quedarían sin nada que elegir.
 - **No medido:** cuántos códigos se rechazaron por alcance (`resolveCode` no deja rastro) y quién borró
   `CAD-05-2026-00003`.
+
+---
+
+## Addendum — `AUD-UI.5`: en PrimeNG 22, `<button pButton label="…" icon="…">` sale vacío: 29 botones en 18 pantallas (2026-11-26)
+
+**Estado: ABIERTO (cada dueño de pantalla).** Lo encontró la prueba visual de Citas (`[PQ.3.8]`, anexo C §10.19).
+
+- **Qué pasa:** el directivo `pButton` de PrimeNG 22 ya no tiene las entradas `label` ni `icon` (sus tipos sólo
+  traen `text`, `size`, `severity`, `iconOnly`…). El atributo se queda como HTML sin efecto: un botón que dependía de
+  él no dice nada. Es la misma familia que `AUD-UI.2` (`styleClass` en `p-table`).
+- **Cuánto:** un barrido de las plantillas de `apps/` (`<button pButton>` con `label=` o `icon=` y sin contenido)
+  da **29 botones vacíos en 18 archivos** (24 en `view`, 5 en `vendor`): p. ej. «Reintentar» y «Quitar filtros» en
+  Costo estándar, Costo neto y Cuadre de proveedor; «Generar» y «Enviar» en Análisis comercial; la ✕ de quitar
+  transferencia en Pagos; las acciones de Rutas en el vendedor. Más 1 botón con texto que pierde su ícono.
+- **Evidencia:** nivel A para `icon` (en Citas el botón medía 18×10 px, sin ícono, en el DOM); nivel B para `label`
+  (los tipos de `primeng@22.1.4` no tienen la entrada). Las otras 18 pantallas **no se abrieron**: NO MEDIDO en vivo.
+- **Por qué nadie lo vio:** `check:templates-types` no lo marca (es un atributo HTML válido) y `check:pantalla` no mide
+  botones vacíos.
+- **Arreglo, sin hacer:** el texto y el ícono DENTRO del botón (`<i class="pi …" aria-hidden="true"></i>`, `[iconOnly]`
+  si es sólo ícono) o `<p-button label icon>`. Una compuerta que frene `pButton` con `label=`/`icon=` cerraría la puerta.
+- **Arreglados:** los de Citas (`[PQ.3.8]`, en su pantalla nueva) y la ✕ de quitar transferencia en Pagos (`[PGP.190.2]`). Quedan **28 en 17 archivos**.
