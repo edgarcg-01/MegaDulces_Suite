@@ -17,7 +17,7 @@ import {
   INK, M, MUTED, RULE, alinearTitulos, dibujarEncabezado, dibujarNotas, dibujarPies, dibujarRecuadro, fecha,
   lastY, loadLibs, loadLogo, money, tablaBase,
 } from './compras-pdf-comun';
-import { ESTATUS_KEPLER, nombreArchivoOc, referenciaUtil, textoCajasRenglon, totalesOc } from './oc-kepler';
+import { ESTATUS_KEPLER, nombreArchivoOc, referenciaUtil, textoCajasRenglon, textoTotalCajasOc, totalesOc } from './oc-kepler';
 
 /** Lo que devuelve la API para una orden: el tipo es el del contrato (ADR-052). */
 export type OcDetalle = OcDetalleDto;
@@ -107,6 +107,8 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
 
   // ── Recuadros (sólo la copia interna: al proveedor no le dicen nada que no esté en la tabla) ─
   const sumLineas = data.lineas.reduce((s, l) => s + (Number(l.importe) || 0), 0);
+  // [PQ.166] El total de cajas: en el recuadro (copia interna) y al pie de la tabla (las dos copias).
+  const totalCajas = textoTotalCajasOc(data.lineas);
   if (op.interno) {
     const gap = 10;
     const partes = [0.16, 0.2, 0.2, 0.44];
@@ -114,7 +116,7 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
     const h = 42;
     let cx = M;
     const surtido = data.pct_surtido === null ? 'Sin monto' : data.recepciones.length ? `${data.pct_surtido}%` : 'Sin recepciones';
-    const cards: [string, string][] = [['Renglones', String(data.lineas.length)], ['Total del documento', money(o.monto)], ['Surtido (en dinero)', surtido]];
+    const cards: [string, string][] = [[`Cajas · ${data.lineas.length} renglón(es)`, totalCajas], ['Total del documento con IVA', money(o.monto)], ['Surtido (en dinero)', surtido]];
     cards.forEach(([t, v], i) => { dibujarRecuadro(doc, cx, y, ws[i], h, t, v); cx += ws[i] + gap; });
     const s = data.seguimiento;
     dibujarRecuadro(doc, cx, y, ws[3], h, 'Seguimiento de Compras', etiqueta(s?.estatus ?? null));
@@ -147,12 +149,16 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
     // proveedor leía $983,607 de renglones contra un Total de $1,073,610 (OC 00/0007321, 2026-11-06).
     head: [['#', 'Código', 'Producto', 'Cantidad', 'Costo sin impuestos', 'Importe sin impuestos']],
     body: filas,
-    foot: tot.map((t) => [{ content: t.etiqueta, colSpan: 5 }, money(t.monto)]),
+    // [PQ.166] Primer renglón del pie: el total de cajas, en la columna «Cantidad».
+    foot: [[{ content: 'Total de cajas', colSpan: 3 }, totalCajas, { content: '', colSpan: 2 }],
+      ...tot.map((t) => [{ content: t.etiqueta, colSpan: 5 }, money(t.monto)])],
     footStyles: { fillColor: RULE, textColor: INK, fontStyle: 'normal', halign: 'right' },
     didParseCell: (hook: { section: string; row: { index: number }; cell: { styles: Record<string, unknown> } }) => {
       alinearTitulos([0, 3, 4, 5])(hook as never);
       // El Total, fuerte; el resto del pie, normal: un solo número manda.
-      if (hook.section === 'foot' && tot[hook.row.index]?.fuerte) { hook.cell.styles['fontStyle'] = 'bold'; hook.cell.styles['fontSize'] = 11; }
+      // [PQ.166] El pie empieza con el total de cajas (renglón 0, en negritas): los de dinero van corridos uno.
+      if (hook.section === 'foot' && hook.row.index === 0) hook.cell.styles['fontStyle'] = 'bold';
+      if (hook.section === 'foot' && tot[hook.row.index - 1]?.fuerte) { hook.cell.styles['fontStyle'] = 'bold'; hook.cell.styles['fontSize'] = 11; }
     },
     showFoot: 'lastPage',
     columnStyles: {

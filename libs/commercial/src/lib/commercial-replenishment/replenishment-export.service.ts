@@ -359,6 +359,8 @@ export class ReplenishmentExportService {
     const isTransfer = order.via === 'transfer';
     const any = (f: (r: PedidoExportLine) => boolean) => rows.some(f);
     const pzOf = (r: PedidoExportLine) => Number(r.piezas ?? Number(r.cajas || 0) * Number(r.uxc || 1)) || 0;
+    // `[PQ.166]` Un renglón con cajas y SIN factor de caja (`piezas === null` explícito): sus piezas no se saben.
+    const sinFactor = (r: PedidoExportLine) => r.piezas === null && r.cajas != null;
     const lineCostOf = (r: PedidoExportLine) => Number(r.line_cost ?? pzOf(r) * Number(r.unit_cost || 0)) || 0;
 
     // Columna presente solo si alguna línea aporta el dato.
@@ -416,10 +418,10 @@ export class ReplenishmentExportService {
     if (has.suggested) cols.push({ h: 'Sugerido', v: (r) => Number(r.suggested_qty) || 0, fmt: NUM, width: 10 });
     if (has.uxc) cols.push({ h: 'Pz/caja', v: (r) => Number(r.uxc) || 1, fmt: NUM, width: 8 });
     if (has.cajas) cols.push({ h: 'Pedir (cajas)', v: (r) => (r.cajas != null ? Number(r.cajas) : ''), fmt: NUM, total: true, kind: 'cajas', width: 12 });
-    cols.push({ h: 'Piezas', v: (r) => pzOf(r), fmt: NUM, total: true, width: 10 });
+    cols.push({ h: 'Piezas', v: (r) => (sinFactor(r) ? 'sin factor' : pzOf(r)), fmt: NUM, total: true, width: 10 });
     if (has.received) cols.push({ h: 'Recibido', v: (r) => (r.received_qty != null ? Number(r.received_qty) : ''), fmt: NUM, width: 10 });
     cols.push({ h: 'Costo unit. sin IVA', v: (r) => Number(r.unit_cost) || 0, fmt: MONEY, width: 14 });
-    cols.push({ h: 'Importe', v: (r) => lineCostOf(r), fmt: MONEY, total: true, kind: 'importe', width: 14 });
+    cols.push({ h: 'Importe sin IVA', v: (r) => lineCostOf(r), fmt: MONEY, total: true, kind: 'importe', width: 15 });
 
     const lastCol = cols.length;
     const lastColL = ws.getColumn(lastCol).letter;
@@ -443,7 +445,8 @@ export class ReplenishmentExportService {
     ws.mergeCells(2, 1, 2, lastCol);
     const sub = ws.getCell(2, 1);
     const nCajas = rows.reduce((s, r) => s + (Number(r.cajas) || 0), 0);
-    const nPz = rows.reduce((s, r) => s + pzOf(r), 0);
+    const nPz = rows.reduce((s, r) => s + (sinFactor(r) ? 0 : pzOf(r)), 0);
+    const nSinFactor = rows.filter(sinFactor).length;
     const importe = rows.reduce((s, r) => s + lineCostOf(r), 0);
     const ctx: string[] = [isTransfer ? `Traspaso${order.source_warehouse_code ? ' ← ' + order.source_warehouse_code : ''}` : 'Compra'];
     if (order.warehouse_label) ctx.push(order.warehouse_label);
@@ -452,7 +455,7 @@ export class ReplenishmentExportService {
     const totals =
       `${rows.length} líneas` +
       (has.cajas ? ` · ${nCajas.toLocaleString('es-MX')} cajas` : '') +
-      ` · ${nPz.toLocaleString('es-MX')} pz · ${importe.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}`;
+      ` · ${nPz.toLocaleString('es-MX')} pz${nSinFactor ? ` (${nSinFactor} renglón(es) sin factor de caja)` : ''} · ${importe.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} sin IVA`;
     sub.value = {
       richText: [
         { text: `${ctx.join('  ·  ')}   —   ${totals}`, font: { name: FONT, size: 9, color: { argb: MUTED } } },

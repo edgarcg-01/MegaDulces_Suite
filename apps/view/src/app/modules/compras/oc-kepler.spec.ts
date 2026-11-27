@@ -1,4 +1,4 @@
-import { cajasDeRenglon, nombreArchivoOc, referenciaUtil, textoCajasRenglon, textoTasas, totalesOc } from './oc-kepler';
+import { cajasDeRenglon, nombreArchivoOc, referenciaUtil, textoCajasRenglon, textoTasas, textoTotalCajasOc, totalesOc } from './oc-kepler';
 
 describe('[RA-PRO.61] cajasDeRenglon — sólo cuando el costo confirma la unidad', () => {
   it('el caso real: 900 PAQ, 20 por caja, costo 56 y caja 1,120 → 45 cajas', () => {
@@ -119,5 +119,17 @@ describe('[PQ.86] el costo de la OC dice que es sin impuestos', () => {
     expect(pdf).toContain("'Costo sin impuestos', 'Importe sin impuestos'");
     expect(panel).toContain('class="comm-num">Costo sin imp.</th><th scope="col" class="comm-num">Importe sin imp.</th>');
     expect(panel).not.toMatch(/class="comm-num">(Costo|Importe)<\/th>/);
+  });
+});
+
+describe('[PQ.166] el total de cajas de la OC', () => {
+  const caja = (cajas: number) => ({ cantidad: cajas * 20, unidades_por_caja: 20, costo_unitario: 56, costo_caja: 1120 });
+  const rota = { cantidad: 12, unidades_por_caja: 12, costo_unitario: 0.0008, costo_caja: 0.01 };
+  it('suma las cajas verificadas (la 0007492: 4 × 132 = 528 cj)', () => {
+    expect(textoTotalCajasOc([caja(132), caja(132), caja(132), caja(132)])).toBe('528 cj');
+  });
+  it('un renglón sin cajas verificadas no se suma como cero: se dice', () => {
+    expect(textoTotalCajasOc([caja(10), rota])).toBe('10 cj + 1 renglón(es) sin verificar');
+    expect(textoTotalCajasOc([rota])).toBe('1 renglón(es) sin cajas verificadas');
   });
 });
