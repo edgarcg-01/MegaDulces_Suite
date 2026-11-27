@@ -108,6 +108,60 @@ está encargado aparte.
 
 ---
 
+## 2.3 ⭐⭐ Cómo registra Kepler un inventario físico — y cuándo fue el último
+
+> Esto **no estaba documentado en ningún lado** y cambia el final del proceso. Lo contesta el
+> catálogo de tipos de documento del propio ERP (`kepler_ods.kdmm`), no una suposición.
+
+Kepler tiene una familia completa para esto, y las sucursales **la usan**:
+
+| Documento | Cómo lo llama Kepler |
+|---|---|
+| **`N-A-45`** | **Captura inventario físico** |
+| **`N-A-30`** | **Entrada Inventario físico** (los sobrantes) |
+| **`N-D-30`** | **Salida inventario físico** (los faltantes) |
+| `N-A-20` · `N-D-5` | «Entradas por ajuste» · «Salida por ajuste» — el ajuste chico del día a día, que se usa **todos los días** en todas las sucursales |
+
+### El último inventario físico fue en septiembre, y fue escalonado
+
+Medido sobre `kdm1`: **una sucursal por día**, exactamente el modelo que Edgar describió.
+
+| Fecha | Sucursal |
+|---|---|
+| 10-sep | 05 Zamora Centro |
+| 11-sep | 01 Padre Hidalgo |
+| **17-sep** | **04 Yurécuaro** |
+| 18-sep | 08 Morelia Abastos |
+| 22-sep | 03 8 Esquinas |
+| 23-sep | 02 La Piedad |
+| 30-sep | 00 CEDIS |
+
+### Y así se ve uno hecho: Yurécuaro, 17-sep-2026
+
+| Documento | Folio | Renglones | Importe |
+|---|---|---:|---:|
+| `N-A-45` Captura inventario físico | 1/0000003 | **1,567** | $679,888.72 |
+| `N-A-30` Entrada (sobrantes) | 1/0000004 | **264** | $116,053.19 |
+| `N-D-30` Salida (faltantes) | 1/0000003 | **346** | $64,540.70 |
+
+⭐ **Eso es la vara del martes**: la última vez se capturaron **1,567 artículos** y se ajustaron
+**610** —264 sobrantes contra 346 faltantes—, con un neto de **+$51,512** a favor. Hoy Yurécuaro
+tiene **2,024** artículos con existencia, así que la captura de septiembre cubrió el 77 % de lo que
+hoy habría que contar; lo que falte explicar de esa diferencia **no se asume**, se pregunta.
+
+### Lo que esto corrige del exportador
+
+⛔ `keplerAdjustmentExport` rotula cada línea con `kepler_doc: 'InvIn' | 'InvOut'` y declara
+`doc_type_hint: 'PhysInv (Physical inventory) / InvIn+InvOut'`. **Esos nombres no existen en
+Kepler**: son inglés inventado. Los reales son `N-A-45`, `N-A-30` y `N-D-30`.
+
+⛔ Además `kepler_branch` sale de un `^KEPLER-(\w+)$` sobre el código del almacén. El de Yurécuaro
+es `04`, así que **saldría `null`**: el archivo no diría a qué sucursal de Kepler va.
+
+⛔ Y lo que devuelve es **JSON**, no algo que alguien pueda capturar. Nadie captura JSON.
+
+---
+
 ## 3. Lo medido el 2026-11-27
 
 ### 3.1 El módulo nunca se usó
