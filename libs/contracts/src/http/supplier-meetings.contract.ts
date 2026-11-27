@@ -260,6 +260,11 @@ export interface PersonaCitas {
   readonly puesto: string;
   /** El área que se propone por su puesto; la pantalla la deja cambiar. */
   readonly area: AreaParticipante | null;
+  /**
+   * `[PQ.3.10]` Si además AGENDA Citas. Sólo quien agenda puede ser responsable de un acuerdo: DC44 dice que los que
+   * agendan crean, cambian y cierran, y que cada responsable cierra el suyo (quien sólo ve no podría cerrarlo).
+   */
+  readonly agenda: boolean;
 }
 
 /** `GET /compras/proveedores/citas/opciones`. */

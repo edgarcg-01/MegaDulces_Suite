@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Added — Compras › Proveedores › Acuerdos: lo que se decide en una reunión, con dueño y fecha (PQ.3.10 C0–C3 · 2026-11-27 · en código, sin soltar)
+- Nueva pestaña «Acuerdos» en Compras › Proveedores (`/compras/acuerdos`): los compromisos abiertos con lo vencido primero, cinco cifras que filtran (vencidos, vencen hoy, esta semana, al día, cerrados), «Míos», área con su conteo y el buscador común. Cumplir o cancelar, siempre con nota; cada acuerdo lleva a su reunión en Citas.
+- En el detalle de cada reunión realizada se capturan sus acuerdos (siempre salen de una reunión, DC45). El del proveedor guarda el nombre de su persona y lo sigue en la Suite quien organizó la reunión (DC43). Una reunión todavía agendada dice por qué no recibe acuerdos y muestra lo que sigue abierto con ese proveedor.
+- «Mi trabajo»: «Acuerdos con proveedores a tu cargo», con los vencidos; lleva a la pestaña con «Míos». Lo que vence hoy no cuenta como vencido.
+- Quién entra (DC44): las llaves de Citas, sin llaves nuevas. Agendan Compras, Mercadotecnia y Tesorería; Dirección consulta. El responsable de un acuerdo de Mega Dulces es alguien que agenda Citas: cada responsable cierra el suyo.
+- Changed: con el dedo, las pestañas de la barra compartida (`app-page-tabs`) miden 44 px; con mouse no cambia.
+- Migración, a mano antes de soltar: `20261126232231` (la tabla; no mueve datos).
+
 ### Fixed — Almacén › Ubicaciones: no se podía crear ninguna pieza del croquis (UB.PL.14 · 2026-11-27)
 - Desde el 26 de noviembre, **todo intento de armar o ampliar el croquis fallaba** con un error del servidor: derivar las piezas de una sucursal, dar de alta una pieza nueva y agregarle una cara a un mueble. El módulo quedó inservible para escritura un día entero.
 - No se notó porque el único botón que lo dispara estaba escondido. Apareció el mismo día en que ese botón volvió a existir: **el arreglo de ayer fue lo que destapó el defecto de anteayer**.

@@ -1459,6 +1459,13 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/compras/pages/compras-citas.component').then(m => m.ComprasCitasComponent),
         canActivate: [anyPermissionGuard(Permission.COMPRAS_CITAS_VER, Permission.COMPRAS_CITAS_AGENDAR)]
       },
+      {
+        // `[PQ.3.10]` Proveedores › Acuerdos: lo que se decide en una reunión, con dueño y fecha (anexo C §10.20). Con las
+        // llaves de Citas, sin llaves nuevas (DC44): las dos abren la ruta (NO REBOTE). «Mi trabajo» llega con ?de=mios.
+        path: 'acuerdos',
+        loadComponent: () => import('./modules/compras/pages/compras-acuerdos.component').then(m => m.ComprasAcuerdosComponent),
+        canActivate: [anyPermissionGuard(Permission.COMPRAS_CITAS_VER, Permission.COMPRAS_CITAS_AGENDAR)]
+      },
       { path: 'que-toca', redirectTo: 'pedido', pathMatch: 'full' },
       { path: 'pedido-real', redirectTo: 'pedido', pathMatch: 'full' },        // fusionada en Pedido
       { path: 'existencia-critica', redirectTo: 'pedido', pathMatch: 'full' }, // fusionada en Pedido

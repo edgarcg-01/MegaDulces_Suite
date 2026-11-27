@@ -166,14 +166,15 @@ const LLAVES_VE = [LLAVE_VER, LLAVE_VER, LLAVE_AGENDAR, LLAVE_AGENDAR];
 
 /** `GET /compras/proveedores/citas/opciones` — quién puede ir por Mega Dulces, con el área que propone su puesto. */
 export async function leerOpciones(trx: Knex.Transaction, tenant: string): Promise<OpcionesCitas> {
-  const filas: { user_id: string; nombre: string | null; role_name: string | null }[] = await trx('identity.users as u')
+  const filas: { user_id: string; nombre: string | null; role_name: string | null; agenda: boolean }[] = await trx('identity.users as u')
     .where('u.tenant_id', tenant).andWhere('u.activo', true).whereNull('u.deleted_at')
     .whereRaw(VE_LA_AGENDA, LLAVES_VE)
-    .select('u.id as user_id', 'u.nombre', 'u.role_name')
+    // `[PQ.3.10]` Quién además agenda: el formulario de Acuerdos sólo ofrece a ésos como responsables (DC44).
+    .select('u.id as user_id', 'u.nombre', 'u.role_name', trx.raw(`${permisoEfectivoSql('u')} AS agenda`, [LLAVE_AGENDAR, LLAVE_AGENDAR]))
     .orderBy('u.nombre');
   return {
     personas: filas.filter((f) => !isPlatformAdminRole(f.role_name)).map((f) => ({
-      user_id: f.user_id, nombre: f.nombre ?? '(sin nombre)', puesto: f.role_name ?? '', area: areaDelPuesto(f.role_name),
+      user_id: f.user_id, nombre: f.nombre ?? '(sin nombre)', puesto: f.role_name ?? '', area: areaDelPuesto(f.role_name), agenda: !!f.agenda,
     })),
   };
 }

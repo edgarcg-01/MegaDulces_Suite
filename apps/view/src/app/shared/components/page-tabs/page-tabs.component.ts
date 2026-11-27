@@ -184,6 +184,11 @@ export interface PageTab {
       .pt-liquid-wrap .liquid-tab {
         text-decoration: none;
       }
+      /* [PQ.3.10] Con el dedo, 44 px (Fitts gana a la densidad cuando el puntero es grueso). Medido en la prueba visual de
+         Acuerdos: las pestañas daban 36 px en el Fold 7 y en el celular. Con mouse no cambia nada. */
+      @media (pointer: coarse) {
+        .ptab, .pt-menu-btn, .liquid-tab { min-height: var(--tap-min, 44px); }
+      }
     `,
   ],
 })

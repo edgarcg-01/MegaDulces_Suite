@@ -241,6 +241,8 @@ correr(async () => {
     const ids = new Set(op.personas.map((p) => p.user_id));
     check('opciones: quien ve la agenda (por rol o por persona), no quien no la ve ni el inactivo', ids.has(ANA) && ids.has(LUIS) && ids.has(LETY) && !ids.has(PEPE) && !ids.has(BAJA),
       op.personas.filter((p) => /^Prueba/.test(p.nombre)));
+    const agenda = Object.fromEntries(op.personas.map((p) => [p.user_id, p.agenda]));
+    check('[PQ.3.10] opciones: dicen quién además AGENDA (Ana sí; Luis y Lety sólo ven) — Acuerdos sólo ofrece a ésos como responsables', agenda[ANA] === true && agenda[LUIS] === false && agenda[LETY] === false, { ANA: agenda[ANA], LUIS: agenda[LUIS], LETY: agenda[LETY] });
 
     // 7. RLS: con otro tenant, no existe.
     await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [OTRO]);
