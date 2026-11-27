@@ -226,7 +226,7 @@ Y se actualiza el símbolo al avanzar:
 
 ## 🎯 EN PROGRESO
 
-### Fase ICR — Inventario por recorrido · 2026-11-27 · abierta por Edgar por encima del cupo (12ª 🔨 contra 4) · plan en [`FASE_ICR`](FASES/FASE_ICR_INVENTARIO_POR_RECORRIDO.md)
+### Fase ICR — Inventario por recorrido · abierta por Edgar el 2026-11-27 · ⚠️ **sin dueño ni fecha de cierre comprometida**, que es lo que ahora sostiene a una fase 🔨 (método §3, el tope de 4 se retiró ese mismo día) · plan en [`FASE_ICR`](FASES/FASE_ICR_INVENTARIO_POR_RECORRIDO.md)
 
 > **MÉTRICA — HOY: 0 folios cerrados de 8 en 9 meses** (medido 2026-11-27 contra prod) → **META: 1 cerrado de punta a punta en Padre Hidalgo.** El modelo del conteo es **anterior** a UB (ubicaciones con orden de recorrido), a las olas de surtido de GP y al catálogo de códigos por unidad: la fase lo vuelve a apoyar sobre los tres. D1–D4 tomadas por Claude al abrir, D5 partida, D6 firmada por Edgar.
 

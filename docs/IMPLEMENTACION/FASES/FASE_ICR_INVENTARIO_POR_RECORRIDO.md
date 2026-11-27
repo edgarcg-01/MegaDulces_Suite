@@ -8,12 +8,16 @@ MÉTRICA:  Folios cerrados — HOY: 0 de 8 en 9 meses (medido 2026-11-27) → ME
 CAPA TOPE: C3
 ÁREA:      Comercial
 DUEÑO:     <por definir — Edgar>
-ESTADO:    🔨 (abierta por Edgar el 2026-11-27, por encima del cupo)
+ESTADO:    🔨 (abierta por Edgar el 2026-11-27)
 ```
 
-⭐ **Abierta por Edgar el 2026-11-27 por encima del cupo** (*«abrámoslo»*), a sabiendas: es la **12ª
-fase 🔨 contra un tope de 4**, medido ese día con `node .claude/skills/pm/tablero.js`. Queda escrito
-acá porque el cupo existe para que esa decisión sea **visible**, no para impedirla. Ver §5.
+⭐ **Abierta por Edgar el 2026-11-27** (*«abrámoslo»*). Ese día había un tope de 4 fases 🔨 y
+ésta era la 12ª, así que se abrió «por encima del cupo». ⛔ **Horas después, el mismo día, Edgar
+retiró el tope** (`daf868d90`): no limitaba —en 90 días entraron 12 fases y salieron cero, con el
+tope saltado ocho veces—. Lo que ahora sostiene a una fase 🔨 es otra cosa, y esta fase
+**todavía no la tiene**: **dueño** y **fecha de cierre comprometida**, con su tarjeta en el
+tablero del PM (`node .claude/skills/pm/caducidad.js`). Sin las dos, cae a ⏸️ sola. Las dos son
+de Edgar.
 
 ⭐ **D1–D4 las tomó Claude al abrir** (son de diseño y de proceso, no de negocio): se adoptan las
 recomendaciones de §4 tal como estaban escritas. **D5 queda partida**: el *mecanismo* —capturar la
@@ -150,7 +154,7 @@ ve cada usuario y cómo lo ve»*.
 | **D3** | ¿El teórico sale **sólo del ODS** y se retiran las otras dos fuentes? | **Sí.** Es la regla principal del proyecto, y hoy una de las tres tiene cero filas | Edgar |
 | **D4** | ¿Se puede contar en **pieza suelta** cuando la unidad nativa es el paquete? | **Hoy no**: no existe el factor paquete→pieza y el del código de barras discrepa 96 %. O se consigue el dato, o se declara que no se cuenta así | Edgar |
 | **D5** | ¿Quién captura las **3,325 asignaciones de ubicación** que faltan, y cuándo? | El inventario es el único momento en que alguien recorre el almacén entero: **capturar la ubicación mientras se cuenta** | Edgar |
-| **D6** | **El cupo**: 11 fases 🔨 contra 4 | ✅ **Firmada 2026-11-27**: Edgar la abrió por encima del cupo. Quedan **12 🔨** | Edgar |
+| **D6** | **El cupo**: era de 4 y había 11 🔨 | ✅ **Resuelta y luego disuelta, 2026-11-27**: Edgar abrió la fase por encima del cupo y después **retiró el tope entero**. Lo que la reemplaza: dueño + fecha de cierre comprometida, que esta fase **no tiene** | Edgar |
 | **D7** | ⭐ **¿El renglón de conteo es por PRODUCTO o por (ubicación × producto)?** Apareció al construir C0: un producto puede estar en varios tramos —hoy **8 de 40** asignados están en dos o tres—, y entonces «este tramo es tuyo» no alcanza: alguien tiene que contar la otra punta | **Por (ubicación × producto)**, como un renglón hijo del artículo y no cambiando el grano del actual: el teórico del ERP es **por producto** y la diferencia se sigue calculando ahí. ⚠️ Mientras no se firme, C0 **no lo resuelve en silencio**: el renglón publica `tramos > 1` para que se vea | Edgar |
 
 **Estado al 2026-11-27:** D1, D2, D3 y D4 **tomadas por Claude** con la recomendación de esta tabla
@@ -161,13 +165,18 @@ de captura espera a Edgar. D6 **firmada**. Cada una que se ejerza en código dej
 
 ## 5. Riesgos y bloqueos
 
-- ⛔⛔ **El cupo, ya pagado.** Abierta por encima del tope: quedan **12 fases 🔨 contra 4**. Estar
-  firmado no apaga el riesgo —*se abre más de lo que se cierra* sigue siendo el cuello del proyecto—,
-  así que esta fase se trabaja **de abajo hacia arriba y por capas**: C0 entero antes de tocar C1, y
-  lo que no alcance a cerrar se **declara con nombre**, no se deja a medias en silencio.
-- ⛔ **La cobertura de ubicaciones es del 1 %.** Con 5 ubicaciones ocupadas de 471, el reparto por
-  tramos arrancaría casi vacío: casi todo caería en «sin ubicar». La fase **no falla** por eso —ese
-  tramo es trabajo real y se ve— pero el beneficio llega cuando alguien capture (D5).
+- ⛔⛔ **Lo que sostiene a esta fase todavía no existe.** El tope de 4 que se saltó al abrirla se
+  retiró el mismo día, y lo que ocupó su lugar es más exigente: **dueño con nombre y fecha de
+  cierre comprometida**, o la fase cae a ⏸️ sola. Medido el 2026-11-27: **0 de 12** fases 🔨 las
+  tienen, ésta incluida, y además le falta la tarjeta en el tablero del PM. El riesgo de fondo no
+  cambió —*se abre más de lo que se cierra*, +12 en 90 días—, así que esta fase se trabaja **de
+  abajo hacia arriba y por capas**: C0 entero antes de tocar C1, y lo que no alcance a cerrar se
+  **declara con nombre**, no se deja a medias en silencio.
+- ⛔ **La cobertura de ubicaciones es del 1 %, y además es de la mitad equivocada.** Con 5
+  ubicaciones ocupadas de 471 el reparto por tramos arrancaría casi vacío —casi todo caería en
+  «sin ubicar»—, y las 472 ubicaciones con recorrido son **del piso de venta**: de bodega hay
+  cero. La fase **no falla** por eso —ese tramo es trabajo real y se ve— pero el beneficio llega
+  cuando alguien capture (D5), y el primer piloto tiene que ser **de piso**, no de almacén.
 - ⚠️ **Tocar el sembrado del folio cambia un número** que la gente va a comparar. Todo cambio ahí
   va con su medición antes/después (regla 15).
 - ⚠️ **El catálogo duplicado sigue vivo** y es de otra área. El conteo lo esquiva; no lo quita.
