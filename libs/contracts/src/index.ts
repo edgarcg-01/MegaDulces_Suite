@@ -137,6 +137,8 @@ export * from './http/autoabasto-ordenes';
 export * from './http/autoabasto-mesa.contract';
 // [AB.40] El motor único de cantidad (tope de 45 días) para Autoabasto y Compras.
 export * from './http/cantidad-pedido.contract';
+// [AB.PM.2] El pedido a mano: el alcance del renglón y cómo se parte al mandarlo.
+export * from './http/autoabasto-captura.contract';
 // [PQ.162] Una compra se muestra con impuestos desde el pedido: la fórmula de Kepler.
 export * from './http/impuestos-compra.contract';
 export * from './http/warehouse-locations.contract';
@@ -344,3 +346,5 @@ export * from './http/quote-capture.contract';
 export * from './http/quote-units.contract';
 // `[GP.R.2]` El cierre del resto de centavos de un cliente con el Ajuste Abono `U-A-30`, y el insoluto que le queda ante el SAT.
 export * from './finance/ajuste-abono.contract';
+// `[PGP.229]` La bandeja «Facturas fuera de norma»: la decisión de Administración o Contabilidad (la regla, en finance/norma-fiscal-cfdi).
+export * from './finance/facturas-fuera-de-norma.contract';

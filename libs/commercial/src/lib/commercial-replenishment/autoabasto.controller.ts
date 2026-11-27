@@ -8,6 +8,8 @@ import type {
   AutoabastoRenglonesResponse, EstadoRenglon, SurteRenglon, OrdenMesa,
   AutoabastoEnviarRequest, AutoabastoEnviarResponse,
   AutoabastoVieneRenglonesResponse, MonthlySalesResponse,
+  AutoabastoManoBuscarResponse, AutoabastoManoResponse, AutoabastoManoRenglon, AutoabastoManoOrigenesResponse,
+  AutoabastoManoGuardarRequest, AutoabastoManoQuitarRequest, AutoabastoManoEnviarRequest, AutoabastoManoEnviarResponse,
 } from '@megadulces/contracts';
 import { ESTADOS_RENGLON, ORDENES_MESA } from '@megadulces/contracts';
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
@@ -340,6 +342,72 @@ export class AutoabastoController {
   async posiciones(@Body() body: AutoabastoPosicionesRequest): Promise<{ posiciones: PosicionPedido[] }> {
     const almacen = await this.almacenEnAlcance(body?.warehouse_id);
     return this.pedidos.guardarPosiciones(almacen.id, body);
+  }
+
+  // ── [AB.PM.3] El pedido a mano: lo que la sucursal pide aunque el motor no lo sugiera, a quien ella elige ──
+
+  /** `[AB.PM.4]` A quién se le puede pedir (R6): la misma regla con que el servidor valida el origen. */
+  @Get('pedido/mano/origenes')
+  @RequirePermissions(Permission.AUTOABASTO_VER)
+  @ApiOperation({ summary: '[AB.PM.4] Pedido a mano: las sucursales a las que se les puede pedir' })
+  async origenesMano(@Query('warehouse_id') warehouse_id?: string): Promise<AutoabastoManoOrigenesResponse> {
+    const almacen = await this.almacenEnAlcance(warehouse_id);
+    return this.pedidos.origenesMano(almacen);
+  }
+
+  /** Buscar qué pedir a mano, con sus números (existencia propia y del origen, lo que viene, alcance) y R8. */
+  @Get('pedido/mano/buscar')
+  @RequirePermissions(Permission.AUTOABASTO_VER)
+  @ApiOperation({ summary: '[AB.PM.3] Pedido a mano: buscar productos con existencia, lo que viene, alcance y si Kepler lo rechazaría' })
+  async buscarMano(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('q') q?: string,
+    @Query('origen_code') origen_code?: string,
+    @Query('limit') limit?: string,
+  ): Promise<AutoabastoManoBuscarResponse> {
+    const almacen = await this.almacenEnAlcance(warehouse_id);
+    return this.pedidos.buscarMano(almacen, q, origen_code, limit ? Number(limit) : undefined);
+  }
+
+  /** Lo pedido a mano, con su alcance y lo que Kepler rechazaría, partido en un pedido por sucursal. */
+  @Get('pedido/mano')
+  @RequirePermissions(Permission.AUTOABASTO_VER)
+  @ApiOperation({ summary: '[AB.PM.3] Pedido a mano: los renglones capturados, partidos por sucursal origen' })
+  async pedidoAMano(@Query('warehouse_id') warehouse_id?: string): Promise<AutoabastoManoResponse> {
+    const almacen = await this.almacenEnAlcance(warehouse_id);
+    return this.pedidos.pedidoAMano(almacen);
+  }
+
+  /** Guardar (o cambiar) un renglón a mano: qué, a quién, cuánto y en qué unidad. */
+  @Put('pedido/mano')
+  @RequirePermissions(Permission.AUTOABASTO_SOLICITAR)
+  @ApiOperation({ summary: '[AB.PM.3] Pedido a mano: guardar un renglón (reemplaza el ajuste del sugerido de ese producto)' })
+  async guardarMano(@Body() body: AutoabastoManoGuardarRequest): Promise<{ pedido_id: string; renglon: AutoabastoManoRenglon }> {
+    const almacen = await this.almacenEnAlcance(body?.warehouse_id);
+    if (!body?.product_id || !UUID_RX.test(body.product_id)) throw new BadRequestException('Falta el producto.');
+    return this.pedidos.guardarMano(almacen, body);
+  }
+
+  /** Quitar un renglón del pedido a mano. */
+  @Post('pedido/mano/quitar')
+  @RequirePermissions(Permission.AUTOABASTO_SOLICITAR)
+  @ApiOperation({ summary: '[AB.PM.3] Pedido a mano: quitar un renglón' })
+  async quitarMano(@Body() body: AutoabastoManoQuitarRequest): Promise<{ pedido_id: string; product_id: string }> {
+    const almacen = await this.almacenEnAlcance(body?.warehouse_id);
+    if (!body?.product_id || !UUID_RX.test(body.product_id)) throw new BadRequestException('Falta el producto.');
+    return this.pedidos.quitarMano(almacen, body);
+  }
+
+  /**
+   * Mandar el pedido a mano: un pedido por sucursal origen, que nace autorizado en su Kepler (ADR-127).
+   * Mismo permiso y mismo control de alcance que «Enviar» del sugerido.
+   */
+  @Post('pedido/mano/enviar')
+  @RequirePermissions(Permission.AUTOABASTO_SOLICITAR)
+  @ApiOperation({ summary: '[AB.PM.3] Pedido a mano: mandar (un pedido por sucursal origen; lo de Compras y lo que Kepler rechazaría se queda)' })
+  async enviarMano(@Body() body: AutoabastoManoEnviarRequest): Promise<AutoabastoManoEnviarResponse> {
+    const almacen = await this.almacenEnAlcance(body?.warehouse_id);
+    return this.pedidos.enviarMano(almacen, body);
   }
 
   /** `[AB.18]` La persona abrió su pedido (huella). Sólo exige VER. */

@@ -605,3 +605,109 @@ ayudar y afirmar:
 
 `CC.22.b` — la fila todavía **no declara la obligación fiscal con su fecha** (que la factura es PPD y hasta
 cuándo hay para el complemento). Hoy el aviso dice que falta capturarlo y qué pasa si no; falta **el plazo**.
+---
+
+## CC.32 — ⭐⭐ CORRIGE A `CC.29`: la escritura de la Suite era CORRECTA, y Kepler produce ese mismo estado solo (2026-11-27)
+
+> Edgar: *«te pedí que los cobros se escribieran desde Suite en Kepler, es tu objetivo»* y
+> *«antes de pedir que nosotros lo hagamos, verifiquemos cómo lo hacen Kepler»*. Se verificó, y el
+> resultado **corrige la lectura pesimista de `CC.29`**.
+
+### 1. El encabezado que escribió la Suite no tenía nada malo
+
+Se compararon, columna por columna, el `kdm1` de un cobro **sin timbrar** (`06/U-A-7/0000117`) y el de uno
+**timbrado** (`0000123`), los dos capturados por una persona:
+
+| Lo que difiere | Lo que NO difiere |
+|---|---|
+| folio, fecha, cliente, importe, domicilio, hora | **todo lo demás** |
+
+⛔ **Ninguna columna de `kdm1` guarda el timbre.** El timbre vive **sólo** en `kdfe33m1`. Por lo tanto el
+*«Versión CFDI: (vacío)»* de `CC.29` **no era un defecto de nuestra fila**: es, literalmente, **cómo se ve en
+Kepler cualquier cobro sin timbrar**.
+
+### 2. Y Kepler llega a ese estado por su cuenta — 6 veces, con dinero adentro
+
+Medido sobre los cobros `U-A-7` desde el 1-sep (ODS, sucursales 01/06/08):
+
+| Sucursal | Cobros | Con timbre | **Sin timbre** |
+|---|---:|---:|---:|
+| 01 | 961 | 961 | 0 |
+| **06** | 898 | 892 | **6** |
+| 08 | 517 | 517 | 0 |
+
+Los seis son del **22 y 23 de septiembre**, folios consecutivos `0000117`–`0000122`, capturados por la misma
+persona (`0CYC`), **vivos** (`c43 = 'N'`, no cancelados) y **aplicados a 18 facturas** por un total de
+**$168,278.58**. Dos meses después **siguen sin complemento**.
+
+⭐⭐ **De ahí sale la respuesta a `D-CC1`, medida en vez de preguntada: Kepler NO reintenta.** Si hubiera un
+barrido o una cola de pendientes, esos seis se habrían timbrado solos hace dos meses. El timbre se pone **una
+vez, al guardar** — y si falla (el PAC caído, la red), **nadie vuelve**.
+
+### 3. Y el complemento no es opcional
+
+`kdfe33folxdoc` de la 06 configura `U-A-7` serie 1 → comprobante **tipo `P`**, método `CP01`. O sea: **todo
+cobro de esa serie debe emitir complemento de pago**. Los seis son una obligación fiscal incumplida, y su
+plazo (el 5 de octubre) ya venció.
+
+### ⭐ Lo que esto cambia para el objetivo
+
+El problema **no es escribir el cobro** —eso ya funciona y quedó probado en `CC.23` y `CC.25`—: es **disparar
+el timbre**. Y esos seis cobros son un **experimento ya pagado**: son reales, los hizo una persona, están sin
+timbrar y siguen ahí.
+
+| | Qué hacer | Qué contesta |
+|---|---|---|
+| **A** ⭐⭐ | Que alguien de Crédito **abra `06/U-A-7/0000117` en Kepler e intente timbrarlo** | Si se puede, **ése es el camino** para todo lo que escriba la Suite: la Suite deja el cobro armado y aplicado, y el timbre se dispara desde Kepler sin teclear nada |
+| **B** | Si Kepler **no** ofrece timbrar un cobro ya guardado | Entonces el único camino es que el alta ocurra dentro de Kepler, y la Suite se queda en «preparar» (`D-CC2`) |
+
+### ⚠️ Aparte del proyecto: esto es un hallazgo fiscal
+
+Seis complementos de pago **nunca emitidos**, $168,278.58, 18 facturas. No lo destapó una compuerta: no hay
+ninguna que mire si un cobro se timbró. **Esa compuerta falta**, y es barata: el `LEFT JOIN` de arriba.
+
+---
+
+## CC.33 — ⭐⭐ El cobro se registra en Kepler **DESDE LA PANTALLA** (2026-11-27)
+
+> Edgar: *«el punto es generarlo desde la interfaz»* · *«no me sirve que lo generes a mano»*. El guion de `ops/`
+> contestó **si se puede**; esto lo vuelve **producto**.
+
+### Qué quedó
+
+| Pieza | Dónde |
+|---|---|
+| La decisión, **pura y probada sin base** (12 pruebas, cada guarda con su control) | `libs/finance/src/lib/customer-ledger/cobro.armador.ts` |
+| El carril que escribe en el Kepler de la sucursal | `kepler-cobro-sink.adapter.ts` |
+| `POST /api/finance/collections/clientes/:id/escribir-cobro` | `customer-deposits.controller.ts` |
+| `GET …/cobro/habilitado/:sucursal` — para no ofrecer un botón que va a fallar | idem |
+| El botón **«Registrar el cobro en Kepler»** en la fila de la bandeja | `fichas-clientes.component.ts` |
+| El interruptor por sucursal, **apagado en las nueve** | migración `20261127091408` |
+
+### Las decisiones que lleva dentro
+
+- ⭐ **La referencia se deriva de la ficha**, no del reloj: un reintento **encuentra lo ya escrito** en vez de
+  escribir un segundo cobro. La idempotencia es de la llave, no de la suerte.
+- ⭐ **Qué facturas se aplican:** las que mande la pantalla. Si no manda ninguna, **sólo** el cuadre `exacta` de
+  `CC.31`. ⛔ Con empate o sin cuadre, **esto se niega** y decide la persona — nunca se adivina.
+- ⭐ **Dos efectos verificados dentro de la transacción**, antes de confirmar: que cada factura bajó **exactamente
+  lo aplicado** (no «que quedó en cero»: un cobro puede ser parcial) y que **la póliza cuadra**.
+- ⛔ **La caja no se inventa**: sale del cobro anterior del mismo cliente. Sin uno previo, se niega.
+
+### ⛔⛔ Lo que NO hace, dicho en cada capa
+
+**No timbra.** El tipo del resultado lleva `timbrado: false` —no es un comentario, es el contrato— y el aviso de
+la fila dice *«Falta timbrarlo desde Kepler: sin complemento, la factura sigue abierta ante el SAT»*. Un «listo»
+que no es cierto sería peor que no tener el botón.
+
+### ⚠️ El defecto que destapó la prueba, y cómo quedó tapado
+
+**La cartera no se entera sola.** Los disparadores del espejo (`tg_receivables_*` en `kepler_ods`) están en
+`ORIGIN`, así que **no corren con lo que llega por la réplica**: tras escribir `0000900` la pantalla siguió
+mostrando la deuda vieja hasta forzar el recálculo a mano. Ahora el servicio **marca la cuenta** al escribir.
+⬜ **NO MEDIDO:** cuántos otros caminos dependen de esos disparadores y están igual de sordos.
+
+### Medido
+
+`check:pantalla finanzas-cobranza`: tipa con **0 errores semánticos** y **0 fallas NUEVAS** · `check:templates`
+verde (603 componentes) · **204 pruebas** en `finance` y **23** en el componente. ⚠️ **Sin validación visual.**

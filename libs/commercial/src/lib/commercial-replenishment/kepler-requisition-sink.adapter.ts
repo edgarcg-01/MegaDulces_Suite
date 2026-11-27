@@ -11,7 +11,7 @@ import { reservarFolioKepler } from '@megadulces/platform-core';
 import { DOCTIPOS, coordenada } from './kepler-doctipo';
 import { MARCA_SUITE, plantillaDe, servidoresEncendidos, topeDiario, urlDeServidor } from './kepler-servidores';
 import { piezasEnteras } from './fraccion-caja';
-import { factorFichaKepler, frenoFichaSinCaja } from './ficha-kepler';
+import { factorCoincideConFicha, factorFichaKepler, frenoFichaSinCaja } from './ficha-kepler';
 // `[KR.16]` `textoKepler` vive en `kepler-texto.ts` (`[PQ.160]`); se reexporta para no mover a quien ya lo importa de aquí.
 import { textoKepler } from './kepler-texto';
 export { textoKepler };
@@ -349,10 +349,8 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
           return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no tiene unidad base en la ficha (kdii.c11) para ${sinFicha.slice(0, 5).map((l) => l.sku).join(', ')}: no se puede escribir en piezas` };
         }
         if (esTraspaso) {
-          const distinto = enPiezas.filter((l) => {
-            const f = ficha.get(l.sku)?.factor;
-            return f == null || Math.abs(f - Number(l.piezas_por_caja)) > 0.001;
-          });
+          // `[AB.PM.3]` La misma regla con que el pedido a mano lo revisa al capturar (`rechazoDelTraspaso`).
+          const distinto = enPiezas.filter((l) => !factorCoincideConFicha(l.piezas_por_caja, ficha.get(l.sku)));
           if (distinto.length) {
             return { estado: 'rechazada', motivo: `El factor de caja de la Suite no coincide con la ficha de Kepler (sucursal ${e.sucursal}): ${distinto.slice(0, 5).map((l) => `${l.sku} Suite ${l.piezas_por_caja} / ficha ${ficha.get(l.sku)?.factor ?? 'sin factor'}`).join(', ')}. No se escribe: la cantidad en unidad base saldría distinta` };
           }

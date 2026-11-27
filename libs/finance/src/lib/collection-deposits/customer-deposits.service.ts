@@ -5,8 +5,10 @@ import {
   TenantKnexService, TenantContextService, ObjectStorageService, OcrReadingsService, DepositSlipFields, todayMx,
   origenPublicoParaEnlace,
 } from '@megadulces/platform-core';
+import { docCodeATipoSerie } from '@megadulces/contracts';
 import { CollectionDepositsService } from './collection-deposits.service';
 import { CobranzaGateway } from './cobranza.gateway';
+import { KeplerCobroSinkAdapter, escrituraDeCobroEncendida, type ResultadoCobroKepler } from '../customer-ledger/kepler-cobro-sink.adapter';
 import {
   FichaEnBanco, FilaFichaEnBanco, clasificarFichaEnBanco, marcarDisputas, sqlFichaEnBanco,
 } from './ficha-en-banco';
@@ -124,6 +126,8 @@ export class CustomerDepositsService {
     private readonly readings: OcrReadingsService,
     private readonly deposits: CollectionDepositsService,
     @Optional() private readonly gateway?: CobranzaGateway,
+    /** `[CC.33]` El carril que escribe el cobro en Kepler. Opcional: sin él, el botón contesta «apagado». */
+    @Optional() private readonly cobroSink?: KeplerCobroSinkAdapter,
   ) {}
 
   // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -497,6 +501,119 @@ export class CustomerDepositsService {
         ORDER BY fecha`, [cliente, (f as { sucursal: string }).sucursal])).rows as FacturaQueCuadra[]);
 
     return elegirFacturasQueCuadran(monto, vivas);
+  }
+
+  /**
+   * `[CC.33]` ⭐⭐ **Registra el cobro en Kepler DESDE LA PANTALLA.** Es lo que el guion de `ops/` probó a mano el
+   * 2026-11-27 (`06/U-A-7/0000900`), ahora como producto: con interruptor por sucursal, idempotencia y el efecto
+   * verificado dentro de la transacción de Kepler.
+   *
+   * ── Qué facturas se aplican ────────────────────────────────────────────────────────────────────────────────
+   * Las que mande la pantalla. Si no manda ninguna, se usa **sólo el cuadre `exacta`** (una factura cuyo saldo ES
+   * el importe al centavo). ⛔ Nunca se elige por la Suite cuando hay empate o cuando ninguna cuadra sola: ahí
+   * decide la persona, y sin su decisión esto se niega en vez de adivinar.
+   *
+   * ── ⛔⛔ Lo que el resultado DECLARA ────────────────────────────────────────────────────────────────────────
+   * `timbrado: false`, siempre. El complemento de pago lo emite el programa de Kepler (`CC.26`); escribir las
+   * tablas no lo dispara. Quien llame a esto tiene que decirle a la persona que **falta cerrar el timbre**.
+   */
+  /**
+   * `[CC.33]` **Si en esta sucursal se puede registrar el cobro desde la Suite**, para que la pantalla no ofrezca
+   * un botón que va a fallar. ⛔ `motivo` sólo cuando está apagado, y dice **cuál** de los dos candados falta: el
+   * interruptor de la sucursal o la bandera de proceso de la API.
+   */
+  async cobroHabilitadoEn(sucursal: string): Promise<{ habilitado: boolean; motivo?: string }> {
+    this.tenantCtx.requireTenantId();
+    const s = String(sucursal ?? '').trim();
+    if (!/^[0-9]{2}$/.test(s)) throw new BadRequestException('sucursal inválida');
+    if (!this.cobroSink) return { habilitado: false, motivo: 'El carril de cobros a Kepler no está montado en esta API.' };
+    if (!escrituraDeCobroEncendida(process.env)) {
+      return { habilitado: false, motivo: 'Registrar cobros en Kepler está apagado en el servidor.' };
+    }
+    const encendida = await this.tk.run(async (trx) => (await trx.raw(
+      `SELECT encendida FROM commercial.kepler_push_switch
+        WHERE tenant_id = public.current_tenant_id() AND sucursal = ? AND tipo = 'cobro'`,
+      [s])).rows[0]?.encendida === true);
+    return encendida ? { habilitado: true } : { habilitado: false, motivo: `Registrar el cobro en Kepler está apagado en la sucursal ${s}.` };
+  }
+
+  async escribirCobroEnKepler(
+    id: string,
+    body: { facturas?: { doc_code: string; folio: string; monto: number }[] } | undefined,
+    usuario?: string,
+  ): Promise<ResultadoCobroKepler> {
+    this.tenantCtx.requireTenantId();
+    if (!this.cobroSink) return { estado: 'apagado', motivo: 'El carril de cobros a Kepler no está montado en esta API.' };
+
+    const f = await this.tk.run(async (trx) => trx('finance.collection_deposits')
+      .where({ id, origen: 'cliente' })
+      .first('cliente_code', 'sucursal',
+        trx.raw('COALESCE(ocr_monto, reported_monto)::numeric AS monto'),
+        trx.raw('COALESCE(ocr_fecha, reported_fecha)::text AS fecha')));
+    if (!f) throw new BadRequestException('ficha no encontrada');
+    const d = f as { cliente_code: string | null; sucursal: string; monto: string; fecha: string | null };
+    const cliente = String(d.cliente_code ?? '').trim();
+    if (!cliente) return { estado: 'rechazado', motivo: 'La ficha todavía no está marcada como de un cliente.', reintentable: false };
+    if (!d.fecha) return { estado: 'rechazado', motivo: 'La ficha no tiene fecha de depósito, y el complemento declara cuándo se pagó.', reintentable: false };
+
+    // El interruptor de la sucursal: la pantalla no lo puede ver, así que el error nunca es el primer aviso.
+    const encendida = await this.tk.run(async (trx) => (await trx.raw(
+      `SELECT encendida FROM commercial.kepler_push_switch
+        WHERE tenant_id = public.current_tenant_id() AND sucursal = ? AND tipo = 'cobro'`,
+      [d.sucursal])).rows[0]?.encendida === true);
+    if (!encendida) {
+      return { estado: 'apagado', motivo: `Registrar el cobro en Kepler está apagado en la sucursal ${d.sucursal}.` };
+    }
+
+    // ── Qué facturas ───────────────────────────────────────────────────────────────────────────────────────
+    let pedidas = body?.facturas ?? [];
+    if (!pedidas.length) {
+      const q = await this.facturasQueCuadran(id);
+      if (q.modo !== 'exacta') {
+        return {
+          estado: 'rechazado', reintentable: false,
+          motivo: q.modo === 'una_de_varias'
+            ? 'Cuadran varias facturas con este importe: elige cuál antes de registrarlo.'
+            : 'Ninguna factura cuadra sola con este importe: elige a cuáles se aplica antes de registrarlo.',
+        };
+      }
+      pedidas = q.facturas.map((x) => ({ doc_code: x.doc_code, folio: x.folio, monto: q.monto }));
+    }
+
+    const facturas: { tipo: number; serie: number; folio: string; monto: number }[] = [];
+    for (const p of pedidas) {
+      const ts = docCodeATipoSerie(p.doc_code);
+      if (!ts) {
+        return {
+          estado: 'rechazado', reintentable: false,
+          motivo: `No reconozco el documento ${p.doc_code}: el tipo y la serie salen de su código (UD0801 → tipo 8, serie 1).`,
+        };
+      }
+      facturas.push({ tipo: ts.tipo, serie: ts.serie, folio: String(p.folio).trim(), monto: Number(p.monto) });
+    }
+
+    // ⭐ La referencia se DERIVA de la ficha, no del reloj: así un reintento encuentra lo ya escrito en vez de
+    //    escribir un segundo cobro. `kdm1.c11` admite 20 caracteres.
+    const referencia = `CC-${String(id).replace(/-/g, '').slice(0, 17)}`;
+
+    const r = await this.cobroSink.entregar({
+      sucursal: d.sucursal, cliente, referencia, fecha: String(d.fecha).slice(0, 10), facturas,
+    });
+
+    if (r.estado === 'escrito') {
+      // ⛔ La cartera NO se entera sola de un cobro escrito por fuera del camino de Kepler: los disparadores del
+      //    espejo son `ORIGIN` y no corren con lo replicado. Medido el 2026-11-27 — la pantalla siguió mostrando
+      //    la deuda vieja hasta forzar el recálculo. Por eso se marca la cuenta aquí.
+      await this.tk.run(async (trx) => trx.raw(
+        `INSERT INTO analytics.receivables_dirty_accounts (tenant_id, sucursal, cliente_code, source)
+         VALUES (public.current_tenant_id(), ?, ?, 'suite-cobro')`, [d.sucursal, cliente]))
+        .catch((e) => this.logger.warn(`No se pudo marcar la cartera de ${cliente} para recalcular: ${(e as Error).message}`));
+      this.logger.log(
+        `Cobro de la ficha ${id} escrito en Kepler ${r.kepler.sucursal}/${r.kepler.folio} por ${usuario ?? 'desconocido'}` +
+        `${r.ya_estaba ? ' (ya estaba)' : ''}. ⛔ Sin complemento: falta timbrarlo desde Kepler.`,
+      );
+    }
+    return r;
   }
 
   /**

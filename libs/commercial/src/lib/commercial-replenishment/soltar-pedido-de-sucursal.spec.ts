@@ -135,7 +135,8 @@ describe('[PQ.138] enviar(): sale al ERP el pedido a otra sucursal, NO la compra
     const svc = Object.create(AutoabastoPedidoService.prototype) as Record<string, unknown>;
     svc['logger'] = { warn: () => undefined };
     svc['tenantCtx'] = { requireTenantId: () => 't', get: () => ({ userId: null, username: null }) };
-    svc['armarAlmacen'] = async () => ({ renglones });
+    // `[AB.PM.3]` `aMano`: los productos pedidos a mano, que el sugerido deja fuera (aquí, ninguno).
+    svc['armarAlmacen'] = async () => ({ renglones, aMano: new Set<string>() });
     svc['borradorDe'] = async () => 'ped-1';
     svc['huella'] = async () => undefined;
     // Un `trx` de mentira: encadenable y vacío. Lo que se mide es a quién se suelta, no el SQL.

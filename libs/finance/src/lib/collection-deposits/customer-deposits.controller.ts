@@ -8,6 +8,7 @@ import { CustomerDepositsService } from './customer-deposits.service';
 import type {
   EnvioFichaDto, ContextoDepositoResp, ArchivoFicha, LecturaFichaResp, EnvioFichaResp, BandejaResp, CobroCandidato, FacturasQueCuadran, CambioFichaResp, AbonoDeclaradoResp,
 } from './customer-deposits.service';
+import type { ResultadoCobroKepler } from '../customer-ledger/kepler-cobro-sink.adapter';
 
 interface AuthedRequest extends RequestConCabeceras { user?: { username?: string; full_name?: string } }
 const origenDe = (req?: AuthedRequest) => requestOrigin(req);
@@ -101,6 +102,30 @@ export class CustomerDepositsController {
   @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
   facturasQueCuadran(@Param('id') id: string): Promise<FacturasQueCuadran> {
     return this.svc.facturasQueCuadran(id);
+  }
+
+  /**
+   * `[CC.33]` ⭐⭐ **Registra el cobro en Kepler desde la pantalla.** Escribe el documento `U-A-7` con su renglón
+   * de cartera, sus aplicaciones y su póliza, y verifica el efecto dentro de la transacción.
+   *
+   * ⛔⛔ **No timbra**, y el resultado lo dice (`timbrado: false`): el complemento de pago lo emite el programa de
+   * Kepler. Quien lo use tiene que cerrar el timbre por ahí.
+   */
+  /** `[CC.33]` Si en esta sucursal se puede registrar el cobro, para no ofrecer un botón que va a fallar. */
+  @Get('cobro/habilitado/:sucursal')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_VER)
+  cobroHabilitado(@Param('sucursal') sucursal: string): Promise<{ habilitado: boolean; motivo?: string }> {
+    return this.svc.cobroHabilitadoEn(sucursal);
+  }
+
+  @Post(':id/escribir-cobro')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_GESTIONAR)
+  escribirCobro(
+    @Param('id') id: string,
+    @Body() body: { facturas?: { doc_code: string; folio: string; monto: number }[] },
+    @Req() req: AuthedRequest,
+  ): Promise<ResultadoCobroKepler> {
+    return this.svc.escribirCobroEnKepler(id, body, req?.user?.full_name || req?.user?.username);
   }
 
   @Post(':id/ligar')

@@ -528,7 +528,8 @@ nadie había llegado a contar lo suficiente para verlo.**
 > cuando el defecto se arregla: si una fila y el plan se contradicen, gana la fecha más nueva.
 >
 > ⚠️ **No hay F21.** La numeración salta del **F20** al **F22**; se verificó en el historial del
-> repositorio y **nunca existió**: es un hueco al numerar, no un hallazgo perdido. Son **21**.
+> repositorio y **nunca existió**: es un hueco al numerar, no un hallazgo perdido. Con **F23** y
+> **F24** (agregados el 2026-11-27), son **23**.
 
 | # | Sev. | Defecto | Cómo se midió |
 |---|:---:|---|---|
@@ -554,6 +555,54 @@ nadie había llegado a contar lo suficiente para verlo.**
 | **F15** | 🟠 | **La lista de contadores asignables no dice sucursal ni rol.** `assignable-users` devuelve sólo `id, username, nombre, role_name`; el desplegable pinta **sólo el nombre**. Quien arma el equipo de un conteo en Padre Hidalgo ve 24 nombres y **no puede distinguir al único almacenista de esa tienda** de los de Zamora, La Piedad o Canindo, ni ve a los que nunca entraron. | Respuesta real de `assignable-users?role=counter`: 24 personas, campos `id, username, nombre, role_name`, **sin sucursal**. En prod sólo `luis_espino` es almacenista de PH; 4 de los 11 nunca entraron. |
 | **F16** | ⛔ **RETIRADO el 2026-11-26: el hallazgo estaba MAL** | Decía: *«Asignar restringe lo que se VE, no lo que se PUEDE — el guard deja pasar a cualquiera con la clave `CONTAR` aunque no esté asignado»*. **Falso.** Lo leí en `ContarOAsignadoGuard`, y ese archivo **nunca se commiteó**: existe suelto en el árbol compartido desde el 2026-11-24 y **no está en producción** (en el controlador desplegado, `POST :id/count` sólo lleva `@RequirePermissions(CONTAR)`). El control real vive en `submitCount()`, commiteado desde antes de la auditoría: *«si el folio tiene contadores asignados, solo ellos cuentan»* → `ForbiddenException('No estás asignado como contador de este folio.')`, y además restringe por pasillo si se asignaron pasillos. O sea que **la regla que se aprobó el 2026-11-26 ya estaba implementada** y no hubo nada que cambiar. ⭐ La lección, que es lo que vale guardar: **leí un archivo del árbol y lo di por desplegado**. Un archivo sin commitear compila en todas las sesiones y no existe en prod. | Verificado con `git show HEAD:…/inventory-count.controller.ts` (sin el guard) y `git show HEAD:…/inventory-count.service.ts` (con el freno por asignación, líneas 483-492). `git log` del guard: **vacío**. |
 | **F22** | 🟡 | **El contador sin asignación recibe un mensaje que lo manda a pedir algo que ya existe.** La pantalla vacía dice «**No hay ningún folio de inventario abierto para contar. Pedile a tu supervisor que abra uno.**» cuando la causa real es que **no está asignado a ninguno** — el folio existe y está vivo. El supervisor que reciba ese pedido va a ver el folio abierto y no va a entender el reclamo. ⭐ El mensaje correcto **ya está escrito en el backend**: `ContarOAsignadoGuard` dice «No estás asignado a este conteo. Pídele a quien arma el equipo que te agregue como contador». La pantalla no lo usa. | Medido el 2026-11-26: `/counts/mine` devolvió **vacío** con `INV-2026-00010` vivo en `review`, porque la cuenta no figura entre los dos contadores asignados. |
+
+### F23 — la ubicación que mostraba el conteo era una constante
+
+> ⭐ **Agregado el 2026-11-27**, al enganchar el conteo con `/almacen/ubicaciones` (pedido de
+> Edgar). No salió de la auditoría de noviembre: salió de cruzar los dos módulos. En el código
+> lleva la etiqueta `[IC.UB1]` y no `[IC.F23]`, porque no es un defecto de esta pantalla sino
+> la costura que faltaba con la fase UB.
+
+| # | Sev. | Defecto | Cómo se midió |
+|---|:---:|---|---|
+| **F23** | 🔴 | **La columna «Ubic.» del supervisor, el renglón que confirma el contador y el catálogo offline mostraban una CONSTANTE.** Los tres leían `public.products.location`, que **tiene un solo valor distinto**: la cadena `Z000`. El folio la copiaba al abrir, así que **3,005 de los 3,364 artículos** de `INV-2026-00010` la decían. ⭐ Es el defecto más difícil de ver de su familia: **la columna se veía llena**, y un relleno uniforme no se cuestiona como se cuestiona un hueco. Mientras tanto el catálogo real existía y nadie lo miraba. | Prod, 2026-11-27, sólo lectura. `SELECT count(DISTINCT location) FROM public.products WHERE location IS NOT NULL` → **1**, sobre **11,816** filas con valor (de 14,986). El catálogo de la fase UB (ADR-090): **476** ubicaciones en `commercial.warehouse_bins` (471 de Padre Hidalgo, 3 de Zamora Centro, 1 de 8 Esquinas, 1 de CEDIS) y **52** asignaciones en `commercial.bin_assignments`, las 52 de PH. Cruzadas contra `p.location`: **0 coinciden**, **50 discrepan** (`Z000` contra `TA011`) y 1 producto sin valor. Con el catálogo real, el folio pasa de **3,005 ubicaciones dibujadas a 39 medidas**. |
+
+**Arreglado el 2026-11-27** (`2c8f336e3`): los tres caminos resuelven contra
+`bin_assignments` + `warehouse_bins` **por almacén** —una ubicación de Padre Hidalgo no vale
+para La Piedad—, devuelven **todas** las del producto en orden de recorrido
+(`TA011 · TA012 · TA013`; medido: 5 productos en dos ubicaciones y 3 en tres), el folio deja
+de sembrar la constante y `GET /counts/resolve` manda vacío porque **sin folio no hay almacén**.
+La pantalla declara la cobertura —«39 de 3,364 artículos tienen ubicación asignada»— y liga a
+`/almacen/ubicaciones/asignacion`, que es donde se arregla.
+
+⭐ **Que la cobertura BAJE de 3,005 a 39 es el resultado correcto** (regla 11): lo que no está
+asignado se declara vacío. Lo que antes se veía como un almacén ubicado al 89 % es, medido, un
+almacén ubicado al **1.2 %** — y recién ahora se puede trabajar en eso.
+
+---
+
+### F24 — el teórico está en PAQUETES y ninguna pantalla se lo dice a quien cuenta
+
+> ⛔⛔ **Agregado el 2026-11-27**, al contestar «¿qué capa está completa?». Es el hallazgo más
+> caro del módulo y **no lo cazó ninguna compuerta**: no hay nada roto que mirar. Es la regla 10
+> del proyecto —*probar la unidad: ¿1, `bf` o `1/bf`?*— sin cumplir en el único módulo cuyo
+> producto final **mueve el saldo de inventario**.
+
+| # | Sev. | Defecto | Cómo se midió |
+|---|:---:|---|---|
+| **F24** | 🔴🔴 | **El teórico del folio está en PAQUETES y el contador no lo sabe.** `expected_qty` sale de `v_erp_stock_on_hand.qty_stock_units`, que [`UNIDADES_DE_MEDIDA.md` §341](../UNIDADES_DE_MEDIDA.md) documenta como **«paquetes (crudo, a propósito)»**. El folio **sí estampa** el factor de caja al abrirse (ADR-057), pero **`unit_label` viene NULL en los 7 folios**, y ni la pantalla del contador ni la del supervisor nombran la unidad: el campo dice «Cantidad física», a secas. Si quien cuenta toma **cajas** donde el sistema espera paquetes, la varianza se equivoca por el factor —hasta **1,000×**— y el cierre escribe el ajuste con esa diferencia. | Prod, 2026-11-27, sólo lectura. `INV-2026-00010`: **3,363 de 3,364** traen `unit_factor`, todos con `unit_source` = kepler, rango **1 a 1,000**; **3,146** tienen factor > 1, **2,596 (77 %)** ≥ 12 y **210** ≥ 100. `unit_label`: **0 de 22,209** ítems en los 7 folios. Los otros 6 folios no tienen ni factor (0 de ~17 k). En el fuente, buscando `unit_label`, `unit_factor` y `unidad` en `comercial-inventory-count.component.ts` y `comercial-inventory-session-detail.component.ts`: **cero coincidencias en las dos**. Ejemplos del folio: `CLORETS 5 S TIPO AMERICANO` teórico **10,088** con 960 por caja (contando cajas daría **10.5**); `CH WRIGLEY S DOUBLEMINT` 10,272 con 800 (**12.8**). |
+
+⛔ **NO se arregló a propósito, y la razón es la regla misma.** Mostrar una unidad supuesta es
+cometer el error que el hallazgo denuncia. Primero se decide **en qué unidad cuenta la gente en**
+**el piso** —preguntándole a quien cuenta, no deduciéndolo— y recién entonces la pantalla la
+muestra: o el rótulo de la unidad nativa, o el teórico convertido a lo que la persona tiene
+enfrente. Una vez decidido es media hora; decidirlo mal cuesta un inventario entero.
+
+⚠️ El factor ya está estampado en el renglón, así que la conversión **no pide volver a resolver**
+**la unidad contra otra tabla** (que es justo lo que ADR-057 existe para evitar). Lo que falta es
+la mitad de arriba: decir cuál es.
+
+---
 
 ### ✅ Lo que está BIEN, y hay que decirlo
 
