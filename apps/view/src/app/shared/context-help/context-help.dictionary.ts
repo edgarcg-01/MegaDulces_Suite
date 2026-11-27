@@ -3324,7 +3324,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // `[CSU.21]` Finanzas › Cortes/Sucursales. Lo lee quien revisa los cortes de caja de las tiendas.
   'cortes-sucursales': {
     title: 'Cortes de caja de las sucursales',
-    intro: 'Cada renglón es un corte de caja de Kepler (cliente CONTADO): lo que vendió una caja en un turno, cuánto ya se cobró en Kepler y si el dinero cuadra. Para saber si cuadra hay tres testigos, y cada uno dice de dónde sale.',
+    intro: 'Cada renglón es un corte de caja de Kepler (cliente CONTADO): lo que vendió una caja en un turno, cuánto ya se cobró en Kepler, si el dinero cuadra y si ya llegó al banco o a Caja General. Para saber si cuadra hay tres testigos, y cada uno dice de dónde sale.',
     groups: [
       {
         heading: 'De dónde sale cada número',
@@ -3343,6 +3343,18 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'En plazo', def: 'Un corte que todavía no se cobra y tiene 3 días o menos. Es lo normal: en octubre, 8 de cada 10 cortes se cobraron en 3 días. Pasado ese plazo dice «por cobrar» y el saldo va en rojo.' },
           { term: 'Sin ligar', def: 'El cajero contó algo en esa caja ese día, pero su captura apunta a otro turno, o no había turno a esa hora. No se usa para el corte; se lista abajo, en «Contado fuera de un corte».' },
           { term: 'Contado fuera de un corte', def: 'Conteos de efectivo que no quedaron en ningún corte: constancias sin caja (fondo, depósito al banco, la venta del día anterior) y retiros o cierres sin turno. No suman ni restan a los cortes.' },
+        ],
+      },
+      {
+        // [CSU.31] Anexo FB: de la factura al banco.
+        heading: '¿Llegó el dinero?',
+        entries: [
+          { term: 'Llegó', def: 'El depósito que Kepler aplicó al corte está en el estado de cuenta de su banco (lo casó la conciliación de Bancos) o tiene su entrada en Caja General. El testigo es el renglón del banco, no la cuenta que escribió Kepler.' },
+          { term: 'Por saber', def: 'El depósito está en una cuenta cuyo estado de cuenta Bancos todavía no tiene completo para esa fecha: no lo tiene, o lo tiene sólo hasta ese mismo día (el último día del estado de cuenta suele venir incompleto). No es «no llegó»: se sabrá cuando Bancos cargue los días siguientes. La pantalla dice la cuenta y hasta qué día llega su estado de cuenta.' },
+          { term: 'Sin conciliar', def: 'Bancos ya tiene el estado de cuenta de días después del depósito y la conciliación no lo casó, o es un depósito a caja sin su entrada en Caja General. Falta el testigo, no necesariamente el dinero: se revisa y se liga en Bancos.' },
+          { term: 'Sin depósito', def: 'Kepler todavía no le aplicó ningún depósito al corte. Dice cuántos días tiene; pasado el plazo de cobro se marca en ámbar.' },
+          { term: 'Venta sin forma de pago', def: 'El corte pasa lo que la caja registró cobrado, y es igual a los tickets del turno menos sus devoluciones: hubo tickets que se cerraron sin decir cómo se pagaron. Antes se veía como «Corte distinto». Cuenta dentro de «Sin cuadrar».' },
+          { term: 'Mostrar', def: 'Lo que ve la lista. Cada opción lleva su número, el mismo que la cifra de arriba que la abre: tocar una cifra o un número de la frase es lo mismo que elegirlo aquí.' },
         ],
       },
     ],

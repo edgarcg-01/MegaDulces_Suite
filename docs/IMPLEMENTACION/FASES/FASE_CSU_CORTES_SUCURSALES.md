@@ -204,6 +204,10 @@ manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms e
   depósito, por corte.
 - [ ] **[CSU.5]** "Cobro sin corte": cobros de CONTADO aplicados a otros documentos (La Piedad
   cobró $38,363.81 y sólo $113.45 quedó en cortes). Pendiente decidir si se muestra.
+- [ ] **[CSU.26]–[CSU.32]** **Anexo FB — De la factura al banco** (2026-11-26): el paso «Llegó a la empresa» con
+  el renglón del banco o de Caja General (absorbe CSU.3 y CSU.4), la venta del turno, la venta sin forma de pago
+  (explica los `corte_distinto` de CSU.7) y la pestaña «Facturas de contado». Plan, métrica y decisiones D1–D6 en
+  [`FASE_CSU_ANEXO_FACTURA_AL_BANCO_2026-11-26.md`](FASE_CSU_ANEXO_FACTURA_AL_BANCO_2026-11-26.md).
 
 ## 6. Pendiente para prod
 
