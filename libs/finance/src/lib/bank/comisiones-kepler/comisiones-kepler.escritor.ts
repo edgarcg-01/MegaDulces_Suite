@@ -95,6 +95,17 @@ const cent = (n: unknown): number => Math.round(Number(n) * 100);
 const ddmmaaaa = (d: string): string => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
 
 /** `c11` del pago, como lo captura Finanzas: el IVA aparte de su comisión. */
+/**
+ * ¿El gasto que ya tiene este cargo es el que NOSOTROS escribimos? La propuesta publica el folio como
+ * «gasto 0000116», así que se compara por contenido y no por igualdad exacta.
+ * ⛔ Sin `gastoPropio` siempre es `false`: el candado sigue cerrado para todo lo demás.
+ */
+export function esNuestro(keplerGasto: string | null | undefined, gastoPropio?: string | null): boolean {
+  const propio = String(gastoPropio ?? '').trim();
+  if (!propio) return false;
+  return String(keplerGasto ?? '').includes(propio);
+}
+
 export const referenciaDelCargo = (tipo: CargoPropuesta['tipo']): string => (tipo === 'iva' ? 'IVA' : 'COMISIONES');
 
 /**
@@ -106,6 +117,13 @@ export function entregasDelDia(
   d: Pick<DiaPropuesta, 'sucursal' | 'dia_venta' | 'acreedor' | 'banco' | 'cargos'>,
   p: PlantillaComisiones,
   capturadaEn: { fecha: string; hora: string },
+  /**
+   * ⭐ El folio del gasto que **nosotros ya escribimos** para este día, cuando se está TERMINANDO un día
+   * a medias. Los candados de abajo frenan un cargo que ya es renglón de un gasto —correcto para escribir
+   * desde cero— pero en un retome ese gasto es el propio, y frenarlo deja la CxP abierta para siempre.
+   * ⛔ Sólo exime a ESE folio: un gasto de Finanzas sigue frenando el día entero.
+   */
+  gastoPropio?: string | null,
 ): ResultadoEntregas {
   const motivos: string[] = [];
   if (!/^\d{2}$/.test(String(d.sucursal))) motivos.push(`Sucursal Kepler inválida «${d.sucursal}»`);
@@ -122,7 +140,9 @@ export function entregasDelDia(
     if (!(Number(c.importe) > 0)) motivos.push(`El cargo ${c.id} no tiene importe positivo`);
     if (!String(c.cuenta ?? '').trim()) motivos.push(`El cargo ${c.id} no trae cuenta de tesorería`);
     if (c.kepler_pago) motivos.push(`El cargo ${c.id} ya tiene su pago ${c.kepler_pago} en Kepler`);
-    if (c.tipo === 'comision' && c.kepler_gasto) motivos.push(`La comisión ${c.id} ya es renglón del gasto ${c.kepler_gasto}`);
+    if (c.tipo === 'comision' && c.kepler_gasto && !esNuestro(c.kepler_gasto, gastoPropio)) {
+      motivos.push(`La comisión ${c.id} ya es renglón del gasto ${c.kepler_gasto}`);
+    }
   }
   if (motivos.length) return { ok: false, motivos };
 

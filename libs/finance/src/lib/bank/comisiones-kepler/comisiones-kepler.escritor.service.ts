@@ -80,8 +80,8 @@ export interface DiaEnReintento {
 export function diasARetomar(
   dias: readonly DiaPropuesta[],
   bitacora: readonly DiaEnReintento[],
-): { dia: DiaPropuesta; yaPagados: Map<string, string> }[] {
-  const out: { dia: DiaPropuesta; yaPagados: Map<string, string> }[] = [];
+): { dia: DiaPropuesta; yaPagados: Map<string, string>; gastoPropio: string }[] {
+  const out: { dia: DiaPropuesta; yaPagados: Map<string, string>; gastoPropio: string }[] = [];
   for (const b of bitacora) {
     const folio = String(b.gasto_folio ?? '').trim();
     if (!folio) continue; // sin gasto escrito no hay nada a medias: el día vuelve por la vía normal
@@ -99,7 +99,7 @@ export function diasARetomar(
     const yaPagados = new Map((b.pagos ?? []).map((p) => [String(p.cargo), String(p.folio)]));
     // Si TODOS los cargos ya tienen su pago, no hay nada que terminar.
     if (dia.cargos.every((c) => yaPagados.has(String(c.id)) || c.kepler_pago)) continue;
-    out.push({ dia, yaPagados });
+    out.push({ dia, yaPagados, gastoPropio: folio });
   }
   return out;
 }
@@ -220,6 +220,7 @@ export class ComisionesKeplerEscritorService {
     const candidatos = [...propuesta.dias.filter((d) => d.estado === 'lista'), ...retomes.map((r) => r.dia)];
     const esRetome = new Set(retomes.map((r) => r.dia));
     const yaPagados = new Map(retomes.map((r) => [r.dia, r.yaPagados]));
+    const gastoPropio = new Map(retomes.map((r) => [r.dia, r.gastoPropio]));
     const resultados: ResultadoDia[] = [];
 
     if (!propuesta.medido) {
@@ -234,7 +235,7 @@ export class ComisionesKeplerEscritorService {
     const interruptores = await this.interruptores(tenantId);
 
     for (const d of candidatos) {
-      const r = await this.unDia(tenantId, d, diales, interruptores, hoy, esRetome.has(d), yaPagados.get(d) ?? new Map<string, string>())
+      const r = await this.unDia(tenantId, d, diales, interruptores, hoy, esRetome.has(d), yaPagados.get(d) ?? new Map<string, string>(), gastoPropio.get(d) ?? null)
         .catch((e: unknown) => this.rechazo(d, `Falla inesperada: ${(e as Error)?.message ?? e}`));
       resultados.push(r);
     }
@@ -270,7 +271,7 @@ export class ComisionesKeplerEscritorService {
   private async unDia(
     tenantId: string, d: DiaPropuesta, diales: Map<string, DialDeCuenta>,
     interruptores: Map<string, { encendida: boolean; tope_dia: number | null }>, hoy: string,
-    retome = false, yaPagados: Map<string, string> = new Map(),
+    retome = false, yaPagados: Map<string, string> = new Map(), gastoPropio: string | null = null,
   ): Promise<ResultadoDia> {
     const sw = interruptores.get(d.sucursal);
     if (!sw?.encendida) return this.apagado(d, `El interruptor ${TIPO_INTERRUPTOR_COMISIONES} de la sucursal ${d.sucursal} está apagado`);
@@ -284,7 +285,7 @@ export class ComisionesKeplerEscritorService {
     // No se deduce del plan deshaciendo sus textos (ver `DiaPropuesta.plantilla`).
     if (!d.plantilla) return this.rechazo(d, 'El día no trae plantilla: sin un gasto de comisiones anterior no se copia de otra sucursal');
     const capturadaEn = { fecha: hoy, hora: horaMx() };
-    const armado = entregasDelDia(d, d.plantilla, capturadaEn);
+    const armado = entregasDelDia(d, d.plantilla, capturadaEn, gastoPropio);
     if (!armado.ok) return this.rechazo(d, armado.motivos.join(' · '));
     const e = armado.entregas;
 
