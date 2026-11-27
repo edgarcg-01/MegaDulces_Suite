@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos › Calendario y Estado de cuenta de acreedores: la factura de cada documento ya carga en los días de muchas facturas (PGP.231 · 2026-11-26 · en código, sin soltar)
+- Para un superadmin, en un día con unas 200 facturas, la búsqueda de sus PDF fallaba entera: la lista viajaba en la dirección de la petición y, junto con su sesión (que lleva sus permisos), pasaba del tamaño que acepta el servidor. Ahora la lista va en el cuerpo de la petición.
+- Internal: `POST finance/payment-calendar/evidencia/consulta` (`PayableEvidenceQuery`) y el tope `EVIDENCIA_REFS_POR_CONSULTA` en `@megadulces/contracts`; el `GET …/evidencia?refs=` se queda para pestañas abiertas antes del despliegue.
+
 ### Added — Almacén › Ubicaciones: el croquis de la sucursal se acomoda arrastrando (UB.PL.8 · 2026-11-26 · en código, sin soltar)
 - El mapa deja de dibujar todo como pasillos: se toma cada mueble y se suelta en un renglón, hasta que la planta se parece a la tienda. Se puede con el mouse y también sin mouse, con el teclado.
 - La planta abre siempre con un renglón libre al final, y la bandeja «Sin lugar» dice cuántas piezas faltan y cómo se llaman.

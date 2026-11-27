@@ -66,6 +66,8 @@ import { SQL_CUBIERTO, TABLE_BY_SOURCE, recalcularObligacion, type ObligationSou
 import { armarSuficiencia } from './suficiencia-de-cuentas';
 import { leerEntradaDeSuficiencia } from './suficiencia-de-cuentas.query';
 import type { PaymentCalendarSuficiencia } from '@megadulces/contracts';
+// `[PGP.231]` El tope de llaves de una consulta de evidencia (servidor y pantallas lo leen de aquí).
+import { EVIDENCIA_REFS_POR_CONSULTA } from '@megadulces/contracts';
 import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
 import { AUTOR_PAGO_EN_KEPLER, EVENTO_LIGADO_A_KEPLER, EVENTO_PAGADO_EN_KEPLER, SQL_POR_LIGAR_A_KEPLER, decidirPagoEnKepler } from './pago-en-kepler';
 
@@ -823,14 +825,16 @@ export class PaymentCalendarService {
    * ⛔ Esta es la forma correcta de pedirla, y la razon es medida: la vista tiene un piso de
    *    ~2.2-2.5 s que NO baja con ningun filtro (es armar el hash sobre los 169 mil CFDI). Una
    *    llamada por proveedor multiplicaria ese piso por la cantidad de acreedores en pantalla.
-   * ⚠️ Tope de 200 refs por llamada: arriba de eso la pantalla deberia paginar, no pedir mas.
+   * ⚠️ Tope de `EVIDENCIA_REFS_POR_CONSULTA` (200) refs por llamada: arriba de eso la pantalla pide otra tanda.
+   * `[PGP.231]` Las pantallas la llaman por `POST evidencia/consulta` (las llaves en el cuerpo): en la URL, con el
+   * token de un superadmin, daba 431.
    */
   async listEvidenceByRefs(refs: readonly string[]): Promise<PayableEvidenceRow[]> {
     const llaves = (refs ?? [])
       .map((r) => String(r ?? '').trim())
       .filter((r) => r.startsWith('oblig:'))
       .map((r) => r.slice('oblig:'.length))
-      .slice(0, 200);
+      .slice(0, EVIDENCIA_REFS_POR_CONSULTA);
     if (!llaves.length) return [];
     const tenantId = this.tenantCtx.requireTenantId();
     const COLS = `e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
