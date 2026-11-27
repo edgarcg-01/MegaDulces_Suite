@@ -7,11 +7,14 @@ import {
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
-import type { CompletarGuiaBody, GuiaCompletada, TarifaDeRuta, TarifasViatico } from '@megadulces/contracts';
+import type {
+  CompletarGuiaBody, GuiaCompletada, GuiaReabierta, MismoViajeBody, MismoViajeGuardado, ReabrirGuiaBody, TarifaDeRuta,
+  TarifasViatico, TripulacionGuardada, TripulacionGuiaBody,
+} from '@megadulces/contracts';
 import { erroresDeTarifa, erroresDeTarifaDeRuta, pendientesDeLaGuia, tarifasDeViatico } from '@megadulces/contracts';
 import {
   calcularCompletar, calcularGuia, cambiosACamposCalculados, capturaCompleta, CompletarContexto, GUIA_NO_SE_EDITA,
-  validarCompletar, validarGuiaManual,
+  bloqueoDeTripulacion, erroresMismoViaje, erroresReabrir, validarCompletar, validarGuiaManual, validarTripulacion,
 } from './guia-calculada.logic';
 import { ErpShipmentsService } from '../logistics-erp-shipments/erp-shipments.service';
 
@@ -159,6 +162,138 @@ export class LogisticsGuidesService {
         driver_commission: Number(row.driver_commission), helper1_commission: Number(row.helper1_commission),
         helper2_commission: Number(row.helper2_commission), per_diem_total: Number(row.per_diem_total),
       };
+    });
+  }
+
+  /**
+   * `[CML.HV]` Guardar la tripulación AL SALIR, sin horario. No calcula comisión ni viático: la guía
+   * sigue incompleta (`pendientesDeLaGuia` → «el horario») y el pago la sigue reteniendo. Se puede
+   * corregir hasta que `complete()` capture el horario; queda cuándo y quién la guardó.
+   */
+  async guardarTripulacion(id: string, dto: TripulacionGuiaBody): Promise<TripulacionGuardada> {
+    if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
+    const usuario = this.tenantCtx.get()?.userId;
+    return this.tk.run(async (trx: Knex.Transaction) => {
+      const guia = await trx('logistics.delivery_guides').where({ id }).whereNull('deleted_at')
+        .first('id', 'number', 'status', 'shipment_id', 'driver_id', 'departure_time', 'arrival_time');
+      if (!guia) throw new NotFoundException(`Guía ${id} no encontrada`);
+      const embarque = await trx('logistics.shipments').where({ id: guia.shipment_id }).whereNull('deleted_at').first('id', 'status');
+      if (!embarque) throw new NotFoundException('El embarque de la guía no existe');
+      if (guia.status === 'cancelada') throw new ConflictException(`La guía ${guia.number} está cancelada.`);
+      if (['cerrado', 'cancelado'].includes(embarque.status)) {
+        throw new ConflictException(`El embarque está ${embarque.status}: su tripulación ya no se cambia.`);
+      }
+      const bloqueo = bloqueoDeTripulacion(guia);
+      if (bloqueo) throw new ConflictException(bloqueo);
+      const errores = validarTripulacion(dto, { chofer_guia: guia.driver_id ?? null });
+      if (errores.length) throw new BadRequestException(errores.join(' '));
+      const driver: string | null = guia.driver_id || dto.driver_id || null;
+      for (const [k, v] of Object.entries({ driver_id: driver, helper1_id: dto.helper1_id, helper2_id: dto.helper2_id })) {
+        if (v) await this.assertDriverActive(trx, v, k);
+      }
+      // Sólo mientras no tenga horario: si otra persona lo acaba de capturar, gana el horario.
+      const [row] = await trx('logistics.delivery_guides')
+        .where({ id }).whereNull('deleted_at')
+        .where((q) => q.whereNull('departure_time').orWhereNull('arrival_time'))
+        .update({
+          driver_id: driver,
+          helper1_id: dto.helper1_id || null,
+          helper2_id: dto.helper2_id || null,
+          crew_saved_at: trx.fn.now(),
+          crew_saved_by: usuario && UUID_REGEX.test(usuario) ? usuario : null,
+          updated_at: trx.fn.now(),
+        })
+        .returning(['id', 'number', 'driver_id', 'helper1_id', 'helper2_id', 'crew_saved_at']);
+      if (!row) throw new ConflictException('Otra persona acaba de capturar el horario de esta guía. Recarga la operación.');
+      return {
+        id: row.id, number: row.number, driver_id: row.driver_id ?? null,
+        helper1_id: row.helper1_id ?? null, helper2_id: row.helper2_id ?? null,
+        crew_saved_at: new Date(row.crew_saved_at).toISOString(),
+      };
+    });
+  }
+
+  /**
+   * `[CML.J]` Confirmar (o deshacer) que esta guía es el MISMO viaje físico que otra de Kepler. El
+   * GPS lo sugiere; esto lo confirma una persona, y queda quién y cuándo. Sólo liga guías de la misma
+   * unidad (se verifica contra Kepler). No toca montos: el reporte paga una vez al leer la liga.
+   */
+  async confirmarMismoViaje(id: string, dto: MismoViajeBody): Promise<MismoViajeGuardado> {
+    if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
+    const usuario = this.tenantCtx.get()?.userId;
+    return this.tk.run(async (trx: Knex.Transaction) => {
+      const guia = await trx('logistics.delivery_guides').where({ id }).whereNull('deleted_at').first('id', 'number', 'status', 'shipment_id');
+      if (!guia) throw new NotFoundException(`Guía ${id} no encontrada`);
+      if (guia.status === 'cancelada') throw new ConflictException(`La guía ${guia.number} está cancelada.`);
+      const embarque = await trx('logistics.shipments').where({ id: guia.shipment_id }).whereNull('deleted_at')
+        .first('id', 'status', 'kepler_sucursal', 'kepler_guia');
+      if (!embarque?.kepler_guia) throw new ConflictException('Sólo una guía de un viaje de Kepler se liga con otra.');
+      const otra = dto?.same_trip_as == null ? null : String(dto.same_trip_as).trim();
+      if (otra) {
+        const propia = `${embarque.kepler_sucursal}|${embarque.kepler_guia}`;
+        const [os, og] = otra.split('|');
+        const viaje = async (s: string, g: string) => (await trx('analytics.erp_shipment_trips')
+          .whereRaw('tenant_id = public.current_tenant_id()').where({ sucursal: s, guia_embarque: g })
+          .first('vehicle_id', trx.raw(`to_char(fecha, 'YYYY-MM-DD') AS fecha`))) as { vehicle_id: string | null; fecha: string | null } | undefined;
+        const vp = await viaje(embarque.kepler_sucursal, embarque.kepler_guia);
+        const vo = os && og ? await viaje(os, og) : undefined;
+        const errores = erroresMismoViaje(propia, otra, vp?.vehicle_id ?? null, vo ? vo.vehicle_id ?? null : undefined,
+          { propia: vp?.fecha ?? null, otra: vo?.fecha ?? null });
+        if (errores.length) throw new BadRequestException(errores.join(' '));
+      }
+      const [row] = await trx('logistics.delivery_guides').where({ id }).whereNull('deleted_at')
+        .update({
+          same_trip_as: otra,
+          same_trip_by: otra && usuario && UUID_REGEX.test(usuario) ? usuario : null,
+          same_trip_at: otra ? trx.fn.now() : null,
+          updated_at: trx.fn.now(),
+        })
+        .returning(['id', 'same_trip_as']);
+      return { id: row.id, same_trip_as: row.same_trip_as ?? null };
+    });
+  }
+
+  /**
+   * `[CML.K]` Reabrir un viaje cerrado, con motivo. Borra el horario y los montos calculados (la guía
+   * vuelve a «falta el horario» y el pago la retiene); la tripulación se queda como guardada. Deja
+   * quién, cuándo y por qué. El viaje se vuelve a cerrar en Embarques › Cerrar viajes.
+   */
+  async reabrir(id: string, dto: ReabrirGuiaBody): Promise<GuiaReabierta> {
+    if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
+    const usuario = this.tenantCtx.get()?.userId;
+    return this.tk.run(async (trx: Knex.Transaction) => {
+      const guia = await trx('logistics.delivery_guides').where({ id }).whereNull('deleted_at')
+        .first('id', 'number', 'status', 'shipment_id', 'departure_time', 'arrival_time');
+      if (!guia) throw new NotFoundException(`Guía ${id} no encontrada`);
+      const embarque = await trx('logistics.shipments').where({ id: guia.shipment_id }).whereNull('deleted_at').first('id', 'status');
+      if (!embarque) throw new NotFoundException('El embarque de la guía no existe');
+      if (['cerrado', 'cancelado'].includes(embarque.status)) {
+        throw new ConflictException(`El embarque está ${embarque.status}: su viaje ya no se reabre.`);
+      }
+      const errores = erroresReabrir(guia, dto?.motivo);
+      if (errores.length) throw new BadRequestException(errores.join(' '));
+      // Sólo si sigue cerrada: si otra persona la acaba de reabrir, no se reabre dos veces.
+      const [row] = await trx('logistics.delivery_guides')
+        .where({ id }).whereNull('deleted_at')
+        .whereNotNull('departure_time').whereNotNull('arrival_time')
+        .update({
+          departure_time: null,
+          arrival_time: null,
+          driver_commission: 0,
+          helper1_commission: 0,
+          helper2_commission: 0,
+          per_diem_total: 0,
+          per_diem_breakdown: null,
+          // La tripulación queda como «guardada»: no se vuelve a sugerir otra encima.
+          crew_saved_at: trx.raw('COALESCE(crew_saved_at, now())'),
+          reopened_at: trx.fn.now(),
+          reopened_by: usuario && UUID_REGEX.test(usuario) ? usuario : null,
+          reopen_reason: String(dto.motivo).trim(),
+          updated_at: trx.fn.now(),
+        })
+        .returning(['id', 'number', 'reopened_at']);
+      if (!row) throw new ConflictException('Otra persona acaba de reabrir este viaje. Recarga la operación.');
+      return { id: row.id, number: row.number, reopened_at: new Date(row.reopened_at).toISOString() };
     });
   }
 

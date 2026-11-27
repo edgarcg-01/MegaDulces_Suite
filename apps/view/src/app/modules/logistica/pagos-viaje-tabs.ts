@@ -20,7 +20,7 @@ import { Permission } from '../../core/constants/permissions';
  */
 export const PAGOS_VIAJE_TABS: readonly PageTab[] = [
   {
-    label: 'Operaciones',
+    label: 'Historial de viajes',
     route: '/logistica/pagos/viajes',
     icon: 'pi pi-truck',
     permission: Permission.LOGISTICS_PAGOS_VER,

@@ -1,3 +1,5 @@
+import type { ViajeGps } from './revision-gps.contract';
+
 /**
  * `[EMB.24]`–`[EMB.29]` — Pago por viaje cerrado (ADR-091). Contrato compartido entre la API de
  * logística, la de Gastos y las pantallas: la forma de lo que se lee y las reglas de lo que se
@@ -518,8 +520,29 @@ export function conceptoDelReparto(tipo: TipoViajePago, concepto: ConceptoDelRep
  * `kepler` `[EMB.48]`: la comisión del chofer que trae Kepler por la tarifa de la ruta, antes de que
  * nadie capture nada — es el MISMO monto que dará la guía al completarse (misma regla, y la guía no
  * deja cambiar al chofer de Kepler).
+ *
+ * `[CML.K]` Un renglón `kepler` es **por cerrar**: el viaje todavía no se cierra (falta la tripulación o
+ * el horario) y sólo se paga lo que regresó (T2). Se muestra para que se sepa cuánto falta, pero NO
+ * cuenta como repartido ni entra al total a pedir (`totalesDelReparto`, `solicitudesDelReporte`).
  */
 export type FuenteDelRenglon = 'captura' | 'kepler';
+
+/** `[CML.K]` Un renglón por cerrar: el viaje no se ha cerrado y todavía no se paga. */
+export const esPorCerrar = (r: Pick<RenglonDelReparto, 'fuente'>): boolean => r.fuente === 'kepler';
+
+/**
+ * `[CML.K]` Los dos totales de una operación: `repartido` = lo de viajes cerrados (y la carga ya
+ * registrada), que es lo que se paga; `por_cerrar` = la comisión que ya se sabe pero espera el cierre.
+ */
+export function totalesDelReparto(renglones: ReadonlyArray<Pick<RenglonDelReparto, 'fuente' | 'importe'>>): { repartido: number; por_cerrar: number } {
+  let rep = 0;
+  let pc = 0;
+  for (const r of renglones) {
+    if (esPorCerrar(r)) pc += centavos(r.importe);
+    else rep += centavos(r.importe);
+  }
+  return { repartido: rep / 100, por_cerrar: pc / 100 };
+}
 
 /** Lo que le toca a UNA persona de UNA operación por UN concepto. */
 export interface RenglonDelReparto {
@@ -625,8 +648,45 @@ export interface OperacionDelReporte extends ViajePorCompletar {
   carga_total: number | null;
   cargador_ids: string[];
   renglones: RenglonDelReparto[];
-  /** Σ de los renglones: lo que ya se sabe a quién le toca. */
+  /** Σ de los renglones de viajes CERRADOS (y la carga registrada): lo que se paga. `[CML.K]` */
   repartido: number;
+  /** `[CML.K]` Σ de los renglones por cerrar (comisión que ya se sabe, el viaje no se ha cerrado). Opcional. */
+  por_cerrar?: number;
+  /**
+   * `[CML.T1]` Los ayudantes con los que ese chofer fue en su último viaje ya capturado (≤ 30 días
+   * antes). Sólo PRECARGA el formulario: no se guarda nada hasta que alguien lo confirma.
+   * `null` = no hay viaje previo capturado de ese chofer. Opcional: un reporte viejo no lo trae.
+   */
+  tripulacion_sugerida?: TripulacionSugerida | null;
+  /**
+   * `[CML.HV]` Cuándo se guardó la tripulación AL SALIR (ISO), sin horario todavía. `null` = nadie la
+   * guardó por ese camino. Distingue «salió sin ayudantes» de «falta capturarla». Opcional.
+   */
+  tripulacion_guardada_en?: string | null;
+  /**
+   * `[CML.J]` Las otras guías (SUC|GUIA) que el coordinador confirmó como el MISMO viaje: en el grupo,
+   * cada persona cobra la comisión mayor y un solo viático. Vacío u omitido = ninguna. Opcional.
+   */
+  mismo_viaje_confirmado?: string[];
+  /** `[CML.J]` La liga que guardó ESTA guía (SUC|GUIA de la otra): sólo desde aquí se deshace. Opcional. */
+  mismo_viaje_liga?: string | null;
+  /** `[CML.K]` La última vez que se reabrió el viaje cerrado, y por qué. Null u omitido = nunca. Opcional. */
+  reabierta?: { en: string; motivo: string } | null;
+  /** `[CML.K]` Kilómetros recorridos según la hoja de viaje (`shipments.actual_km`). Null = no capturados. Opcional. */
+  km?: number | null;
+}
+
+/** `[CML.K]` Mínimo de letras del motivo para reabrir un viaje cerrado: «error» no explica nada. */
+export const MOTIVO_MINIMO_REABRIR = 10;
+
+/** `[CML.T1]` De dónde sale la sugerencia: el viaje anterior del mismo chofer, ya capturado. */
+export interface TripulacionSugerida {
+  helper1_id: string | null;
+  helper2_id: string | null;
+  /** Fecha del viaje del que se copió (YYYY-MM-DD). */
+  fecha: string;
+  /** Guía de Kepler de ese viaje, para que se pueda revisar. */
+  guia: string | null;
 }
 
 /** `GET /logistics/trip-closure/reporte?desde&hasta&sucursal` */
@@ -679,7 +739,10 @@ export interface SolicitudDePersona {
   roles: RolDelReparto[];
   operaciones: number;
   por_concepto: Record<ConceptoDelReparto, number>;
+  /** Lo que se pide: sólo viajes cerrados (y carga registrada). */
   total: number;
+  /** `[CML.K]` Lo que le tocaría por viajes que todavía no se cierran: no se pide. Opcional. */
+  por_cerrar?: number;
   renglones: RenglonDeSolicitud[];
   detalle: DetalleDeSolicitud[];
 }
@@ -702,17 +765,27 @@ export function solicitudesDelReporte(operaciones: OperacionDelReporte[]): Solic
     const llaveCentro = op.centro ? `c:${op.centro.codigo}` : `d:${destino}`;
     for (const r of op.renglones) {
       if (!(r.importe > 0)) continue;
+      const porCerrar = esPorCerrar(r);
       let s = porPersona.get(r.persona_id);
       if (!s) {
         s = {
           persona_id: r.persona_id, persona: r.persona, roles: [], operaciones: 0,
-          por_concepto: { comision: 0, viatico: 0, carga: 0 }, total: 0, renglones: [], detalle: [],
+          por_concepto: { comision: 0, viatico: 0, carga: 0 }, total: 0, por_cerrar: 0, renglones: [], detalle: [],
           _ops: new Set(), _renglon: new Map(),
         };
         porPersona.set(r.persona_id, s);
       }
       if (!s.roles.includes(r.rol)) s.roles.push(r.rol);
       s._ops.add(llaveOp);
+      // [CML.K] Lo de un viaje sin cerrar se dice, pero no se pide (sólo se paga lo que regresó).
+      if (porCerrar) {
+        s.por_cerrar = alCentavo((s.por_cerrar ?? 0) + r.importe);
+        s.detalle.push({
+          fecha: op.fecha, sucursal: op.sucursal, guia: op.guia, destino, rol: r.rol,
+          concepto: r.concepto, codigo: r.codigo, importe: r.importe, fuente: r.fuente, calculo: r.calculo,
+        });
+        continue;
+      }
       s.por_concepto[r.concepto] = alCentavo(s.por_concepto[r.concepto] + r.importe);
       s.total = alCentavo(s.total + r.importe);
       const k = `${r.codigo}|${llaveCentro}`;
@@ -742,6 +815,151 @@ export function solicitudesDelReporte(operaciones: OperacionDelReporte[]): Solic
       detalle: s.detalle.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.guia.localeCompare(b.guia)),
     }))
     .sort((a, b) => a.persona.localeCompare(b.persona, 'es'));
+}
+
+// ── [CML.P] El pago de la catorcena: por pagar → en vale → pagado ──────────────────────────────
+//
+// El vale sale de la MISMA solicitud que ve la pantalla «Por persona» (`solicitudesDelReporte`):
+// sin lo «por cerrar» y con el mismo viaje ya juntado. ⛔ No de `logistics.v_trip_pay_items` (el vale
+// de EMB.29): esa vista no junta el mismo viaje y pagaría doble (D1).
+//
+// Cada peso del vale se amarra en `finance.trip_pay_lines` por (origen, id, persona, concepto): su
+// índice único impide meter el mismo viaje en dos vales. «Pagado» lo dice Kepler (el X-A-10 al
+// acreedor de comisiones), no un clic.
+
+/** Los conceptos de `finance.trip_pay_lines` (su CHECK). La carga se llama ahí `maniobra_carga`. */
+export type ConceptoDelVale = 'comision' | 'viatico' | 'maniobra_carga';
+export const CONCEPTO_DEL_VALE: Record<ConceptoDelReparto, ConceptoDelVale> = {
+  comision: 'comision', viatico: 'viatico', carga: 'maniobra_carga',
+};
+
+/** Un renglón que amarra el vale: qué viaje (o carga), qué concepto y cuánto. */
+export interface LineaDelVale {
+  /** Comisión y viático se amarran a la GUÍA; la carga, al EMBARQUE (se registra por embarque). */
+  source: 'guia' | 'carga';
+  source_id: string;
+  concept: ConceptoDelVale;
+  amount: number;
+  shipment_id: string | null;
+  sucursal: string;
+  guia: string;
+  fecha: string;
+  rol: RolDelReparto;
+}
+
+/**
+ * `[CML.P]` Los renglones del vale de una persona. Sólo lo que se pide (viaje cerrado); lo «por
+ * cerrar» no entra. Un renglón sin guía ni embarque en la Suite no se puede amarrar: se devuelve
+ * aparte para decirlo, nunca se mete sin llave (sería pagable dos veces).
+ */
+export function lineasDelVale(
+  s: SolicitudDePersona,
+  operaciones: Array<Pick<OperacionDelReporte, 'sucursal' | 'guia' | 'guide_id' | 'shipment_id'>>,
+): { lineas: LineaDelVale[]; sin_llave: DetalleDeSolicitud[] } {
+  const ops = new Map(operaciones.map((o) => [`${o.sucursal}|${o.guia}`, o]));
+  const porLlave = new Map<string, LineaDelVale>();
+  const sin_llave: DetalleDeSolicitud[] = [];
+  for (const d of s.detalle) {
+    if (d.fuente === 'kepler' || !(d.importe > 0)) continue;
+    const op = ops.get(`${d.sucursal}|${d.guia}`);
+    const esCarga = d.concepto === 'carga';
+    const source: LineaDelVale['source'] = esCarga ? 'carga' : 'guia';
+    const source_id = esCarga ? op?.shipment_id ?? null : op?.guide_id ?? null;
+    if (!source_id) { sin_llave.push(d); continue; }
+    const concept = CONCEPTO_DEL_VALE[d.concepto];
+    const k = `${source}|${source_id}|${concept}`;
+    const previa = porLlave.get(k);
+    if (previa) { previa.amount = alCentavo(previa.amount + d.importe); continue; }
+    porLlave.set(k, {
+      source, source_id, concept, amount: alCentavo(d.importe), shipment_id: op?.shipment_id ?? null,
+      sucursal: d.sucursal, guia: d.guia, fecha: d.fecha, rol: d.rol,
+    });
+  }
+  return { lineas: [...porLlave.values()], sin_llave };
+}
+
+/** La llave con que `finance.trip_pay_lines` impide pagar dos veces (sin el tenant). */
+export const llaveDeLinea = (l: Pick<LineaDelVale, 'source' | 'source_id' | 'concept'>): string =>
+  `${l.source}|${l.source_id}|${l.concept}`;
+
+/**
+ * `[CML.P]` El nombre como se casa con el X-A-10 de Kepler: mayúsculas, sin acentos ni signos,
+ * espacios sencillos. ⚠️ SUPUESTO: Kepler escribe al beneficiario con el mismo nombre que el padrón.
+ * Si no casa, la persona NO sale pagada (se dice «sin pago en Kepler»), nunca se adivina.
+ */
+export function nombreParaCasar(s: string | null | undefined): string {
+  return String(s ?? '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9Ñ ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+export type EstadoDelPago = 'por_pagar' | 'en_vale' | 'pagado' | 'sin_monto';
+export const ESTADO_DEL_PAGO_LABEL: Record<EstadoDelPago, string> = {
+  por_pagar: 'Por pagar', en_vale: 'En vale', pagado: 'Pagado en Kepler', sin_monto: 'Nada que pagar',
+};
+
+/** Un vale de Gastos de la catorcena (estado de Gastos: recibida → validada/aprobada, o rechazada). */
+export interface ValeDeLaCatorcena {
+  id: string;
+  status: string;
+  importe: number;
+  creado_at: string;
+  /** El X-A-15 con que se casó en Gastos; `null` = todavía sin casar. */
+  folio_solicitud: string | null;
+}
+
+/** Un pago que Kepler ya registró (X-A-10 al acreedor de comisiones de Logística). */
+export interface PagoEnKepler {
+  sucursal: string;
+  folio: string;
+  fecha: string;
+  importe: number;
+  beneficiario: string;
+}
+
+export interface PagoDePersona {
+  persona_id: string;
+  persona: string;
+  /** Lo que pide en la catorcena (viajes cerrados). */
+  a_pagar: number;
+  /** De eso, cuánto ya está amarrado en un vale que no se rechazó. */
+  en_vale: number;
+  /** Lo que falta meter a un vale. */
+  falta_en_vale: number;
+  vales: ValeDeLaCatorcena[];
+  pagos_kepler: PagoEnKepler[];
+  /** Pagado en Kepler − a pagar; `null` si Kepler no tiene pago de esta persona. */
+  diferencia: number | null;
+  estado: EstadoDelPago;
+}
+
+/** `[CML.P]` `POST /logistics/trip-closure/vales`. */
+export interface CrearValeBody {
+  persona_id: string;
+  desde: string;
+  hasta: string;
+}
+
+export interface PagosDeLaCatorcena {
+  corte: Corte;
+  personas: PagoDePersona[];
+  /** Pagos de Kepler a nombres que la Suite no calculó (se dicen, no se esconden). */
+  pagados_sin_calculo: PagoEnKepler[];
+  /** Si se pudo leer Kepler. `false` = nadie sale «pagado» porque no se midió, no porque no se pagó. */
+  kepler_medido: boolean;
+  leido_at: string;
+}
+
+/**
+ * `[CML.P]` El estado del pago de una persona. Kepler manda: si ya pagó, está pagado (aunque el
+ * importe difiera: la diferencia se muestra). Si no, «en vale» sólo cuando TODO lo que pide ya está
+ * amarrado; con algo afuera sigue «por pagar».
+ */
+export function estadoDelPago(a_pagar: number, en_vale: number, pagos_kepler: number): EstadoDelPago {
+  if (pagos_kepler > 0) return 'pagado';
+  if (!(a_pagar > 0)) return 'sin_monto';
+  if (en_vale > 0 && centavos(a_pagar) - centavos(en_vale) <= 0) return 'en_vale';
+  return 'por_pagar';
 }
 
 // ── [EMB.50] El desglose de una operación ─────────────────────────────────────────────────────
@@ -820,4 +1038,41 @@ export interface DesgloseDeOperacion {
   cajas: number;
   sueltos: number;
   leido_at: string;
+  /**
+   * `[CML.H]` Salida y regreso de la unidad según su GPS (la regla de EMB.21). Sólo PRECARGA el
+   * horario: no se guarda solo, y donde no hay GPS se dice por qué (nunca un horario inventado).
+   */
+  horario_gps?: HorarioGpsDeOperacion;
+}
+
+/** `[CML.H]` El viaje según el GPS, o el motivo (en una frase) de que no se pueda saber. */
+export interface HorarioGpsDeOperacion {
+  viaje: ViajeGps | null;
+  motivo: string | null;
+  /**
+   * `[CML.J]` Otras guías que salieron en el MISMO viaje físico: la misma unidad con la misma salida
+   * del GPS (D17). Sólo avisa, no cambia el pago. Vacío u omitido = ninguna. Opcional.
+   */
+  mismo_viaje?: GuiaDelMismoViaje[];
+  /**
+   * `[CML.J2]` Sin GPS: cuántas guías de la misma unidad capturó Kepler mientras el camión estaba
+   * fuera, cuando fueron dos o más y por eso NO se sugiere ninguna (la clave de unidad la comparten
+   * varios camiones). 0 u omitido = no aplica. Opcional.
+   */
+  mismo_viaje_omitidas?: number;
+}
+
+/** `[CML.J]` Una guía que viajó junto con la que se está viendo. */
+export interface GuiaDelMismoViaje {
+  sucursal: string;
+  guia: string;
+  /** Fecha de la guía en Kepler (YYYY-MM-DD). */
+  fecha: string;
+  /**
+   * `[CML.J]` Cómo se supo: `gps` = misma salida según el GPS; `hoja` = sin GPS, Kepler la capturó
+   * mientras el camión estaba fuera según la hoja de viaje. Omitido = `gps`. Opcional.
+   */
+  por?: 'gps' | 'hoja';
+  /** `[CML.J]` Con `hoja`: la hora (HH:MM) en que Kepler capturó esa otra guía. Opcional. */
+  hora_captura?: string | null;
 }

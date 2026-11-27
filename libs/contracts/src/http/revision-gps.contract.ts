@@ -58,6 +58,11 @@ export interface ViajeGps {
   /** De dónde salen los km: el odómetro de la unidad, o la suma del trazo cuando el odómetro no es creíble. */
   km_metodo: 'odometro' | 'trazo' | null;
   puntos: number;
+  /**
+   * `[CML.H]` Día (`YYYY-MM-DD`, hora de México) en que salió la unidad. La guía puede tener fecha
+   * de un día y la unidad salir al siguiente (medido 2026-11-23: guía del 18, salida el 19).
+   */
+  dia_salida?: string;
 }
 
 export interface RevisionGps {

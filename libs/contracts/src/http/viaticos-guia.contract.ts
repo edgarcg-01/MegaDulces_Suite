@@ -76,6 +76,56 @@ export interface CompletarGuiaBody {
   overnight: boolean;
 }
 
+/**
+ * `[CML.HV]` Guardar la tripulación AL SALIR, sin horario: no calcula comisión ni viático y la guía
+ * sigue incompleta. Se puede corregir hasta que se capture el horario (`CompletarGuiaBody`).
+ * El chofer va únicamente si Kepler no lo trajo, igual que al completar.
+ */
+export interface TripulacionGuiaBody {
+  driver_id?: string | null;
+  helper1_id: string | null;
+  helper2_id: string | null;
+}
+
+/** `[CML.HV]` Lo que devuelve guardar la tripulación: quién quedó, cuándo y quién la guardó. */
+export interface TripulacionGuardada {
+  id: string;
+  number: string;
+  driver_id: string | null;
+  helper1_id: string | null;
+  helper2_id: string | null;
+  crew_saved_at: string;
+}
+
+/**
+ * `[CML.J]` Confirmar (o deshacer, con `null`) que esta guía es el MISMO viaje físico que otra de
+ * Kepler (`SUC|GUIA`). Con la confirmación, el viaje se paga una vez (D17 opción A).
+ */
+export interface MismoViajeBody {
+  same_trip_as: string | null;
+}
+
+/** `[CML.J]` Lo que quedó guardado. */
+export interface MismoViajeGuardado {
+  id: string;
+  same_trip_as: string | null;
+}
+
+/**
+ * `[CML.K]` Reabrir un viaje ya cerrado (la guía completada): siempre con motivo. Borra horario y
+ * montos calculados; la tripulación se queda y se vuelve a capturar el horario en Embarques.
+ */
+export interface ReabrirGuiaBody {
+  motivo: string;
+}
+
+/** `[CML.K]` Lo que quedó: cuándo se reabrió. */
+export interface GuiaReabierta {
+  id: string;
+  number: string;
+  reopened_at: string;
+}
+
 /** Lo que devuelve completar la guía: sus montos, ya calculados por la API. */
 export interface GuiaCompletada {
   id: string;

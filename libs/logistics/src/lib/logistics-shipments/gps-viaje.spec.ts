@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { reconstruirViaje } from './gps-viaje.logic';
+import { capturadaMientrasFuera, desvioPorLaHoja, MAX_DESVIOS_POR_HOJA, mismoViajeFisico, reconstruirViaje, ventanaDeLaHoja } from './gps-viaje.logic';
 import { ShipmentGpsReviewService } from './shipment-gps-review.service';
 
 /**
@@ -23,8 +23,14 @@ describe('reconstruirViaje', () => {
   it('salida, regreso y km del odómetro cuando es creíble frente al trazo', () => {
     const r = reconstruirViaje(VIAJE, ORIGEN, DESDE, DESPUES);
     expect(r).toEqual({ ok: true, viaje: {
-      salida: '08:30', llegada: '17:30', duerme_fuera: false, km: 40, km_metodo: 'odometro', puntos: 4,
+      salida: '08:30', llegada: '17:30', duerme_fuera: false, km: 40, km_metodo: 'odometro', puntos: 4, dia_salida: '2026-10-07',
     } });
+  });
+
+  it('[CML.H] el día de la salida es el del GPS, no el de la guía: cargó un día y salió al siguiente', () => {
+    const otroDia = VIAJE.map((x) => ({ ...x, en: new Date(x.en.getTime() + 24 * 3600_000) }));
+    const r = reconstruirViaje(otroDia, ORIGEN, DESDE, DESPUES);
+    expect(r.ok && r.viaje).toMatchObject({ salida: '08:30', dia_salida: '2026-10-08', duerme_fuera: false });
   });
 
   it('un odómetro roto (negativo) no se publica: se usa el trazo y se declara', () => {
@@ -131,5 +137,68 @@ describe('ShipmentGpsReviewService.review', () => {
     const s = servicio({ embarque: undefined });
     (s as any).tk = { run: async (fn: any) => fn(Object.assign(() => ({ where: function () { return this; }, whereNull: function () { return this; }, first: async () => undefined }), { raw: (x: string) => x })) };
     await expect(s.review(ID, DESPUES)).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('[CML.J] mismo viaje físico (D17)', () => {
+  // El par real de prod: 06/0001695 y 06/0001696, salida 12:16 del 12-nov, 259 km.
+  const a = { salida: '12:16', dia_salida: '2026-11-12' };
+  it('misma unidad, mismo día y misma hora de salida = el mismo viaje', () => {
+    expect(mismoViajeFisico(a, { salida: '12:16', dia_salida: '2026-11-12' })).toBe(true);
+  });
+  it('NEGATIVA: otra hora, otro día, o sin día de salida, no se afirma', () => {
+    expect(mismoViajeFisico(a, { salida: '12:17', dia_salida: '2026-11-12' })).toBe(false);
+    expect(mismoViajeFisico(a, { salida: '12:16', dia_salida: '2026-11-13' })).toBe(false);
+    expect(mismoViajeFisico({ salida: '12:16' }, { salida: '12:16' })).toBe(false);
+  });
+});
+
+// [CML.J] D17 caso 3 — sin GPS: otra guía de la misma unidad capturada mientras el camión estaba fuera
+// según la hoja de viaje es, posiblemente, el desvío. Sólo sugiere; confirma una persona.
+describe('[CML.J] mismo viaje por la hoja (sin GPS)', () => {
+  const guia = { fecha: '2026-09-29', hora_captura: '06:00' };
+  const hoja = { salida: '07:00', llegada: '16:30', duerme_fuera: false };
+  const v = ventanaDeLaHoja(guia, hoja);
+
+  it('capturada a las 11:20 del mismo día, con el camión fuera: se sugiere', () => {
+    expect(capturadaMientrasFuera(v, { fecha: '2026-09-29', hora_captura: '11:20' })).toBe(true);
+  });
+  it('NEGATIVA: antes de salir, justo a la salida, después de regresar u otro día: no', () => {
+    expect(capturadaMientrasFuera(v, { fecha: '2026-09-29', hora_captura: '06:59' })).toBe(false);
+    expect(capturadaMientrasFuera(v, { fecha: '2026-09-29', hora_captura: '07:00' })).toBe(false);
+    expect(capturadaMientrasFuera(v, { fecha: '2026-09-29', hora_captura: '16:31' })).toBe(false);
+    expect(capturadaMientrasFuera(v, { fecha: '2026-09-30', hora_captura: '11:20' })).toBe(false);
+    expect(capturadaMientrasFuera(v, { fecha: '2026-09-29', hora_captura: null })).toBe(false);
+  });
+  it('cargada en la tarde: la guía se capturó después de la hora de salida, salió al día siguiente', () => {
+    const tarde = ventanaDeLaHoja({ fecha: '2026-09-29', hora_captura: '18:00' }, hoja);
+    expect(capturadaMientrasFuera(tarde, { fecha: '2026-09-30', hora_captura: '10:00' })).toBe(true);
+    expect(capturadaMientrasFuera(tarde, { fecha: '2026-09-29', hora_captura: '10:00' })).toBe(false);
+  });
+  it('durmió fuera: la ventana cruza la medianoche', () => {
+    const noche = ventanaDeLaHoja(guia, { salida: '20:00', llegada: '05:00', duerme_fuera: true });
+    expect(capturadaMientrasFuera(noche, { fecha: '2026-09-30', hora_captura: '02:00' })).toBe(true);
+  });
+  it('NEGATIVA: sin horario o con una ventana imposible (4:30 AM por 4:30 PM) no sugiere nada', () => {
+    expect(ventanaDeLaHoja(guia, { salida: null, llegada: '16:30', duerme_fuera: false })).toBeNull();
+    // 07:00 → 04:30 del día siguiente son 21.5 h: es un error de captura, no un viaje.
+    const mal = ventanaDeLaHoja(guia, { salida: '07:00', llegada: '04:30', duerme_fuera: false });
+    expect(mal).toBeNull();
+    expect(capturadaMientrasFuera(mal, { fecha: '2026-09-29', hora_captura: '11:20' })).toBe(false);
+  });
+});
+
+
+describe('[CML.J2] la hoja sólo sugiere UN desvío', () => {
+  it('una sola guía capturada mientras estaba fuera: se sugiere', () => {
+    expect(desvioPorLaHoja(['0001383'])).toEqual({ sugeridas: ['0001383'], omitidas: 0 });
+  });
+  it('ninguna: nada que sugerir ni que declarar', () => {
+    expect(desvioPorLaHoja([])).toEqual({ sugeridas: [], omitidas: 0 });
+  });
+  it('NEGATIVA: dos o más = unidad compartida, no se sugiere ninguna y se dice cuántas', () => {
+    expect(MAX_DESVIOS_POR_HOJA).toBe(1);
+    expect(desvioPorLaHoja(['0001383', '0001384', '0001385'])).toEqual({ sugeridas: [], omitidas: 3 });
+    expect(desvioPorLaHoja(['a', 'b'])).toEqual({ sugeridas: [], omitidas: 2 });
   });
 });

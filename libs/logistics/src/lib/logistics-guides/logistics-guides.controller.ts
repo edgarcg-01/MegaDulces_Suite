@@ -17,7 +17,9 @@ import {
   CreateRecipientDto,
   MarkDeliveredDto,
 } from './logistics-guides.service';
-import type { CompletarGuiaBody, GuiaCompletada } from '@megadulces/contracts';
+import type {
+  CompletarGuiaBody, GuiaCompletada, GuiaReabierta, MismoViajeBody, MismoViajeGuardado, ReabrirGuiaBody, TripulacionGuardada, TripulacionGuiaBody,
+} from '@megadulces/contracts';
 
 /**
  * `[AUTHZ.5]` — Controller sin autorización hasta acá (ver `logistics-fleet.controller`). La guía
@@ -58,6 +60,30 @@ export class LogisticsGuidesController {
   @ApiOperation({ summary: 'EMB.22: completar UNA vez la guía de un viaje de Kepler (tripulación y horario); calcula comisión y viáticos' })
   complete(@Param('id') id: string, @Body() body: CompletarGuiaBody): Promise<GuiaCompletada> {
     return this.service.complete(id, body);
+  }
+
+  @Post(':id/tripulacion')
+  // [CML.HV] Al salir: la tripulación sola, sin horario. Mismo permiso que completar.
+  @RequireAnyPermission(Permission.LOGISTICS_GUIDES_GESTIONAR, Permission.LOGISTICS_PAGOS_GESTIONAR)
+  @ApiOperation({ summary: 'CML.HV: guardar la tripulación al salir (sin horario); no calcula nada y se corrige hasta capturar el horario' })
+  guardarTripulacion(@Param('id') id: string, @Body() body: TripulacionGuiaBody): Promise<TripulacionGuardada> {
+    return this.service.guardarTripulacion(id, body);
+  }
+
+  @Post(':id/mismo-viaje')
+  // [CML.J] D17 A: confirmar (o deshacer) que es el mismo viaje físico que otra guía; se paga una vez.
+  @RequireAnyPermission(Permission.LOGISTICS_GUIDES_GESTIONAR, Permission.LOGISTICS_PAGOS_GESTIONAR)
+  @ApiOperation({ summary: 'CML.J: confirmar que la guía es el mismo viaje que otra de Kepler (misma unidad); el reporte lo paga una vez' })
+  confirmarMismoViaje(@Param('id') id: string, @Body() body: MismoViajeBody): Promise<MismoViajeGuardado> {
+    return this.service.confirmarMismoViaje(id, body);
+  }
+
+  @Post(':id/reabrir')
+  // [CML.K] Reabrir un viaje cerrado: borra horario y montos, con motivo. Sólo quien gestiona los pagos.
+  @RequirePermissions(Permission.LOGISTICS_PAGOS_GESTIONAR)
+  @ApiOperation({ summary: 'CML.K: reabrir un viaje cerrado (borra horario y montos calculados), con motivo obligatorio' })
+  reabrir(@Param('id') id: string, @Body() body: ReabrirGuiaBody): Promise<GuiaReabierta> {
+    return this.service.reabrir(id, body);
   }
 
   @Patch(':id')

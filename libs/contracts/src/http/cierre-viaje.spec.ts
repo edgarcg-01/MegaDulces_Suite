@@ -1,6 +1,6 @@
 import {
   CARGADORES_MAX, conceptoDelReparto, corteAPagar, corteDe, corteVecino, erroresDeCargadores, erroresDeCierreDeParada, faltasDelViaje,
-  FOTO_MAX_CHARS, repartoDeCarga, seCierraEnLaSuite, solicitudesDelReporte, tipoDeParadaKepler, tipoDelViaje, totalDeCarga, totalesPorConcepto,
+  esPorCerrar, estadoDelPago, FOTO_MAX_CHARS, lineasDelVale, llaveDeLinea, nombreParaCasar, repartoDeCarga, seCierraEnLaSuite, solicitudesDelReporte, tipoDeParadaKepler, tipoDelViaje, totalDeCarga, totalesDelReparto, totalesPorConcepto,
 } from './cierre-viaje.contract';
 import type { OperacionDelReporte, RenglonDelReparto } from './cierre-viaje.contract';
 
@@ -267,5 +267,109 @@ describe('[EMB.47] el reporte de reparto: conceptos de Kepler y solicitudes por 
   it('un viaje sin destino se agrupa en «—», no se pierde', () => {
     const s = solicitudesDelReporte([op('G1', '2026-10-09', '', [r('a', 'chofer', 'comision', '054', 5)])]);
     expect(s[0].renglones[0].destino).toBe('—');
+  });
+});
+
+// [CML.K] Lo de un viaje sin cerrar (renglón «kepler») se dice, pero no se paga: sólo se paga lo que regresó.
+describe('[CML.K] por cerrar', () => {
+  const ren = (persona_id: string, concepto: RenglonDelReparto['concepto'], importe: number, fuente: RenglonDelReparto['fuente']): RenglonDelReparto => ({
+    persona_id, persona: `P-${persona_id}`, rol: concepto === 'carga' ? 'cargador' : 'chofer', concepto, codigo: '054',
+    nombre_concepto: 'C-054', importe, fuente, calculo: 'PRUEBA',
+  });
+  const oper = (guia: string, renglones: RenglonDelReparto[]): OperacionDelReporte => ({
+    sucursal: '00', guia, fecha: '2026-10-01', paradas: 1, destinos: 'DESTINO PRUEBA', tipo: 'traspaso', chofer_kepler: null, importe: 0,
+    shipment_id: 's', shipment_folio: null, guide_id: 'g', driver_id: null, helper1_id: null, helper2_id: null,
+    departure_time: null, arrival_time: null, overnight: false, cargadores: 0, faltan: [],
+    cajas: null, sueltos: null, comision_ruta: { chofer: null, ayudante: null, ruta: null, sin_tarifa: [] }, chofer_kepler_id: null,
+    centro: null, sin_centro: null, tarifa_por_caja: null, carga_total: null, cargador_ids: [], renglones, repartido: 0,
+  });
+
+  it('totalesDelReparto separa lo que se paga de lo que espera el cierre, al centavo', () => {
+    expect(totalesDelReparto([ren('a', 'comision', 150.1, 'kepler'), ren('b', 'carga', 20.2, 'captura'), ren('a', 'viatico', 80, 'captura')]))
+      .toEqual({ repartido: 100.2, por_cerrar: 150.1 });
+    expect(totalesDelReparto([])).toEqual({ repartido: 0, por_cerrar: 0 });
+    expect(esPorCerrar({ fuente: 'kepler' })).toBe(true);
+    expect(esPorCerrar({ fuente: 'captura' })).toBe(false);
+  });
+
+  it('NEGATIVA: la solicitud NO pide lo por cerrar; lo dice aparte y lo deja en «de dónde sale»', () => {
+    const s = solicitudesDelReporte([
+      oper('G1', [ren('a', 'comision', 150, 'kepler')]),
+      oper('G2', [ren('a', 'comision', 291.4, 'captura'), ren('a', 'viatico', 80, 'captura')]),
+    ]);
+    expect(s).toHaveLength(1);
+    expect(s[0].total).toBe(371.4);
+    expect(s[0].por_concepto.comision).toBe(291.4);
+    expect(s[0].por_cerrar).toBe(150);
+    // Los renglones para capturar en Kepler sólo llevan lo cerrado.
+    expect(s[0].renglones.map((x) => x.importe)).toEqual([371.4]);
+    expect(s[0].detalle.filter((d) => d.fuente === 'kepler').map((d) => d.guia)).toEqual(['G1']);
+  });
+
+  it('una persona con SÓLO viajes sin cerrar aparece con total 0 y lo que falta por cerrar', () => {
+    const s = solicitudesDelReporte([oper('G1', [ren('a', 'comision', 150, 'kepler')])]);
+    expect(s[0].total).toBe(0);
+    expect(s[0].por_cerrar).toBe(150);
+    expect(s[0].renglones).toEqual([]);
+  });
+});
+
+describe('[CML.P] el pago de la catorcena', () => {
+  const ren = (persona_id: string, concepto: RenglonDelReparto['concepto'], importe: number, fuente: RenglonDelReparto['fuente'] = 'captura'): RenglonDelReparto => ({
+    persona_id, persona: `P-${persona_id}`, rol: concepto === 'carga' ? 'cargador' : 'chofer', concepto, codigo: '054',
+    nombre_concepto: 'C-054', importe, fuente, calculo: 'PRUEBA',
+  });
+  const oper = (guia: string, renglones: RenglonDelReparto[], ids: { guide_id?: string | null; shipment_id?: string | null } = {}): OperacionDelReporte => ({
+    sucursal: '00', guia, fecha: '2026-10-01', paradas: 1, destinos: 'DESTINO PRUEBA', tipo: 'traspaso', chofer_kepler: null, importe: 0,
+    shipment_id: ids.shipment_id === undefined ? `s-${guia}` : ids.shipment_id, shipment_folio: null,
+    guide_id: ids.guide_id === undefined ? `g-${guia}` : ids.guide_id, driver_id: null, helper1_id: null, helper2_id: null,
+    departure_time: null, arrival_time: null, overnight: false, cargadores: 0, faltan: [],
+    cajas: null, sueltos: null, comision_ruta: { chofer: null, ayudante: null, ruta: null, sin_tarifa: [] }, chofer_kepler_id: null,
+    centro: null, sin_centro: null, tarifa_por_caja: null, carga_total: null, cargador_ids: [], renglones, repartido: 0,
+  });
+  const vale = (ops: OperacionDelReporte[], persona = 'a') => {
+    const s = solicitudesDelReporte(ops).find((x) => x.persona_id === persona)!;
+    return lineasDelVale(s, ops);
+  };
+
+  it('amarra comisión y viático a la GUÍA y la carga al EMBARQUE, con el concepto de trip_pay_lines', () => {
+    const { lineas, sin_llave } = vale([oper('G1', [ren('a', 'comision', 180), ren('a', 'viatico', 80), ren('a', 'carga', 12.5)])]);
+    expect(sin_llave).toEqual([]);
+    expect(lineas.map((l) => [l.source, l.source_id, l.concept, l.amount])).toEqual([
+      ['guia', 'g-G1', 'comision', 180], ['guia', 'g-G1', 'viatico', 80], ['carga', 's-G1', 'maniobra_carga', 12.5],
+    ]);
+    // Suma lo mismo que la solicitud de «Por persona»: una sola regla.
+    expect(lineas.reduce((t, l) => t + l.amount, 0)).toBe(272.5);
+  });
+
+  it('NEGATIVA: lo «por cerrar» NO entra al vale', () => {
+    const { lineas } = vale([oper('G1', [ren('a', 'comision', 150, 'kepler')]), oper('G2', [ren('a', 'comision', 200)])]);
+    expect(lineas.map((l) => l.guia)).toEqual(['G2']);
+  });
+
+  it('NEGATIVA: sin guía ni embarque en la Suite no se amarra: se devuelve aparte (sería pagable dos veces)', () => {
+    const { lineas, sin_llave } = vale([oper('G1', [ren('a', 'comision', 150), ren('a', 'carga', 10)], { guide_id: null, shipment_id: null })]);
+    expect(lineas).toEqual([]);
+    expect(sin_llave.map((d) => [d.guia, d.concepto])).toEqual([['G1', 'comision'], ['G1', 'carga']]);
+  });
+
+  it('la llave es la del índice único (origen, id, concepto)', () => {
+    expect(llaveDeLinea({ source: 'guia', source_id: 'x', concept: 'viatico' })).toBe('guia|x|viatico');
+  });
+
+  it('casa el nombre sin acentos, mayúsculas ni espacios de más', () => {
+    expect(nombreParaCasar('  Chófer  Ñandú Prueba-Pérez ')).toBe('CHOFER NANDU PRUEBA PEREZ');
+    expect(nombreParaCasar(null)).toBe('');
+    // NEGATIVA: otro nombre no casa (no se adivina).
+    expect(nombreParaCasar('CHOFER ÑANDU PRUEBA')).not.toBe(nombreParaCasar('Chófer Ñandú Prueba Pérez'));
+  });
+
+  it('estado: Kepler manda; «en vale» sólo con TODO amarrado; sin monto si no pide nada', () => {
+    expect(estadoDelPago(300, 0, 0)).toBe('por_pagar');
+    expect(estadoDelPago(300, 120, 0)).toBe('por_pagar');      // NEGATIVA: medio vale sigue por pagar
+    expect(estadoDelPago(300, 300, 0)).toBe('en_vale');
+    expect(estadoDelPago(300, 300, 1)).toBe('pagado');
+    expect(estadoDelPago(300, 0, 1)).toBe('pagado');            // Kepler pagó sin vale de la Suite: se dice pagado
+    expect(estadoDelPago(0, 0, 0)).toBe('sin_monto');
   });
 });

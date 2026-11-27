@@ -27,7 +27,7 @@ const o = (x: Partial<OperacionDelReporte>): OperacionDelReporte => ({
 /** Sin hoja; Kepler trae a PERSONA DOS, que está en el padrón: su comisión de ruta ya se sabe. */
 const SIN_HOJA = o({
   chofer_kepler: 'PERSONA DOS', chofer_kepler_id: 'd2', faltan: ['horario', 'cargadores'], sueltos: 40,
-  comision_ruta: { chofer: 150, ayudante: 100, ruta: 'LA PIEDAD', sin_tarifa: [] }, repartido: 150,
+  comision_ruta: { chofer: 150, ayudante: 100, ruta: 'LA PIEDAD', sin_tarifa: [] }, repartido: 0, por_cerrar: 150,
   renglones: [{ persona_id: 'd2', persona: 'PERSONA DOS', rol: 'chofer', concepto: 'comision', codigo: '075', nombre_concepto: 'COMISIONES LOGISTICAS TLMKT', importe: 150, fuente: 'kepler', calculo: 'Tarifa de la ruta LA PIEDAD: $150.00 al chofer' }],
 });
 const SIN_HORARIO = o({
@@ -75,6 +75,7 @@ const CON_HOJA: ReporteDePagos = {
 function montar(
   permisos: Partial<Record<Permission, boolean>> = { [Permission.LOGISTICS_PAGOS_GESTIONAR]: true },
   query: Record<string, string> | null = null,
+  data: Record<string, string> | null = null,
 ) {
   TestBed.configureTestingModule({
     imports: [LogisticaPagosViajesComponent],
@@ -82,7 +83,7 @@ function montar(
       provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
       { provide: AuthService, useValue: { user: signal({ permissions: permisos }) } },
       { provide: PermissionsService, useValue: { isAdmin: () => false } },
-      ...(query ? [{ provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) } } }] : []),
+      ...(query || data ? [{ provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query ?? {}), data: data ?? {} } } }] : []),
     ],
   });
   const f = TestBed.createComponent(LogisticaPagosViajesComponent);
@@ -105,7 +106,7 @@ describe('LogisticaPagosViajesComponent', () => {
     req.flush(REPORTE);
     f.detectChanges();
     expect(el.textContent).toContain('3 operaciones: $103.00 de carga (515 cajas) y $450.00 de comisión de choferes. '
-      + '$550.00 ya asignado a 3 personas; falta quién cargó en 2.');
+      + '$400.00 a pagar a 2 personas de viajes cerrados y $150.00 por cerrar; falta quién cargó en 2.');
     expect(el.textContent).toContain('Falta el horario');
     expect(el.textContent).toContain('PERSONA DOS (Kepler)');
   });
@@ -157,7 +158,9 @@ describe('LogisticaPagosViajesComponent', () => {
     await tick();
     reporte(http).flush(CON_HOJA);
     await listo;
-    expect(c.avisoPeek()).toContain('comisión $300.00');
+    // [CML.J] Con el horario de la hoja guardado, se vuelve a pedir el desglose (mismo viaje sin GPS).
+    desglose(http).flush(DESGLOSE);
+    expect(c.avisoPeek()).toContain('Comisión $300.00');
     expect(c.errorPeek()).toBeNull();
   });
 
@@ -174,19 +177,237 @@ describe('LogisticaPagosViajesComponent', () => {
     http.expectNone((r) => r.method === 'POST');
   });
 
-  it('PRUEBA NEGATIVA: sin horario, o con la misma persona dos veces, no se manda nada', async () => {
+  it('PRUEBA NEGATIVA: con UNA sola hora, o con la misma persona dos veces, no se manda nada', async () => {
     const { c, http } = montar();
     reporte(http).flush(REPORTE);
     c.abrir(SIN_HORARIO);
     desglose(http).flush(DESGLOSE);
+    c.salida.set(new Date(2026, 9, 10, 6, 0));
+    expect(c.erroresTripulacion(SIN_HORARIO)).toContain('Captura la hora de llegada (o borra la salida para guardar sólo la tripulación).');
+    await c.guardarTripulacion(c.op()!);
+    c.salida.set(null);
+    c.llegada.set(new Date(2026, 9, 10, 14, 0));
     expect(c.erroresTripulacion(SIN_HORARIO)).toContain('Captura la hora de salida.');
     await c.guardarTripulacion(c.op()!);
     c.salida.set(new Date(2026, 9, 10, 6, 0));
-    c.llegada.set(new Date(2026, 9, 10, 14, 0));
     c.ayudante1.set('d2');
     expect(c.erroresTripulacion(SIN_HORARIO)).toContain('Una persona no puede ir dos veces en el mismo viaje.');
     await c.guardarTripulacion(c.op()!);
     http.expectNone((r) => r.method === 'POST');
+  });
+
+  it('[CML.HV] sin horario guarda SÓLO la tripulación (al salir): no manda horas ni completa la guía', async () => {
+    const { c, f, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    c.abrir(SIN_HORARIO);
+    desglose(http).flush(DESGLOSE);
+    f.detectChanges();
+    expect(c.soloTripulacion()).toBe(true);
+    expect(el.textContent).toContain('Guardar tripulación');
+    expect(el.textContent).not.toContain('Cerrar viaje y calcular comisiones');
+    c.ayudante1.set('a1');
+    expect(c.erroresTripulacion(SIN_HORARIO)).toEqual([]);
+    const listo = c.guardarTripulacion(c.op()!);
+    await tick();
+    const post = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/guides/g-d/tripulacion'));
+    // Chofer de Kepler (d2): no se manda; tampoco horas.
+    expect(post.request.body).toEqual({ helper1_id: 'a1', helper2_id: null });
+    post.flush({ id: 'g-d', number: 'G', driver_id: 'd2', helper1_id: 'a1', helper2_id: null, crew_saved_at: '2026-11-24T14:05:00.000Z' });
+    await tick();
+    reporte(http).flush({ ...REPORTE, operaciones: [{ ...SIN_HORARIO, helper1_id: 'a1', tripulacion_guardada_en: '2026-11-24T14:05:00.000Z' }] });
+    await listo;
+    http.expectNone((r) => r.url.includes('/complete'));
+    expect(c.avisoPeek()).toContain('tripulación guardada');
+    expect(c.errorPeek()).toBeNull();
+    f.detectChanges();
+    expect(el.textContent).toContain('Tripulación guardada al salir');
+    // Al regresar, ya con las dos horas, el botón completa la guía.
+    c.salida.set(new Date(2026, 9, 10, 6, 0));
+    c.llegada.set(new Date(2026, 9, 10, 14, 0));
+    f.detectChanges();
+    expect(el.textContent).toContain('Cerrar viaje y calcular comisiones');
+  });
+
+  it('[CML.J] sin GPS: el aviso dice que la sugerencia sale de la hoja y a qué hora se capturó la otra guía', () => {
+    const { c, f, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    c.abrir(COMPLETA);
+    desglose(http).flush({ ...DESGLOSE, horario_gps: { viaje: null, motivo: 'La unidad no tiene rastreador GPS.',
+      mismo_viaje: [{ sucursal: '00', guia: '0000009', fecha: '2026-10-10', por: 'hoja', hora_captura: '11:20' }] } });
+    f.detectChanges();
+    expect(el.textContent).toContain('Posiblemente el mismo viaje que la guía 0000009');
+    expect(el.textContent).toContain('a las 11:20 AM, mientras el camión estaba fuera según la hoja de viaje');
+    expect(el.textContent).not.toContain('según el GPS)');
+    // El mismo botón de siempre: confirma una persona.
+    expect(el.textContent).toContain('Es el mismo viaje: pagar una vez');
+  });
+
+  it('[CML.J2] unidad compartida: dice cuántas guías hubo y no ofrece ligar ninguna', () => {
+    const { c, f, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    c.abrir(COMPLETA);
+    desglose(http).flush({ ...DESGLOSE, horario_gps: { viaje: null, motivo: 'La unidad no tiene rastreador GPS.', mismo_viaje: [], mismo_viaje_omitidas: 4 } });
+    f.detectChanges();
+    expect(el.textContent).toContain('Kepler le hizo 4 guías a esta unidad mientras el camión estaba fuera');
+    expect(el.textContent).not.toContain('Es el mismo viaje: pagar una vez');
+    expect(el.textContent).not.toContain('Posiblemente el mismo viaje');
+  });
+
+  it('[CML.J2] NEGATIVA: sin omitidas no aparece el aviso de unidad compartida', () => {
+    const { c, f, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    c.abrir(COMPLETA);
+    desglose(http).flush({ ...DESGLOSE, horario_gps: { viaje: null, motivo: null, mismo_viaje: [] } });
+    f.detectChanges();
+    expect(el.textContent).not.toContain('Kepler le hizo');
+  });
+
+  it('[CML.J] avisa si la guía salió en el mismo viaje que otra, y la abre si está en la catorcena', () => {
+    const { c, f, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    c.abrir(SIN_HORARIO);
+    desglose(http).flush({ ...DESGLOSE, horario_gps: { viaje: null, motivo: null, mismo_viaje: [{ sucursal: '06', guia: '0000002', fecha: '2026-10-10' }] } });
+    f.detectChanges();
+    expect(el.textContent).toContain('Salió en el mismo viaje que la guía 0000002');
+    expect(el.textContent).toContain('Revisa no pagar el viaje dos veces');
+    c.abrirMismoViaje(c.mismoViaje()[0]);
+    desglose(http).flush(DESGLOSE);
+    expect(c.op()?.guia).toBe('0000002');
+    // NEGATIVA: una guía que no está en la catorcena no abre nada, lo dice.
+    c.abrirMismoViaje({ sucursal: '09', guia: '9999999', fecha: '2026-09-01' });
+    expect(c.op()?.guia).toBe('0000002');
+    expect(c.avisoPeek()).toContain('no está en esta catorcena');
+    http.expectNone((r) => r.method !== 'GET');
+  });
+
+  it('[CML.J] «Es el mismo viaje: pagar una vez» liga la guía, relee y deja deshacerlo', async () => {
+    const MISMO = [{ sucursal: '06', guia: '0000002', fecha: '2026-10-10' }];
+    const { c, f, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    c.abrir(SIN_HORARIO);
+    desglose(http).flush({ ...DESGLOSE, horario_gps: { viaje: null, motivo: null, mismo_viaje: MISMO } });
+    f.detectChanges();
+    expect(el.textContent).toContain('Es el mismo viaje: pagar una vez');
+    const listo = c.ligarMismoViaje(c.op()!, MISMO[0]);
+    await tick();
+    const post = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/guides/g-d/mismo-viaje'));
+    expect(post.request.body).toEqual({ same_trip_as: '06|0000002' });
+    post.flush({ id: 'g-d', same_trip_as: '06|0000002' });
+    await tick();
+    reporte(http).flush({ ...REPORTE, operaciones: [{ ...SIN_HORARIO, mismo_viaje_confirmado: ['06|0000002'], mismo_viaje_liga: '06|0000002' }] });
+    await listo;
+    expect(c.avisoPeek()).toContain('es el mismo viaje que la guía 0000002');
+    f.detectChanges();
+    // Confirmada: ya no se ofrece confirmar; se dice cómo se paga y se puede deshacer.
+    expect(c.mismoViajeSinConfirmar()).toEqual([]);
+    expect(el.textContent).toContain('Mismo viaje que la guía 0000002: a cada persona se le paga la comisión mayor y un solo viático');
+    expect(el.textContent).not.toContain('Es el mismo viaje: pagar una vez');
+    const deshacer = c.ligarMismoViaje(c.op()!, null);
+    await tick();
+    const post2 = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/guides/g-d/mismo-viaje'));
+    expect(post2.request.body).toEqual({ same_trip_as: null });
+    post2.flush({ id: 'g-d', same_trip_as: null });
+    await tick();
+    reporte(http).flush(REPORTE);
+    await deshacer;
+    expect(c.avisoPeek()).toContain('cada guía se paga por separado');
+  });
+
+  it('[CML.J] PRUEBA NEGATIVA: quien sólo VE no confirma, y la liga hecha desde la OTRA guía no se deshace aquí', () => {
+    const SUGERIDA = { ...DESGLOSE, horario_gps: { viaje: null, motivo: null, mismo_viaje: [{ sucursal: '06', guia: '0000003', fecha: '2026-10-10' }] } };
+    const g = montar();
+    reporte(g.http).flush({ ...REPORTE, operaciones: [{ ...SIN_HORARIO, mismo_viaje_confirmado: ['06|0000002'], mismo_viaje_liga: null }] });
+    g.c.abrir(g.c.operaciones()[0]);
+    desglose(g.http).flush(SUGERIDA);
+    g.f.detectChanges();
+    expect(g.el.textContent).toContain('Mismo viaje que la guía 0000002');
+    expect(g.el.textContent).not.toContain('Deshacer');
+    expect(g.el.textContent).toContain('Es el mismo viaje: pagar una vez');
+    g.http.expectNone((r) => r.method !== 'GET');
+    TestBed.resetTestingModule();
+    const v = montar({ [Permission.LOGISTICS_PAGOS_VER]: true });
+    reporte(v.http).flush(REPORTE);
+    v.c.abrir(SIN_HORARIO);
+    desglose(v.http).flush(SUGERIDA);
+    v.f.detectChanges();
+    expect(v.el.textContent).toContain('Salió en el mismo viaje que la guía 0000003');
+    expect(v.el.textContent).not.toContain('Es el mismo viaje: pagar una vez');
+    v.http.expectNone((r) => r.method !== 'GET');
+  });
+
+  it('[CML.T1] precarga los ayudantes del viaje anterior del chofer, lo dice, y el aviso se va si alguien los cambia', () => {
+    const SUGERIDA = o({ ...SIN_HOJA, tripulacion_sugerida: { helper1_id: 'a1', helper2_id: null, fecha: '2026-10-09', guia: '0000099' } });
+    const { c, f, http, el } = montar();
+    reporte(http).flush({ ...REPORTE, operaciones: [SUGERIDA, SIN_HORARIO, COMPLETA] });
+    c.abrir(c.operaciones()[0]);
+    desglose(http).flush(DESGLOSE);
+    f.detectChanges();
+    expect(c.ayudante1()).toBe('a1');
+    expect(c.ayudante2()).toBeNull();
+    expect(el.textContent).toContain('Los mismos ayudantes de su viaje del');
+    expect(el.textContent).toContain('guía 0000099');
+    http.expectNone((r) => r.method !== 'GET');
+    c.ayudante1.set(null);
+    expect(c.sugeridaVigente()).toBeNull();
+  });
+
+  it('[CML.T1] PRUEBA NEGATIVA: lo ya capturado manda; sin sugerencia no se precarga a nadie', () => {
+    const { c, http } = montar();
+    reporte(http).flush(REPORTE);
+    const CAPTURADA = o({ ...COMPLETA, helper1_id: 'd2', tripulacion_sugerida: { helper1_id: 'a1', helper2_id: null, fecha: '2026-10-09', guia: '1' } });
+    c.abrir(CAPTURADA);
+    desglose(http).flush(DESGLOSE);
+    expect(c.ayudante1()).toBe('d2');
+    expect(c.sugerida()).toBeNull();
+    c.abrir(SIN_HORARIO);
+    desglose(http).flush(DESGLOSE);
+    expect(c.ayudante1()).toBeNull();
+    expect(c.sugeridaVigente()).toBeNull();
+  });
+
+  /** `[CML.H]` Lo que el GPS dice de la unidad: cargó el 10 y salió el 11 (lo medido en prod). */
+  const GPS = { salida: '07:24', llegada: '16:11', duerme_fuera: false, km: 103, km_metodo: 'trazo' as const, puntos: 40, dia_salida: '2026-10-11' };
+
+  it('[CML.H] precarga el horario del GPS, dice el día y los km, no guarda nada, y el aviso se va si alguien lo cambia', () => {
+    const { c, f, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    c.abrir(c.operaciones()[0]);
+    desglose(http).flush({ ...DESGLOSE, horario_gps: { viaje: GPS, motivo: null } });
+    f.detectChanges();
+    expect([c.salida()?.getHours(), c.salida()?.getMinutes()]).toEqual([7, 24]);
+    expect([c.llegada()?.getHours(), c.llegada()?.getMinutes()]).toEqual([16, 11]);
+    expect(c.durmio()).toBe(false);
+    const texto = document.body.textContent ?? el.textContent ?? '';
+    expect(texto).toContain('Según el GPS de la unidad: salió el');
+    expect(texto).toContain('a las 7:24 AM y regresó a las 4:11 PM');
+    expect(texto).toContain('(103 km)');
+    expect(texto).toContain('Sin confirmar');
+    http.expectNone((r) => r.method !== 'GET');
+    c.llegada.set(new Date(2026, 9, 11, 18, 0));
+    expect(c.horarioGpsVigente()).toBeNull();
+  });
+
+  it('[CML.H] PRUEBA NEGATIVA: lo tecleado y lo capturado mandan; sin GPS se dice por qué y no se inventa horario', () => {
+    const { c, http } = montar();
+    reporte(http).flush(REPORTE);
+    // La persona tecleó la salida antes de que llegara el desglose: no se le pisa.
+    c.abrir(c.operaciones()[0]);
+    const tecleada = new Date(2026, 9, 10, 6, 15);
+    c.salida.set(tecleada);
+    desglose(http).flush({ ...DESGLOSE, horario_gps: { viaje: GPS, motivo: null } });
+    expect(c.salida()).toBe(tecleada);
+    expect(c.llegada()).toBeNull();
+    expect(c.horarioGps()).toBeNull();
+    // Guía completa: lo capturado manda.
+    c.abrir(COMPLETA);
+    desglose(http).flush({ ...DESGLOSE, horario_gps: { viaje: GPS, motivo: null } });
+    expect(c.salida()).toBeNull();
+    expect(c.horarioGps()).toBeNull();
+    // Sin GPS: ni horario ni 00:00, y el motivo a la vista.
+    c.abrir(SIN_HORARIO);
+    desglose(http).flush({ ...DESGLOSE, horario_gps: { viaje: null, motivo: 'La unidad no tiene rastreador GPS.' } });
+    expect(c.salida()).toBeNull();
+    expect(c.sinHorarioGps()).toBe('La unidad no tiene rastreador GPS.');
   });
 
   it('cargadores en una operación sin hoja: crea la hoja, guarda la lista y relee', async () => {
@@ -312,5 +533,156 @@ describe('LogisticaPagosViajesComponent', () => {
     expect(req.request.params.get('desde')).toBe('2026-09-24');
     expect(req.request.params.get('hasta')).toBe('2026-10-07');
     req.flush({ ...REPORTE, corte: { desde: '2026-09-24', hasta: '2026-10-07', pago: '2026-10-09' }, operaciones: [] });
+  });
+
+  // ── [CML.K] Una sola ventana: se cierra en Embarques; Pagos de viaje es historial sin edición ──
+
+  const HISTORIAL = { modo: 'historial' };
+
+  it('[CML.K] historial: abre en las cerradas, avisa que no se edita y no ofrece capturar', () => {
+    const { c, f, http, el } = montar(undefined, null, HISTORIAL);
+    reporte(http).flush(REPORTE);
+    expect(c.enCierre()).toBe(false);
+    expect(c.vista()).toBe('completas');
+    expect(c.puedeCapturar()).toBe(false);
+    c.abrir(SIN_HORARIO);
+    desglose(http).flush({ ...DESGLOSE, guia: '0000004', sucursal: '01' });
+    f.detectChanges();
+    expect(el.textContent).toContain('Historial: aquí se consulta y no se edita.');
+    expect(el.textContent).toContain('Este viaje todavía no se cierra.');
+    expect(el.textContent).toContain('Cerrarlo en Embarques');
+    expect(el.textContent).not.toContain('Cerrar viaje y calcular comisiones');
+    expect(el.textContent).not.toContain('Es el mismo viaje: pagar una vez');
+    expect(c.ligaCierre(SIN_HORARIO)).toEqual({ vista: 'cerrar', op: '01|0000004', desde: '2026-10-08', hasta: '2026-10-21' });
+  });
+
+  it('[CML.K] historial: un viaje cerrado se REABRE sólo con motivo; manda el motivo y relee', async () => {
+    const { c, f, http, el } = montar(undefined, null, HISTORIAL);
+    reporte(http).flush(REPORTE);
+    c.abrir(COMPLETA);
+    desglose(http).flush(DESGLOSE);
+    f.detectChanges();
+    expect(el.textContent).toContain('Reabrir con motivo');
+    c.reabriendo.set(true);
+    // Motivo corto: no manda nada.
+    c.motivo.set('error');
+    await c.reabrir(c.op()!);
+    http.expectNone((r) => r.url.includes('/reabrir'));
+    c.motivo.set('  la hora de regreso estaba mal  ');
+    const listo = c.reabrir(c.op()!);
+    const post = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/guides/g-a/reabrir'));
+    expect(post.request.body).toEqual({ motivo: 'la hora de regreso estaba mal' });
+    post.flush({ id: 'g-a', number: 'G', reopened_at: '2026-11-24T20:00:00.000Z' });
+    await tick();
+    reporte(http).flush(REPORTE);
+    await listo;
+    expect(c.avisoPeek()).toContain('el viaje se reabrió');
+    expect(c.reabriendo()).toBe(false);
+    expect(c.motivo()).toBe('');
+  });
+
+  it('[CML.K] PRUEBA NEGATIVA: reabrir no aparece sin permiso de gestionar, ni en la ventana de cierre', () => {
+    const sinPermiso = montar({ [Permission.LOGISTICS_PAGOS_VER]: true }, null, HISTORIAL);
+    reporte(sinPermiso.http).flush(REPORTE);
+    expect(sinPermiso.c.puedeReabrir()).toBe(false);
+    TestBed.resetTestingModule();
+    const cierre = montar();
+    reporte(cierre.http).flush(REPORTE);
+    cierre.c.abrir(COMPLETA);
+    desglose(cierre.http).flush(DESGLOSE);
+    cierre.f.detectChanges();
+    expect(cierre.c.puedeReabrir()).toBe(false);
+    expect(cierre.el.textContent).not.toContain('Reabrir con motivo');
+  });
+
+  it('[CML.K] el input «modo» manda sobre la ruta (así lo incrusta Embarques)', () => {
+    const { c, f, http } = montar(undefined, null, HISTORIAL);
+    f.componentRef.setInput('modo', 'cierre');
+    reporte(http).flush(REPORTE);
+    expect(c.enCierre()).toBe(true);
+    expect(c.puedeCapturar()).toBe(true);
+  });
+
+  it('[CML.K] al cerrar el viaje, los km de la hoja van al embarque y el aviso los dice', async () => {
+    const { c, http } = montar();
+    reporte(http).flush(REPORTE);
+    c.abrir(SIN_HORARIO);
+    desglose(http).flush({ ...DESGLOSE, guia: '0000004', sucursal: '01' });
+    c.salida.set(new Date(2026, 9, 10, 6, 0));
+    c.llegada.set(new Date(2026, 9, 10, 15, 0));
+    c.km.set(120);
+    const listo = c.guardarTripulacion(c.op()!);
+    await tick();
+    const post = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/guides/g-d/complete'));
+    post.flush({ id: 'g-d', number: 'G', driver_commission: 0, helper1_commission: 0, helper2_commission: 0, per_diem_total: 80 });
+    await tick();
+    const km = http.expectOne((r) => r.method === 'PATCH' && r.url.endsWith('/shipments/s-d'));
+    expect(km.request.body).toEqual({ actual_km: 120 });
+    km.flush({ id: 's-d' });
+    await tick();
+    reporte(http).flush(REPORTE);
+    await listo;
+    // [CML.J] Con el horario de la hoja guardado, se vuelve a pedir el desglose (mismo viaje sin GPS).
+    desglose(http).flush(DESGLOSE);
+    expect(c.avisoPeek()).toContain('viaje cerrado');
+    expect(c.avisoPeek()).toContain('Km: 120.');
+  });
+
+  it('[CML.K] PRUEBA NEGATIVA: si los km no se guardan, el viaje igual queda cerrado y se dice', async () => {
+    const { c, http } = montar();
+    reporte(http).flush(REPORTE);
+    c.abrir(SIN_HORARIO);
+    desglose(http).flush({ ...DESGLOSE, guia: '0000004', sucursal: '01' });
+    c.salida.set(new Date(2026, 9, 10, 6, 0));
+    c.llegada.set(new Date(2026, 9, 10, 15, 0));
+    c.km.set(95);
+    const listo = c.guardarTripulacion(c.op()!);
+    await tick();
+    http.expectOne((r) => r.url.endsWith('/guides/g-d/complete'))
+      .flush({ id: 'g-d', number: 'G', driver_commission: 0, helper1_commission: 0, helper2_commission: 0, per_diem_total: 80 });
+    await tick();
+    http.expectOne((r) => r.method === 'PATCH' && r.url.endsWith('/shipments/s-d'))
+      .flush({ message: 'Sin permiso' }, { status: 403, statusText: 'Forbidden' });
+    await tick();
+    reporte(http).flush(REPORTE);
+    await listo;
+    // [CML.J] Con el horario de la hoja guardado, se vuelve a pedir el desglose (mismo viaje sin GPS).
+    desglose(http).flush(DESGLOSE);
+    expect(c.avisoPeek()).toContain('viaje cerrado');
+    expect(c.avisoPeek()).toContain('Los km no se guardaron');
+    expect(c.errorPeek()).toBeNull();
+  });
+
+  it('[CML.K] la hoja nació SIN chofer pero Kepler sí lo identificó: al cerrar se manda el de Kepler (antes se atoraba)', async () => {
+    const { c, http } = montar();
+    // Kepler trae al chofer en el viaje (d2, en el padrón) pero la hoja nació sin él.
+    const sinChofer = o({ ...SIN_HOJA, shipment_id: 's-x', shipment_folio: 'EMB-X', guide_id: 'g-x', driver_id: null });
+    reporte(http).flush({ ...REPORTE, operaciones: [sinChofer] });
+    c.abrir(sinChofer);
+    desglose(http).flush(DESGLOSE);
+    c.salida.set(new Date(2026, 9, 10, 6, 0));
+    c.llegada.set(new Date(2026, 9, 10, 15, 0));
+    expect(c.erroresTripulacion(c.op()!)).toEqual([]);
+    const listo = c.guardarTripulacion(c.op()!);
+    await tick();
+    const post = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/guides/g-x/complete'));
+    expect(post.request.body.driver_id).toBe('d2');
+    post.flush({ id: 'g-x', number: 'G', driver_commission: 150, helper1_commission: 0, helper2_commission: 0, per_diem_total: 80 });
+    await tick();
+    reporte(http).flush(REPORTE);
+    await listo;
+    // [CML.J] Con el horario de la hoja guardado, se vuelve a pedir el desglose (mismo viaje sin GPS).
+    desglose(http).flush(DESGLOSE);
+    expect(c.errorPeek()).toBeNull();
+  });
+
+  it('[CML.K] un viaje reabierto dice cuándo y por qué', () => {
+    const { c, f, http, el } = montar(undefined, null, HISTORIAL);
+    const reabierta = o({ ...SIN_HORARIO, reabierta: { en: '2026-11-24T20:00:00.000Z', motivo: 'el ayudante era otro' } });
+    reporte(http).flush({ ...REPORTE, operaciones: [reabierta] });
+    c.abrir(reabierta);
+    desglose(http).flush({ ...DESGLOSE, guia: '0000004', sucursal: '01' });
+    f.detectChanges();
+    expect(el.textContent).toContain('«el ayudante era otro»');
   });
 });

@@ -18,7 +18,7 @@ import { PAGOS_VIAJE_TABS } from './pagos-viaje-tabs';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Pagos de viaje</h1>
-          <p class="surf-page-sub">Cuánto le toca a cada quien de cada operación —comisión, viático y carga por caja— y el reporte para pedir el gasto en Kepler. La operación y sus cajas salen de Kepler; aquí sólo se agrega quién fue.</p>
+          <p class="surf-page-sub">Cuánto le toca a cada quien de cada viaje —comisión, viático y carga por caja— y el reporte para pedir el gasto en Kepler. Los viajes se cierran en Embarques › Cerrar viajes; aquí se consultan.</p>
         </div>
       </header>
       <app-page-tabs [tabs]="tabs" ariaLabel="Pantallas de pagos de viaje" />

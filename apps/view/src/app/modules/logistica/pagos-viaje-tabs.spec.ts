@@ -18,7 +18,7 @@ const menu = readFileSync(join(__dirname, '../dashboard/layout/layout.component.
 describe('[EMB.43] las pestañas de Pagos de viaje', () => {
   it('son Operaciones, Por persona y Tarifas, en ese orden', () => {
     expect(PAGOS_VIAJE_TABS.map((t) => [t.label, t.route])).toEqual([
-      ['Operaciones', '/logistica/pagos/viajes'],
+      ['Historial de viajes', '/logistica/pagos/viajes'],
       ['Por persona', '/logistica/pagos/personas'],
       ['Tarifas', '/logistica/pagos/tarifas'],
     ]);

@@ -20,18 +20,36 @@ import type {
 import type {
   CentroDeCosto, ComisionDeRuta, Corte, DesgloseDeOperacion, SinCentro, DocumentoDeLaOperacion, EstadoRecepcion, OperacionDelReporte,
   PersonaDelPadron, RenglonDelReparto, ReporteDePagos, RolDelReparto, TipoParadaKepler, TipoViajePago,
-  ConceptoDelReparto,
+  ConceptoDelReparto, TripulacionSugerida, HorarioGpsDeOperacion,
+  ConceptoDelVale, LineaDelVale, PagoDePersona, PagoEnKepler, PagosDeLaCatorcena, ValeDeLaCatorcena,
 } from '@megadulces/contracts';
 import {
+  horaNormal, MOTIVO_NO_MEDIBLE,
   conceptoDelReparto, corteDe, erroresDeCargadores, erroresDeCierreDeParada, esFecha, faltasDelViaje, repartoDeCarga,
-  SKUS_SIN_CARGA, SUCURSAL_QUE_PAGA_EL_CENTRO, TARIFA_CARGA_CAJA_KEY, tipoDeParadaKepler, tipoDelViaje, totalDeCarga, WAREHOUSE_DISPLAY_ORDER,
+  SKUS_SIN_CARGA, SUCURSAL_QUE_PAGA_EL_CENTRO, TARIFA_CARGA_CAJA_KEY,
+  estadoDelPago, lineasDelVale, llaveDeLinea, nombreParaCasar, PROVEEDOR_DE_LA_SOLICITUD, solicitudesDelReporte, tipoDeParadaKepler, tipoDelViaje, totalDeCarga, totalesDelReparto, WAREHOUSE_DISPLAY_ORDER,
 } from '@megadulces/contracts';
 import { CambioRegistrado, tarifaVigenteEl } from '../logistics-config/tarifas-fijas.logic';
 import {
   comisionSugerida, EntradaCatalogo, fechaISO, resolverPorCodigo, RutaSuite,
 } from '../logistics-erp-shipments/nuevo-embarque.logic';
+import type { ResultadoGps } from '../logistics-shipments/gps-viaje.logic';
+import { leerMismoViaje, leerMismoViajePorHoja, leerViajeGps } from '../logistics-shipments/gps-viaje.lectura';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** `[CML.P]` Un renglón ya amarrado a un vale de Gastos que no se rechazó. */
+interface FilaAmarrada {
+  driver_id: string; source: LineaDelVale['source']; source_id: string; concept: ConceptoDelVale; amount: Num;
+  vale_id: string; status: string; importe: Num; created_at: Date | string; folio_solicitud: string | null;
+}
+
+/** `YYYY-MM-DD` + n días (fecha de calendario, sin zona). */
+export function sumarDias(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 
 /** Fila cruda de `logistics.v_trip_stop_closure` (pg devuelve numeric como texto y date como Date). */
 type Num = string | number | null;
@@ -90,6 +108,14 @@ interface FilaSuite {
   /** `[EMB.51]` El desglose del viático que guardó la guía (horario, tarifas, comidas). */
   per_diem_breakdown?: unknown;
   departure_time: string | null; arrival_time: string | null; overnight: boolean | null;
+  /** `[CML.HV]` Cuándo se guardó la tripulación al salir (null = no se guardó por ese camino). */
+  crew_saved_at: Date | string | null;
+  /** `[CML.J]` Clave de Kepler (SUC|GUIA) de la otra guía del mismo viaje, confirmada. */
+  same_trip_as: string | null;
+  /** `[CML.K]` La última reapertura del viaje cerrado (cuándo y por qué). */
+  reopened_at: Date | string | null; reopen_reason: string | null;
+  /** `[CML.K]` Km de la hoja de viaje (`shipments.actual_km`). */
+  actual_km: Num;
 }
 interface FilaCarga { shipment_id: string; driver_id: string; rate: Num; boxes: Num; rate_per_box: Num }
 /** La tarifa por caja con su bitácora: se evalúa por día sin volver a la base. */
@@ -224,6 +250,119 @@ export function renglonesDeLaOperacion(
   }
   for (const c of cargas) poner(c.driver_id, 'cargador', 'carga', c.rate, calculoDeCarga(c, cargas.length));
   return out;
+}
+
+/**
+ * `[CML.J]` D17 opción A — el MISMO viaje físico se paga UNA vez. Las operaciones ligadas (el
+ * coordinador confirmó que eran el mismo viaje: `delivery_guides.same_trip_as`) forman un grupo; en
+ * el grupo, cada persona cobra la comisión MAYOR (la de la ruta mayor) y un solo viático. La carga
+ * (cajas × tarifa) no se toca: cada guía cargó sus propias cajas. Una liga a una guía que no está en
+ * el reporte no agrupa nada (no se adivina). Devuelve, por operación, sus renglones y con quién viajó.
+ */
+export function consolidarMismoViaje(
+  ops: ReadonlyArray<{ clave: string; renglones: RenglonDelReparto[]; liga: string | null }>,
+): Map<string, { renglones: RenglonDelReparto[]; con: string[] }> {
+  const presentes = new Set(ops.map((o) => o.clave));
+  const padre = new Map<string, string>(ops.map((o) => [o.clave, o.clave]));
+  const raiz = (k: string): string => { let r = k; while (padre.get(r) !== r) r = padre.get(r) as string; return r; };
+  for (const o of ops) {
+    if (o.liga && o.liga !== o.clave && presentes.has(o.liga)) {
+      const a = raiz(o.clave); const b = raiz(o.liga);
+      if (a !== b) padre.set(a < b ? b : a, a < b ? a : b);
+    }
+  }
+  const grupos = new Map<string, string[]>();
+  for (const o of ops) grupos.set(raiz(o.clave), [...(grupos.get(raiz(o.clave)) ?? []), o.clave]);
+  const out = new Map(ops.map((o) => [o.clave, { renglones: [...o.renglones], con: [] as string[] }]));
+  const guia = (k: string) => k.split('|')[1] ?? k;
+  for (const miembros of grupos.values()) {
+    if (miembros.length < 2) continue;
+    const orden = [...miembros].sort();
+    for (const k of orden) (out.get(k) as { con: string[] }).con = orden.filter((x) => x !== k);
+    for (const concepto of ['comision', 'viatico'] as const) {
+      const personas = new Set(orden.flatMap((k) => (out.get(k)?.renglones ?? []).filter((r) => r.concepto === concepto).map((r) => r.persona_id)));
+      for (const p of personas) {
+        let mejor: { k: string; importe: number } | null = null;
+        for (const k of orden) {
+          const r = out.get(k)?.renglones.find((x) => x.concepto === concepto && x.persona_id === p);
+          if (r && (!mejor || r.importe > mejor.importe)) mejor = { k, importe: r.importe };
+        }
+        if (!mejor) continue;
+        const otras = orden.filter((k) => k !== mejor?.k).map(guia).join(', ');
+        for (const k of orden) {
+          const e = out.get(k) as { renglones: RenglonDelReparto[] };
+          if (k === mejor.k) {
+            e.renglones = e.renglones.map((r) => r.concepto === concepto && r.persona_id === p
+              ? { ...r, calculo: `${r.calculo} · Mismo viaje que la guía ${otras}: se paga una sola vez${concepto === 'comision' ? ' (la ruta mayor)' : ''}` }
+              : r);
+          } else {
+            e.renglones = e.renglones.filter((r) => !(r.concepto === concepto && r.persona_id === p));
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** `[CML.T1]` Un viaje ya capturado (guía completa: chofer + salida + llegada), para sugerir. */
+export interface TripulacionPrevia {
+  driver_id: string;
+  helper1_id: string | null;
+  helper2_id: string | null;
+  /** Fecha del viaje de Kepler (`shipments.shipment_date`), YYYY-MM-DD. */
+  fecha: string;
+  sucursal: string | null;
+  guia: string | null;
+}
+
+/** `[CML.T1]` Cuántos días atrás se busca el viaje anterior: una tripulación vieja ya no dice nada. */
+export const DIAS_DE_TRIPULACION_SUGERIDA = 30;
+
+/**
+ * `[CML.H]` Lo que el GPS dice del viaje, para la pantalla: el viaje, o el motivo en una frase
+ * (la misma de la revisión de embarques). Nunca un horario inventado ni en cero.
+ */
+export function horarioGpsDe(r: ResultadoGps): HorarioGpsDeOperacion {
+  return r.ok ? { viaje: r.viaje, motivo: null } : { viaje: null, motivo: MOTIVO_NO_MEDIBLE[r.motivo] };
+}
+
+const restarDias = (fecha: string, dias: number): string => {
+  const d = new Date(`${fecha}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - dias);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * `[CML.T1]` Los ayudantes que probablemente fueron: los del viaje anterior del MISMO chofer.
+ *
+ * Por qué: en producción se capturó la tripulación de 4 de 448 viajes (CML.0, 2026-11-20); elegirla
+ * a mano viaje por viaje es lo que nadie hace. La sugerencia sólo precarga: quien captura la confirma.
+ *
+ * Reglas (si alguna no se cumple, NO se sugiere: mejor nada que una persona equivocada):
+ *  - sólo viajes del mismo chofer, del mismo día o antes, a ≤ 30 días, y nunca el mismo viaje;
+ *  - gana el más reciente (`previas` viene ordenada del más nuevo al más viejo);
+ *  - un ayudante que ya no está activo, o que es el propio chofer, se quita;
+ *  - si el viaje anterior llevaba ayudantes y ninguno sigue activo, no se sugiere «fue solo».
+ */
+export function tripulacionSugerida(
+  choferId: string | null,
+  viaje: { fecha: string; sucursal: string; guia: string },
+  previas: TripulacionPrevia[],
+  activos: ReadonlySet<string>,
+): TripulacionSugerida | null {
+  if (!choferId || !esFecha(viaje.fecha)) return null;
+  const desde = restarDias(viaje.fecha, DIAS_DE_TRIPULACION_SUGERIDA);
+  const previa = previas.find((p) =>
+    p.driver_id === choferId && esFecha(p.fecha) && p.fecha <= viaje.fecha && p.fecha >= desde
+    && !(p.sucursal === viaje.sucursal && p.guia === viaje.guia));
+  if (!previa) return null;
+  const vale = (id: string | null) => (id && id !== choferId && activos.has(id) ? id : null);
+  const llevaba = [previa.helper1_id, previa.helper2_id].filter(Boolean).length;
+  const quedan = [vale(previa.helper1_id), vale(previa.helper2_id)].filter((x): x is string => !!x);
+  const unicos = [...new Set(quedan)];
+  if (llevaba > 0 && unicos.length === 0) return null;
+  return { helper1_id: unicos[0] ?? null, helper2_id: unicos[1] ?? null, fecha: previa.fecha, guia: previa.guia };
 }
 
 /**
@@ -541,11 +680,12 @@ export class TripClosureService {
 
     // Lo que la Suite sabe de esas guías: la tripulación con sus montos y quién cargó.
     const nombres = new Map(base.personas.map((p) => [p.id, p.full_name]));
-    const { suite, cargas, choferPorClave } = await this.tk.run(async (trx) => {
+    const { suite, cargas, choferPorClave, previas } = await this.tk.run(async (trx) => {
       const suite = new Map<string, FilaSuite>();
       const cargas = new Map<string, FilaCarga[]>();
       const choferPorClave = new Map<string, string>();
-      if (!pagan.length) return { suite, cargas, choferPorClave };
+      const previas: TripulacionPrevia[] = [];
+      if (!pagan.length) return { suite, cargas, choferPorClave, previas };
       // `[EMB.48]` El chofer de Kepler, casado con el padrón ACTIVO por su clave (como la toma del
       // viaje). Medido 2026-10-26: los 15 choferes de la catorcena casan.
       const claves = [...new Set(pagan.map((v) => v.chofer_code?.trim()).filter((c): c is string => !!c))];
@@ -568,7 +708,8 @@ export class TripClosureService {
                 NULLIF(g.per_diem_breakdown -> 'helper1' ->> 'subtotal', '')::numeric AS viatico_helper1,
                 NULLIF(g.per_diem_breakdown -> 'helper2' ->> 'subtotal', '')::numeric AS viatico_helper2,
                 g.per_diem_breakdown,
-                g.departure_time::text AS departure_time, g.arrival_time::text AS arrival_time, g.overnight
+                g.departure_time::text AS departure_time, g.arrival_time::text AS arrival_time, g.overnight,
+                g.crew_saved_at, g.same_trip_as, g.reopened_at, g.reopen_reason, s.actual_km
            FROM logistics.shipments s
            LEFT JOIN LATERAL (
              SELECT * FROM logistics.delivery_guides g
@@ -595,8 +736,28 @@ export class TripClosureService {
         const otros: Array<{ id: string; full_name: string }> = await trx('logistics.drivers').whereIn('id', faltan).select('id', 'full_name');
         for (const o of otros) nombres.set(o.id, o.full_name);
       }
-      return { suite, cargas, choferPorClave };
+      // `[CML.T1]` Los viajes YA capturados de estos choferes (guía completa), del más nuevo al más
+      // viejo, desde 30 días antes del corte: de aquí sale la tripulación sugerida.
+      const choferes = [...new Set([...choferPorClave.values(), ...rows.map((r) => r.driver_id).filter((x): x is string => !!x)])];
+      if (choferes.length) {
+        const { rows: hist } = await trx.raw<{ rows: TripulacionPrevia[] }>(
+          `SELECT g.driver_id, g.helper1_id, g.helper2_id, to_char(s.shipment_date, 'YYYY-MM-DD') AS fecha,
+                  s.kepler_sucursal AS sucursal, s.kepler_guia AS guia
+             FROM logistics.delivery_guides g
+             JOIN logistics.shipments s ON s.id = g.shipment_id
+            WHERE g.deleted_at IS NULL AND g.status <> 'cancelada' AND s.deleted_at IS NULL AND s.status <> 'cancelado'
+              AND g.driver_id = ANY(?::uuid[])
+              -- [CML.HV] También la tripulación guardada al salir, aunque el horario no haya llegado.
+              AND ((g.departure_time IS NOT NULL AND g.arrival_time IS NOT NULL) OR g.crew_saved_at IS NOT NULL)
+              AND s.shipment_date BETWEEN ?::date - ${DIAS_DE_TRIPULACION_SUGERIDA} AND ?::date
+            ORDER BY s.shipment_date DESC, g.updated_at DESC`,
+          [choferes, corte.desde, corte.hasta],
+        );
+        previas.push(...hist);
+      }
+      return { suite, cargas, choferPorClave, previas };
     });
+    const activos = new Set(base.personas.map((p) => p.id));
     const nombre = (id: string) => nombres.get(id) ?? 'Persona sin nombre en el padrón';
 
     const operaciones: OperacionDelReporte[] = pagan.map((v) => {
@@ -648,9 +809,30 @@ export class TripClosureService {
           : totalDeCarga(cajasOp, tarifa),
         cargador_ids: deCarga.map((c) => c.driver_id),
         renglones,
-        repartido: centavos(renglones.reduce((a, r) => a + r.importe, 0)),
+        // [CML.K] Lo de un viaje sin cerrar (renglón `kepler`) es «por cerrar»: no cuenta como repartido.
+        ...totalesDelReparto(renglones),
+        // `[CML.T1]` Sólo si la tripulación todavía no está capturada: lo capturado manda.
+        // `[CML.HV]` Guardada al salir también manda (aunque haya salido sin ayudantes).
+        tripulacion_sugerida: s?.driver_id && ((s.departure_time && s.arrival_time) || s.crew_saved_at)
+          ? null
+          : tripulacionSugerida(s?.driver_id ?? choferKeplerId, { fecha, sucursal: v.sucursal, guia: v.guia_embarque }, previas, activos),
+        tripulacion_guardada_en: s?.crew_saved_at ? new Date(s.crew_saved_at).toISOString() : null,
+        mismo_viaje_liga: s?.same_trip_as ?? null,
+        reabierta: s?.reopened_at ? { en: new Date(s.reopened_at).toISOString(), motivo: s.reopen_reason ?? '' } : null,
+        km: s?.actual_km == null ? null : Number(s.actual_km),
       };
     });
+    // `[CML.J]` D17 A: las guías que el coordinador confirmó como el MISMO viaje se pagan una vez.
+    const consolidado = consolidarMismoViaje(operaciones.map((o) => ({
+      clave: `${o.sucursal}|${o.guia}`, renglones: o.renglones, liga: suite.get(`${o.sucursal}|${o.guia}`)?.same_trip_as ?? null,
+    })));
+    for (const o of operaciones) {
+      const c = consolidado.get(`${o.sucursal}|${o.guia}`);
+      if (!c || !c.con.length) continue;
+      o.renglones = c.renglones;
+      Object.assign(o, totalesDelReparto(c.renglones));
+      o.mismo_viaje_confirmado = c.con;
+    }
     // Lo que más falta, primero; dentro, lo más viejo primero (es lo que ya debería estar).
     operaciones.sort((a, b) => b.faltan.length - a.faltan.length || a.fecha.localeCompare(b.fecha) || a.guia.localeCompare(b.guia));
     return {
@@ -723,6 +905,38 @@ export class TripClosureService {
       const cat = (rol: string): EntradaCatalogo[] => catalogo.filter((c) => c.rol === rol).map((c) => ({ codigo: c.codigo, nombre: c.nombre }));
       const documentos = documentosDelDesglose(paradas, cabeceras, cierres, propios,
         { surtido: cat('surtido'), checado: cat('checado'), embarque: cat('embarque') }, productos, capturoRecepcion);
+      // [CML.H] El horario según el GPS de la unidad que Kepler puso en la guía (sólo precarga).
+      const viaje: { vehicle_id: string | null; fecha: string } | undefined = await trx('analytics.erp_shipment_trips')
+        .where('tenant_id', tenant).where({ sucursal, guia_embarque: guia })
+        .first('vehicle_id', trx.raw(`to_char(fecha, 'YYYY-MM-DD') AS fecha`));
+      // La primera captura de la guía; normalizada a HH:MM para que «9:05» no quede después de «10:00».
+      const hora = paradas.map((p) => horaNormal(p.hora_captura)).filter((h): h is string => !!h).sort()[0] ?? null;
+      const gps: ResultadoGps = viaje
+        ? await leerViajeGps(trx, { sucursal, fecha: viaje.fecha, hora, vehicleId: viaje.vehicle_id }, new Date())
+        : { ok: false, motivo: 'sin_unidad' };
+      // [CML.J] Otras guías de la misma unidad con la misma salida del GPS: el mismo viaje físico (D17).
+      let mismoViaje = gps.ok && viaje
+        ? await leerMismoViaje(trx, { sucursal, guia, fecha: viaje.fecha, vehicleId: viaje.vehicle_id }, gps.viaje, new Date())
+        : [];
+      let omitidas = 0;
+      // [CML.J] D17 caso 3: sin GPS, la hoja de viaje dice cuándo estuvo fuera el camión; otra guía de la
+      // misma unidad capturada en ese rato es el desvío. Sólo con el horario ya capturado en la guía.
+      if (!gps.ok && viaje?.vehicle_id) {
+        const hoja: { salida: string | null; llegada: string | null; overnight: boolean | null } | undefined = await trx('logistics.shipments as s')
+          .join('logistics.delivery_guides as g', 'g.shipment_id', 's.id')
+          .where({ 's.kepler_sucursal': sucursal, 's.kepler_guia': guia })
+          .whereNull('s.deleted_at').whereNot('s.status', 'cancelado')
+          .whereNull('g.deleted_at').whereNot('g.status', 'cancelada')
+          .orderBy('g.created_at')
+          .first(trx.raw('g.departure_time::text AS salida'), trx.raw('g.arrival_time::text AS llegada'), 'g.overnight');
+        if (hoja?.salida && hoja.llegada) {
+          const porHoja = await leerMismoViajePorHoja(trx,
+            { sucursal, guia, fecha: viaje.fecha, vehicleId: viaje.vehicle_id, hora_captura: hora },
+            { salida: hoja.salida, llegada: hoja.llegada, duerme_fuera: !!hoja.overnight });
+          mismoViaje = porHoja.sugeridas;
+          omitidas = porHoja.omitidas;
+        }
+      }
       return {
         sucursal,
         guia,
@@ -730,8 +944,99 @@ export class TripClosureService {
         cajas: centavos(documentos.reduce((a, d) => a + d.cajas, 0)),
         sueltos: centavos(documentos.reduce((a, d) => a + d.sueltos, 0)),
         leido_at: new Date().toISOString(),
+        horario_gps: { ...horarioGpsDe(gps), mismo_viaje: mismoViaje, ...(omitidas ? { mismo_viaje_omitidas: omitidas } : {}) },
       };
     });
+  }
+
+  /**
+   * `[CML.P]` El pago de la catorcena, por persona: lo que pide (lo mismo que «Por persona»), cuánto
+   * ya está en un vale de Gastos y si Kepler ya lo pagó (X-A-10 al acreedor de comisiones, del día
+   * siguiente al corte hasta una semana después del viernes de pago).
+   *
+   * ⚠️ El pago de Kepler se casa por NOMBRE del beneficiario (`kdm1.c24`) — SUPUESTO declarado en
+   * `nombreParaCasar`. Si Kepler no se pudo leer, `kepler_medido: false` y nadie sale «pagado».
+   */
+  async pagos(desde?: string, hasta?: string): Promise<PagosDeLaCatorcena> {
+    const rep = await this.reporte(desde, hasta);
+    const sols = solicitudesDelReporte(rep.operaciones);
+    const lineas = new Map(sols.map((s) => [s.persona_id, lineasDelVale(s, rep.operaciones).lineas]));
+    const ids = sols.map((s) => s.persona_id);
+
+    const amarradas = ids.length
+      ? await this.tk.run((trx) => trx('finance.trip_pay_lines as l')
+          .join('finance.expense_proofs as p', 'p.id', 'l.expense_proof_id')
+          .whereIn('l.driver_id', ids).where('l.vigente', true).whereNot('p.status', 'rechazada')
+          .select('l.driver_id', 'l.source', 'l.source_id', 'l.concept', 'l.amount', 'p.id as vale_id', 'p.status',
+            trx.raw('p.importe::numeric AS importe'), 'p.created_at', 'p.folio_solicitud') as Promise<FilaAmarrada[]>)
+      : [];
+
+    const desdePago = sumarDias(rep.corte.hasta, 1);
+    const hastaPago = sumarDias(rep.corte.pago, 7);
+    let kepler_medido = true;
+    let pagosKepler: PagoEnKepler[] = [];
+    try {
+      pagosKepler = await this.tk.run(async (trx) => {
+        const { rows } = await trx.raw(
+          `SELECT m.sucursal, btrim(m.c6) AS folio, to_char(m.c9, 'YYYY-MM-DD') AS fecha,
+                  COALESCE(m.c16, 0)::numeric AS importe, btrim(COALESCE(m.c24, '')) AS beneficiario
+             FROM kepler_ods.kdm1 m
+            WHERE m.c2 = 'X' AND m.c3 = 'A' AND m.c4 = 10
+              AND COALESCE(btrim(m.c43), '') <> 'C'
+              AND btrim(m.c10) = ?
+              AND m.c9 >= ?::date AND m.c9 < (?::date + 1)`,
+          [PROVEEDOR_DE_LA_SOLICITUD.codigo, desdePago, hastaPago]);
+        return (rows as Array<Omit<PagoEnKepler, 'importe'> & { importe: string }>).map((r) => ({ ...r, importe: Number(r.importe) }));
+      });
+    } catch (e: unknown) {
+      kepler_medido = false;
+      this.logger.warn(`[CML.P] No se pudo leer el pago de Kepler: ${(e as Error)?.message}`);
+    }
+
+    const porNombre = new Map<string, PagoEnKepler[]>();
+    for (const p of pagosKepler) {
+      const k = nombreParaCasar(p.beneficiario);
+      porNombre.set(k, [...(porNombre.get(k) ?? []), p]);
+    }
+    const casados = new Set<string>();
+
+    const personas: PagoDePersona[] = sols.map((s) => {
+      const llaves = new Set((lineas.get(s.persona_id) ?? []).map(llaveDeLinea));
+      const mias = amarradas.filter((a) => a.driver_id === s.persona_id && llaves.has(llaveDeLinea({ source: a.source, source_id: a.source_id, concept: a.concept })));
+      const en_vale = Math.round(mias.reduce((t, a) => t + Number(a.amount), 0) * 100) / 100;
+      const vales = new Map<string, ValeDeLaCatorcena>();
+      for (const a of mias) {
+        if (!vales.has(a.vale_id)) {
+          vales.set(a.vale_id, {
+            id: a.vale_id, status: a.status, importe: Number(a.importe),
+            creado_at: new Date(a.created_at).toISOString(), folio_solicitud: a.folio_solicitud ?? null,
+          });
+        }
+      }
+      const nombre = nombreParaCasar(s.persona);
+      const pagos_kepler = porNombre.get(nombre) ?? [];
+      if (pagos_kepler.length) casados.add(nombre);
+      const pagado = Math.round(pagos_kepler.reduce((t, p) => t + p.importe, 0) * 100) / 100;
+      return {
+        persona_id: s.persona_id,
+        persona: s.persona,
+        a_pagar: s.total,
+        en_vale,
+        falta_en_vale: Math.max(0, Math.round((s.total - en_vale) * 100) / 100),
+        vales: [...vales.values()],
+        pagos_kepler,
+        diferencia: pagos_kepler.length ? Math.round((pagado - s.total) * 100) / 100 : null,
+        estado: estadoDelPago(s.total, en_vale, pagos_kepler.length),
+      };
+    });
+
+    return {
+      corte: rep.corte,
+      personas,
+      pagados_sin_calculo: pagosKepler.filter((p) => !casados.has(nombreParaCasar(p.beneficiario))),
+      kepler_medido,
+      leido_at: new Date().toISOString(),
+    };
   }
 
   /** `[EMB.43]` El corte pedido, o la catorcena que va corriendo (la que contiene hoy). */

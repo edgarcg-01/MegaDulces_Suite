@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { CurrencyPipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -10,13 +10,15 @@ import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { CheckboxModule } from 'primeng/checkbox';
 import { DatePickerModule } from 'primeng/datepicker';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { TextareaModule } from 'primeng/textarea';
 import type {
-  AltaRapidaResultado, CompletarGuiaBody, DesgloseDeOperacion, FaltaDelViaje, OperacionDelReporte, PersonaDelPadron,
-  ReporteDePagos, SinCentro,
+  AltaRapidaResultado, CompletarGuiaBody, DesgloseDeOperacion, FaltaDelViaje, GuiaDelMismoViaje, OperacionDelReporte,
+  PersonaDelPadron, ReporteDePagos, SinCentro, TripulacionGuiaBody, TripulacionSugerida, ViajeGps,
 } from '@megadulces/contracts';
 // Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
 import {
-  corteVecino, esFecha, FALTA_LABEL, SIN_CENTRO_LABEL, repartoDeCarga, ROL_LABEL, TIPO_VIAJE_LABEL, totalDeCarga,
+  corteVecino, esFecha, FALTA_LABEL, MOTIVO_MINIMO_REABRIR, SIN_CENTRO_LABEL, repartoDeCarga, ROL_LABEL, TIPO_VIAJE_LABEL, totalDeCarga,
 } from '@megadulces/contracts/http/cierre-viaje';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -90,6 +92,19 @@ type Operacion = OperacionDelReporte & { clave: string };
 const llave = (o: Pick<OperacionDelReporte, 'sucursal' | 'guia'>): string => `${o.sucursal}|${o.guia}`;
 const hhmm = (d: Date | null): string | null =>
   d ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : null;
+/** `HH:MM` → la fecha que espera el selector de hora (sólo cuentan la hora y los minutos). */
+const aHora = (h: string): Date => {
+  const [hh, mm] = h.split(':').map(Number);
+  const d = new Date();
+  d.setHours(hh, mm, 0, 0);
+  return d;
+};
+/** `HH:MM` (24 h) → `h:MM AM/PM`, como lo muestran los campos de hora. */
+export const hora12 = (h: string): string => {
+  const [hh, mm] = h.split(':').map(Number);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return h;
+  return `${hh % 12 === 0 ? 12 : hh % 12}:${String(mm).padStart(2, '0')} ${hh < 12 ? 'AM' : 'PM'}`;
+};
 const mensaje = (e: unknown, def: string): string => {
   const x = e as { error?: { message?: string | string[] }; message?: string } | null;
   const m = x?.error?.message ?? x?.message;
@@ -113,7 +128,7 @@ const mensaje = (e: unknown, def: string): string => {
   standalone: true,
   imports: [
     CurrencyPipe, DecimalPipe, FormsModule, RouterLink, TableModule, SelectModule, MultiSelectModule, ButtonModule, TagModule,
-    CheckboxModule, DatePickerModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, SidePeekComponent,
+    CheckboxModule, DatePickerModule, InputNumberModule, TextareaModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, SidePeekComponent,
     SegmentedComponent, SucursalPipe, AltaPersonaComponent, DesgloseOperacionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -137,6 +152,14 @@ const mensaje = (e: unknown, def: string): string => {
 
       @if (data(); as d) {
         <p class="pv-titular">{{ titular() }}</p>
+        @if (!enCierre()) {
+          <p class="pv-sub pv-historial" role="note">
+            <span class="pi pi-lock" aria-hidden="true"></span>
+            Historial: aquí se consulta y no se edita. Los viajes se cierran en
+            <a routerLink="/logistica/shipments" [queryParams]="{ vista: 'cerrar' }" class="pv-link">Embarques › Cerrar viajes</a>,
+            cuando el camión regresa con su hoja de viaje.
+          </p>
+        }
         <app-metric-strip [items]="kpis()" mode="strip" density="compact" ariaLabel="Operaciones de la catorcena" />
       }
 
@@ -188,7 +211,7 @@ const mensaje = (e: unknown, def: string): string => {
                 <th scope="col" class="comm-num">Carga</th>
                 <th scope="col" class="comm-num">Comisión chofer</th>
                 <th scope="col">Quién fue</th>
-                <th scope="col" class="comm-num">Asignado</th>
+                <th scope="col" class="comm-num">A pagar</th>
                 <th scope="col">Qué falta</th>
               </tr>
             </ng-template>
@@ -221,7 +244,10 @@ const mensaje = (e: unknown, def: string): string => {
                   @else { <span class="pv-tenue">—</span> }
                   <span class="pv-sub">{{ equipo(o) }}</span>
                 </td>
-                <td data-label="Asignado" class="comm-num">{{ o.repartido | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td data-label="A pagar" class="comm-num">
+                  {{ o.repartido | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                  @if (o.por_cerrar) { <span class="pv-sub">+{{ o.por_cerrar | currency:'MXN':'symbol-narrow':'1.2-2' }} por cerrar</span> }
+                </td>
                 <td data-label="Qué falta">
                   @for (f of o.faltan; track f) { <p-tag [value]="faltaLabel(f)" severity="warn" class="pv-tag" /> }
                   @empty { <p-tag value="Completa" severity="success" /> }
@@ -268,15 +294,45 @@ const mensaje = (e: unknown, def: string): string => {
             <!-- Chofer y ayudantes: de aquí salen la comisión (por la ruta) y el viático (por el horario). -->
             <section class="pv-paso" aria-labelledby="pv-tripulacion">
               <h3 id="pv-tripulacion">Chofer y ayudantes</h3>
+              @if (o.reabierta; as r) {
+                <p class="pv-sub pv-sugerida" role="note">
+                  <span class="pi pi-replay" aria-hidden="true"></span>
+                  <span>Se reabrió el {{ fechaHora(r.en) }}: «{{ r.motivo }}».</span>
+                </p>
+              }
               @if (guiaCompleta(o)) {
                 <dl class="pv-datos">
                   <div><dt>Chofer</dt><dd>{{ nombre(o.driver_id) }}</dd></div>
                   <div><dt>Ayudantes</dt><dd>{{ ayudantes(o) }}</dd></div>
-                  <div><dt>Salida y llegada</dt><dd>{{ o.departure_time }} a {{ o.arrival_time }}@if (o.overnight) { · durmió fuera }</dd></div>
+                  <div><dt>Salida y llegada</dt><dd>{{ hora12(o.departure_time!) }} a {{ hora12(o.arrival_time!) }}@if (o.overnight) { · durmió fuera }</dd></div>
+                  <div><dt>Km recorridos</dt><dd>{{ o.km == null ? 'No se capturaron' : (o.km | number:'1.0-0') + ' km' }}</dd></div>
                 </dl>
-                <p class="pv-sub">Con esto se calcularon la comisión y el viático: ya no se cambia.</p>
+                <p class="pv-sub">Viaje cerrado: con esto se calcularon la comisión y el viático.@if (!enCierre()) { Para corregirlo, se reabre con motivo. }</p>
+                @if (puedeReabrir()) {
+                  @if (!reabriendo()) {
+                    <button pButton type="button" [text]="true" size="small" severity="secondary" class="pv-alta" (click)="reabriendo.set(true)"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Reabrir con motivo</span></button>
+                  } @else {
+                    <div class="pv-form pv-reabrir">
+                      <label for="pv-motivo">¿Por qué se reabre?</label>
+                      <textarea pTextarea id="pv-motivo" rows="2" [value]="motivo()" (input)="motivo.set($any($event.target).value)"
+                                placeholder="Por ejemplo: el ayudante era otro, la hora de regreso estaba mal"></textarea>
+                      <p class="pv-sub">Se borran el horario, la comisión y el viático; la tripulación se queda. Se vuelve a cerrar en Embarques › Cerrar viajes. Si ya se capturó en Kepler, corrígelo también allá.</p>
+                      <div class="pv-acciones">
+                        <button pButton type="button" size="small" severity="danger" [loading]="guardandoReabrir()"
+                                [disabled]="motivo().trim().length < motivoMinimo || guardandoReabrir()" (click)="reabrir(o)"><span class="p-button-label">Reabrir viaje</span></button>
+                        <button pButton type="button" size="small" [text]="true" (click)="reabriendo.set(false)"><span class="p-button-label">Cancelar</span></button>
+                      </div>
+                    </div>
+                  }
+                }
               } @else if (!puedeCapturar()) {
-                <p class="pv-sub">Falta capturarlos. Lo hace quien gestiona Pagos de viaje.</p>
+                @if (enCierre()) {
+                  <p class="pv-sub">Falta capturarlos. Lo hace quien gestiona Pagos de viaje.</p>
+                } @else {
+                  <p class="pv-sub">Este viaje todavía no se cierra.
+                    <a routerLink="/logistica/shipments" [queryParams]="ligaCierre(o)" class="pv-link">Cerrarlo en Embarques</a>
+                  </p>
+                }
               } @else {
                 <div class="pv-form">
                   <label for="pv-chofer">Chofer</label>
@@ -294,24 +350,54 @@ const mensaje = (e: unknown, def: string): string => {
                   <label for="pv-ay2">Ayudante 2 <span class="pv-sub pv-inline">(opcional)</span></label>
                   <p-select inputId="pv-ay2" [options]="opciones()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true"
                             [ngModel]="ayudante2()" (ngModelChange)="ayudante2.set($event)" placeholder="Nadie" appendTo="body" />
+                  @if (sugeridaVigente(); as s) {
+                    <p class="pv-sub pv-sugerida" role="note">
+                      <span class="pi pi-history" aria-hidden="true"></span>
+                      @if (s.helper1_id) { Los mismos ayudantes de su viaje del {{ fechaCorta(s.fecha) }}@if (s.guia) { (guía {{ s.guia }}) }. }
+                      @else { En su viaje del {{ fechaCorta(s.fecha) }}@if (s.guia) { (guía {{ s.guia }}) } fue sin ayudantes. }
+                      Revísalo antes de guardar.
+                    </p>
+                  }
                   <button pButton type="button" [text]="true" size="small" class="pv-alta" (click)="altaAyudante.set(true)"><span class="p-button-icon p-button-icon-left pi pi-user-plus" aria-hidden="true"></span><span class="p-button-label">Agregar ayudante nuevo</span></button>
                   <div class="pv-horas">
                     <div>
                       <label for="pv-salida">Salida</label>
-                      <p-datepicker inputId="pv-salida" [timeOnly]="true" hourFormat="24" [ngModel]="salida()" (ngModelChange)="salida.set($event)" appendTo="body" />
+                      <p-datepicker inputId="pv-salida" [timeOnly]="true" hourFormat="12" [ngModel]="salida()" (ngModelChange)="salida.set($event)" appendTo="body" />
                     </div>
                     <div>
                       <label for="pv-llegada">Llegada</label>
-                      <p-datepicker inputId="pv-llegada" [timeOnly]="true" hourFormat="24" [ngModel]="llegada()" (ngModelChange)="llegada.set($event)" appendTo="body" />
+                      <p-datepicker inputId="pv-llegada" [timeOnly]="true" hourFormat="12" [ngModel]="llegada()" (ngModelChange)="llegada.set($event)" appendTo="body" />
                     </div>
                   </div>
                   <label class="pv-check"><p-checkbox [binary]="true" inputId="pv-noche" [ngModel]="durmio()" (ngModelChange)="durmio.set($event)" /> Durmió fuera</label>
+                  <label for="pv-km">Km recorridos <span class="pv-sub pv-inline">(de la hoja de viaje, opcional)</span></label>
+                  <p-inputnumber inputId="pv-km" [ngModel]="km()" (ngModelChange)="km.set($event)" [min]="0" [max]="5000"
+                                 [useGrouping]="false" suffix=" km" placeholder="Sin capturar" />
+                  @if (horarioGpsVigente(); as h) {
+                    <p class="pv-sub pv-sugerida" role="note">
+                      <span class="pi pi-map-marker" aria-hidden="true"></span>
+                      Según el GPS de la unidad: salió@if (h.dia_salida) { el {{ fechaCorta(h.dia_salida) }} } a las {{ hora12(h.salida) }} y regresó a las {{ hora12(h.llegada) }}@if (h.duerme_fuera) { del día siguiente}@if (h.km != null) { ({{ h.km }} km)}.
+                      Sin confirmar: revísalo antes de guardar.
+                    </p>
+                  } @else if (sinHorarioGps(); as motivo) {
+                    <p class="pv-sub" role="note">Sin horario del GPS: {{ motivo }}</p>
+                  }
+                  @if (o.tripulacion_guardada_en) {
+                    <p class="pv-sub" role="note">
+                      <span class="pi pi-user" aria-hidden="true"></span>
+                      Tripulación guardada al salir ({{ fechaHora(o.tripulacion_guardada_en) }}). Se puede corregir hasta capturar el horario.
+                    </p>
+                  }
                   @if (erroresTripulacion(o).length) {
                     <ul class="pv-errs">@for (e of erroresTripulacion(o); track e) { <li>{{ e }}</li> }</ul>
                   }
                   <button pButton type="button" [loading]="guardandoGuia()"
-                          [disabled]="erroresTripulacion(o).length > 0 || guardandoGuia()" (click)="guardarTripulacion(o)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar chofer y ayudantes</span></button>
-                  <p class="pv-sub">Se guarda una sola vez: con esto se calculan la comisión (por la ruta) y el viático (por el horario).</p>
+                          [disabled]="erroresTripulacion(o).length > 0 || guardandoGuia()" (click)="guardarTripulacion(o)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">{{ soloTripulacion() ? 'Guardar tripulación' : 'Cerrar viaje y calcular comisiones' }}</span></button>
+                  @if (soloTripulacion()) {
+                    <p class="pv-sub">Al salir basta con quién va: se puede corregir hasta capturar el horario. Al regresar, con el horario se calculan la comisión y el viático.</p>
+                  } @else {
+                    <p class="pv-sub">Cierra el viaje: con esto se calculan la comisión (por la ruta) y el viático (por el horario). Si después hay un error, se reabre con motivo desde Pagos de viaje.</p>
+                  }
                 </div>
               }
             </section>
@@ -324,7 +410,7 @@ const mensaje = (e: unknown, def: string): string => {
               } @else if (o.cajas == null) {
                 <div class="pv-msg pv-msg-warn">Kepler todavía no trae los renglones de esta guía: no se sabe cuántas cajas lleva y la carga no se puede repartir.</div>
               } @else if (!puedeCapturar()) {
-                <p class="pv-sub">{{ o.cargadores ? cargadoresTexto(o) : 'Falta registrar quién cargó. Lo hace quien gestiona Pagos de viaje.' }}</p>
+                <p class="pv-sub">{{ o.cargadores ? cargadoresTexto(o) : (enCierre() ? 'Falta registrar quién cargó. Lo hace quien gestiona Pagos de viaje.' : 'Falta registrar quién cargó: se hace al cerrar el viaje en Embarques.') }}</p>
               } @else {
                 <div class="pv-ms">
                   <label class="sr-only" for="pv-cargadores">Cargadores</label>
@@ -341,6 +427,40 @@ const mensaje = (e: unknown, def: string): string => {
             <!-- Lo que sale de esta operación, persona por persona. -->
             <section class="pv-paso" aria-labelledby="pv-reparto">
               <h3 id="pv-reparto">Cuánto le toca a cada quien</h3>
+              <!-- [CML.J] D17 A: el mismo viaje físico se paga una vez (el GPS sugiere, una persona confirma). -->
+              @if (o.mismo_viaje_confirmado?.length) {
+                <p class="pv-sub pv-sugerida" role="note">
+                  <span class="pi pi-link" aria-hidden="true"></span>
+                  <span>Mismo viaje que la guía {{ guiasTexto(o.mismo_viaje_confirmado!) }}: a cada persona se le paga la comisión mayor y un solo viático. La carga sigue por guía.
+                    @if (puedeCapturar() && o.mismo_viaje_liga) {
+                      <button pButton type="button" [text]="true" size="small" [disabled]="guardandoLiga()" (click)="ligarMismoViaje(o, null)"><span class="p-button-label">Deshacer</span></button>
+                    }
+                  </span>
+                </p>
+              }
+              @for (g of mismoViajeSinConfirmar(); track g.sucursal + g.guia) {
+                <p class="pv-aviso" role="note">
+                  <span class="pi pi-exclamation-triangle" aria-hidden="true"></span>
+                  @if (g.por === 'hoja') {
+                    Posiblemente el mismo viaje que la guía {{ g.guia }}: es de la misma unidad y Kepler la capturó@if (g.hora_captura) { a las {{ hora12(g.hora_captura) }}}, mientras el camión estaba fuera según la hoja de viaje. Revisa no pagar el viaje dos veces.
+                  } @else {
+                    Salió en el mismo viaje que la guía {{ g.guia }} (misma unidad y misma salida según el GPS). Revisa no pagar el viaje dos veces.
+                  }
+                  @if (puedeCapturar()) {
+                    <button pButton type="button" size="small" [outlined]="true" [loading]="guardandoLiga()" [disabled]="guardandoLiga()"
+                            (click)="ligarMismoViaje(o, g)"><span class="p-button-label">Es el mismo viaje: pagar una vez</span></button>
+                  }
+                  <button pButton type="button" [text]="true" size="small" (click)="abrirMismoViaje(g)"
+                          [attr.aria-label]="'Ver la guía ' + g.guia"><span class="p-button-label">Ver guía {{ g.guia }}</span></button>
+                </p>
+              }
+              <!-- [CML.J2] Sin GPS y con la unidad compartida: no se adivina cuál fue el desvío. -->
+              @if (mismoViajeOmitidas(); as n) {
+                <p class="pv-sub" role="note">
+                  <span class="pi pi-info-circle" aria-hidden="true"></span>
+                  Kepler le hizo {{ n }} guías a esta unidad mientras el camión estaba fuera según la hoja: la clave de unidad la usan varios camiones, así que no se sugiere cuál fue el mismo viaje. Si hubo desvío, revisa no pagar el viaje dos veces.
+                </p>
+              }
               @if (o.renglones.length) {
                 <div class="dt-scope">
                   <p-table [value]="o.renglones" size="small" class="surf-table surf-table--plain dt-stack">
@@ -353,13 +473,16 @@ const mensaje = (e: unknown, def: string): string => {
                           <a [routerLink]="['/logistica/pagos/personas']" [queryParams]="{ persona: r.persona_id }" class="pv-link">{{ r.persona }}</a>
                           <span class="pv-sub">{{ r.calculo }}</span>
                         </td>
-                        <td data-label="Papel">{{ rolLabel(r.rol) }}</td>
+                        <td data-label="Papel">{{ rolLabel(r.rol) }}@if (r.fuente === 'kepler') { <p-tag value="Por cerrar" severity="warn" class="pv-tag" /> }</td>
                         <td data-label="Concepto en Kepler"><span class="pv-guia">{{ r.codigo }}</span> <span class="pv-sub">{{ r.nombre_concepto }}</span></td>
                         <td data-label="Importe" class="comm-num">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                       </tr>
                     </ng-template>
                     <ng-template #footer>
-                      <tr><td colspan="3">Total de la operación</td><td class="comm-num">{{ o.repartido | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr>
+                      <tr><td colspan="3">A pagar (viaje cerrado)</td><td class="comm-num">{{ o.repartido | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr>
+                      @if (o.por_cerrar) {
+                        <tr><td colspan="3">Por cerrar: se paga al cerrar el viaje</td><td class="comm-num">{{ o.por_cerrar | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr>
+                      }
                     </ng-template>
                   </p-table>
                 </div>
@@ -391,6 +514,7 @@ const mensaje = (e: unknown, def: string): string => {
     .pv-cuenta { margin-left: auto; font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .pv-guia { font-family: var(--font-mono); font-weight: var(--fw-medium); }
     .pv-sub { display: block; font-size: var(--fs-xs); color: var(--text-muted); }
+    .pv-sugerida { display: flex; gap: var(--sp-1); align-items: baseline; margin: 0; }
     .pv-inline { display: inline; }
     .pv-tenue { color: var(--text-muted); }
     .pv-aviso { color: var(--warn-soft-fg); font-size: var(--fs-sm); }
@@ -417,6 +541,9 @@ const mensaje = (e: unknown, def: string): string => {
     .pv-msg-bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .pv-msg-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .pv-link { font-size: var(--fs-sm); }
+    .pv-historial { display: flex; gap: var(--sp-1); align-items: baseline; flex-wrap: wrap; margin: 0; font-size: var(--fs-sm); }
+    .pv-reabrir textarea { width: 100%; font: inherit; }
+    .pv-acciones { display: flex; gap: var(--sp-2); }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     @container (max-width: 40rem) { .pv-cuenta { margin-left: 0; } }
   `],
@@ -431,6 +558,14 @@ export class LogisticaPagosViajesComponent {
    * persona) con la operación ya abierta, en SU catorcena.
    */
   private ligaPendiente: string | null = this.ruta.snapshot.queryParamMap.get('op');
+  /**
+   * `[CML.K]` Una sola ventana para capturar: **cierre** vive en Embarques › Cerrar viajes (se captura
+   * quién fue, el horario y los km, y se calculan las comisiones); **historial** es Pagos de viaje,
+   * sólo consulta (lo cerrado se corrige reabriéndolo con motivo). Lo dice la ruta (`data.modo`) o
+   * quien lo incrusta; sin nada, cierre.
+   */
+  readonly modo = input<'cierre' | 'historial' | null>(null);
+  readonly enCierre = computed(() => (this.modo() ?? this.ruta.snapshot?.data?.['modo'] ?? 'cierre') !== 'historial');
   private readonly sucursalPipe = new SucursalPipe();
 
   readonly data = signal<ReporteDePagos | null>(null);
@@ -447,9 +582,52 @@ export class LogisticaPagosViajesComponent {
   readonly chofer = signal<string | null>(null);
   readonly ayudante1 = signal<string | null>(null);
   readonly ayudante2 = signal<string | null>(null);
+  /** `[CML.T1]` La tripulación con que se precargó el formulario (la del viaje anterior del chofer). */
+  readonly sugerida = signal<TripulacionSugerida | null>(null);
+  /** El aviso sólo vale mientras los ayudantes sigan siendo los sugeridos: si alguien los cambia, ya no. */
+  readonly sugeridaVigente = computed(() => {
+    const s = this.sugerida();
+    const a1 = this.ayudante1();
+    const a2 = this.ayudante2();
+    return s && a1 === s.helper1_id && a2 === s.helper2_id ? s : null;
+  });
   readonly salida = signal<Date | null>(null);
   readonly llegada = signal<Date | null>(null);
   readonly durmio = signal(false);
+  /** `[CML.K]` Km de la hoja de viaje (opcional; el GPS los precarga si los tiene). */
+  readonly km = signal<number | null>(null);
+  readonly reabriendo = signal(false);
+  readonly motivo = signal('');
+  readonly guardandoReabrir = signal(false);
+  readonly motivoMinimo = MOTIVO_MINIMO_REABRIR;
+  /** `[CML.H]` El horario con que se precargó el formulario (el del GPS de la unidad). */
+  readonly horarioGps = signal<ViajeGps | null>(null);
+  /** El aviso sólo vale mientras salida, llegada y «durmió fuera» sigan siendo las del GPS. */
+  readonly horarioGpsVigente = computed(() => {
+    const h = this.horarioGps();
+    return h && hhmm(this.salida()) === h.salida && hhmm(this.llegada()) === h.llegada && this.durmio() === h.duerme_fuera ? h : null;
+  });
+  /** Por qué el GPS no da el horario (sólo mientras falte capturarlo). */
+  readonly sinHorarioGps = computed(() => {
+    const o = this.op();
+    const motivo = this.desglose()?.horario_gps?.motivo ?? null;
+    return motivo && o && !this.guiaCompleta(o) && !this.salida() && !this.llegada() ? motivo : null;
+  });
+  /**
+   * `[CML.HV]` Sin salida ni llegada se guarda SÓLO la tripulación (al salir): no calcula nada y se
+   * corrige hasta capturar el horario. Con las dos horas se completa la guía (al regresar).
+   */
+  readonly soloTripulacion = computed(() => !this.salida() && !this.llegada());
+  /** `[CML.J]` Otras guías que salieron en el mismo viaje físico (misma unidad, misma salida del GPS). */
+  readonly mismoViaje = computed<GuiaDelMismoViaje[]>(() => this.desglose()?.horario_gps?.mismo_viaje ?? []);
+  /** `[CML.J2]` Guías capturadas mientras el camión estaba fuera que NO se sugieren (unidad compartida). */
+  readonly mismoViajeOmitidas = computed<number>(() => this.desglose()?.horario_gps?.mismo_viaje_omitidas ?? 0);
+  /** Las sugeridas por el GPS que todavía nadie confirmó (las confirmadas ya se pagan una vez). */
+  readonly mismoViajeSinConfirmar = computed<GuiaDelMismoViaje[]>(() => {
+    const ya = new Set(this.op()?.mismo_viaje_confirmado ?? []);
+    return this.mismoViaje().filter((g) => !ya.has(llave(g)));
+  });
+  readonly guardandoLiga = signal(false);
   readonly guardandoGuia = signal(false);
   readonly cargadoresSel = signal<string[]>([]);
   readonly guardandoCarga = signal(false);
@@ -463,10 +641,14 @@ export class LogisticaPagosViajesComponent {
   private readonly altas = signal<PersonaDelPadron[]>([]);
 
   /** Capturar ESCRIBE: lo mismo que piden los endpoints (`LOGISTICS_PAGOS_GESTIONAR`). */
-  readonly puedeCapturar = computed(() => {
+  private readonly gestiona = computed(() => {
     if (this.perms.isAdmin()) return true;
     return (this.auth.user()?.permissions ?? {})[Permission.LOGISTICS_PAGOS_GESTIONAR] === true;
   });
+  /** `[CML.K]` Se captura sólo en la ventana de cierre (Embarques); el historial no se edita. */
+  readonly puedeCapturar = computed(() => this.enCierre() && this.gestiona());
+  /** `[CML.K]` Reabrir (con motivo) se hace desde el historial, con el mismo permiso. */
+  readonly puedeReabrir = computed(() => !this.enCierre() && this.gestiona());
 
   /** Las filas con su llave, para la selección de la tabla. */
   readonly operaciones = computed<Operacion[]>(() => (this.data()?.operaciones ?? []).map((o) => ({ ...o, clave: llave(o) })));
@@ -529,7 +711,7 @@ export class LogisticaPagosViajesComponent {
 
   private readonly cuenta = computed(() => {
     const os = this.operaciones();
-    const personas = new Set(os.flatMap((o) => o.renglones.map((r) => r.persona_id)));
+    const personas = new Set(os.flatMap((o) => o.renglones.filter((r) => r.fuente !== 'kepler').map((r) => r.persona_id)));
     const suma = (xs: number[]) => Math.round(xs.reduce((a, x) => a + x, 0) * 100) / 100;
     return {
       total: os.length,
@@ -543,6 +725,8 @@ export class LogisticaPagosViajesComponent {
       comision: suma(os.map((o) => o.comision_ruta.chofer ?? 0)),
       sinTarifa: os.filter((o) => o.comision_ruta.chofer == null).length,
       repartido: suma(os.map((o) => o.repartido)),
+      // [CML.K] Lo de viajes sin cerrar: se sabe, pero no se paga todavía.
+      porCerrar: suma(os.map((o) => o.por_cerrar ?? 0)),
       personas: personas.size,
     };
   });
@@ -552,7 +736,8 @@ export class LogisticaPagosViajesComponent {
     if (!c.total) return 'No hay traspasos ni entregas a cliente en esta catorcena.';
     const sabe = `${c.total} operaciones: ${this.dinero(c.carga)} de carga (${c.cajas.toLocaleString('es-MX')} cajas) y `
       + `${this.dinero(c.comision)} de comisión de choferes`;
-    const asignado = `${this.dinero(c.repartido)} ya asignado a ${c.personas} persona${c.personas === 1 ? '' : 's'}`;
+    const asignado = `${this.dinero(c.repartido)} a pagar a ${c.personas} persona${c.personas === 1 ? '' : 's'} de viajes cerrados`
+      + (c.porCerrar ? ` y ${this.dinero(c.porCerrar)} por cerrar` : '');
     return `${sabe}. ${asignado}${c.cargadores ? `; falta quién cargó en ${c.cargadores}` : ''}.`;
   });
 
@@ -561,7 +746,8 @@ export class LogisticaPagosViajesComponent {
     return [
       { label: 'Carga', value: c.carga, format: 'currency2', tone: 'brand', sub: `${c.cajas.toLocaleString('es-MX')} cajas × tarifa` },
       { label: 'Comisión de choferes', value: c.comision, format: 'currency2', tone: 'brand', sub: 'por la tarifa de la ruta' },
-      { label: 'Ya asignado', value: c.repartido, format: 'currency2', sub: `${c.personas} personas` },
+      { label: 'A pagar', value: c.repartido, format: 'currency2', sub: `${c.personas} personas · viajes cerrados` },
+      { label: 'Por cerrar', value: c.porCerrar, format: 'currency2', tone: c.porCerrar ? 'warn' : 'muted', sub: 'se paga al cerrar el viaje' },
       { label: 'Ruta sin tarifa', value: c.sinTarifa, format: 'number', tone: c.sinTarifa ? 'warn' : 'muted', sub: 'su comisión no se sabe' },
       { label: 'Falta chofer u horario', value: c.tripulacion, format: 'number', tone: c.tripulacion ? 'warn' : 'muted' },
       { label: 'Falta quién cargó', value: c.cargadores, format: 'number', tone: c.cargadores ? 'warn' : 'muted' },
@@ -588,6 +774,7 @@ export class LogisticaPagosViajesComponent {
     const q = this.ruta.snapshot.queryParamMap;
     const desde = q.get('desde');
     const hasta = q.get('hasta');
+    if (this.ruta.snapshot?.data?.['modo'] === 'historial') this.vista.set('completas');
     this.cargar(esFecha(desde) && esFecha(hasta) ? { desde, hasta } : undefined);
   }
 
@@ -642,11 +829,19 @@ export class LogisticaPagosViajesComponent {
     this.avisoPeek.set(null);
     this.errorPeek.set(null);
     this.chofer.set(o.driver_id);
-    this.ayudante1.set(o.helper1_id);
-    this.ayudante2.set(o.helper2_id);
+    // [CML.T1] Sin tripulación capturada, se precarga la del viaje anterior del chofer: sólo
+    // precarga, no guarda nada. Lo que ya está capturado manda.
+    const s = !this.guiaCompleta(o) && !o.helper1_id && !o.helper2_id ? o.tripulacion_sugerida ?? null : null;
+    this.sugerida.set(s);
+    this.ayudante1.set(s ? s.helper1_id : o.helper1_id);
+    this.ayudante2.set(s ? s.helper2_id : o.helper2_id);
     this.salida.set(null);
     this.llegada.set(null);
+    this.horarioGps.set(null);
     this.durmio.set(o.overnight);
+    this.km.set(o.km ?? null);
+    this.reabriendo.set(false);
+    this.motivo.set('');
     this.cargadoresSel.set([...o.cargador_ids]);
     this.peek.set(true);
     this.cargarDesglose(o);
@@ -663,6 +858,7 @@ export class LogisticaPagosViajesComponent {
         if (this.clave() !== pedida) return;
         this.desglose.set(d);
         this.cargandoDesglose.set(false);
+        this.precargarHorario(d);
       },
       error: (e) => {
         if (this.clave() !== pedida) return;
@@ -670,6 +866,21 @@ export class LogisticaPagosViajesComponent {
         this.errorDesglose.set(mensaje(e, 'No se pudo leer el desglose de Kepler.'));
       },
     });
+  }
+
+  /**
+   * `[CML.H]` Sin horario capturado, se precarga el del GPS de la unidad: sólo precarga, no guarda.
+   * Lo capturado manda, y también lo que la persona ya tecleó mientras llegaba el desglose.
+   */
+  private precargarHorario(d: DesgloseDeOperacion): void {
+    const o = this.op();
+    const v = d.horario_gps?.viaje ?? null;
+    if (!v || !o || this.guiaCompleta(o) || o.departure_time || o.arrival_time || this.salida() || this.llegada()) return;
+    this.salida.set(aHora(v.salida));
+    this.llegada.set(aHora(v.llegada));
+    this.durmio.set(v.duerme_fuera);
+    if (this.km() == null && v.km != null) this.km.set(Math.round(v.km));
+    this.horarioGps.set(v);
   }
 
 
@@ -706,8 +917,9 @@ export class LogisticaPagosViajesComponent {
   erroresTripulacion(o: OperacionDelReporte): string[] {
     const e: string[] = [];
     if (!o.driver_id && !o.chofer_kepler_id && !this.chofer()) e.push('Elige al chofer.');
-    if (!this.salida()) e.push('Captura la hora de salida.');
-    if (!this.llegada()) e.push('Captura la hora de llegada.');
+    // [CML.HV] Sin ninguna hora se guarda sólo la tripulación; con una sola, falta la otra.
+    if (this.salida() && !this.llegada()) e.push('Captura la hora de llegada (o borra la salida para guardar sólo la tripulación).');
+    if (!this.salida() && this.llegada()) e.push('Captura la hora de salida.');
     const quien = [o.driver_id ?? o.chofer_kepler_id ?? this.chofer(), this.ayudante1(), this.ayudante2()].filter(Boolean);
     if (new Set(quien).size !== quien.length) e.push('Una persona no puede ir dos veces en el mismo viaje.');
     return e;
@@ -722,8 +934,23 @@ export class LogisticaPagosViajesComponent {
       const o = await this.asegurarHoja(inicial);
       if (this.guiaCompleta(o)) { this.avisoPeek.set('Otra persona ya había capturado al chofer y su horario.'); return; }
       if (!o.guide_id) throw new Error('La operación no tiene guía de entrega activa: revísala en Embarques.');
-      if (!o.driver_id && !this.chofer()) {
+      // [CML.K] Si la hoja nació sin chofer (Kepler lo trae en el viaje pero no en las paradas), se manda
+      // el de Kepler que la pantalla ya muestra como fijo: si no, el coordinador se queda sin forma de elegirlo.
+      const choferElegido = this.chofer() ?? o.chofer_kepler_id;
+      if (!o.driver_id && !choferElegido) {
         throw new Error(`Kepler trae a ${o.chofer_kepler ?? 'un chofer'} pero no está en el padrón activo: elige al chofer.`);
+      }
+      if (this.soloTripulacion()) {
+        // [CML.HV] Al salir: sólo quién va. El horario, la comisión y el viático llegan al regresar.
+        const tripulacion: TripulacionGuiaBody = {
+          helper1_id: this.ayudante1(),
+          helper2_id: this.ayudante2(),
+          ...(o.driver_id ? {} : { driver_id: choferElegido }),
+        };
+        await firstValueFrom(this.api.saveGuideCrew(o.guide_id, tripulacion));
+        await this.releer();
+        this.avisoPeek.set('Listo: tripulación guardada. Al regresar se captura el horario y entonces se calculan la comisión y el viático.');
+        return;
       }
       const body: CompletarGuiaBody = {
         helper1_id: this.ayudante1(),
@@ -732,18 +959,62 @@ export class LogisticaPagosViajesComponent {
         arrival_time: hhmm(this.llegada()),
         overnight: this.durmio(),
         // El chofer sólo se manda si Kepler no lo trajo: la guía no deja cambiarlo.
-        ...(o.driver_id ? {} : { driver_id: this.chofer() }),
+        ...(o.driver_id ? {} : { driver_id: choferElegido }),
       };
       const g = await firstValueFrom(this.api.completeGuide(o.guide_id, body));
       const comision = Number(g.driver_commission ?? 0) + Number(g.helper1_commission ?? 0) + Number(g.helper2_commission ?? 0);
+      const kmNoGuardados = await this.guardarKm(o);
       await this.releer();
+      // [CML.J] Con el horario de la hoja ya guardado, sin GPS se busca si otra guía es el mismo viaje.
+      this.cargarDesglose(o);
       const distinto = o.driver_id && this.chofer() && this.chofer() !== o.driver_id ? ` El chofer quedó el de Kepler (${this.nombre(o.driver_id)}).` : '';
-      this.avisoPeek.set(`Listo: comisión ${this.dinero(comision)} y viático ${this.dinero(Number(g.per_diem_total ?? 0))}.${distinto}`);
+      this.avisoPeek.set(`Listo: viaje cerrado. Comisión ${this.dinero(comision)} y viático ${this.dinero(Number(g.per_diem_total ?? 0))}.${distinto}${kmNoGuardados}`);
     } catch (e) {
       this.errorPeek.set(mensaje(e, 'No se pudo guardar al chofer y los ayudantes.'));
     } finally {
       this.guardandoGuia.set(false);
     }
+  }
+
+  /**
+   * `[CML.K]` Los km de la hoja de viaje van al embarque (`actual_km`). Son opcionales y no cambian
+   * la comisión: si no se pueden guardar, el viaje ya quedó cerrado y se dice, sin tumbar el aviso.
+   */
+  private async guardarKm(o: Operacion): Promise<string> {
+    const km = this.km();
+    if (km == null || km === o.km || !o.shipment_id) return '';
+    try {
+      await firstValueFrom(this.api.updateShipment(o.shipment_id, { actual_km: km }));
+      return ` Km: ${km}.`;
+    } catch (e) {
+      return ` Los km no se guardaron (${mensaje(e, 'error')}).`;
+    }
+  }
+
+  /** `[CML.K]` Reabre el viaje cerrado con motivo: borra horario y montos; se vuelve a cerrar en Embarques. */
+  async reabrir(o: Operacion): Promise<void> {
+    const motivo = this.motivo().trim();
+    if (!o.guide_id || motivo.length < MOTIVO_MINIMO_REABRIR || this.guardandoReabrir()) return;
+    this.guardandoReabrir.set(true);
+    this.errorPeek.set(null);
+    this.avisoPeek.set(null);
+    try {
+      await firstValueFrom(this.api.reopenGuide(o.guide_id, { motivo }));
+      await this.releer();
+      this.reabriendo.set(false);
+      this.motivo.set('');
+      this.avisoPeek.set('Listo: el viaje se reabrió. Ciérralo otra vez en Embarques › Cerrar viajes con el horario correcto.');
+    } catch (e) {
+      this.errorPeek.set(mensaje(e, 'No se pudo reabrir el viaje.'));
+    } finally {
+      this.guardandoReabrir.set(false);
+    }
+  }
+
+  /** `[CML.K]` La liga a Embarques › Cerrar viajes con esta operación abierta, en su catorcena. */
+  ligaCierre(o: OperacionDelReporte): Record<string, string> {
+    const c = this.corteActual();
+    return { vista: 'cerrar', op: llave(o), ...(c ? { desde: c.desde, hasta: c.hasta } : {}) };
   }
 
   async guardarCargadores(inicial: Operacion): Promise<void> {
@@ -856,6 +1127,47 @@ export class LogisticaPagosViajesComponent {
   fechaCorta(iso: string): string {
     const d = new Date(iso + 'T12:00:00');
     return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+  /** Un instante ISO en hora de México: «lun 24 nov, 8:05 a.m.». */
+  fechaHora(iso: string): string {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('es-MX', {
+      timeZone: 'America/Mexico_City', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+    });
+  }
+  readonly hora12 = hora12;
+  /** `00|0001060` → `0001060`; varias, separadas por coma. */
+  guiasTexto(claves: string[]): string {
+    return claves.map((k) => k.split('|')[1] ?? k).join(', ');
+  }
+  /**
+   * `[CML.J]` Confirma (o deshace, con `null`) que esta operación es el mismo viaje que `g`. Crea la
+   * hoja si no la hay (igual que al guardar la tripulación) y relee: el reporte paga una vez.
+   */
+  async ligarMismoViaje(inicial: Operacion, g: GuiaDelMismoViaje | null): Promise<void> {
+    if (this.guardandoLiga()) return;
+    this.guardandoLiga.set(true);
+    this.errorPeek.set(null);
+    this.avisoPeek.set(null);
+    try {
+      const o = await this.asegurarHoja(inicial);
+      if (!o.guide_id) throw new Error('La operación no tiene guía de entrega activa: revísala en Embarques.');
+      await firstValueFrom(this.api.confirmSameTrip(o.guide_id, { same_trip_as: g ? llave(g) : null }));
+      await this.releer();
+      this.avisoPeek.set(g
+        ? `Listo: es el mismo viaje que la guía ${g.guia}. A cada persona se le paga la comisión mayor y un solo viático.`
+        : 'Listo: ya no se trata como el mismo viaje; cada guía se paga por separado.');
+    } catch (e) {
+      this.errorPeek.set(mensaje(e, 'No se pudo guardar si es el mismo viaje.'));
+    } finally {
+      this.guardandoLiga.set(false);
+    }
+  }
+  /** `[CML.J]` Abre la otra guía del mismo viaje si está en la catorcena cargada; si no, dice dónde buscarla. */
+  abrirMismoViaje(g: GuiaDelMismoViaje): void {
+    const o = this.operaciones().find((x) => x.clave === llave(g));
+    if (o) { this.abrir(o); return; }
+    this.avisoPeek.set(`La guía ${g.guia} (${this.fechaCorta(g.fecha)}) no está en esta catorcena o no paga comisión: búscala en la catorcena de esa fecha.`);
   }
   private dinero(n: number): string {
     return n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });

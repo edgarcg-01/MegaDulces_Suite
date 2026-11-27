@@ -2,7 +2,8 @@ import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequireAnyPermission } from '@megadulces/platform-core';
 import type {
-  CargadoresBody, CerrarParadaBody, CierreDeEmbarque, DesgloseDeOperacion, ParadaCierre, ReporteDePagos,
+  CargadoresBody, CerrarParadaBody, CierreDeEmbarque, DesgloseDeOperacion, PagosDeLaCatorcena, ParadaCierre,
+  ReporteDePagos,
 } from '@megadulces/contracts';
 import { TripClosureService } from './trip-closure.service';
 
@@ -30,6 +31,14 @@ export class TripClosureController {
     @Query('sucursal') sucursal?: string,
   ): Promise<ReporteDePagos> {
     return this.service.reporte(desde, hasta, sucursal);
+  }
+
+  // `[CML.P]` El pago de la catorcena: por pagar → en vale → pagado (lo dice Kepler).
+  @Get('pagos')
+  @RequireAnyPermission(Permission.LOGISTICS_PAGOS_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'CML.P: por persona, lo que pide, lo que ya está en un vale de Gastos y si Kepler ya lo pagó' })
+  pagos(@Query('desde') desde?: string, @Query('hasta') hasta?: string): Promise<PagosDeLaCatorcena> {
+    return this.service.pagos(desde, hasta);
   }
 
   @Get('operaciones/:sucursal/:guia/desglose')

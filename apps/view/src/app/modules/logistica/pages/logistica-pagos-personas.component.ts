@@ -5,12 +5,14 @@ import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { ButtonModule } from 'primeng/button';
+import { TagModule } from 'primeng/tag';
 import type {
-  DesgloseDeOperacion, DetalleDeSolicitud, RenglonDeSolicitud, ReporteDePagos, RolDelReparto, SinCentro, SolicitudDePersona,
+  DesgloseDeOperacion, DetalleDeSolicitud, EstadoDelPago, PagoDePersona, PagosDeLaCatorcena, RenglonDeSolicitud, ReporteDePagos, RolDelReparto,
+  SinCentro, SolicitudDePersona,
 } from '@megadulces/contracts';
 // Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
 import {
-  corteVecino, esFecha, PROVEEDOR_DE_LA_SOLICITUD, ROL_LABEL, SIN_CENTRO_LABEL, solicitudesDelReporte,
+  corteVecino, esFecha, ESTADO_DEL_PAGO_LABEL, PROVEEDOR_DE_LA_SOLICITUD, ROL_LABEL, SIN_CENTRO_LABEL, solicitudesDelReporte,
 } from '@megadulces/contracts/http/cierre-viaje';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -63,7 +65,7 @@ export function ordenarPersonas(xs: SolicitudDePersona[], orden: OrdenPersonas):
   selector: 'app-logistica-pagos-personas',
   standalone: true,
   imports: [
-    CurrencyPipe, FormsModule, RouterLink, TableModule, ButtonModule, SelectModule, LoadStateComponent, MetricStripComponent,
+    CurrencyPipe, FormsModule, RouterLink, TableModule, ButtonModule, TagModule, SelectModule, LoadStateComponent, MetricStripComponent,
     FreshnessPillComponent, SidePeekComponent, SucursalPipe, DesgloseOperacionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -108,6 +110,17 @@ export function ordenarPersonas(xs: SolicitudDePersona[], orden: OrdenPersonas):
           }
         }
         <app-metric-strip [items]="kpis()" mode="strip" density="compact" ariaLabel="Solicitudes de la catorcena" />
+        <!-- [CML.P] El pago: por pagar → en vale → pagado. «Pagado» lo dice Kepler, no un clic. -->
+        @if (pagos(); as pg) {
+          <p class="pp-pago-linea">{{ lineaDelPago() }}</p>
+          @if (!pg.kepler_medido) { <p class="pp-aviso">No se pudo leer Kepler: nadie se marca pagado porque no se midió, no porque no se pagó.</p> }
+          @if (pg.pagados_sin_calculo.length) {
+            <p class="pp-aviso">Kepler pagó {{ pg.pagados_sin_calculo.length }} comisi{{ pg.pagados_sin_calculo.length === 1 ? 'ón' : 'ones' }} a nombres que la Suite no calculó:
+              @for (k of pg.pagados_sin_calculo; track k.folio) { {{ k.beneficiario }} ({{ k.folio }}, {{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}){{ $last ? '.' : ',' }} }</p>
+          }
+        } @else if (errorPagos()) {
+          <p class="pp-aviso">No se pudo leer el estado del pago: {{ errorPagos() }}</p>
+        }
       }
 
       <app-load-state [loading]="cargando() && !data()" [error]="error()" [isEmpty]="!!data() && !solicitudes().length"
@@ -141,6 +154,7 @@ export function ordenarPersonas(xs: SolicitudDePersona[], orden: OrdenPersonas):
                 <th scope="col" class="comm-num">Viático</th>
                 <th scope="col" class="comm-num">Carga</th>
                 <th scope="col" class="comm-num">Total a pedir</th>
+                <th scope="col">Pago</th>
               </tr>
             </ng-template>
             <ng-template #body let-s>
@@ -150,17 +164,28 @@ export function ordenarPersonas(xs: SolicitudDePersona[], orden: OrdenPersonas):
                 <td data-label="Comisión" class="comm-num">{{ s.por_concepto.comision | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td data-label="Viático" class="comm-num">{{ s.por_concepto.viatico | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td data-label="Carga" class="comm-num">{{ s.por_concepto.carga | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td data-label="Total a pedir" class="comm-num pp-fuerte">{{ s.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td data-label="Total a pedir" class="comm-num pp-fuerte">
+                  {{ s.total | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                  @if (s.por_cerrar) { <span class="pp-sub">+{{ s.por_cerrar | currency:'MXN':'symbol-narrow':'1.2-2' }} por cerrar</span> }
+                </td>
+                <td data-label="Pago">
+                  @if (pagoDe(s.persona_id); as p) {
+                    <p-tag [value]="estadoLabel(p.estado)" [severity]="estadoSeveridad(p.estado)" />
+                    <span class="pp-sub">{{ detalleDelPago(p) }}</span>
+                  } @else if (pagos()) { <span class="pp-sub">—</span> }
+                  @else { <span class="pp-sub">{{ errorPagos() ? 'no medido' : 'leyendo…' }}</span> }
+                </td>
               </tr>
             </ng-template>
             <ng-template #footer>
               <tr>
                 <td>Total</td><td></td><td></td><td></td><td></td>
                 <td class="comm-num pp-fuerte">{{ total() | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                <td></td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="6" class="pp-vacio">Nadie con ese nombre.</td></tr>
+              <tr><td colspan="7" class="pp-vacio">Nadie con ese nombre.</td></tr>
             </ng-template>
           </p-table>
         </div>
@@ -196,12 +221,29 @@ export function ordenarPersonas(xs: SolicitudDePersona[], orden: OrdenPersonas):
                 <div>
                   <span class="pp-sub">Total a pedir</span>
                   <span class="pp-total">{{ s.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                  @if (s.por_cerrar) { <span class="pp-sub">Además {{ s.por_cerrar | currency:'MXN':'symbol-narrow':'1.2-2' }} de viajes sin cerrar: se pide cuando se cierren.</span> }
                 </div>
                 <div class="pp-acciones">
                   <button pButton type="button" size="small" [disabled]="generando()" (click)="pdf([s])"><span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF de la solicitud</span></button>
                   <button pButton type="button" size="small" [outlined]="true" (click)="excel([s])"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
                 </div>
               </div>
+
+              <!-- [CML.P] El pago de esta persona en la catorcena. -->
+              <section class="pp-pago" aria-label="Pago de la catorcena">
+                <h3>Pago de la catorcena</h3>
+                @if (pagoDe(s.persona_id); as p) {
+                  <p class="pp-pago-estado"><p-tag [value]="estadoLabel(p.estado)" [severity]="estadoSeveridad(p.estado)" /> {{ detalleDelPago(p) }}</p>
+                  @for (v of p.vales; track v.id) {
+                    <p class="pp-sub">Vale de Gastos {{ valeEstado(v.status) }} · {{ v.importe | currency:'MXN':'symbol-narrow':'1.2-2' }} · {{ v.folio_solicitud ? 'X-A-15 ' + v.folio_solicitud : 'sin casar con Kepler' }}</p>
+                  }
+                  @for (k of p.pagos_kepler; track k.folio) {
+                    <p class="pp-sub">Kepler pagó {{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }} el {{ fechaCorta(k.fecha) }} (X-A-10 {{ k.folio }}, sucursal {{ k.sucursal }})</p>
+                  }
+                } @else {
+                  <p class="pp-sub">{{ errorPagos() ? 'No se pudo leer el estado del pago.' : 'Leyendo el estado del pago…' }}</p>
+                }
+              </section>
 
               <h3>Solicitud de gasto para capturar en Kepler (X-A-15)</h3>
               <!-- [EMB.53] Los datos de la cabecera, tal como los lleva la solicitud real de Logística. -->
@@ -251,7 +293,7 @@ export function ordenarPersonas(xs: SolicitudDePersona[], orden: OrdenPersonas):
                         <span class="pp-sub">{{ d.sucursal | sucursal }}</span>
                       </td>
                       <td data-label="Destino">{{ d.destino }}</td>
-                      <td data-label="Cómo se calcula">{{ rol(d.rol) }} · {{ d.codigo }}@if (d.fuente === 'kepler') { · de Kepler }<span class="pp-sub">{{ d.calculo }}</span></td>
+                      <td data-label="Cómo se calcula">{{ rol(d.rol) }} · {{ d.codigo }}@if (d.fuente === 'kepler') { · por cerrar (no se pide todavía) }<span class="pp-sub">{{ d.calculo }}</span></td>
                       <td data-label="Importe" class="comm-num">{{ d.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                     </tr>
                   </ng-template>
@@ -295,6 +337,9 @@ export function ordenarPersonas(xs: SolicitudDePersona[], orden: OrdenPersonas):
     .pp-filtro { margin: 0; font-size: var(--fs-sm); display: flex; align-items: center; gap: var(--sp-2); }
     .pp-guia { padding: 0; border: 0; background: none; color: var(--action); font: inherit; font-family: var(--font-mono); font-weight: var(--fw-medium); text-decoration: underline; cursor: pointer; }
     .pp-guia:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+    .pp-pago-linea { margin: 0; font-size: var(--fs-sm); color: var(--fg-2); font-variant-numeric: tabular-nums; }
+    .pp-pago { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); }
+    .pp-pago-estado { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     @container (max-width: 40rem) { .pp-cuenta { margin-left: 0; } }
   `],
@@ -308,6 +353,17 @@ export class LogisticaPagosPersonasComponent {
   private ligaPersona: string | null = this.ruta.snapshot.queryParamMap.get('persona');
 
   readonly data = signal<ReporteDePagos | null>(null);
+  // [CML.P] El pago de la catorcena: se lee aparte del reporte (si falla, el reporte sigue).
+  readonly pagos = signal<PagosDeLaCatorcena | null>(null);
+  readonly errorPagos = signal<string | null>(null);
+  private readonly pagosPorPersona = computed(() => new Map((this.pagos()?.personas ?? []).map((p) => [p.persona_id, p])));
+  readonly lineaDelPago = computed(() => {
+    const ps = (this.pagos()?.personas ?? []).filter((p) => p.estado !== 'sin_monto');
+    if (!ps.length) return 'Pago: nadie tiene nada que cobrar todavía.';
+    const n = (e: EstadoDelPago) => ps.filter((p) => p.estado === e).length;
+    const falta = ps.reduce((t, p) => t + (p.estado === 'pagado' ? 0 : p.falta_en_vale), 0);
+    return `Pago: ${n('pagado')} pagad${n('pagado') === 1 ? 'a' : 'as'} en Kepler · ${n('en_vale')} en vale · ${n('por_pagar')} por pagar (${this.dinero(falta)} sin vale).`;
+  });
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
   readonly busqueda = signal('');
@@ -356,6 +412,8 @@ export class LogisticaPagosPersonasComponent {
     return op ? (this.sel()?.detalle ?? []).filter((x) => x.sucursal === op.sucursal && x.guia === op.guia) : [];
   });
   readonly total = computed(() => Math.round(this.solicitudes().reduce((a, s) => a + s.total, 0) * 100) / 100);
+  /** `[CML.K]` Lo de viajes sin cerrar: se dice, no se pide. */
+  readonly porCerrar = computed(() => Math.round(this.solicitudes().reduce((a, s) => a + (s.por_cerrar ?? 0), 0) * 100) / 100);
 
   /** Lo que todavía no se puede pedir porque nadie dijo quién fue (se declara, no se esconde). */
   readonly pendientes = computed(() => {
@@ -366,7 +424,8 @@ export class LogisticaPagosPersonasComponent {
   readonly titular = computed(() => {
     const n = this.solicitudes().length;
     if (!n) return 'Todavía nadie tiene nada que pedir en esta catorcena.';
-    return `${n} persona${n === 1 ? '' : 's'} pide${n === 1 ? '' : 'n'} ${this.dinero(this.total())} en total esta catorcena.`;
+    const pc = this.porCerrar() ? ` Faltan ${this.dinero(this.porCerrar())} de viajes sin cerrar.` : '';
+    return `${n} persona${n === 1 ? '' : 's'} pide${n === 1 ? '' : 'n'} ${this.dinero(this.total())} en total esta catorcena.${pc}`;
   });
 
   readonly kpis = computed<MetricStripItem[]>(() => {
@@ -377,6 +436,7 @@ export class LogisticaPagosPersonasComponent {
       { label: 'Comisión', value: por('comision'), format: 'currency2' },
       { label: 'Viático', value: por('viatico'), format: 'currency2' },
       { label: 'Carga', value: por('carga'), format: 'currency2' },
+      { label: 'Por cerrar', value: this.porCerrar(), format: 'currency2', tone: this.porCerrar() ? 'warn' : 'muted', sub: 'no se pide hasta cerrar el viaje' },
       { label: 'Operaciones sin repartir', value: this.pendientes().operaciones, format: 'number', tone: this.pendientes().operaciones ? 'warn' : 'muted', sub: 'falta quién fue' },
     ];
   });
@@ -396,11 +456,46 @@ export class LogisticaPagosPersonasComponent {
       next: (r) => {
         this.data.set(r);
         this.cargando.set(false);
+        this.cargarPagos(r.corte);
         // La liga se usa una vez: la persona que pidió quien llegó desde «Operaciones».
         if (this.ligaPersona) { this.selId.set(this.ligaPersona); this.ligaPersona = null; }
       },
       error: (e) => { this.cargando.set(false); this.error.set(e?.error?.message ?? 'No se pudo leer la catorcena.'); },
     });
+  }
+
+  /** `[CML.P]` El estado del pago; un error aquí no tumba el reporte: se dice «no medido». */
+  cargarPagos(corte: { desde: string; hasta: string }): void {
+    this.errorPagos.set(null);
+    this.api.getPagosCatorcena({ desde: corte.desde, hasta: corte.hasta }).subscribe({
+      next: (p) => this.pagos.set(p),
+      error: (e) => { this.pagos.set(null); this.errorPagos.set(e?.error?.message ?? 'sin respuesta'); },
+    });
+  }
+
+  pagoDe(personaId: string): PagoDePersona | null {
+    return this.pagosPorPersona().get(personaId) ?? null;
+  }
+
+  estadoLabel(e: EstadoDelPago): string {
+    return ESTADO_DEL_PAGO_LABEL[e];
+  }
+  estadoSeveridad(e: EstadoDelPago): 'success' | 'info' | 'warn' | 'secondary' {
+    return e === 'pagado' ? 'success' : e === 'en_vale' ? 'info' : e === 'por_pagar' ? 'warn' : 'secondary';
+  }
+  valeEstado(status: string): string {
+    return status === 'recibida' ? 'por aprobar' : status === 'validada' || status === 'aprobada' ? 'aprobado' : status;
+  }
+  /** La línea de una persona: cuánto falta, qué está en vale o qué pagó Kepler (y si difiere). */
+  detalleDelPago(p: PagoDePersona): string {
+    if (p.estado === 'pagado') {
+      const pagado = p.pagos_kepler.reduce((t, k) => t + k.importe, 0);
+      const dif = p.diferencia ? (p.diferencia > 0 ? ` · pagó ${this.dinero(p.diferencia)} de más` : ` · faltaron ${this.dinero(-p.diferencia)}`) : '';
+      return `${this.dinero(pagado)} el ${this.fechaCorta(p.pagos_kepler[0].fecha)}${dif}`;
+    }
+    if (p.estado === 'en_vale') return `${this.dinero(p.en_vale)} en vale`;
+    if (p.estado === 'por_pagar') return p.en_vale > 0 ? `faltan ${this.dinero(p.falta_en_vale)} (ya ${this.dinero(p.en_vale)} en vale)` : `${this.dinero(p.falta_en_vale)} sin vale`;
+    return '';
   }
 
   mover(paso: -1 | 1): void {
@@ -409,6 +504,7 @@ export class LogisticaPagosPersonasComponent {
     const c = corteVecino(d.corte, paso);
     this.cerrar();
     this.data.set(null);
+    this.pagos.set(null);
     this.cargar({ desde: c.desde, hasta: c.hasta });
   }
 

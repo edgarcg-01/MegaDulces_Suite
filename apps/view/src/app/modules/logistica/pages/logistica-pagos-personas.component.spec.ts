@@ -4,7 +4,9 @@ import localeEsMx from '@angular/common/locales/es-MX';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import type { OperacionDelReporte, ReporteDePagos } from '@megadulces/contracts';
+import type { OperacionDelReporte, PagoDePersona, PagosDeLaCatorcena, ReporteDePagos } from '@megadulces/contracts';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { LogisticaPagosPersonasComponent } from './logistica-pagos-personas.component';
 
 /**
@@ -36,12 +38,13 @@ const REPORTE: ReporteDePagos = {
   fuera_de_alcance: 0, solo_tiempo_aire: 0, personas: [], leido_at: '2026-10-08T12:00:00.000Z',
 };
 
-function montar(titulo?: string, query: Record<string, string> = {}) {
+function montar(titulo?: string, query: Record<string, string> = {}, permisos: string[] = []) {
   TestBed.configureTestingModule({
     imports: [LogisticaPagosPersonasComponent],
     providers: [
       provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
       { provide: ActivatedRoute, useValue: { snapshot: { data: titulo ? { titulo } : {}, queryParamMap: convertToParamMap(query) } } },
+      { provide: PermissionsService, useValue: { has: (p: string) => permisos.includes(p) } },
     ],
   });
   const f = TestBed.createComponent(LogisticaPagosPersonasComponent);
@@ -49,10 +52,27 @@ function montar(titulo?: string, query: Record<string, string> = {}) {
   return { f, c: f.componentInstance, http, el: f.nativeElement as HTMLElement };
 }
 const reporte = (http: HttpTestingController) => http.expectOne((r) => r.url.endsWith('/logistics/trip-closure/reporte'));
+// [CML.P] El estado del pago se pide después del reporte.
+const pagosReq = (http: HttpTestingController) => http.expectOne((r) => r.method === 'GET' && r.url.endsWith('/logistics/trip-closure/pagos'));
+const pago = (x: Partial<PagoDePersona>): PagoDePersona => ({
+  persona_id: 'd1', persona: 'CHOFER PRUEBA', a_pagar: 200, en_vale: 0, falta_en_vale: 200, vales: [], pagos_kepler: [], diferencia: null,
+  estado: 'por_pagar', ...x,
+});
+const PAGOS: PagosDeLaCatorcena = {
+  corte: CORTE,
+  personas: [pago({}), pago({ persona_id: 'c1', persona: 'CARGADOR PRUEBA', a_pagar: 20, en_vale: 20, falta_en_vale: 0, estado: 'en_vale',
+    vales: [{ id: 'v1', status: 'recibida', importe: 20, creado_at: '2026-10-08T12:00:00.000Z', folio_solicitud: null }] })],
+  pagados_sin_calculo: [], kepler_medido: true, leido_at: '2026-10-08T12:00:00.000Z',
+};
 
 describe('LogisticaPagosPersonasComponent', () => {
   beforeAll(() => registerLocaleData(localeEsMx));
-  afterEach(() => TestBed.inject(HttpTestingController).verify());
+  afterEach(() => {
+    const http = TestBed.inject(HttpTestingController);
+    // Las pruebas viejas no miran el pago: se contesta vacío para que no quede abierta.
+    http.match((r) => r.url.endsWith('/logistics/trip-closure/pagos')).forEach((r) => r.flush({ ...PAGOS, personas: [] }));
+    http.verify();
+  });
 
   it('pide la catorcena vigente (sin fechas) y pinta lo que pide cada persona', async () => {
     const { f, http, el } = montar();
@@ -61,9 +81,11 @@ describe('LogisticaPagosPersonasComponent', () => {
     req.flush(REPORTE);
     f.detectChanges();
     await f.whenStable();
-    expect(el.textContent).toContain('2 personas piden $349.00 en total esta catorcena.');
+    // [CML.K] La comisión de Kepler ($129) es de un viaje sin cerrar: se dice, no se pide.
+    expect(el.textContent).toContain('2 personas piden $220.00 en total esta catorcena. Faltan $129.00 de viajes sin cerrar.');
     expect(el.textContent).toContain('CHOFER PRUEBA');
-    expect(el.textContent).toContain('$329.00');
+    expect(el.textContent).toContain('$200.00');
+    expect(el.textContent).toContain('+$129.00 por cerrar');
   });
 
   it('declara las operaciones que todavía no tienen quién fue: lo suyo no se puede pedir', () => {
@@ -78,8 +100,10 @@ describe('LogisticaPagosPersonasComponent', () => {
     const { c, http } = montar();
     reporte(http).flush(REPORTE);
     c.alSeleccionar(c.solicitudes().find((s) => s.persona === 'CHOFER PRUEBA'));
-    expect(c.sel()?.renglones.map((r) => [r.codigo, r.destino, r.importe])).toEqual([['027', 'YURECUARO', 200], ['054', 'YURECUARO', 129]]);
+    expect(c.sel()?.renglones.map((r) => [r.codigo, r.destino, r.importe])).toEqual([['027', 'YURECUARO', 200]]);
+    // De dónde sale cada peso sigue mostrando la comisión por cerrar (marcada), aunque no se pida.
     expect(c.sel()?.detalle).toHaveLength(2);
+    expect(c.sel()?.por_cerrar).toBe(129);
   });
 
   it('moverse de catorcena pide las fechas de 14 días antes y suelta a la persona abierta', () => {
@@ -152,5 +176,62 @@ describe('LogisticaPagosPersonasComponent', () => {
     log.f.detectChanges();
     expect(log.el.querySelector('h1')).toBeNull();
     expect(log.el.textContent).toContain('Ir a Operaciones');
+  });
+
+  it('[CML.P] cada persona dice su pago: por pagar, en vale (por aprobar) y la línea del resumen', () => {
+    const { f, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    const req = pagosReq(http);
+    expect(req.request.params.get('desde')).toBe('2026-09-24');
+    expect(req.request.params.get('hasta')).toBe('2026-10-07');
+    req.flush(PAGOS);
+    f.detectChanges();
+    expect(el.textContent).toContain('Pago: 0 pagadas en Kepler · 1 en vale · 1 por pagar ($200.00 sin vale).');
+    expect(el.textContent).toContain('Por pagar');
+    expect(el.textContent).toContain('En vale');
+  });
+
+  it('[CML.P] pagado lo dice Kepler, con la diferencia contra lo calculado; y los pagos a otros nombres se dicen', () => {
+    const { f, c, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    pagosReq(http).flush({
+      ...PAGOS,
+      personas: [pago({ estado: 'pagado', diferencia: -20, pagos_kepler: [{ sucursal: '00', folio: '777', fecha: '2026-10-09', importe: 180, beneficiario: 'CHOFER PRUEBA' }] })],
+      pagados_sin_calculo: [{ sucursal: '01', folio: '778', fecha: '2026-10-09', importe: 500, beneficiario: 'OTRA PERSONA' }],
+    });
+    f.detectChanges();
+    expect(c.detalleDelPago(c.pagoDe('d1')!)).toContain('faltaron $20.00');
+    expect(el.textContent).toContain('Pagado en Kepler');
+    expect(el.textContent).toContain('Kepler pagó 1 comisión a nombres que la Suite no calculó');
+    expect(el.textContent).toContain('OTRA PERSONA');
+  });
+
+  it('[CML.P] NEGATIVA: si Kepler no se pudo leer, nadie sale pagado y se dice por qué', () => {
+    const { f, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    pagosReq(http).flush({ ...PAGOS, kepler_medido: false });
+    f.detectChanges();
+    expect(el.textContent).toContain('No se pudo leer Kepler: nadie se marca pagado porque no se midió');
+  });
+
+  it('[CML.P] NEGATIVA: si el estado del pago falla, el reporte sigue y la columna dice «no medido»', () => {
+    const { f, http, el } = montar();
+    reporte(http).flush(REPORTE);
+    pagosReq(http).flush({ message: 'sin Kepler' }, { status: 500, statusText: 'x' });
+    f.detectChanges();
+    expect(el.textContent).toContain('CHOFER PRUEBA');
+    expect(el.textContent).toContain('No se pudo leer el estado del pago: sin Kepler');
+    expect(el.textContent).toContain('no medido');
+  });
+
+  it('[CML.P] sin vales (Logística, 2026-11-27): ni con la llave de Finanzas hay botón para armar un vale, y la pantalla no escribe', () => {
+    const { f, c, http, el } = montar('Comisiones de logística', {}, [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_PAGOS_GESTIONAR]);
+    reporte(http).flush(REPORTE);
+    pagosReq(http).flush(PAGOS);
+    c.alSeleccionar(c.solicitudes().find((s) => s.persona === 'CHOFER PRUEBA'));
+    f.detectChanges();
+    expect(el.textContent).toContain('Pago de la catorcena');
+    expect(el.textContent).not.toContain('Preparar vale');
+    http.expectNone((r) => r.method === 'POST');
   });
 });

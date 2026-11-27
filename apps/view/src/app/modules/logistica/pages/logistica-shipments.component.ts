@@ -21,6 +21,9 @@ import {
 } from '../logistica.service';
 import { ShipmentFormDialogComponent } from '../components/shipment-form-dialog.component';
 import { ErpTripsPanelComponent } from '../components/erp-trips-panel.component';
+import { LogisticaPagosViajesComponent } from './logistica-pagos-viajes.component';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 import { MultitareaService } from '../../../core/services/multitarea.service';
 const STATUS_OPTIONS: { label: string; value: ShipmentStatus | '' }[] = [
@@ -59,7 +62,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, DatePickerModule, SelectModule,
     TagModule, SkeletonModule, TooltipModule, ToastModule, ConfirmDialogModule,
-    ShipmentFormDialogComponent, ErpTripsPanelComponent,
+    ShipmentFormDialogComponent, ErpTripsPanelComponent, LogisticaPagosViajesComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -74,6 +77,8 @@ function severityForStatus(s: ShipmentStatus): Severity {
           <p class="surf-page-sub">
             @if (mode() === 'erp') {
               Viajes reales del ERP · el documento de embarque de Kepler, en vivo
+            } @else if (mode() === 'cierre') {
+              Cuando el camión regresa con su hoja de viaje: quién fue, a qué hora salió y regresó y los km. Al cerrar, se calculan las comisiones.
             } @else {
               <b>{{ page().total }}</b> registrado{{ page().total === 1 ? '' : 's' }} en la app
               <span class="sh-divider" aria-hidden="true">·</span>
@@ -89,10 +94,10 @@ function severityForStatus(s: ShipmentStatus): Severity {
       </header>
     
       <!-- KPI STRIP -->
-      @if (loadingStats() && mode() !== 'erp') {
+      @if (loadingStats() && mode() !== 'erp' && mode() !== 'cierre') {
         <p-skeleton height="120px"></p-skeleton>
       }
-      @if (mode() !== 'erp' && !loadingStats() && stats(); as st) {
+      @if (mode() !== 'erp' && mode() !== 'cierre' && !loadingStats() && stats(); as st) {
         <div class="sheet cols-12">
           <article class="cell cell-span-3">
             <span class="cell-icon" aria-hidden="true">
@@ -144,6 +149,20 @@ function severityForStatus(s: ShipmentStatus): Severity {
               <i class="pi pi-send" aria-hidden="true"></i>
               <span>Viajes del ERP</span>
             </button>
+            <!-- [CML.K] Una sola ventana para cerrar el viaje y calcular las comisiones. -->
+            @if (puedeVerPagos()) {
+              <button
+                type="button"
+                class="sh-mode-tab"
+                [class.active]="mode() === 'cierre'"
+                role="radio"
+                [attr.aria-checked]="mode() === 'cierre'"
+                (click)="setMode('cierre')"
+                >
+                <i class="pi pi-check-square" aria-hidden="true"></i>
+                <span>Cerrar viajes</span>
+              </button>
+            }
             <button
               type="button"
               class="sh-mode-tab"
@@ -179,6 +198,11 @@ function severityForStatus(s: ShipmentStatus): Severity {
       <!-- ── MODE: ERP (viajes reales de Kepler) ── -->
       @if (mode() === 'erp') {
         <app-erp-trips-panel></app-erp-trips-panel>
+      }
+
+      <!-- ── MODE: CERRAR VIAJES [CML.K] — la misma captura de Pagos de viaje, aquí sí editable ── -->
+      @if (mode() === 'cierre') {
+        <app-logistica-pagos-viajes modo="cierre" />
       }
 
       <!-- ── MODE: SHIPMENTS ── -->
@@ -517,7 +541,10 @@ export class LogisticaShipmentsComponent {
   readonly saving = signal(false);
   // `erp` es el default: es donde está la operación real (miles de viajes de Kepler),
   // mientras que los embarques PROPIOS de la app son 1 registro de prueba.
-  readonly mode = signal<'erp' | 'shipments' | 'pending'>('erp');
+  readonly mode = signal<'erp' | 'shipments' | 'pending' | 'cierre'>('erp');
+  private readonly perms = inject(PermissionsService);
+  /** `[CML.K]` «Cerrar viajes» lee el reporte de Pagos de viaje: con su permiso de ver. */
+  readonly puedeVerPagos = computed(() => this.perms.has(Permission.LOGISTICS_PAGOS_VER));
 
   // KPI strip stats + conteo por estado (J13: 1 request a /shipments/counts)
   readonly loadingStats = signal(true);
@@ -568,6 +595,8 @@ export class LogisticaShipmentsComponent {
     // auto-abrir el dialog con order_id pre-llenado.
     this.route.queryParamMap.subscribe((q) => {
       const orderId = q.get('order_id');
+      // [CML.K] ?vista=cerrar llega desde Pagos de viaje (historial) a cerrar el viaje.
+      if (q.get('vista') === 'cerrar' && this.puedeVerPagos()) this.mode.set('cierre');
       if (orderId) this.openCreate(orderId);
       // EMB.12 — «Embarque manual» desde /logistica/shipments/nuevo: lo que Kepler no emite
       // (recolección, viaje sin documento) sigue entrando por el formulario de siempre.
@@ -656,7 +685,7 @@ export class LogisticaShipmentsComponent {
     this.load(1);
   }
 
-  setMode(m: 'erp' | 'shipments' | 'pending') {
+  setMode(m: 'erp' | 'shipments' | 'pending' | 'cierre') {
     if (this.mode() === m) return;
     this.mode.set(m);
     if (m === 'pending') this.loadPending();
@@ -664,7 +693,7 @@ export class LogisticaShipmentsComponent {
 
   /** Refresca lo visible + recalcula stats. */
   reloadCurrent() {
-    if (this.mode() === 'erp') return; // el panel del ERP tiene su propio refresco
+    if (this.mode() === 'erp' || this.mode() === 'cierre') return; // esos paneles tienen su propio refresco
     this.loadStats();
     if (this.mode() === 'shipments') this.load(this.page().page);
     else this.loadPending();

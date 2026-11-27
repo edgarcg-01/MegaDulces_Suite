@@ -5,7 +5,7 @@ import { ANY_PERMISSIONS_KEY, Permission, PERMISSIONS_KEY } from '@megadulces/pl
 import { TripClosureController } from './trip-closure.controller';
 import {
   cajasPorGuia, calculoDeCarga, calculoDeViatico, centroDeOperacion, centrosDePiso, documentosDelDesglose, pesos,
-  renglonesDeLaOperacion, TripClosureService,
+  renglonesDeLaOperacion, TripClosureService, tripulacionSugerida, TripulacionPrevia, horarioGpsDe,
 } from './trip-closure.service';
 
 /**
@@ -605,7 +605,7 @@ describe('[EMB.48] el reporte dice lo que ya se sabe sin capturar nada', () => {
     expect(rep.operaciones.map((o) => o.guia)).not.toContain('0000011');
   });
 
-  it('sin capturar nada: la carga y la comisión de la ruta, ya asignada al chofer de Kepler', async () => {
+  it('sin capturar nada: la carga y la comisión de la ruta del chofer de Kepler, POR CERRAR (no se paga todavía) [CML.K]', async () => {
     const { por } = await reporte();
     expect(por['0000010']).toEqual(expect.objectContaining({
       cajas: 50, sueltos: 20, carga_total: 10, chofer_kepler_id: 'd3', faltan: ['horario', 'cargadores'],
@@ -614,7 +614,9 @@ describe('[EMB.48] el reporte dice lo que ya se sabe sin capturar nada', () => {
     expect(por['0000010'].renglones).toEqual([expect.objectContaining({
       persona: 'CHOFER KEPLER', rol: 'chofer', concepto: 'comision', codigo: '054', importe: 150, fuente: 'kepler',
     })]);
-    expect(por['0000010'].repartido).toBe(150);
+    // [CML.K] El viaje no se ha cerrado: la comisión se sabe pero no cuenta como repartida.
+    expect(por['0000010'].repartido).toBe(0);
+    expect(por['0000010'].por_cerrar).toBe(150);
   });
 
   it('el tiempo aire se descuenta de los sueltos de un documento que también lleva mercancía', async () => {
@@ -835,5 +837,68 @@ describe('[EMB.53] el centro de costo de cada operación', () => {
       expect(centroDeOperacion([p('TI004'), p('TI006')], tis, plazas)).toEqual({ centro: null, sin_centro: 'varios_destinos' });
       expect(centroDeOperacion([p('TI002')], tis, plazas)).toEqual({ centro: ocho, sin_centro: null });
     });
+  });
+});
+
+describe('[CML.T1] tripulación sugerida: la del viaje anterior del mismo chofer', () => {
+  const CHOFER = 'c0000000-0000-4000-8000-000000000001';
+  const OTRO_CHOFER = 'c0000000-0000-4000-8000-000000000002';
+  const AY1 = 'a0000000-0000-4000-8000-000000000001';
+  const AY2 = 'a0000000-0000-4000-8000-000000000002';
+  const BAJA = 'a0000000-0000-4000-8000-000000000009';
+  const activos = new Set([CHOFER, OTRO_CHOFER, AY1, AY2]);
+  const viaje = { fecha: '2026-11-10', sucursal: '00', guia: '5000' };
+  const previa = (p: Partial<TripulacionPrevia>): TripulacionPrevia => ({
+    driver_id: CHOFER, helper1_id: AY1, helper2_id: null, fecha: '2026-11-08', sucursal: '00', guia: '4990', ...p,
+  });
+
+  it('copia los ayudantes del viaje anterior más reciente del mismo chofer', () => {
+    const previas = [previa({ fecha: '2026-11-09', guia: '4995', helper1_id: AY1, helper2_id: AY2 }), previa({ fecha: '2026-11-01', helper1_id: AY2 })];
+    expect(tripulacionSugerida(CHOFER, viaje, previas, activos)).toEqual({ helper1_id: AY1, helper2_id: AY2, fecha: '2026-11-09', guia: '4995' });
+  });
+
+  it('un viaje anterior sin ayudantes sugiere «fue solo» (no inventa a nadie)', () => {
+    expect(tripulacionSugerida(CHOFER, viaje, [previa({ helper1_id: null })], activos))
+      .toEqual({ helper1_id: null, helper2_id: null, fecha: '2026-11-08', guia: '4990' });
+  });
+
+  it('no sugiere: sin chofer, de otro chofer, posterior, de hace más de 30 días o el mismo viaje', () => {
+    expect(tripulacionSugerida(null, viaje, [previa({})], activos)).toBeNull();
+    expect(tripulacionSugerida(CHOFER, viaje, [previa({ driver_id: OTRO_CHOFER })], activos)).toBeNull();
+    expect(tripulacionSugerida(CHOFER, viaje, [previa({ fecha: '2026-11-11' })], activos)).toBeNull();
+    expect(tripulacionSugerida(CHOFER, viaje, [previa({ fecha: '2026-10-10' })], activos)).toBeNull();
+    expect(tripulacionSugerida(CHOFER, viaje, [previa({ fecha: '2026-11-10', guia: '5000' })], activos)).toBeNull();
+    expect(tripulacionSugerida(CHOFER, { ...viaje, fecha: 'ayer' }, [previa({})], activos)).toBeNull();
+  });
+
+  it('el día 30 todavía cuenta; el 31 ya no', () => {
+    expect(tripulacionSugerida(CHOFER, viaje, [previa({ fecha: '2026-10-11' })], activos)?.fecha).toBe('2026-10-11');
+    expect(tripulacionSugerida(CHOFER, viaje, [previa({ fecha: '2026-10-10' })], activos)).toBeNull();
+  });
+
+  it('quita al ayudante dado de baja y al propio chofer; si no queda nadie de los que iban, no sugiere', () => {
+    expect(tripulacionSugerida(CHOFER, viaje, [previa({ helper1_id: BAJA, helper2_id: AY2 })], activos))
+      .toEqual({ helper1_id: AY2, helper2_id: null, fecha: '2026-11-08', guia: '4990' });
+    expect(tripulacionSugerida(CHOFER, viaje, [previa({ helper1_id: CHOFER, helper2_id: null })], activos)).toBeNull();
+    expect(tripulacionSugerida(CHOFER, viaje, [previa({ helper1_id: BAJA, helper2_id: null })], activos)).toBeNull();
+  });
+
+  it('la misma persona en los dos lugares cuenta una vez', () => {
+    expect(tripulacionSugerida(CHOFER, viaje, [previa({ helper1_id: AY1, helper2_id: AY1 })], activos))
+      .toEqual({ helper1_id: AY1, helper2_id: null, fecha: '2026-11-08', guia: '4990' });
+  });
+});
+
+describe('[CML.H] horario según el GPS', () => {
+  it('con viaje: lo pasa tal cual y sin motivo', () => {
+    const viaje = { salida: '07:24', llegada: '16:11', duerme_fuera: false, km: 103, km_metodo: 'trazo' as const, puntos: 40, dia_salida: '2026-11-19' };
+    expect(horarioGpsDe({ ok: true, viaje })).toEqual({ viaje, motivo: null });
+  });
+
+  it('PRUEBA NEGATIVA: sin GPS no hay horario, y se dice por qué en una frase (nunca 00:00)', () => {
+    const r = horarioGpsDe({ ok: false, motivo: 'sin_gps' });
+    expect(r.viaje).toBeNull();
+    expect(r.motivo).toBe('La unidad no tiene rastreador GPS.');
+    expect(horarioGpsDe({ ok: false, motivo: 'origen_sin_coordenadas' }).motivo).toContain('no tiene coordenadas');
   });
 });

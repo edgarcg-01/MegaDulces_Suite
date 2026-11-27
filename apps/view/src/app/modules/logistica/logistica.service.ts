@@ -4,7 +4,8 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 import type {
-  KeplerTripList, NuevoEmbarqueHoja, GuiaRepartoBusqueda, GuiaRepartoHoja, GuiaRepartoViajes, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada,
+  PagosDeLaCatorcena,
+  KeplerTripList, NuevoEmbarqueHoja, GuiaRepartoBusqueda, GuiaRepartoHoja, GuiaRepartoViajes, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada, MismoViajeBody, MismoViajeGuardado, TripulacionGuardada, TripulacionGuiaBody, ReabrirGuiaBody, GuiaReabierta,
   CierreDeEmbarque, CerrarParadaBody, ParadaCierre, AltaRapidaBody, AltaRapidaResultado,
   ReporteDePagos, DesgloseDeOperacion,
   ResumenCostoUnidad, DetalleUnidadCosto, LineaGastoFlota, PeriodoCosto, AsignacionGasto, CambiosFicha, FichaUnidad,
@@ -1278,6 +1279,18 @@ export class LogisticaService {
   completeGuide(id: string, body: CompletarGuiaBody) {
     return this.http.post<GuiaCompletada>(`${this.base}/guides/${id}/complete`, body);
   }
+  /** `[CML.J]` Confirmar (o deshacer con `null`) que la guía es el mismo viaje que otra: se paga una vez. */
+  confirmSameTrip(id: string, body: MismoViajeBody) {
+    return this.http.post<MismoViajeGuardado>(`${this.base}/guides/${id}/mismo-viaje`, body);
+  }
+  /** `[CML.HV]` Al salir: la tripulación sola, sin horario (no calcula nada; se corrige hasta el horario). */
+  saveGuideCrew(id: string, body: TripulacionGuiaBody) {
+    return this.http.post<TripulacionGuardada>(`${this.base}/guides/${id}/tripulacion`, body);
+  }
+  /** `[CML.K]` Reabrir un viaje cerrado, con motivo: borra horario y montos calculados. */
+  reopenGuide(id: string, body: ReabrirGuiaBody) {
+    return this.http.post<GuiaReabierta>(`${this.base}/guides/${id}/reabrir`, body);
+  }
   updateGuide(id: string, body: Partial<DeliveryGuide>) {
     return this.http.patch<DeliveryGuide>(`${this.base}/guides/${id}`, body);
   }
@@ -1317,6 +1330,10 @@ export class LogisticaService {
   getDesgloseOperacion(sucursal: string, guia: string): Observable<DesgloseDeOperacion> {
     return this.http.get<DesgloseDeOperacion>(
       `${this.base}/trip-closure/operaciones/${encodeURIComponent(sucursal)}/${encodeURIComponent(guia)}/desglose`);
+  }
+  /** `[CML.P]` El pago de la catorcena por persona: por pagar → en vale → pagado (lo dice Kepler). */
+  getPagosCatorcena(corte: { desde: string; hasta: string }): Observable<PagosDeLaCatorcena> {
+    return this.http.get<PagosDeLaCatorcena>(`${this.base}/trip-closure/pagos`, { params: new HttpParams().set('desde', corte.desde).set('hasta', corte.hasta) });
   }
   // ── `[FCU]` Logística › Costo por unidad ─────────────────────────────────
   costoUnidadResumen(desde: string, hasta: string): Observable<ResumenCostoUnidad> {
