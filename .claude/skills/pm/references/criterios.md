@@ -54,9 +54,9 @@ lo interesante o lo fácil.
 |---|---|---|---|
 | **1** | **Dinero que se para o se pierde HOY**, u operación que no puede cerrar | CGA frente A: 4 camionetas vendieron **$213,940.09** (13–15 oct) que no llegaron al libro. `denom_key`: el arqueo **no se pudo cerrar en 8 días** | Cada día que pasa crece y nadie lo ve |
 | **2** | **Una cifra publicada que es falsa** y alguien decide con ella | ADR-051: 3.3 pp de margen falso por mezclar pieza y caja. CANON.0.1: costos 32× | Una decisión mala tomada con un número malo cuesta más que el bug |
-| **3** | **Cerrar lo que ya está a un paso** (🧪 o ⚠️ con causa conocida) | Fase 0: 330 🧪 + 271 ⚠️ contra 395 ✅ | Libera cupo, y lo construido y no aterrizado es inversión parada |
+| **3** | **Cerrar lo que ya está a un paso** (🧪 o ⚠️ con causa conocida) | Fase 0: 330 🧪 + 271 ⚠️ contra 395 ✅ | Lo construido y no aterrizado es inversión parada, y es lo único que mueve el saldo del flujo |
 | **4** | **Deuda grande pero invisible**, sin sangrado diario | CGA frente C: **$38.5 M** de deuda a proveedores sin dónde verse | Importa, pero no empeora mañana |
-| **5** | **Algo nuevo** | — | Sólo con cupo (≤4 🔨) y métrica medida HOY |
+| **5** | **Algo nuevo** | — | Con métrica medida HOY, dueño y cierre comprometido (no hay tope de 🔨) |
 
 Reglas que mueven un item dentro del orden:
 - **Sin árbitro, no hay código.** Si lo único contra qué verificar el dato es el propio dato

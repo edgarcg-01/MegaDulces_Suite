@@ -56,15 +56,44 @@ DUEÑO:     <nombre>
 
 ---
 
-## 3. El límite — 4 fases 🔨, una por dev
+## 3. El límite — no es cuántas se abren, es que se cierren
 
-⛔ **Máximo 4 fases en estado 🔨 al mismo tiempo.** Para abrir la quinta, se cierra una.
+⛔⛔ **NO hay tope de fases 🔨** (Edgar, 2026-11-27). Hubo uno —4, una por dev— del 2026-10-14 al
+2026-11-27, y **se retira porque no limitaba nada**.
 
-- Las que no entran pasan a **⏸️ con su doc intacto** — ⏸️ no borra nada, sólo dice «hoy no».
-- Una fase 🔨 **tiene dueño y fecha de cierre comprometida**. La que pierde cualquiera de las dos cae a ⏸️ sola.
-- 🧪 **no libera el cupo**: el cupo lo libera llegar a ✅ (prod) o a ⏸️/❌ declarados. Esto es a propósito — 330 items 🧪 son exactamente lo que pasa cuando «probado» cuenta como terminado.
+> ⭐ **La cifra que lo mató, medida el día que se quitó.** En los **90 días** anteriores entraron
+> **12 fases a 🔨 y salieron CERO**; en los **30 días**, 8 entraron y 2 salieron (las dos a ⏸️, por
+> cupo, no por terminadas). El tope estuvo vigente todo ese tiempo y **se saltó ocho veces** —cada
+> una con su renglón «abierta por encima del cupo»— sin que cerrara una sola fase. Un límite que
+> todos saltan no es un límite: es papeleo que documenta su propio incumplimiento, y además
+> **desplaza la atención** del problema real hacia una discusión sobre el número.
 
-### 3.0 El cupo se EJECUTA, no se pide (2026-11-20)
+**El cuello nunca fue cuántas hay abiertas. Es que entra más de lo que sale.** Un tope de trabajo en
+curso sólo funciona si quien lo firma no se lo puede saltar gratis; acá sí puede, y debe poder —las
+prioridades del negocio no esperan a que se desocupe un casillero. Así que se mide la variable
+correcta y se publica, en vez de bloquear.
+
+### 3.0 Lo que reemplaza al tope: el FLUJO, publicado (2026-11-27)
+
+```bash
+node .claude/skills/pm/tablero.js         # fases por estado + abren vs cierran a 30 y 90 días
+node .claude/skills/pm/tablero.js --self  # prueba negativa: 7 controles del flujo
+```
+
+El tablero dice, en cada corrida, **cuántas fases entraron a 🔨 y cuántas salieron** en los últimos
+30 y 90 días, y el saldo. Si el saldo es positivo, lo dice con todas las letras: *«el tablero CRECIÓ
+N: entra más trabajo del que sale»*. **No bloquea a nadie y no hay nada que pedir permiso para
+saltar.** Es un termómetro, no una barrera — pero sale en pantalla cada vez que alguien mira el
+tablero, que es más de lo que el tope conseguía.
+
+⭐ **Una fase 🔨 que desaparece de la tabla cuenta como cerrada**, no como humo: el 2026-11-06 se
+retiraron 23 fases entregadas de una vez. (Medido: de esas 23, **0 estaban 🔨** — el saldo de arriba
+no está inflado por eso, y el control que lo comprueba vive en `--self`.)
+
+### 3.0b Lo que SÍ sigue en pie: la caducidad (2026-11-20)
+
+Quitar el tope **no quita la fecha**. Lo que hace que 🔨 signifique algo no es que haya pocas, es
+que cada una tenga **dueño** y **cierre comprometido**.
 
 > ⭐ **Por qué hizo falta.** El límite de 4 existía desde el 2026-10-14 y aun así el tablero llegó a
 > **9 fases 🔨**. Al medirlo salió la causa: la regla que debía cortar («sin dueño o sin fecha cae a
@@ -80,22 +109,27 @@ los demás (área, prioridad, dinero, esfuerzo) ya se llenan solos en la mitad o
 **2 · La caducidad la ejecuta un script, no una persona.**
 
 ```bash
-node .claude/skills/pm/cupo.js            # informe: qué se sostiene y qué cae (NO escribe)
-node .claude/skills/pm/cupo.js --aplicar  # mueve a «En pausa» lo que no se sostiene
-node .claude/skills/pm/cupo.js --self     # prueba negativa: 7 controles, tiene que salir rojo si mide mal
+node .claude/skills/pm/caducidad.js            # informe: qué se sostiene y qué cae (NO escribe)
+node .claude/skills/pm/caducidad.js --aplicar  # mueve a «En pausa» lo que no se sostiene
+node .claude/skills/pm/caducidad.js --self     # prueba negativa: 7 controles, tiene que salir rojo si mide mal
 ```
+
+⚠️ Se llamaba `cupo.js` y medía dos cosas a la vez. Al quitarse el tope quedó **sólo la caducidad**,
+y por eso cambió de nombre: un script llamado «cupo» que ya no mide un cupo manda a la siguiente
+persona a buscar una regla que no existe. Uno de sus controles comprueba justamente que **15 fases
+con dueño y fecha se sostengan todas** — si alguna vez vuelve a caer una por ser «demasiadas», el
+tope volvió por la ventana y ese control se pone rojo.
 
 ⛔ **Antes de la primera corrida con `--aplicar`, los dueños ponen su fecha.** Una compuerta que se
 dispara sobre un campo que nunca se recolectó no castiga el problema, castiga a la persona: pausaría
 trabajo que sí está vivo sólo porque a su tarjeta le falta un dato. Se avisa, se da plazo, y recién
 después muerde.
 
-**3 · Abrir exige decir qué sale.** La tarjeta nueva no se crea sin nombrar **cuál se cierra o se
-pausa a cambio**. Hoy abrir cuesta una frase y cerrar cuesta el DoD de 7 — esa asimetría es la que
-desborda, y ninguna regla aguanta si quien la firma la puede saltar gratis. Excepción: **prioridad 0
-(riesgo de seguridad) entra sin canje**. Si se abre igual sobre el cupo, se escribe en la tarjeta
-quién lo autorizó, cuándo y qué se pausó — el registro de 2026-11 muestra seis fases abiertas «por
-encima del cupo» sin ese renglón.
+**3 · ⏸️ no borra nada**, sólo dice «hoy no»: la fase pausada conserva su doc intacto.
+
+**4 · 🧪 no es cerrar.** Cierra llegar a ✅ (prod) o a ⏸️/❌ declarados. Esto es a propósito — 330
+items 🧪 son exactamente lo que pasa cuando «probado» cuenta como terminado, y es la razón por la
+que el flujo de §3.0 cuenta 🧪 del lado de lo abierto.
 
 ### 3.1 Qué entra primero — dinero en juego × esfuerzo (Edgar, 2026-10-21)
 
@@ -185,13 +219,17 @@ Una fase se marca ✅ sólo cuando:
 
 ## 7. Fase 0 — la campaña de aterrizaje (antes de abrir nada nuevo)
 
-⛔ **No se abre ninguna fase nueva hasta terminar esto.** Es la primera aplicación del método a sí mismo.
+⚠️ **Esto ya no bloquea abrir fases** (2026-11-27, con el tope). La frase era «no se abre ninguna
+fase nueva hasta terminar esto», y entre el 2026-10-28 y el 2026-11-27 **se abrieron 8** con la
+campaña sin terminar. Sigue siendo el trabajo más valioso del tablero —lo construido y no aterrizado
+es inversión parada, y por eso es **prioridad 3** en `criterios.md`—, pero se compite por tiempo,
+no por un portón.
 
 | # | Item | Salida |
 |---|---|---|
 | **0.1** | Clasificar los **330 items 🧪**: a prod (🚀), a ⏸️, o a ❌ muerto | Tracker sin 🧪 huérfano |
 | **0.2** | Los **271 ⚠️ BLOCKED**: cada uno gana **dueño + causa**, o se cierra | Ningún bloqueo anónimo |
 | **0.3** | Los **133 docs de `FASES/` sin fila en el roadmap**: fila, o a `FASES/archivo/` | 1 doc vivo = 1 fila |
-| **0.4** | Elegir las **4 fases 🔨** con su objetivo medido de §2; las otras 22 → ⏸️ | Tablero de 4 |
+| **0.4** | Cada fase 🔨 con su **objetivo medido** de §2, su **dueño** y su **cierre comprometido** | `caducidad.js` en verde |
 
 Al terminar, entrada en [`03_LOG_REVISIONES.md`](IMPLEMENTACION/03_LOG_REVISIONES.md) con las cifras de §0 remedidas.

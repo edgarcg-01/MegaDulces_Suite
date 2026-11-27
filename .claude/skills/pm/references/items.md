@@ -46,7 +46,7 @@ Así se escriben en `01_TRACKER_PROGRESO.md` (medido sobre SM, GX, VAC):
 
 ## 4. Definition of Ready (no pasa a 🔨 sin esto)
 
-- [ ] Fase con fila en el roadmap y cupo (`tablero.js`)
+- [ ] Fase con fila en el roadmap (`tablero.js`), con dueño y cierre comprometido (`caducidad.js`)
 - [ ] Métrica de la fase con «HOY» medido
 - [ ] Capa de abajo ✅ o verificada (C0 con árbitro)
 - [ ] Fuente identificada en `kepler_ods.*` — sin importer, sin copia de tabla

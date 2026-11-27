@@ -1,13 +1,19 @@
 #!/usr/bin/env node
-// El cupo se EJECUTA, no se pide.
-//   node .claude/skills/pm/cupo.js             -> informe: qué 🔨 se sostiene y qué cae a ⏸️ (NO escribe)
-//   node .claude/skills/pm/cupo.js --aplicar   -> mueve a «En pausa» en el tablero las que no se sostienen
-//   node .claude/skills/pm/cupo.js --self      -> prueba negativa: datos fabricados, TIENE que salir rojo
+// La CADUCIDAD se EJECUTA, no se pide. Una fase 🔨 sin dueño o con la fecha vencida cae a ⏸️ sola.
+//   node .claude/skills/pm/caducidad.js             -> informe: qué 🔨 se sostiene y qué cae a ⏸️ (NO escribe)
+//   node .claude/skills/pm/caducidad.js --aplicar   -> mueve a «En pausa» en el tablero las que no se sostienen
+//   node .claude/skills/pm/caducidad.js --self      -> prueba negativa: datos fabricados, TIENE que salir rojo
 //
 // Por qué existe (medido 2026-11-20): el método dice «la fase 🔨 sin dueño o sin fecha de cierre
 // comprometida cae a ⏸️ sola», pero «Cierre comprometido» estaba lleno en 6 de 64 tarjetas y en
 // 0 de las 9 fases 🔨. El gatillo de la regla era el único campo que nadie llenaba, así que la
 // regla nunca podía dispararse. Esto lo dispara.
+//
+// ⛔ Se llamaba `cupo.js` y medía DOS cosas: la caducidad y un tope de 4 fases 🔨. El tope lo quitó
+// Edgar el 2026-11-27 (medido ese día: en 90 días entraron 12 fases a 🔨 y salieron CERO — el tope
+// se saltó ocho veces sin cerrar ninguna). Queda SÓLO la caducidad, que no limita cuántas fases hay
+// abiertas: exige que cada una tenga dueño y fecha, que es lo que hace que 🔨 signifique algo.
+// Cuántas se abren ya no se topa; el FLUJO lo publica `tablero.js`.
 //
 // Lee CLAUDE.md (qué fases están 🔨) y el Tablero PM (si tienen dueño y fecha). Escribe SÓLO con --aplicar.
 const fs = require('fs');
@@ -15,7 +21,6 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const raiz = path.resolve(__dirname, '..', '..', '..');
-const CUPO = 4;
 const PROYECTO = { numero: '2', duenoGh: 'edgarcg-01', id: 'PVT_kwHOA7xW8s4BnyCF' };
 const CAMPO_STATUS = 'PVTSSF_lAHOA7xW8s4BnyCFzhmVDEA';
 const OPCION_EN_PAUSA = '9d26898b';
@@ -95,10 +100,12 @@ function self() {
     if (!ok) { fallas++; console.log(`  ❌ ${nombre} — dio sostiene=${r.sostiene} motivo="${r.motivo}"`); }
     else console.log(`  ✔ ${nombre}`);
   }
-  // El cupo tiene que ponerse rojo cuando se excede.
-  const rojo = 9 > CUPO;
-  if (!rojo) { fallas++; console.log('  ❌ el cupo no se pone rojo con 9 contra 4'); }
-  else console.log('  ✔ el cupo se pone rojo con 9 contra 4');
+  // ⭐ El control que falta a propósito: tener MUCHAS fases 🔨 no es, por sí solo, un motivo de
+  // corte. Antes acá vivía «el cupo se pone rojo con 9 contra 4»; se quitó con el tope (2026-11-27).
+  const quinceSanas = Array.from({ length: 15 }, () =>
+    evaluar('XX', { id: 'x', 'Dueño': 'alguien', 'Cierre comprometido': '2099-01-01' }));
+  if (quinceSanas.some((x) => !x.sostiene)) { fallas++; console.log('  ❌ 15 fases con dueño y fecha deberían sostenerse TODAS: el tope volvió por la ventana'); }
+  else console.log('  ✔ 15 fases con dueño y fecha se sostienen todas (no hay tope)');
   console.log(fallas ? `\n⛔ ${fallas} control(es) en rojo: la compuerta mide mal.` : '\n✅ Los 7 controles pasan.');
   process.exit(fallas ? 1 : 0);
 }
@@ -117,21 +124,20 @@ function main() {
   const viven = r.filter((x) => x.sostiene);
   const caen = r.filter((x) => !x.sostiene);
 
-  console.log(`Fases 🔨 en el roadmap: ${fases.length} · tope ${CUPO}\n`);
+  console.log(`Fases 🔨 en el roadmap: ${fases.length} (sin tope — Edgar, 2026-11-27)\n`);
   console.log('SE SOSTIENEN (dueño + fecha vigente):');
   console.log(viven.length ? viven.map((x) => `  ✔ ${x.fase.padEnd(5)} ${x.motivo}`).join('\n') : '  (ninguna)');
   console.log('\nCAEN A ⏸️ por la regla del método §3:');
   console.log(caen.length ? caen.map((x) => `  → ${x.fase.padEnd(5)} ${x.motivo}`).join('\n') : '  (ninguna)');
 
-  console.log(viven.length > CUPO
-    ? `\n⛔ CUPO EXCEDIDO aun después del corte: ${viven.length} contra ${CUPO}. Hay que cerrar o pausar ${viven.length - CUPO}.`
-    : `\nCupo tras el corte: ${viven.length}/${CUPO} — ${CUPO - viven.length} libre(s).`);
+  console.log(`\nSe sostienen ${viven.length} de ${fases.length}. No hay tope: la que tiene dueño y fecha vigente vive.`);
+  console.log('Cuántas se abren contra cuántas se cierran lo publica `node .claude/skills/pm/tablero.js`.');
 
   if (!aplicar) {
     const conTarjeta = caen.filter((x) => x.itemId).length;
     console.log(`\n(informe, no se escribió nada). Con --aplicar se moverían ${conTarjeta} tarjeta(s) a «En pausa».`);
     if (caen.length - conTarjeta > 0) console.log(`⚠️ ${caen.length - conTarjeta} no tienen tarjeta: hay que crearla antes, el script no la inventa.`);
-    process.exit(viven.length > CUPO ? 1 : 0);
+    process.exit(0);
   }
 
   let movidas = 0;
@@ -141,7 +147,7 @@ function main() {
     catch (e) { console.log(`  ❌ ${x.fase}: no se pudo mover (${e.message.split('\n')[0]})`); }
   }
   console.log(`\n${movidas} tarjeta(s) movidas a «En pausa».`);
-  process.exit(viven.length > CUPO ? 1 : 0);
+  process.exit(0);
 }
 
 process.argv.includes('--self') ? self() : main();

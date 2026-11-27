@@ -10,8 +10,8 @@ Modelos buenos que copiar en forma: `FASE_CG_ALCANCE_2026-10-16.md` (alcance med
 | Situación | Qué se crea |
 |---|---|
 | El tema ya tiene doc en `FASES/` o fila en el roadmap | **Item** en esa fase, o **anexo** si cambia el alcance |
-| No existe, hay cupo (`tablero.js`) y hay métrica medible hoy | **Fase nueva** |
-| No existe y no hay cupo | Doc con cabecera y estado ⬜/⏸️ — **no se abre**; se dice qué habría que cerrar para hacerle lugar |
+| No existe y hay métrica medible hoy | **Fase nueva** — con dueño y cierre comprometido; no hay tope de 🔨 |
+| No existe y NO hay métrica medible hoy | Doc con cabecera y estado ⬜/⏸️ — **no se abre**; se dice qué habría que medir primero |
 | No hay forma de medir el «HOY» | Fase ⬜ cuyo primer item es medirlo |
 
 Buscar antes: `ls docs/IMPLEMENTACION/FASES | grep -i <tema>` y
@@ -37,7 +37,7 @@ Buscar antes: `ls docs/IMPLEMENTACION/FASES | grep -i <tema>` y
 
 ## 2. Al terminar el doc
 
-- Fila en el roadmap de `CLAUDE.md` (sin fila no existe) — sólo si pasa a 🔨 con cupo.
+- Fila en el roadmap de `CLAUDE.md` (sin fila no existe) — al pasar a 🔨, con dueño y cierre comprometido.
 - Items en `01_TRACKER_PROGRESO.md` bajo una sección de la fase, con enlace al plan.
 - Si se tomó una decisión técnica: ADR en `02_DECISIONES_ARQUITECTURA.md`.
 - Decirle al PM: qué firma necesita, qué se midió, qué quedó NO MEDIDO y qué se propone pasar a ⏸️.

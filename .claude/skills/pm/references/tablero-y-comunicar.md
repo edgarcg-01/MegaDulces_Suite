@@ -38,13 +38,13 @@ fase** en el repo **privado** `edgarcg-01/MegaDulces_PM` (creado 2026-10-19 con 
 ## 1. Tablero
 
 ```bash
-node .claude/skills/pm/tablero.js              # fases por estado + cupo
+node .claude/skills/pm/tablero.js              # fases por estado + FLUJO (abren vs cierran, 30 y 90 días)
 node .claude/skills/pm/tablero.js CGA VAC CSU  # + items y commits de esas fases
 ```
 
 El script cuenta; la lectura la hace el PM:
 
-- **Cupo**: si hay más de 4 🔨, la respuesta a «¿qué sigue?» empieza por **qué cerrar o pasar a ⏸️**,
+- **Flujo**: si el saldo de 30 días es positivo, la respuesta a «¿qué sigue?» dice **cuánto creció el tablero** y empieza por **qué se puede cerrar**,
   no por qué abrir. Proponer cuáles, con el criterio de `criterios.md` §1 (la que no sangra dinero
   y no tiene dueño/fecha cae primero).
 - **Commits sin items** → trabajo no registrado: pedir que se asiente antes de seguir.
