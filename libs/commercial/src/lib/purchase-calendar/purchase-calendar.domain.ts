@@ -1,6 +1,6 @@
 import {
   diaIso, diasEntre, ESCALON1_COMPRA_PCT, ESCALON1_OCS_PCT, ESCALONES_LLENADO, estadoDeRegla, PERIODOS_DIA_FIJO, sumarDias, VENTANA_REZAGO_DIAS,
-  type AlcanceDeQuienVe, type AvanceDelEmbudo, type CambioDeRegla, type EmbudoLlenado, type EscalonLlenado, type PesoProveedor, type CalendarioCompras, type EstadoRevision, type FuenteActividad, type MarcaVista, type PropuestaDiaFijo,
+  type AlcanceDeQuienVe, type AvanceDelEmbudo, type AvisoCalendario, type CambioDeRegla, type EmbudoLlenado, type EscalonLlenado, type PesoProveedor, type CalendarioCompras, type EstadoRevision, type FuenteActividad, type MarcaVista, type PropuestaDiaFijo,
   type ReglaCalendario, type ReglaRevision, type ZonaDeCompra,
 } from '@megadulces/contracts';
 
@@ -400,4 +400,126 @@ export function armarCalendario(
     tu_alcance: alcanceDeQuienVe(sucursales, permitidas),
     ...(historial ? { historial: { measured: historial.measured, note: historial.note } } : {}),
   };
+}
+
+// ── `[PQ.3.24]` El aviso «Hoy te toca» de Pedido (anexo C §10.16, DC35: manda el Calendario) ───────────────────
+
+/**
+ * Los proveedores CON regla, por el estado de hoy de sus reglas (las que ve quien pregunta). Un proveedor cuenta una
+ * vez: rezagado si alguna de sus reglas lo está; si no, «hoy» si alguna toca hoy. `sin_ancla`, `al_dia` y
+ * `fuera_de_ciclo` no son «te toca»: el Calendario los muestra, el aviso no los cuenta.
+ */
+export function avisoConRegla(reglas: readonly Pick<ReglaCalendario, 'supplier_code' | 'estado'>[]): AvisoCalendario['con_regla'] {
+  const porProveedor = new Map<string, Set<EstadoRevision>>();
+  for (const r of reglas) {
+    const s = porProveedor.get(r.supplier_code) ?? new Set<EstadoRevision>();
+    s.add(r.estado.estado);
+    porProveedor.set(r.supplier_code, s);
+  }
+  let rezagados = 0;
+  let hoy = 0;
+  for (const estados of porProveedor.values()) {
+    if (estados.has('rezagada')) rezagados++;
+    else if (estados.has('toca_hoy')) hoy++;
+  }
+  return { rezagados, hoy, proveedores: porProveedor.size };
+}
+
+/** Un canal de compra activo (proveedor × sucursal) con la fecha que propone el ciclo de Kepler (`SQL_CANALES_CICLO`). */
+export interface CanalCiclo {
+  /** La ficha de Pedido (`catalog.suppliers.id`). */
+  readonly supplier_id: string;
+  /** Su clave de Kepler; `null` si la ficha no la tiene. */
+  readonly supplier_code: string | null;
+  /** La sucursal (código de Kepler); `null` si el almacén no es una sucursal de la red. */
+  readonly plaza: string | null;
+  /** `YYYY-MM-DD`. */
+  readonly proxima: string;
+}
+
+/** Lo que hace falta de una regla viva para saber qué canales cubre. */
+export type ReglaQueCubre = Pick<ReglaRevision, 'supplier_code' | 'scope' | 'zone_code' | 'branch_code'>
+  & { readonly pedido_supplier_id?: string | null };
+
+/**
+ * ¿Alguna regla viva cubre este canal? Mismo proveedor —por su clave de Kepler o por la ficha de Pedido que la regla
+ * resolvió (R5: en 62 claves el proveedor de la OC no es la ficha de los productos)— y la sucursal dentro del alcance
+ * de la regla. Una regla fuera de ciclo TAMBIÉN cubre: la gerencia ya decidió sobre ese proveedor.
+ */
+export function canalCubierto(c: CanalCiclo, reglas: readonly ReglaQueCubre[], sucursales: readonly SucursalZona[]): boolean {
+  return reglas.some((r) => {
+    const mismo = (c.supplier_code !== null && r.supplier_code === c.supplier_code)
+      || (r.pedido_supplier_id != null && r.pedido_supplier_id === c.supplier_id);
+    if (!mismo) return false;
+    const plazas = plazasDelAlcance(r, sucursales);
+    return plazas === null || (c.plaza !== null && plazas.has(c.plaza));
+  });
+}
+
+/**
+ * Los proveedores SIN regla que el ciclo por canal da por vencidos o de hoy. Se cuentan sólo los canales que ninguna
+ * regla viva cubre (de quien sea: la cobertura no depende de quién la ve), y cada proveedor una vez, por su canal
+ * más atrasado: así un proveedor vencido en una sucursal y de hoy en otra no se cuenta dos veces.
+ */
+export function avisoSinRegla(
+  canales: readonly CanalCiclo[],
+  reglas: readonly ReglaQueCubre[],
+  sucursales: readonly SucursalZona[],
+  hoy: string,
+): { readonly vencidos: number; readonly hoy: number } {
+  const masAtrasado = new Map<string, string>();
+  for (const c of canales) {
+    if (canalCubierto(c, reglas, sucursales)) continue;
+    const antes = masAtrasado.get(c.supplier_id);
+    if (antes === undefined || c.proxima < antes) masAtrasado.set(c.supplier_id, c.proxima);
+  }
+  let vencidos = 0;
+  let deHoy = 0;
+  for (const f of masAtrasado.values()) {
+    if (f < hoy) vencidos++;
+    else if (f === hoy) deHoy++;
+  }
+  return { vencidos, hoy: deHoy };
+}
+
+// ── `[PQ.3.29]` La requisición de compra de la Suite atiende la revisión, en la sucursal destino (DC40) ─────────────
+
+/** Un renglón de `SQL_REQUISICIONES_SUITE`: un proveedor (ficha), una sucursal destino y los días con requisición. */
+export interface FilaRequisicion {
+  readonly supplier_id: string;
+  readonly supplier_code: string | null;
+  readonly plaza: string;
+  readonly fechas: readonly string[];
+  readonly ultima: string;
+}
+
+/**
+ * Las requisiciones como actividad del calendario, con la misma forma que la de Kepler (`FilaActividad`) y fuente
+ * `requisicion`. Una fila cuenta para la clave de su ficha y, si una regla resolvió OTRA clave a esa misma ficha de
+ * Pedido (R5: en 62 claves el proveedor de la OC no es la ficha de los productos), también para la clave de la regla.
+ */
+export function actividadDeRequisiciones(
+  filas: readonly FilaRequisicion[],
+  reglas: readonly (Pick<ReglaRevision, 'supplier_code'> & { readonly pedido_supplier_id?: string | null })[],
+): FilaActividad[] {
+  const porFicha = new Map<string, Set<string>>();
+  for (const r of reglas) {
+    if (!r.pedido_supplier_id) continue;
+    const s = porFicha.get(r.pedido_supplier_id) ?? new Set<string>();
+    s.add(r.supplier_code);
+    porFicha.set(r.pedido_supplier_id, s);
+  }
+  const out = new Map<string, FilaActividad>();
+  for (const f of filas) {
+    const claves = new Set<string>(porFicha.get(f.supplier_id) ?? []);
+    if (f.supplier_code) claves.add(f.supplier_code);
+    for (const supplier_code of claves) {
+      const k = `${supplier_code}|${f.plaza}`;
+      const antes = out.get(k);
+      const fechas = [...new Set([...(antes?.fechas ?? []), ...f.fechas])].sort();
+      const ultima = antes && antes.ultima > f.ultima ? antes.ultima : f.ultima;
+      out.set(k, { supplier_code, plaza: f.plaza, fechas, ultima, ultima_fuente: 'requisicion' });
+    }
+  }
+  return [...out.values()];
 }

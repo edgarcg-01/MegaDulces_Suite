@@ -10,6 +10,7 @@ import type { Freshness } from '@megadulces/contracts';
 
 import { ComprasPedidoRealComponent } from './compras-pedido-real.component';
 import { ComprasService } from '../compras.service';
+import { CalendarioComprasService } from '../calendario-compras.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { UsoService } from '../../../core/services/uso.service';
 import { CONTEXT_HELP } from '../../../shared/context-help/context-help.dictionary';
@@ -53,6 +54,14 @@ let EN_CAMINO: Record<string, unknown> | null = null;
  * permiso de Finanzas — el caso que NO puede terminar diciendo «no le debemos nada».
  */
 let DEUDA: Record<string, unknown> | 'error' = { al: '2026-10-09', acreedores: [] };
+/** `[PQ.3.24]` El aviso del Calendario que contesta el servidor; `'error'` = la llamada falló. */
+const AVISO_BASE = {
+  hoy: '2026-11-25',
+  con_regla: { rezagados: 0, hoy: 1, proveedores: 21 },
+  sin_regla: { measured: true, vencidos: 114, hoy: 16, note: 'Sin regla: el ciclo por canal que Kepler propone.' },
+  tu_alcance: { todas: true, sucursales: ['00', '01'] },
+};
+let AVISO: unknown = AVISO_BASE;
 
 /**
  * `[RA.PM]` Lo que devuelve la autopsia. `'error'` simula el 42P01 de un deploy que llego ANTES
@@ -120,6 +129,7 @@ function montar(workbook: Record<string, unknown>, worklist?: unknown, sub = 'u1
       provideZonelessChangeDetection(),
       provideRouter([]),
       { provide: ComprasService, useValue: api },
+      { provide: CalendarioComprasService, useValue: { aviso: () => (AVISO === 'error' ? throwError(() => new Error('500')) : of(AVISO)) } },
       { provide: AuthService, useValue: { user: () => ({ sub }), token: () => null, has: () => true } },
       { provide: UsoService, useValue: { reportarIncidente: () => undefined } },
     ],
@@ -1262,56 +1272,81 @@ describe('[RA-NEG.2] el desglose compacto: qué hacer, en pocas palabras', () =>
 });
 
 /**
- * `[PQ.5]` El CUÁNDO, enfrente del Pedido. La pestaña Ciclo lo contestaba desde RA-CICLO.1 y
- * nadie entraba (7 hits en 30 d contra 3,734 de Pedido, 637 canales de compra vencidos el
- * 2026-10-23). El aviso vive en Pedido y lleva al Ciclo. Lo que NO puede hacer: dibujar
- * «hoy no toca nadie» sobre una consulta rota (ADR-056).
+ * `[PQ.5]` El CUÁNDO, enfrente del Pedido, y `[PQ.3.24]` lo dice el Calendario (anexo C §10.16, DC35). Antes salía
+ * del ciclo por canal, que no conoce las reglas de la gerencia. Lo que NO puede hacer: dibujar «hoy no toca nadie»
+ * sobre una consulta rota (ADR-056), ni mezclar lo confirmado por la gerencia con lo que sólo propone Kepler.
  */
-describe('[PQ.5] «hoy te toca pedirle a…» en la pestaña Pedido', () => {
-  const CICLO = { total: 1049, vencidos: 637, hoy: 24, prox7: 89, prov_vencidos: 180, prov_hoy: 12, page: 1, pageSize: 1, rows: [] };
+describe('[PQ.3.24] «hoy te toca pedirle a…» en la pestaña Pedido lee el Calendario', () => {
+  afterEach(() => { AVISO = AVISO_BASE; });
+  const texto = (fix: { nativeElement: HTMLElement }) => (fix.nativeElement.textContent ?? '').replace(/\s+/g, ' ');
 
-  // [PQ.74] Ya no se marca en rojo: las fechas del ciclo son ESTIMADAS (PQ.UI.5) y un rojo diario se aprende a ignorar.
-  it('con vencidos, el aviso nombra proveedores y canales, sin rojo de urgencia', () => {
-    const fix = montar(VACIO, CICLO);
-    const c = fix.componentInstance;
-    expect(c.mode()).toBe('pedido');
-    expect(c.cicloAviso()?.vencidos).toBe(637);
-    expect(c.cicloAvisoProveedores(c.cicloAviso()!)).toBe('192 proveedores');
-    const t = fix.nativeElement.textContent as string;
-    expect(t).toContain('Hoy te toca pedirle a 192 proveedores');
-    expect(t).toContain('637 canales vencidos');
+  it('con regla: proveedores por el estado de hoy del Calendario; sin regla: aparte y «sin confirmar»', () => {
+    AVISO = { ...AVISO_BASE, con_regla: { rezagados: 2, hoy: 1, proveedores: 21 } };
+    const fix = montar(VACIO);
+    expect(fix.componentInstance.mode()).toBe('pedido');
+    const t = texto(fix);
+    expect(t).toContain('Hoy te toca pedirle a 3 proveedores según el Calendario: 2 rezagados · 1 de hoy.');
+    expect(t).toContain('Sin regla todavía: 130 proveedores que el ciclo de Kepler da por vencidos (114) o de hoy (16), sin confirmar.');
+    expect(t).not.toContain('canales vencidos');
     expect(fix.nativeElement.querySelector('.pr-ciclo-urge')).toBeNull();
   });
 
+  it('NEGATIVA: el ciclo por canal ya NO decide el aviso (antes: «637 canales vencidos»)', () => {
+    const fix = montar(VACIO, { total: 1049, vencidos: 637, hoy: 24, prox7: 89, prov_vencidos: 180, prov_hoy: 12, page: 1, pageSize: 1, rows: [] });
+    const t = texto(fix);
+    expect(t).not.toContain('192 proveedores');
+    expect(t).not.toContain('637');
+    expect(t).toContain('Hoy te toca pedirle a 1 proveedor según el Calendario: 0 rezagados · 1 de hoy.');
+  });
+
   it('⛔ si la consulta FALLA dice «no se pudo medir», nunca «no toca nadie»', () => {
-    const fix = montar(VACIO, 'error');
-    expect(fix.componentInstance.cicloAvisoError()).toBe(true);
-    expect(fix.componentInstance.cicloAviso()).toBeNull();
-    const t = fix.nativeElement.textContent as string;
+    AVISO = 'error';
+    const fix = montar(VACIO);
+    expect(fix.componentInstance.avisoCalError()).toBe(true);
+    expect(fix.componentInstance.avisoCal()).toBeNull();
+    const t = texto(fix);
     expect(t).toContain('no se pudo medir');
     expect(t).not.toContain('no le toca pedir a nadie');
   });
 
-  it('cero vencidos y cero hoy es un cero MEDIDO: lo dice, con lo que viene', () => {
-    const fix = montar(VACIO, { ...CICLO, vencidos: 0, hoy: 0, prov_vencidos: 0, prov_hoy: 0, prox7: 4 });
-    const t = fix.nativeElement.textContent as string;
-    expect(t).toContain('Hoy no le toca pedir a nadie');
-    expect(t).toContain('4 canales tocan');
-    expect(fix.nativeElement.querySelector('.pr-ciclo-urge')).toBeNull();
+  it('con regla al día es un cero MEDIDO: lo dice, con cuántos proveedores tienen regla', () => {
+    AVISO = { ...AVISO_BASE, con_regla: { rezagados: 0, hoy: 0, proveedores: 21 }, sin_regla: { measured: true, vencidos: 0, hoy: 0, note: null } };
+    const t = texto(montar(VACIO));
+    expect(t).toContain('Según el Calendario, hoy no le toca pedir a nadie: 21 proveedores con regla, al día.');
+    expect(t).toContain('Ningún proveedor sin regla vence hoy.');
   });
 
-  it('NEGATIVA: un servidor sin proveedores no inventa el N — habla en canales', () => {
-    const c = montar(VACIO, { total: 10, vencidos: 3, hoy: 1, prox7: 2, page: 1, pageSize: 1, rows: [] }).componentInstance;
-    expect(c.cicloAviso()?.prov_vencidos).toBeNull();
-    expect(c.cicloAvisoProveedores(c.cicloAviso()!)).toBe('4 canal(es)');
+  it('sin reglas en sus sucursales lo DICE (no «nadie»), y si el ciclo por canal no se midió, también', () => {
+    AVISO = { ...AVISO_BASE, con_regla: { rezagados: 0, hoy: 0, proveedores: 0 }, tu_alcance: { todas: false, sucursales: ['04'] },
+      sin_regla: { measured: false, vencidos: null, hoy: null, note: 'No se pudo leer el ciclo por canal.' } };
+    const t = texto(montar(VACIO));
+    expect(t).toContain('El Calendario todavía no tiene reglas en tus sucursales.');
+    expect(t).toContain('Los proveedores sin regla no se pudieron contar.');
+    expect(t).not.toContain('no le toca pedir a nadie');
+    expect(t).not.toContain('Ningún proveedor sin regla vence hoy');
   });
 
-  it('«Ver el ciclo» lleva a la pestaña Ciclo', () => {
-    const fix = montar(VACIO, CICLO);
+  it('«Abrir el Calendario» lleva a /compras/calendario y «Ver el ciclo» a la pestaña Ciclo', () => {
+    const fix = montar(VACIO);
+    // Con una llave del Calendario (en la prueba nadie trae claves: sin esto, el enlace no se pinta).
+    vi.spyOn(fix.componentInstance['perms'], 'hasAny').mockReturnValue(true);
+    fix.componentInstance.avisoCal.set({ ...(AVISO_BASE as never) });
+    fix.detectChanges();
+    const a = fix.nativeElement.querySelector('.pr-ciclo a.pr-zlink') as HTMLAnchorElement;
+    expect(a?.textContent).toContain('Abrir el Calendario');
+    expect(a.getAttribute('href')).toBe('/compras/calendario');
     const btn = Array.from(fix.nativeElement.querySelectorAll('button')).find((b) => (b as HTMLElement).textContent?.includes('Ver el ciclo')) as HTMLButtonElement;
-    expect(btn).toBeTruthy();
     btn.click();
     expect(fix.componentInstance.mode()).toBe('ciclo');
+  });
+
+  it('sin ninguna llave del Calendario no se ofrece el enlace (la ruta le daría 403)', () => {
+    const fix = montar(VACIO);
+    vi.spyOn(fix.componentInstance['perms'], 'hasAny').mockReturnValue(false);
+    fix.componentInstance.avisoCal.set({ ...(AVISO_BASE as never) });
+    fix.detectChanges();
+    expect(fix.componentInstance.puedeVerCalendario).toBe(false);
+    expect(fix.nativeElement.querySelector('.pr-ciclo a.pr-zlink')).toBeNull();
   });
 });
 

@@ -265,6 +265,8 @@ export * from './finance/anticipos.contract';
 export * from './finance/venta-vendedor.contract';
 // `[PGP.155]` A una cuenta sin CLABE se transfiere sólo desde una cuenta nuestra del mismo banco.
 export * from './finance/mismo-banco.contract';
+// `[PGP.221]` El tope por operación del banco (BBVA: $1,000,000): la transferencia que pasa de él sale partida.
+export * from './finance/tope-por-transferencia.contract';
 // `[PGP.157]` Dónde se entrega el efectivo, y el anticipo autorizado que Caja General tiene por entregar.
 export * from './finance/entrega-efectivo.contract';
 // `[GX.79]` el tope de un archivo de evidencia de gasto (20 MB): pantalla, API y proxy.
