@@ -114,11 +114,30 @@ el contraste usa el malo.
 | RD.C0.2 | Causa nueva `fuente_incompleta_ese_dia`: cuando el día existe pero trajo **menos de la mitad de las sucursales** que su mediana. Distinta de `faltan_dias_en_la_fuente` (no llegó el día) — se arreglan distinto | ⬜ | 23-feb: 7 de 17 sucursales → marca. 24-feb: 17 de 17 → **no** marca |
 | RD.C0.3 | Q4 y Q7 quedan **declaradas no recalculables**, con el motivo escrito en la fila, no en un `.md`: *«la fuente perdió N sucursales el DD-MMM; el pago del libro es definitivo»* | ⬜ | `recalculate-from` sobre esos periodos tiene que **negarse** y decir por qué (prueba negativa) |
 | RD.C0.4 | Compuerta `check:ingesta-dia-flaco`: un día hábil con menos de la mitad de las sucursales de Wincaja **se ve el mismo día**, no nueve meses después | ⬜ | ⛔ rota a propósito una vez: inyectar un día flaco simulado y verificar el rojo |
-| RD.C0.5 | Diagnosticar las 8 filas de **Q16** (−$2,594.08) — el único grupo que queda sin causa | ⬜ | o se explica, o se declara; **no se deja en `sin_explicar`** |
+| RD.C0.5 | ~~Diagnosticar las 8 filas de **Q16**~~ — **hecho el 2026-11-27**, ver §3.0 abajo. Queda su consecuencia: **declarar** que una diferencia de base con días completos **no es diagnosticable** contra lo que la Suite guarda | 🧪 | el libro no tiene grano diario en la Suite: para cerrar esas filas haría falta el workbook |
 | RD.C0.6 | El contraste publica **cuándo se calculó**. Hoy está congelado del 2026-11-04 y se lee como si fuera de hoy | ⬜ | `computed_at` visible; si tiene más de una quincena, se declara añejo |
 
 ⛔ Sin importer: todo sale de `kepler_ods` / `wincaja` por vista. Lo que no se pueda verificar se
 declara, nunca se dibuja como 0.
+
+#### 3.0 · Q16, cerrada el 2026-11-27 (RD.C0.5)
+
+De las 8 filas, **una pesa el 77 %**: la ruta **504**, con **12 de 12 días completos**, trae una base
+$20,186.17 menor que el libro y por eso **no alcanza el primer escalón** — `motor_pct` queda nulo y
+cobra **$0** contra los $1,994.24 del libro. La 505 (−$1,663.83) **ya estaba bien clasificada**:
+tiene 11 de 12 días, así que cae en `faltan_dias_en_la_fuente`, no en `sin_explicar`. Las 6
+restantes suman ±$250 y van en los dos sentidos (tres rutas con base **mayor** que el libro).
+
+⛔ **Y acá hay un límite que se declara, no se resuelve:** el libro cargado en la Suite guarda **el
+total de la quincena, no el día**. Una diferencia de base con los días completos **no es
+diagnosticable contra lo que la Suite tiene** — haría falta el workbook `INDICADORES RD 2026.xlsx`
+renglón por renglón. Decir «sin explicar» ahí es honesto; lo que no se vale es dejar que se lea como
+si fuera lo mismo que el hueco del 23-feb, que sí está explicado.
+
+⭐ **El patrón que las 4 filas grandes comparten** (Q4: 321 y 22; Q16: 504 y 505): la diferencia de
+base no las hace cobrar *un poco menos* — las hace cobrar **cero**, porque el tabulador es un
+acantilado. Un 10 % de base perdida cuesta el **100 %** del pago de esa ruta. Por eso un hueco de
+ingesta en este módulo no es un error de redondeo.
 
 **Qué desbloquea C0:** que el contraste deje de decir «no sé» sobre $30,721.89 y pase a decir «la
 fuente perdió el 23 de febrero». Sin eso, nadie puede firmar el número del motor.
@@ -127,7 +146,8 @@ fuente perdió el 23 de febrero». Sin eso, nadie puede firmar el número del mo
 
 | # | Item | Estado | Prueba que lo ejerce |
 |---|---|---|---|
-| RD.C1.1 | Cargar la **nómina de banco de los 4 supervisores** sin deducción: ANGEL ALBERTO VAZQUEZ MEJIA · FRANCISCO DE JESUS MARTINEZ RAZO · JOSE MANUEL HERRERA MARTINEZ · PATRICIA CHEVERRIA. **Antes**, intentar derivarla de `contpaqi_nom` / el padrón, y sólo pedirla a mano si no se puede (⚠️ la llave entre padrones es `md5(CURP)`, no el RFC) | ⬜ | `total_neto` deja de ser NULL en Q22 y Q23 |
+| RD.C1.0 | ⛔⛔ **Primero: qué es `commission_route_config.nomina_banco`.** Medido el 2026-11-27: **todos los choferes de una plaza tienen exactamente el mismo valor** — $3,484.96 los seis de La Piedad, $5,000.00 los cinco de Zamora, y coincide con el supervisor de esa plaza. O es el sueldo base por puesto (y está bien), o es **la nómina del supervisor puesta en la fila del chofer**, y entonces el motor le resta $5,000 a la persona equivocada en cada línea | ⬜ | contra un testigo independiente del sueldo de **un** chofer (padrón de `hr`, o el workbook). ⛔ Hasta resolverlo, **lo demás de C1 no se toca**: estaríamos afinando el neto encima de una resta mal atribuida |
+| RD.C1.1 | ⚠️ **Replanteado el 2026-11-27.** Los 4 supervisores **sí tienen monto** en `commission_route_config` (3,484.96 · 5,000.00 · 4,413.08 · 3,903.20): **no falta un dato de nómina**. Lo que falta es `commission_beneficiary_config` — la deducción **por persona**, agregada sobre sus rutas — que lleva **0 filas desde siempre**. Las 39 líneas de supervisor salen con `nomina_banco = 0.00` y `deduccion_status = 'sin_configurar'` | ⬜ | `total_neto` deja de ser NULL en Q22 y Q23. ⭐ El camino para escribirla **ya existe** (`POST /commissions/supervisors`) y **nunca se usó**: es configuración que nadie cargó, no código que falte |
 | RD.C1.2 | El beneficiario deja de ser texto: poblar `chofer_user_id` y `supervisor_user_id` del padrón — hoy **16 de 16 rutas los tienen nulos** y `commission_beneficiary_config` lleva **0 filas desde siempre** | ⬜ | las 24 líneas en borrador sin `beneficiario_nombre` bajan a 0; cada comisión liga con una persona del sistema |
 | RD.C1.3 | Regla explícita: **una corrida sin neto medido no se puede aprobar**. Hoy el gate sólo «advierte» y el neto NULL llegaría a la firma | ⬜ | ⛔ prueba negativa: corrida con deducción faltante → `approve` rechaza con el motivo |
 | RD.C1.4 | Las 41 líneas con el costo sin resolver (**32 `sin_costo` + 9 nulas**) declaran su efecto: de ahí cuelga el markup y del markup el bono del supervisor | ⬜ | ninguna línea publica bono sobre un costo que no existe |
