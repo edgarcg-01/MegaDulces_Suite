@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { CloudinaryModule, AiProductMatcherModule, requireJwtSecret, jwtVerifyOptions, PgListenService } from '@megadulces/platform-core';
 import { CollectionDepositsService } from './collection-deposits.service';
+import { KeplerCobroSinkAdapter } from '../customer-ledger/kepler-cobro-sink.adapter';
 import { CollectionDepositsController } from './collection-deposits.controller';
 import { CobranzaGateway } from './cobranza.gateway';
 import { CobranzaGapScannerService } from './cobranza-gap-scanner.service';
@@ -30,7 +31,10 @@ import { CustomerDepositPublicController, CustomerDepositsController } from './c
   controllers: [CollectionDepositsController, CustomerDepositsController, CustomerDepositPublicController],
   // [CC.21] El aviso de Bancos (bancos_movimientos) refresca la bandeja de fichas. PgListenService NO es global: cada
   // módulo que escucha lo provee (conexión dedicada, sólo se abre si alguien escucha).
-  providers: [CollectionDepositsService, CobranzaGateway, CobranzaGapScannerService, CustomerDepositsService, PgListenService, FichasAvisoBancoService],
+  // [CC.33] Y desde hoy SÍ escribe un cobro en Kepler, bajo interruptor por sucursal y bandera de proceso.
+  // ⛔ Escribir no es timbrar: el complemento lo emite el programa de Kepler (CC.26).
+  providers: [CollectionDepositsService, CobranzaGateway, CobranzaGapScannerService, CustomerDepositsService,
+    PgListenService, FichasAvisoBancoService, KeplerCobroSinkAdapter],
   exports: [CollectionDepositsService, CustomerDepositsService],
 })
 export class FinanceCollectionDepositsModule {}
