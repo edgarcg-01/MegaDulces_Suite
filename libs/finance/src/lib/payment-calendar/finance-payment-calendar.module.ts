@@ -21,6 +21,9 @@ import { FinanceBudgetModule } from '../budget/finance-budget.module';
 import { FinanceSupplierPaymentAccountsModule } from '../supplier-payment-accounts/finance-supplier-payment-accounts.module';
 import { BudgetLinesService } from '../budget/budget-lines.service';
 import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
+import { ChargeContractsController } from '../charge-contracts/charge-contracts.controller';
+import { ChargeContractsService } from '../charge-contracts/charge-contracts.service';
+import { CargosDelBancoService } from '../charge-contracts/cargos-del-banco.service';
 
 /**
  * Fase TP (ADR-064) — Calendario de Pagos: Presupuestos (capacidad + gastos autorizados) +
@@ -61,6 +64,8 @@ import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
     // `[PGP.194]` El aviso de pago al proveedor: el del Calendario y el de la liga pública.
     AvisoDePagoController,
     AvisoDePagoPublicoController,
+    // `[PGP.213]` Los contratos que sustentan los cargos del banco (anexo CR): su cargo de cada mes vive en el Calendario.
+    ChargeContractsController,
   ],
   providers: [
     // `[VE.4]` El quinto motor del presupuesto, que vive de este lado de la frontera: genera las
@@ -80,6 +85,10 @@ import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
     // lo escribe en Kepler con su adaptador (sin parámetros en el constructor: las variables las lee de `process.env`).
     PagosPorElBancoService,
     KeplerPagoSinkAdapter,
+    // `[PGP.213]` La API de los contratos y su pasada con cada carga del banco (escucha `bancos_movimientos` en el worker,
+    // sin reloj; su `PgListenService` llega de `CajaRealtimeModule`, como el de arriba).
+    ChargeContractsService,
+    CargosDelBancoService,
     // El movimiento del ledger de la partida lo hace BudgetLinesService, expuesto por token para no
     // acoplar TP a la clase concreta (BUDGET_LEDGER_PORT).
     { provide: BUDGET_LEDGER_PORT, useExisting: BudgetLinesService },

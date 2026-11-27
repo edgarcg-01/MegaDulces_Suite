@@ -78,6 +78,8 @@ export * from './http/payment-calendar.contract';
 export * from './finance/suficiencia-de-cuentas.contract';
 // `[PGP.210]` El contrato que sustenta un cargo del banco: vocabulario (= los CHECK) y reglas puras.
 export * from './finance/contratos-de-cargo.contract';
+// `[PGP.213]` La API de esos contratos: los cuerpos que manda la pantalla y lo que devuelve cada ruta.
+export * from './http/charge-contracts.contract';
 // `[PGP.219]` El interés del crédito, calculado: saldo × tasa implícita del último cargo × días (DCR8/DCR10).
 export * from './finance/interes-del-credito.contract';
 // [PGP.97] la guía «pagado en el banco, falta en Kepler».

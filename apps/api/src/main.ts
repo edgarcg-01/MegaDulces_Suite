@@ -325,6 +325,9 @@ async function bootstrap() {
   // (no 504) en cualquier foto de celular. Mismo techo que sus hermanos.
   app.use('/api/finance/bank-captures', json({ limit: '16mb' }));
   app.use('/api/finance/supplier-payments', json({ limit: '16mb' }));
+  // `[PGP.213]` El PDF del contrato de un cargo del banco (arrendamiento, crédito, seguro: escaneados de varias hojas) como
+  // base64: hasta ~12 MB de archivo. Con el global de 2mb, un contrato escaneado daba 413.
+  app.use('/api/finance/charge-contracts', json({ limit: '16mb' }));
   // `[PGP.127]` La cotización del anticipo (PDF o foto, hasta 10 MB → ~14 MB en base64). Sólo la ruta de subida.
   app.use('/api/commercial/supplier-obligations/anticipo/cotizacion', json({ limit: '16mb' }));
   // `[ALC.4]` Alta de clientes: hasta 4 archivos del cliente (constancia, fotos, capturas). La pantalla

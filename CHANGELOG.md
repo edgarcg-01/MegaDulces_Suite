@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — Pagos › Contratos de los cargos del banco: la API para confirmarlos, y sus cargos del mes solos en el Calendario (PGP.213 · 2026-11-26 · en código, sin soltar)
+- Tesorería ya puede confirmar, corregir, terminar o rechazar los contratos que el sistema propone a partir de lo que el banco cobra solo (arrendamiento, crédito, seguro, cuotas de comisión), y subir su PDF. Al confirmar uno, su cargo del mes entra al Calendario ya autorizado; al terminarlo, lo que estaba programado después de su fin sale del Calendario.
+- Con cada carga del estado de cuenta, el sistema propone lo nuevo, recalcula el interés de los créditos, programa el cargo de cada mes y da por pagado lo que el banco ya cobró.
+- La lista de «cargos sin contrato» dice cuánto falta por sustentar (del 1 al 25 de noviembre: 59 cargos, $781,570.77).
+- Permiso nuevo: «Gestionar contratos de cargos del banco», para Tesorería y Finanzas (tesoreria, finanzas_operativo y finanzas). Esas personas tienen que volver a entrar.
+- Internal: `finance/charge-contracts` (contrato en `@megadulces/contracts`), `CargosDelBancoService` en el worker (escucha `bancos_movimientos`, sin reloj; se apaga con `DISABLE_CARGOS_DEL_BANCO`), migración `20261126230517` que reparte la clave.
 ### Fixed — Pagos › Calendario y Estado de cuenta de acreedores: la factura de cada documento ya carga en los días de muchas facturas (PGP.231 · 2026-11-26 · en código, sin soltar)
 - Para un superadmin, en un día con unas 200 facturas, la búsqueda de sus PDF fallaba entera: la lista viajaba en la dirección de la petición y, junto con su sesión (que lleva sus permisos), pasaba del tamaño que acepta el servidor. Ahora la lista va en el cuerpo de la petición.
 - Internal: `POST finance/payment-calendar/evidencia/consulta` (`PayableEvidenceQuery`) y el tope `EVIDENCIA_REFS_POR_CONSULTA` en `@megadulces/contracts`; el `GET …/evidencia?refs=` se queda para pestañas abiertas antes del despliegue.
