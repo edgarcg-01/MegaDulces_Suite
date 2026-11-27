@@ -466,6 +466,18 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
                       <button pButton type="button" class="p-button-sm p-button-text" [disabled]="croquisArmando()" (click)="configurarCroquis()"><span class="p-button-label">{{ croquisArmando() ? 'Armando…' : 'Configurar el croquis' }}</span></button>
                     </p>
                   } @else {
+                    <!-- [UB.PL.13] El hueco, dicho. El backend ya lo medía y NADIE lo pintaba: en
+                         Padre Hidalgo había 110 de 471 ubicaciones fuera del croquis (los pasillos
+                         I, J y K, capturados después de armarlo) y la pantalla se veía completa.
+                         Y el botón de recoger sólo existía mientras no hubiera ninguna pieza, así
+                         que no había forma de apretarlo: no es que nadie quisiera, es que no se podía. -->
+                    @if (sinPieza() > 0) {
+                      <p class="ub-note ub-falta" role="status">
+                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        <span><b class="num">{{ sinPieza() }}</b> ubicaciones de {{ letrasSinPieza() }} no están en ninguna pieza: el croquis no las dibuja.</span>
+                        <button pButton type="button" class="p-button-sm" [disabled]="croquisArmando()" (click)="configurarCroquis()"><span class="p-button-label">{{ croquisArmando() ? 'Armando…' : 'Recoger las que faltan' }}</span></button>
+                      </p>
+                    }
                     <p class="ub-note">
                       <i class="pi pi-th-large" aria-hidden="true"></i>
                       <span>{{ acomodando() ? 'Acomodando la planta: dónde está cada mueble.' : 'El croquis dibuja la tienda como es, cuando cada pieza tiene su lugar.' }}</span>
@@ -705,6 +717,10 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
     .ub-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
     .ub-note-bad { border-left:3px solid var(--bad-fg); }
+    /* [UB.PL.13] El borde lleva --warn-fg porque es un BORDE; el icono lleva --warn-soft-fg porque
+       es texto: sobre blanco, --warn-fg da 2.15:1 y no pasa AA. */
+    .ub-falta { border-left:3px solid var(--warn-fg); }
+    .ub-note.ub-falta .pi { color:var(--warn-soft-fg); }
     .ub-note-bad .pi { color:var(--bad-fg); }
     .ub-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .ub-errbox .pi { color:var(--bad-fg); } .ub-errbox-txt { flex:1; font-size:var(--fs-sm); }
@@ -955,6 +971,15 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
    * mueble**, no de suponer que todo es un pasillo.
    */
   readonly nombresSinLugar = computed(() => this.piezasSinLugar().map((p) => nombrePieza(p)).join(', '));
+
+  /** `[UB.PL.13]` Ubicaciones que no cuelgan de ninguna pieza, y de qué letras son. */
+  readonly sinPieza = computed(() => this.croquis()?.sin_pieza ?? 0);
+  readonly letrasSinPieza = computed(() => {
+    const l = this.croquis()?.sin_pieza_letras ?? [];
+    if (!l.length) return 'la tienda';
+    if (l.length === 1) return `${l[0]}`;
+    return `${l.slice(0, -1).join(', ')} y ${l[l.length - 1]}`;
+  });
 
   // ── `[UB.PL.11]` Acomodar: lo que se mueve es una CARA ──────────────────────────────────────
   /** La cara que está «en la mano». Es lo mismo para el mouse (arrastre) y para el teclado. */

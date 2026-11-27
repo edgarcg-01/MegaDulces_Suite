@@ -127,12 +127,43 @@ export interface CroquisResponse {
 
   /** Ubicaciones de la zona que todavía NO cuelgan de ninguna pieza: el hueco, dicho (ADR-056). */
   sin_pieza: number;
+
+  /**
+   * `[UB.PL.13]` Las letras de esas ubicaciones, para que el hueco se pueda **verificar sin abrir
+   * la base**: «I, J y K» le dice a quien capturó ayer exactamente qué quedó fuera, y «110» no.
+   */
+  sin_pieza_letras: string[];
 }
 
 export interface DerivarPiezasResult {
   piezas: number;
   ubicaciones: number;
   ya_tenian: number;
+  /**
+   * `[UB.PL.13]` Piezas que ya existían y quedaron al día: la captura les agregó racks o niveles
+   * después de armarlas. Medido en Padre Hidalgo el 2026-11-27: la pieza del pasillo B decía **17
+   * racks** y sus ubicaciones llegaban al **22**, así que los racks 18 a 22 no caían en ninguna cara.
+   */
+  actualizadas: number;
+}
+
+/**
+ * `[UB.PL.13]` Qué le falta a una pieza para describir las ubicaciones que ya cuelgan de ella.
+ * Devuelve `null` cuando no le falta nada.
+ *
+ * ⭐ **Sólo SUBE, nunca baja**, y la asimetría es deliberada: una ubicación dada de alta es un
+ * hecho, y un mueble con menos racks que sus códigos es un mueble que no puede contener lo que
+ * contiene. Al revés no: un anaquel de 22 racks con sólo 17 codificados es perfectamente normal
+ * —los otros cinco todavía no se capturaron— y bajarlo a 17 pisaría lo que alguien escribió a mano.
+ */
+export function piezaAlDia(
+  pieza: { racks: number; niveles: number },
+  segunSusUbicaciones: { racks: number; niveles: number },
+): { racks: number; niveles: number } | null {
+  const racks = Math.max(pieza.racks || 0, segunSusUbicaciones.racks || 0);
+  const niveles = Math.max(pieza.niveles || 0, segunSusUbicaciones.niveles || 0);
+  if (racks === pieza.racks && niveles === pieza.niveles) return null;
+  return { racks, niveles };
 }
 
 export type FixtureExpand =

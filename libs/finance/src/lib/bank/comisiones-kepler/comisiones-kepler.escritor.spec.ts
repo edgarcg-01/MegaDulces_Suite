@@ -1,5 +1,5 @@
 import type { PlantillaComisiones } from './comisiones-kepler.armador';
-import { AREA_COMISIONES, CONCEPTO_COMISION, entregasDelDia, marcaDeComisiones, referenciaDelCargo } from './comisiones-kepler.escritor';
+import { AREA_COMISIONES, CONCEPTO_COMISION, entregasDelDia, esNuestro, marcaDeComisiones, referenciaDelCargo } from './comisiones-kepler.escritor';
 import type { CargoPropuesta, DiaPropuesta } from './comisiones-kepler.query';
 
 /**
@@ -154,5 +154,29 @@ describe('[CB.62.4] la referencia del pago cabe en el c11 de Kepler', () => {
   });
   it('⛔ la llave del día NO cabe: por eso no se le concatena', () => {
     expect(`${referenciaDelCargo('comision')} 05|2026-11-15|GB004`.length).toBeGreaterThan(LARGO_C11);
+  });
+});
+
+/**
+ * `[CB.62.4]` **El candado del gasto, acotado al gasto PROPIO.** Séptimo hallazgo del canario.
+ *
+ * Un cargo que ya es renglón de un gasto frena el día — correcto para escribir desde cero. Pero al
+ * TERMINAR un día a medias, ese gasto es el que escribimos nosotros (0000116 de la 05), y frenarlo
+ * dejaba la CxP abierta para siempre. El candado sólo exime a ESE folio.
+ */
+describe('[CB.62.4] esNuestro — el candado sólo se abre para el gasto que escribimos', () => {
+  it('reconoce el folio propio dentro de como lo publica la propuesta', () => {
+    expect(esNuestro('gasto 0000116', '0000116')).toBe(true);
+  });
+  it('⛔ otro gasto NO es nuestro: sería escribir encima de Finanzas', () => {
+    expect(esNuestro('gasto 0000999', '0000116')).toBe(false);
+  });
+  it('⛔ sin gasto propio declarado, el candado queda CERRADO para todo', () => {
+    expect(esNuestro('gasto 0000116', null)).toBe(false);
+    expect(esNuestro('gasto 0000116', undefined)).toBe(false);
+    expect(esNuestro('gasto 0000116', '')).toBe(false);
+  });
+  it('y un cargo sin gasto no se confunde con uno propio', () => {
+    expect(esNuestro(null, '0000116')).toBe(false);
   });
 });

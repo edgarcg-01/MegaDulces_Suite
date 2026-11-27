@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Added — Almacén › Ubicaciones: el croquis de la sucursal se configura entero desde la pantalla (UB.PL.11–UB.PL.13 · 2026-11-27)
+- El croquis ya no decide por la tienda. Se agregan y se quitan caras a un mueble (hasta cuatro: una isla se ve por los cuatro costados), se dice qué racks lleva cada una (nones, pares, todos, un tramo, o ninguno), y se cambia qué es la pieza, cómo se llama y cuántos racks y niveles tiene.
+- «Ninguno» es para lo que no guarda códigos: un refrigerador, una caja, una columna. Van al croquis para ubicarse.
+- Un anaquel que separa dos pasillos se puede decir por fin: lo que se acomoda es la **cara**, y dos caras en el mismo lugar mirando a lados opuestos son un solo mueble, espalda con espalda. Una tienda cuyos pasillos corren verticalmente se dibuja igual: el croquis es topológico, no a escala.
+- Lo único que el sistema no deja hacer, porque no es cuestión de gusto sino física: que dos caras del mismo mueble reclamen el mismo rack. Cuando pasa, dice en cuál chocan.
+- **Fixed —** el croquis podía estar incompleto y la pantalla se veía completa. En Padre Hidalgo había **110 de 471 ubicaciones (23 %) fuera del croquis** —los pasillos I, J y K, capturados después de armarlo— y no había forma de recogerlas: el botón para volver a armar desaparecía en cuanto existía una pieza. Además, un pasillo que creció seguía descrito con su tamaño viejo (B decía 17 racks y llega al 22), y sus racks 18 a 22 no caían en ninguna cara. Ahora la pantalla dice cuántas ubicaciones quedaron fuera y de qué letras son, y ofrece recogerlas.
+- Internal: `commercial.warehouse_fixture_faces` con `slot`/`racks_modo`/`rack_desde`/`rack_hasta`/`label` (migraciones `20261126162615` y `20261126171303`, aplicadas); nivel de ubicación de 1–6 a 1–9 (`20261126151952`); `piezaAlDia()`, `carasCoherentes()`, `acomodarCara()` y `plantaDeCaras()` en `@megadulces/contracts`; permiso `ALMACEN_UBICACIONES_GESTIONAR`, **sin clave nueva** (regla 20).
+- NO MEDIDO: la pantalla viva. Nada de esto se abrió en un navegador, y las 110 ubicaciones de Padre Hidalgo siguen huérfanas en producción.
 ### Fixed — Compras › Entradas pendientes: el botón «Ligar con motivo» salía vacío (RE.88 · 2026-11-27 · **en producción**)
 - El botón no tenía texto: se veía un recuadro con el ícono de la liga y nada más. Entró el 26 de noviembre con RE.88 y nadie lo vio, porque la única forma de notarlo es abrir esa pantalla con una entrada duplicada del mismo proveedor.
 - De paso destraba a todo el equipo: la compuerta que lo caza ponía «Lint & test» en rojo en **9 de los 10 PRs abiertos** —hasta en uno que sólo cambia dos archivos de documentación— por un defecto que no era de ellos.
