@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Almacén › Autoabasto: la sucursal pide a mano a su matriz, a otra sucursal o a Compras (AB.PM.1–4 · 2026-11-27 · en código, sin soltar)
+- En la mesa de Autoabasto, «Pedir a mano» abre una captura como la de Cotizaciones: se busca el producto, se elige a quién se le pide y la cantidad en las presentaciones de Kepler (caja, paquete o pieza, siempre enteras). Cada renglón dice hasta cuántos días le alcanza, con la misma cuenta de Pedido de Compras.
+- Al mandar sale un pedido por cada sucursal a la que se le pide, por el mismo camino que el sugerido (requisición aprobada → traspaso en Kepler). Lo que va a Compras, y lo que Kepler rechazaría (factor de caja distinto, sin ficha en el origen, piezas no enteras), se queda en el borrador con su motivo, que se ve desde que se captura.
+- Lo pedido a mano sale una sola vez: deja la cuenta del sugerido, y ajustar o restablecer el sugerido ya no lo pisa.
+- Internal: columna `captura` en `commercial.autoabasto_pedido_lineas` (mig `20261126133836`; se aplica antes de soltar, porque sin ella la mesa entera da error) · seis endpoints `pedido/mano/*` · la escalera y el alcance en `libs/contracts` (`autoabasto-captura.contract.ts`) · `rechazoDelTraspaso` en `ficha-kepler.ts`, que comparten la captura y el escritor del traspaso.
 ### Added — Almacén › Ubicaciones: el croquis de la sucursal se configura entero desde la pantalla (UB.PL.11–UB.PL.13 · 2026-11-27)
 - El croquis ya no decide por la tienda. Se agregan y se quitan caras a un mueble (hasta cuatro: una isla se ve por los cuatro costados), se dice qué racks lleva cada una (nones, pares, todos, un tramo, o ninguno), y se cambia qué es la pieza, cómo se llama y cuántos racks y niveles tiene.
 - «Ninguno» es para lo que no guarda códigos: un refrigerador, una caja, una columna. Van al croquis para ubicarse.
