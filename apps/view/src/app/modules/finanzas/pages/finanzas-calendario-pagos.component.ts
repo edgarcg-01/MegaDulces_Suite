@@ -15,7 +15,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import type {
   PaymentCalendarAllocation, PaymentCalendarAllocationItem, PaymentCalendarDaySummary, PaymentCalendarWeek, PaymentCalendarWeekDay,
-  PagoSugerido, PagosAtrasadosDia, PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
+  PagoSugerido, PagosAtrasadosDia, PayableEvidenceQuery, PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
   DiscountReason, PaymentCalendarDiscountLine, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountBody, PaymentCalendarItemDiscountResult,
 } from '@megadulces/contracts';
 import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL, bancoCanonico, bancoSinCuentaNuestra, destinoSinClabe, origenesParaDestino, origenPropuesto } from '@megadulces/contracts';
@@ -24,6 +24,7 @@ import { avisoPagadasCanceladas, avisosFiscales, pagadasCanceladasDe, textoCfdi,
 import { textoPolizaEgreso } from '@megadulces/contracts/finance/momento-poliza';
 import { cierreCompleto, faltaParaCerrar, nombreTipoPagoKepler, sinComprobantePorque, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
 import { folioDelCheque } from '@megadulces/contracts';
+import { EVIDENCIA_REFS_POR_CONSULTA } from '@megadulces/contracts';
 import { PagosComprobantesService } from '../pagos-comprobantes.service';
 import type { CreditoPorSucursal, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { anteriorAlCorte, bloqueadaPorCorte, type CorteSueltaRow } from '@megadulces/contracts';
@@ -3473,12 +3474,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         refs = [...this.refsDePagosAbiertos(), ...this.filasDeuda().map((f) => (f.o.entity_ref ?? '').trim())]
           .filter((r, i, all) => r.startsWith('oblig:') && all.indexOf(r) === i
             && !this.evidenciaRespondidas().has(r) && !this.evidenciaPedida.has(r))
-          .slice(0, 200);
+          .slice(0, EVIDENCIA_REFS_POR_CONSULTA);
         if (!refs.length) return;
         refs.forEach((r) => this.evidenciaPedida.add(r));
-        const rows = await firstValueFrom(this.http.get<PayableEvidenceRow[]>(
-          `${this.base}/evidencia`, { params: { refs: refs.join(',') } },
-        ));
+        // `[PGP.231]` Las llaves van en el CUERPO: en la URL, 200 llaves + el token de un superadmin daban 431.
+        const consulta: PayableEvidenceQuery = { refs };
+        const rows = await firstValueFrom(this.http.post<PayableEvidenceRow[]>(`${this.base}/evidencia/consulta`, consulta));
         const m = new Map(this.evidencias());
         for (const r of rows ?? []) if (r?.entity_ref) m.set(r.entity_ref, r);
         this.evidencias.set(m);

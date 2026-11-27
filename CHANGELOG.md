@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos › Calendario y Estado de cuenta de acreedores: la factura de cada documento ya carga en los días de muchas facturas (PGP.231 · 2026-11-26 · en código, sin soltar)
+- Para un superadmin, en un día con unas 200 facturas, la búsqueda de sus PDF fallaba entera: la lista viajaba en la dirección de la petición y, junto con su sesión (que lleva sus permisos), pasaba del tamaño que acepta el servidor. Ahora la lista va en el cuerpo de la petición.
+- Internal: `POST finance/payment-calendar/evidencia/consulta` (`PayableEvidenceQuery`) y el tope `EVIDENCIA_REFS_POR_CONSULTA` en `@megadulces/contracts`; el `GET …/evidencia?refs=` se queda para pestañas abiertas antes del despliegue.
 ### Fixed — Compras › Revisión de facturas: no ofrece validar donde no puedes, y cuando algo falla dice por qué (RE.89 · 2026-11-26 · en código, sin soltar)
 - Quien ve todas las sucursales pero no escribe en ellas (Dirección) ya no ve «Dar por buena», «Devolver», «Descartar», «Reactivar» ni «Ligar» en las entradas donde el servidor se lo iba a rechazar. En el panel, donde iría «Dar por buena», dice «Sólo consulta: tu acceso no incluye validar en …». El estado «Validada» o «Devuelta» se sigue viendo, y el lote cuenta sólo lo que se puede aprobar.
 - «No se pudo validar» y «No se pudo devolver» traen el motivo del servidor; antes decía «Error al validar» a secas. Lo encontró Francisco en prod: dos intentos, dos 403 de alcance que no se explicaban.
