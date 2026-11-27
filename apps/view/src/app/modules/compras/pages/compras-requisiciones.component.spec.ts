@@ -825,16 +825,18 @@ describe('[PQ.126] rechazar lo pendiente de un lote desde su fila', () => {
   });
 });
 
-describe('[PQ.162] la lista dice lo que se va a pagar: compras con impuestos, traspasos al costo', () => {
+describe('[PQ.162]/[PQ.164] la lista dice los montos con impuestos: compras y traspasos', () => {
   it('cada fila con su base, y lo no medido se dice sin IVA', () => {
     const c = montar().componentInstance;
     const m = (v: number) => c.money(v);
     expect(c.montoFila({ source_type: 'supplier', total_cost: 1000, total_cost_ci: 1080, sin_tasa: 0 } as never)).toBe(m(1080));
     expect(c.montoFila({ source_type: 'supplier', total_cost: 1000, total_cost_ci: 1080, sin_tasa: 2 } as never)).toBe(`${m(1080)} · 2 sin tasa`);
-    expect(c.montoFila({ source_type: 'branch', total_cost: 1000, total_cost_ci: null } as never)).toBe(`${m(1000)} al costo`);
+    // [PQ.164] el traspaso también va con impuestos; sin medir, se dice sin IVA
+    expect(c.montoFila({ source_type: 'branch', total_cost: 1000, total_cost_ci: 1080 } as never)).toBe(m(1080));
+    expect(c.montoFila({ source_type: 'branch', total_cost: 1000, total_cost_ci: null } as never)).toBe(`${m(1000)} sin IVA`);
     // servidor anterior o sin la réplica de Kepler: el número sin impuestos, DICHO
     expect(c.montoFila({ source_type: 'supplier', total_cost: 1000 } as never)).toBe(`${m(1000)} sin IVA`);
-    expect(c.montoRes(1086, 1000)).toBe(`${m(1086)} a pagar`);
+    expect(c.montoRes(1086, 1000)).toBe(`${m(1086)} con impuestos`);
     expect(c.montoRes(null, 1000)).toBe(`${m(1000)} sin IVA`);
   });
 });

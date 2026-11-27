@@ -141,6 +141,8 @@ export interface TransferSuggestionRow {
   transfer_pieces: number; transfer_cajas: number; shortfall_pieces: number;
   // U.2 — null = no medible: el divisor del destino o el del origen está contradicho por el costo.
   unit_cost: number; transfer_value: number | null;
+  /** `[PQ.164]` El costo de caja con impuestos, para mostrar. `unit_cost` es el que se guarda en la requisición. */
+  unit_cost_ci?: number;
   rung_veredicto?: 'x1_inflada' | 'x2_deflactada' | null;
   rung_lado?: 'destino' | 'origen' | 'ambos' | null; // de qué lado viene el peldaño contradicho
 }

@@ -986,6 +986,19 @@ describe('[PQ.162] la compra se muestra con impuestos, con la tasa de la ficha d
   });
 });
 
+describe('[PQ.164] el traspaso se MUESTRA con impuestos y se GUARDA sin ellos', () => {
+  it('unit_cost (lo que va a la requisición) queda sin impuestos; unit_cost_ci es lo que se ve', () => {
+    const c = montar(VACIO).componentInstance as unknown as {
+      aURows: (b: unknown[], t: unknown[], o: unknown[]) => Array<{ unit_cost: number; unit_cost_ci: number }>;
+    };
+    const tr = { product_id: 'p', sku: 'p', nombre: 'p', to_code: '01', to_warehouse_id: 'w1', from_code: '00', from_warehouse_id: 'w0',
+      uxc: 1, unit_cost: 100, unit_cost_ci: 108, transfer_cajas: 2, deficit_cajas: 2, transfer_value: 216 };
+    const [u] = c.aURows([], [tr], []);
+    expect(u.unit_cost).toBe(100);
+    expect(u.unit_cost_ci).toBe(108);
+  });
+});
+
 describe('[RA-UX.9] la requisición en armado (el carrito)', () => {
   beforeEach(() => { try { localStorage.clear(); } catch { /* jsdom */ } });
   const fila = (pid: string, prov = 's-1', nombre = 'PROV UNO') => ({ product_id: pid, sku: pid, nombre: pid, supplier_id: prov, supplier_name: nombre, uxc: 16, caja_cost: 1, cells: {}, signals: null });
@@ -1510,7 +1523,7 @@ describe('[PQ.38] valor venta y valor existencia, en grande', () => {
     fix.detectChanges();
     const kpi = fix.componentInstance.pedidoKpi();
     expect(kpi.find((k: { label: string }) => k.label === 'Valor venta')).toMatchObject({ value: 18432109.5, format: 'currency' });
-    expect(kpi.find((k: { label: string }) => k.label === 'Valor existencia')).toMatchObject({ value: 9876543.21, sub: 'al costo sin IVA, hoy' });
+    expect(kpi.find((k: { label: string }) => k.label === 'Valor existencia')).toMatchObject({ value: 9876543.21, sub: 'con impuestos, hoy' });   // [PQ.164]
     expect(texto(fix)).toContain('Valor venta');
     expect(texto(fix)).toContain('Valor existencia');
   });
@@ -1519,7 +1532,7 @@ describe('[PQ.38] valor venta y valor existencia, en grande', () => {
     const fix = montar({ ...VACIO, total: 1, totals: { pedido: 0, venta: 1, exis: 1 }, unit_rung: { skus: 7, celdas: 9, arbitrado: 1200 } });
     fix.detectChanges();
     const ex = fix.componentInstance.pedidoKpi().find((k: { label: string }) => k.label === 'Valor existencia');
-    expect(ex?.sub).toBe('al costo, sin IVA · faltan 7 SKU por valuar');
+    expect(ex?.sub).toBe('con impuestos · faltan 7 SKU por valuar');   // [PQ.164]
   });
 });
 

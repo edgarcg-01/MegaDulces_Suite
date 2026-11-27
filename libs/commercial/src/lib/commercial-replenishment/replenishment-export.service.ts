@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
+import { conImpuestos } from '@megadulces/contracts';
 
 /** Etiqueta legible del bucket + color semántico para el formato condicional. */
 const BUCKET_LABEL: Record<string, string> = {
@@ -85,6 +86,9 @@ export interface WorkbookExportRow {
   }> | null;
   suma_pedido_cajas?: number | null;
   pedido_valor?: number | null;
+  /** `[PQ.162]`/`[PQ.164]` el pedido con impuestos y la tasa (IVA% + IEPS%) de la ficha de Kepler. */
+  pedido_valor_ci?: number | null;
+  imp?: number | null;
   valor_venta?: number | null;
   valor_exis?: number | null;
 }
@@ -102,6 +106,8 @@ export interface TransferExportRow {
   transfer_pieces?: number | null;
   shortfall_pieces?: number | null; // déficit que el CEDIS NO cubre → se compra
   unit_cost?: number | null;
+  /** `[PQ.164]` el costo de caja con impuestos (lo que se muestra; `unit_cost` es el que se guarda). */
+  unit_cost_ci?: number | null;
   transfer_value?: number | null;
 }
 export interface WorkbookExport {
@@ -180,8 +186,8 @@ export class ReplenishmentExportService {
       { h: 'Colchón', v: (r) => (r.safety_stock != null ? Number(r.safety_stock) : ''), fmt: NUM, width: 9 },
       { h: 'En tránsito', v: (r) => Number(r.in_transit) || 0, fmt: NUM, total: true, width: 11 },
       { h: 'Sugerido', v: (r) => Number(r.suggested_qty) || 0, fmt: NUM, total: true, width: 11 },
-      { h: 'Costo unit.', v: (r) => Number(r.unit_cost) || 0, fmt: MONEY, width: 12 },
-      { h: 'Costo sugerido', v: (r) => Number(r.suggested_cost) || 0, fmt: MONEY, total: true, width: 15 },
+      { h: 'Costo unit. sin IVA', v: (r) => Number(r.unit_cost) || 0, fmt: MONEY, width: 14 },
+      { h: 'Costo sugerido sin IVA', v: (r) => Number(r.suggested_cost) || 0, fmt: MONEY, total: true, width: 17 },
       { h: 'Proveedor', v: (r) => r.supplier_name ?? '', width: 28 },
     ];
     const lastCol = cols.length;
@@ -412,7 +418,7 @@ export class ReplenishmentExportService {
     if (has.cajas) cols.push({ h: 'Pedir (cajas)', v: (r) => (r.cajas != null ? Number(r.cajas) : ''), fmt: NUM, total: true, kind: 'cajas', width: 12 });
     cols.push({ h: 'Piezas', v: (r) => pzOf(r), fmt: NUM, total: true, width: 10 });
     if (has.received) cols.push({ h: 'Recibido', v: (r) => (r.received_qty != null ? Number(r.received_qty) : ''), fmt: NUM, width: 10 });
-    cols.push({ h: 'Costo unit.', v: (r) => Number(r.unit_cost) || 0, fmt: MONEY, width: 12 });
+    cols.push({ h: 'Costo unit. sin IVA', v: (r) => Number(r.unit_cost) || 0, fmt: MONEY, width: 14 });
     cols.push({ h: 'Importe', v: (r) => lineCostOf(r), fmt: MONEY, total: true, kind: 'importe', width: 14 });
 
     const lastCol = cols.length;
@@ -602,8 +608,9 @@ export class ReplenishmentExportService {
     terrs = terrs ?? [];
     const MONEY = '$#,##0.00', N1 = '#,##0.0', N0 = '#,##0';
     const HEAD_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } };
-    const leftH = ['Producto', 'SKU', 'UXC', 'Costo/Cja', 'XYZ', 'Reorden', 'Máx'];
-    const rightH = ['Σ Pedido (cajas)', 'Σ Piezas', '$ Pedido', 'Valor venta', 'Valor exist.'];
+    // [PQ.164] Todo con impuestos (IVA e IEPS de la ficha de Kepler); la venta, a precio con IVA.
+    const leftH = ['Producto', 'SKU', 'UXC', 'Costo/Cja c/imp', 'XYZ', 'Reorden', 'Máx'];
+    const rightH = ['Σ Pedido (cajas)', 'Σ Piezas', '$ Pedido c/imp', 'Valor venta c/IVA', 'Valor exist. c/imp'];
     const nLeft = leftH.length, nRight = rightH.length;
     const totalCols = nLeft + terrs.length * 3 + nRight;
     const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', xSplit: nLeft, ySplit: 4 }] });
@@ -617,7 +624,7 @@ export class ReplenishmentExportService {
     ws.getRow(1).height = 24;
 
     // Fila 2 — resumen
-    const totPed = rows.reduce((s, r) => s + (Number(r.pedido_valor) || 0), 0);
+    const totPed = rows.reduce((s, r) => s + (Number(r.pedido_valor_ci ?? r.pedido_valor) || 0), 0);
     const totCj = rows.reduce((s, r) => s + (Number(r.suma_pedido_cajas) || 0), 0);
     ws.mergeCells(2, 1, 2, totalCols);
     const sub = ws.getCell(2, 1);
@@ -650,7 +657,7 @@ export class ReplenishmentExportService {
     const pedFirstCol = nLeft + terrs.length * 3 + 1; // Σ cajas
     rows.forEach((r) => {
       const uxc = Number(r.uxc) || 1;
-      const vals: (string | number)[] = [r.nombre || '', r.sku || '', Number(r.uxc) || 0, Number(r.caja_cost) || 0,
+      const vals: (string | number)[] = [r.nombre || '', r.sku || '', Number(r.uxc) || 0, conImpuestos(Number(r.caja_cost) || 0, r.imp),
         r.xyz_class || '', Number(r.reorder_cajas) || 0, Number(r.max_cajas) || 0];
       for (const t of terrs) {
         const cel = (r.cells && r.cells[t.code]) || {};
@@ -669,7 +676,7 @@ export class ReplenishmentExportService {
       // un cero en el XLSX se lee como "no hay inventario", que es la mentira opuesta a la que
       // estamos quitando. Ver UNIDADES_DE_MEDIDA 8quater y GOTCHAS "fuente vacía ≠ cero".
       vals.push(Number(r.suma_pedido_cajas) || 0, (Number(r.suma_pedido_cajas) || 0) * uxc,
-        Number(r.pedido_valor) || 0, Number(r.valor_venta) || 0,
+        Number(r.pedido_valor_ci ?? r.pedido_valor) || 0, Number(r.valor_venta) || 0,
         r.valor_exis == null ? 'sin valuar' : Number(r.valor_exis));
       const added = ws.addRow(vals);
       added.eachCell((cell, col) => {
@@ -730,8 +737,8 @@ export class ReplenishmentExportService {
       { h: 'Traspaso (cajas)', v: (r) => Number(r.transfer_cajas) || 0, fmt: N1, total: true, width: 13 },
       { h: 'Traspaso (piezas)', v: (r) => Number(r.transfer_pieces) || 0, fmt: N0, total: true, width: 13 },
       { h: 'Falta comprar (cajas)', v: (r) => cajas(r.shortfall_pieces, r.uxc), fmt: N1, width: 14 },
-      { h: 'Costo/Cja', v: (r) => Number(r.unit_cost) || 0, fmt: MONEY, width: 11 },
-      { h: 'Valor traspaso', v: (r) => Number(r.transfer_value) || 0, fmt: MONEY, total: true, width: 14 },
+      { h: 'Costo/Cja c/imp', v: (r) => Number(r.unit_cost_ci ?? r.unit_cost) || 0, fmt: MONEY, width: 13 },
+      { h: 'Valor traspaso c/imp', v: (r) => Number(r.transfer_value) || 0, fmt: MONEY, total: true, width: 16 },
       { h: 'Proveedor', v: (r) => r.supplier_name ?? '', left: true, width: 26 },
     ];
     const lastCol = cols.length;
@@ -834,7 +841,7 @@ export class ReplenishmentExportService {
     // Fila 2 — resumen
     ws.mergeCells(2, 1, 2, totalCols);
     const sub = ws.getCell(2, 1);
-    const totPed = rows.reduce((s, r) => s + (Number(r.pedido_valor) || 0), 0);
+    const totPed = rows.reduce((s, r) => s + (Number(r.pedido_valor_ci ?? r.pedido_valor) || 0), 0);
     const totCj = rows.reduce((s, r) => s + (Number(r.suma_pedido_cajas) || 0), 0);
     const nSup = new Set(rows.map((r) => r.supplier_name ?? '—')).size;
     sub.value = {
@@ -847,8 +854,8 @@ export class ReplenishmentExportService {
     ws.getRow(2).height = 18;
 
     // Filas 3-4 — encabezado (banda stone-800 + grupo por territorio)
-    const leftH = ['Proveedor', 'Producto', 'SKU', 'UXC', 'Costo/Cja', 'XYZ', 'Reorden', 'Máx'];
-    const rightH = ['Σ Pedido (cajas)', 'Σ Piezas', '$ Pedido', 'Valor venta', 'Valor exist.'];
+    const leftH = ['Proveedor', 'Producto', 'SKU', 'UXC', 'Costo/Cja c/imp', 'XYZ', 'Reorden', 'Máx'];
+    const rightH = ['Σ Pedido (cajas)', 'Σ Piezas', '$ Pedido c/imp', 'Valor venta c/IVA', 'Valor exist. c/imp'];
     let c = 1;
     for (const h of leftH) { ws.mergeCells(3, c, 4, c); ws.getCell(3, c).value = h; c++; }
     for (const t of terrs) {
@@ -872,7 +879,7 @@ export class ReplenishmentExportService {
     const pedFirstCol = nLeft + terrs.length * 3 + 1;
     rows.forEach((r) => {
       const uxc = Number(r.uxc) || 1;
-      const vals: (string | number)[] = [r.supplier_name || '—', r.nombre || '', r.sku || '', Number(r.uxc) || 0, Number(r.caja_cost) || 0,
+      const vals: (string | number)[] = [r.supplier_name || '—', r.nombre || '', r.sku || '', Number(r.uxc) || 0, conImpuestos(Number(r.caja_cost) || 0, r.imp),
         r.xyz_class || '', Number(r.reorder_cajas) || 0, Number(r.max_cajas) || 0];
       for (const t of terrs) {
         const cel = (r.cells && r.cells[t.code]) || {};
@@ -891,7 +898,7 @@ export class ReplenishmentExportService {
       // un cero en el XLSX se lee como "no hay inventario", que es la mentira opuesta a la que
       // estamos quitando. Ver UNIDADES_DE_MEDIDA 8quater y GOTCHAS "fuente vacía ≠ cero".
       vals.push(Number(r.suma_pedido_cajas) || 0, (Number(r.suma_pedido_cajas) || 0) * uxc,
-        Number(r.pedido_valor) || 0, Number(r.valor_venta) || 0,
+        Number(r.pedido_valor_ci ?? r.pedido_valor) || 0, Number(r.valor_venta) || 0,
         r.valor_exis == null ? 'sin valuar' : Number(r.valor_exis));
       const added = ws.addRow(vals);
       added.height = 16;
