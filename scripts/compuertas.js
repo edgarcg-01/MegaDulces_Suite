@@ -246,6 +246,12 @@ const COMPUERTAS = [
    * `format: 'currency'`; nace con 479 hallazgos sellados en 181 archivos y el flujo de compras en cero.
    * Medido: 267–837 ms (tres corridas). `:self` con 12 casos, 4 en rojo a propósito.
    */
+  /**
+   * `[PQ.167]` La hermana: toda CANTIDAD de mercancía dice su unidad (cajas, piezas, paquetes, kg). Nace
+   * de un Excel de requisición que rotulaba «Piezas» lo que eran cajas y de la misma palabra
+   * («Existencia») en cajas en una pantalla y en piezas en otra. 119 sellados en 65 archivos.
+   */
+  { nombre: 'cantidad con unidad', script: 'check-cantidad-con-unidad.js', que: 'toda cantidad NUEVA de mercancía dice su unidad (cajas, piezas, paquetes, kg)', push: true, ms: 600 },
   { nombre: 'monto con base', script: 'check-monto-con-base.js', que: 'todo monto NUEVO dice si lleva IVA o no (con IVA / sin IVA / con impuestos / a precio)', push: true, ms: 840 },
   { nombre: 'cifra recorrible', script: 'check-cifra-recorrible.js', que: 'ninguna lista NUEVA se topa en silencio: o manda limit, o declara que se topó (ESTANDAR §1.2)', push: true, ms: 900 },
   { nombre: 'búsqueda', script: 'check-busqueda.js', que: 'ningún buscador con .toLowerCase().includes() (DESIGN D.8)', push: true, ms: 198 },

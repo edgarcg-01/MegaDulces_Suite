@@ -130,7 +130,9 @@
     "check:cifra": "node scripts/check-cifra-recorrible.js",
     "check:cifra:self": "node scripts/check-cifra-recorrible.js --self-test",
     "check:montos": "node scripts/check-monto-con-base.js",
-    "check:montos:self": "node scripts/check-monto-con-base.js --self-test"
+    "check:montos:self": "node scripts/check-monto-con-base.js --self-test",
+    "check:unidades": "node scripts/check-cantidad-con-unidad.js",
+    "check:unidades:self": "node scripts/check-cantidad-con-unidad.js --self-test"
   },
   "dependencies": {
     "@angular/cdk": "22.2.5",

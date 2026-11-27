@@ -59,8 +59,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <ng-template #header>
           <tr>
             <th>Severidad</th><th>SKU</th><th>Producto</th><th>Almacén</th><th>ABC</th>
-            <th class="hz-r">Existencia</th><th class="hz-r">Reorden</th><th class="hz-r">OC a recibir</th>
-            <th class="hz-r">Sugerido</th><th class="hz-r" title="Costo del catálogo con IVA e IEPS (cost_with_tax); si el producto no lo tiene, el costo base, que va sin impuestos.">Costo est. con impuestos</th><th>Proveedor</th><th>Detectado</th>
+            <!-- [PQ.167] La unidad: la de existencia del almacén (piezas en Kepler; paquetes en las tiendas Wincaja). -->
+            <th class="hz-r" title="En la unidad de existencia del almacén: piezas en Kepler, paquetes en las tiendas Wincaja.">Existencia (unid.)</th><th class="hz-r" title="En la unidad de existencia del almacén.">Reorden (unid.)</th><th class="hz-r" title="En la unidad de existencia del almacén.">OC a recibir (unid.)</th>
+            <th class="hz-r" title="En la unidad de existencia del almacén.">Sugerido (unid.)</th><th class="hz-r" title="Costo del catálogo con IVA e IEPS (cost_with_tax) × sugerido. Sin ese costo se dice «sin costo»: no se inventa.">Costo est. con impuestos</th><th>Proveedor</th><th>Detectado</th>
           </tr>
         </ng-template>
         <ng-template #body let-f>
@@ -74,7 +75,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <td class="hz-r hz-muted">{{ f.reorder_point | number:'1.0-0' }}</td>
             <td class="hz-r">{{ f.in_transit > 0 ? (f.in_transit | number:'1.0-0') : '—' }}</td>
             <td class="hz-r hz-strong">{{ f.suggested_qty | number:'1.0-0' }}</td>
-            <td class="hz-r">{{ money(f.suggested_cost) }}</td>
+            <td class="hz-r">@if (f.suggested_cost != null) { {{ money(f.suggested_cost) }} } @else { <span class="hz-muted">sin costo</span> }</td>
             <td class="hz-muted">{{ f.supplier_name || '—' }}</td>
             <td class="hz-muted">{{ f.first_seen_at | date:'dd/MM/yy' }}</td>
           </tr>

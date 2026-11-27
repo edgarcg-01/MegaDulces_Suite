@@ -178,8 +178,10 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               <th>SKU</th><th>Producto</th>
               @if (conDestino(r)) { <th>Para</th> }
               @if (variosOrigenes(r)) { <th>Origen</th> }
-              <th class="rd-r">Existencia</th><th class="rd-r">Reorden</th><th class="rd-r">Sugerido</th>
-              <th class="rd-r">Pedir</th>
+              <!-- [PQ.167] La unidad: cajas. Medido el 2026-11-27 en las requisiciones de 60 días, por todos los caminos
+                   (pedido, Autoabasto, sucursal): el costo del renglón es el de CAJA en 97 %+ y el de pieza en 0. -->
+              <th class="rd-r" title="Existencia al armar la requisición, en cajas.">Existencia (cj)</th><th class="rd-r" title="En cajas.">Reorden (cj)</th><th class="rd-r" title="En cajas.">Sugerido (cj)</th>
+              <th class="rd-r" title="Cajas que se piden: es la cantidad que va a Kepler, convertida a su unidad.">Pedir (cj)</th>
               @if (showRecibido()) { <th class="rd-r">Recibido</th> }
               <th class="rd-r" title="El costo que se escribe en el renglón de Kepler: sin impuestos.">Costo unit. sin IVA</th>
               @if (r.total_cost_ci != null) { <th class="rd-r" title="Importe más el IVA y el IEPS de la ficha de Kepler: lo que se va a pagar, como arma la OC su total.">Importe con impuestos</th> }

@@ -141,7 +141,7 @@ import { PARAMETROS_COMPRA_TABS } from '../parametros-compra-tabs';
             @else if (o.supplier.min_order_boxes) { <span class="cp-dlg-min">mín {{ o.supplier.min_order_boxes }} cja</span> }
           </div>
           <table class="cp-dlg-table">
-            <thead><tr><th>Almacén</th><th>SKU</th><th>Producto</th><th class="cp-r">Exist.</th><th class="cp-r">Sugerido</th><th class="cp-r">Pedir</th><th class="cp-r">Cajas</th><th class="cp-r">$</th></tr></thead>
+            <thead><tr><th>Almacén</th><th>SKU</th><th>Producto</th><th class="cp-r" title="En cajas.">Exist. (cj)</th><th class="cp-r" title="En cajas.">Sugerido (cj)</th><th class="cp-r" title="En cajas.">Pedir (cj)</th><th class="cp-r" title="Lo que se pide, en cajas, después de cubrir el mínimo del proveedor.">Cajas</th><th class="cp-r" title="Cajas × costo de caja: sin IVA.">$ sin IVA</th></tr></thead>
             <tbody>
               @for (l of o.lines; track l.product_id + l.warehouse_id) {
                 <tr>

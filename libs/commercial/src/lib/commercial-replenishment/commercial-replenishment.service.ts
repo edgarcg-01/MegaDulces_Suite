@@ -1215,9 +1215,13 @@ export class CommercialReplenishmentService {
   // Venta mensual estimada ($) = demanda diaria × 30 × precio de venta (costo × (1+markup)).
   // Usa columnas ya joineadas (ih.avg_daily_units, pr.cost_with_tax, pr.markup_pct) — sin join
   // nuevo. Da el PESO en dinero del producto para priorizar junto al rank por unidades: el #1
-  // por velocidad puede mover $500 o $50,000. markup ausente → cae a valor a costo.
+  // por velocidad puede mover $500 o $50,000.
+  // ⛔ [PQ.167] Sin markup o sin costo, NULL: antes caía al valor A COSTO dentro de una columna A
+  // PRECIO, y la columna y su total mezclaban dos bases (2,138 de 11,197 productos activos sin markup,
+  // medido el 2026-11-27). Base: precio CON impuestos (cost_with_tax ya los trae).
   private monthlyRevenue() {
-    return 'ROUND(COALESCE(ih.avg_daily_units,0) * 30 * COALESCE(pr.cost_with_tax,0) * (1 + COALESCE(pr.markup_pct,0)/100.0), 2)';
+    return `CASE WHEN pr.cost_with_tax IS NULL OR pr.markup_pct IS NULL THEN NULL
+                 ELSE ROUND(COALESCE(ih.avg_daily_units,0) * 30 * pr.cost_with_tax * (1 + pr.markup_pct/100.0), 2) END`;
   }
   private bucketExpr(oh: string = this.onHand()) {
     return `CASE

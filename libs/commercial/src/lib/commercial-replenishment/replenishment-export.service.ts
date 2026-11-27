@@ -406,7 +406,8 @@ export class ReplenishmentExportService {
     if (has.abc) cols.push({ h: 'ABC', v: (r) => r.abc_class ?? '', align: 'center', width: 6 });
     if (has.xyz) cols.push({ h: 'XYZ', v: (r) => r.xyz_class ?? '', align: 'center', width: 6 });
     if (has.rank) cols.push({ h: 'Rank vta', v: (r) => (r.sales_rank != null ? Number(r.sales_rank) : ''), fmt: NUM, width: 8 });
-    if (has.rev) cols.push({ h: 'Venta/mes', v: (r) => Number(r.monthly_revenue) || 0, fmt: MONEY, total: true, width: 13 });
+    // [PQ.167] A precio con impuestos; sin markup o sin costo NO se estima (antes caía al costo).
+    if (has.rev) cols.push({ h: 'Venta/mes est. c/IVA', v: (r) => (r.monthly_revenue == null ? 'sin precio' : Number(r.monthly_revenue) || 0), fmt: MONEY, total: true, width: 15 });
     if (has.sell) cols.push({ h: 'Venta/día', v: (r) => (r.sell_daily != null ? Number(r.sell_daily) : ''), fmt: N1, width: 10 });
     if (has.oh) cols.push({ h: 'Existencia', v: (r) => Number(r.on_hand) || 0, fmt: NUM, kind: 'oh', width: 11 });
     if (has.transit) cols.push({ h: 'En tránsito', v: (r) => Number(r.in_transit) || 0, fmt: NUM, width: 11 });

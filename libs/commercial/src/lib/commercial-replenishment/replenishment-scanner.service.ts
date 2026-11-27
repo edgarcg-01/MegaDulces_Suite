@@ -81,7 +81,11 @@ export class ReplenishmentScannerService {
       // Crítica (ver commercial-replenishment.service.ts costUnit()).
       // ✅ U.0: "por PIEZA" confirmado midiendo — `cost_with_tax = u1_cost × (1 + impuesto)`,
       // razones 1.0000/1.0800/1.1600/1.2400 exactas sobre 6,626 SKUs. Detalle en costUnit().
-      const costUnit = 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
+      // ⛔ [PQ.167] SÓLO cost_with_tax: con impuestos, por pieza, medido. El respaldo a cost_base mezclaba
+      // dos bases (sin impuestos) y dos unidades (por bulto en granel), y el ", 0" publicaba un costo
+      // de $0: medido el 2026-11-27, 456 de 24,385 hallazgos abiertos salían en $0 y 7 caían al costo
+      // base. Sin cost_with_tax el costo es NULL y la bandeja lo dice: no se inventa (ADR-056).
+      const costUnit = 'pr.cost_with_tax';
       // U.2 — el $ valorizado NO se persiste cuando el costo de compra contradice el peldaño de la
       // cantidad: la bandeja guardaría una cifra inflada y la ordenaría por ella. Se lee del fact
       // (`analytics.replenishment_plan.rung_veredicto`, mig 20260903170000) que este scan YA
