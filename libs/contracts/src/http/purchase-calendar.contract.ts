@@ -315,8 +315,12 @@ const mayor = (a: string | null, b: string | null): string | null => (!a ? b : !
 // `[PQ.3.4]` La API: `GET /compras/calendario`, `GET /compras/calendario/propuestas` y las escrituras.
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
-/** De dónde salió la última atención: OC de Kepler (viva o cancelada), entrada de Kepler o marca de la Suite. */
-export type FuenteActividad = 'oc' | 'oc_cancelada' | 'entrada' | 'marca';
+/**
+ * De dónde salió la última atención: OC de Kepler (viva o cancelada), entrada de Kepler, marca de la Suite o
+ * `[PQ.3.29]` requisición de compra de la Suite (DC40: cuenta desde que se crea, en la sucursal DESTINO de cada
+ * renglón; cancelada o en borrador no cuenta).
+ */
+export type FuenteActividad = 'oc' | 'oc_cancelada' | 'entrada' | 'marca' | 'requisicion';
 
 export interface MarcaVista extends MarcaRevision {
   readonly skip_reason: MotivoNoSePide | null;
@@ -841,3 +845,39 @@ export function validarFueraDeCiclo(d: FueraDeCicloDto, hoy: string): string | n
   if (!(d.motivo ?? '').trim()) return 'Di por qué sale del ciclo.';
   return null;
 }
+
+/**
+ * `[PQ.3.24]` El aviso «Hoy te toca» de Pedido (anexo C §10.16, DC35: **manda el Calendario**). Antes lo decía el
+ * ciclo POR CANAL (`commercial.replenishment_channel.next_due_date`), que no conoce las reglas de la gerencia: en los
+ * 12 proveedores con regla corporativa medidos el 2026-11-25, el canal y la regla no coincidían en ninguno.
+ *
+ *  - `con_regla`: proveedores con regla de la gerencia, en las sucursales de quien ve, por el estado de HOY de sus
+ *    reglas (el mismo del Calendario). Un proveedor con una regla rezagada y otra que toca hoy cuenta UNA vez, como
+ *    rezagado.
+ *  - `sin_regla`: los canales de compra (proveedor × sucursal) que ninguna regla viva cubre, con la fecha que propone
+ *    el ciclo de Kepler — **sin confirmar**. Un proveedor cuenta una vez, por su canal más atrasado.
+ */
+export interface AvisoCalendario {
+  /** `YYYY-MM-DD`, hora de México. */
+  readonly hoy: string;
+  readonly con_regla: {
+    /** Proveedores con al menos una regla rezagada. */
+    readonly rezagados: number;
+    /** Proveedores con al menos una regla que toca hoy y ninguna rezagada. */
+    readonly hoy: number;
+    /** Proveedores con regla en las sucursales de quien ve (cualquier estado). */
+    readonly proveedores: number;
+  };
+  readonly sin_regla: {
+    /** `false` = no se pudo leer el ciclo por canal: la pantalla lo dice, nunca pinta 0. */
+    readonly measured: boolean;
+    readonly vencidos: number | null;
+    readonly hoy: number | null;
+    readonly note: string | null;
+  };
+  readonly tu_alcance: AlcanceDeQuienVe;
+}
+
+/** `[PQ.3.24]` Lo que se le dice a quien lee el aviso: de dónde sale cada número. */
+export const FUENTE_AVISO_SIN_REGLA =
+  'Sin regla: el ciclo por canal que Kepler propone (entregas pasadas + cadencia), sin confirmar por la gerencia.';

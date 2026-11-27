@@ -98,3 +98,20 @@ export function diasDeAtraso(dia: string | null | undefined, hoy: string): numbe
   if (!dia) return 0;
   return Math.round((Date.parse(`${hoy}T12:00:00Z`) - Date.parse(`${dia.slice(0, 10)}T12:00:00Z`)) / 86_400_000);
 }
+
+/**
+ * `[PGP.220]` **Qué dice el renglón de las facturas que Kepler ya no debe:** «todas» (no se puede pagar: «Ya no se debe:
+ * quítalo del día»), «algunas» (pierde ésas) o nada.
+ *
+ * ⛔ **Un pago YA PAGADO no lleva ese aviso: su factura dejó de deberse porque se pagó.** El caso (Francisco, 2026-11-26):
+ * el pago de Effem lo marcó pagado el banco y la Suite escribió su X-D-26 en Kepler; el renglón dijo «Ya no se debe: quítalo
+ * del día» y pareció que no había entrado — la instrucción que lleva a capturarlo otra vez a mano. Medido en prod el mismo
+ * día: de 322 pagos ejecutados desde octubre con facturas de Kepler, **289 decían «quítalo del día»** y 4 «marcarlo va a
+ * fallar». Lo pagado dice cómo salió y si está cerrado («Pagado y cerrado» · «Marcado pagado · falta …»).
+ */
+export function avisoDeSaldadas(a: { status: string; kepler_saldadas?: number | null; items?: readonly unknown[] | null }): 'todas' | 'algunas' | null {
+  if (a.status === 'executed') return null;
+  const n = a.items?.length ?? 0, saldadas = a.kepler_saldadas ?? 0;
+  if (!(saldadas > 0)) return null;
+  return n > 0 && saldadas >= n ? 'todas' : 'algunas';
+}

@@ -4,12 +4,13 @@ import {
   validarFueraDeCiclo, validarMarca, validarOcasionales, VENTANA_REZAGO_DIAS, type DefinirOcasionalesDto, type DefinirOcasionalesRespuesta,
   type CalendarioCompras, type CambioDeRegla, type FueraDeCicloDto, type GuardarReglaDto, type GuardarReglaRespuesta, type MarcaVista,
   type MarcarRevisionDto, type PropuestaDiaFijo, type PropuestasCalendario, type PropuestaSinRegla,
+  FUENTE_AVISO_SIN_REGLA, type AvisoCalendario,
 } from '@megadulces/contracts';
 import {
-  armarCalendario, armarEmbudo, desdeEntradas, diasFijosPorProveedor, nombreDelAlcance, repartirPropuestas, reglaEnAlcance,
-  type AlmacenPedido, type CompraDoceMeses, type FilaActividad, type HistorialLeido, type ReglaLeida, type SucursalZona,
+  actividadDeRequisiciones, armarCalendario, armarEmbudo, avisoConRegla, avisoSinRegla, desdeEntradas, diasFijosPorProveedor, nombreDelAlcance, repartirPropuestas, reglaEnAlcance,
+  type AlmacenPedido, type CanalCiclo, type CompraDoceMeses, type FilaRequisicion, type FilaActividad, type HistorialLeido, type ReglaLeida, type SucursalZona,
 } from './purchase-calendar.domain';
-import { SQL_ACTIVIDAD_KEPLER, SQL_COMPRA_DOCE_MESES, SQL_SUCURSALES_Y_ZONAS } from './purchase-calendar.sql';
+import { SQL_ACTIVIDAD_KEPLER, SQL_CANALES_CICLO, SQL_COMPRA_DOCE_MESES, SQL_REQUISICIONES_SUITE, SQL_SUCURSALES_Y_ZONAS } from './purchase-calendar.sql';
 import { isPlatformAdminRole, permisoEfectivoSql } from '@megadulces/platform-core';
 
 /**
@@ -136,6 +137,18 @@ export async function leerActividad(
   return (await trx.raw(SQL_ACTIVIDAD_KEPLER, { ...p, codes: [...p.codes] })).rows;
 }
 
+/**
+ * `[PQ.3.29]` Las requisiciones de compra de la Suite (DC40) de la ventana de rezago, por ficha y sucursal destino. Sin
+ * claves ni fichas no consulta. Las lee `leerCalendario`; el día fijo de `propuestas` (PQ.3.14) NO las usa: ese mide
+ * cuándo pasa el proveedor, y eso lo dice Kepler.
+ */
+export async function leerRequisiciones(
+  trx: Knex.Transaction, p: { hoy: string; desde: string; codes: readonly string[]; fichas: readonly string[] },
+): Promise<FilaRequisicion[]> {
+  if (!p.codes.length && !p.fichas.length) return [];
+  return (await trx.raw(SQL_REQUISICIONES_SUITE, { hoy: p.hoy, desde: p.desde, codes: [...p.codes], fichas: [...p.fichas] })).rows;
+}
+
 /** `GET /compras/calendario`: las reglas con su estado de hoy. */
 /**
  * `GET /compras/calendario`: las reglas con su estado de hoy. `[PQ.3.6]` `lee` = las sucursales de quien
@@ -148,9 +161,46 @@ export async function leerCalendario(trx: Knex.Transaction, tenant: string, lee:
   const [todas, sucursales, marcas] = [await leerReglas(trx, tenant), await leerSucursales(trx), await leerMarcas(trx, tenant, desde)];
   const reglas = todas.filter((r) => reglaEnAlcance(r, sucursales, lee));
   const codes = [...new Set(reglas.map((r) => r.supplier_code))];
-  const actividad = await leerActividad(trx, { hoy, desde, desde_entradas: desdeEntradas(hoy, reglas), codes });
+  // `[PQ.3.29]` La actividad de Kepler PRIMERO: el mismo día, la OC gana a la requisición como «última atención».
+  const fichas = [...new Set(reglas.map((r) => r.pedido_supplier_id).filter((x): x is string => !!x))];
+  const actividad = [
+    ...await leerActividad(trx, { hoy, desde, desde_entradas: desdeEntradas(hoy, reglas), codes }),
+    ...actividadDeRequisiciones(await leerRequisiciones(trx, { hoy, desde, codes, fichas }), reglas),
+  ];
   const historial = await leerCambios(trx, tenant, reglas.map((r) => r.id));
   return armarCalendario(hoy, reglas, actividad, marcas, sucursales, await leerAlmacenes(trx, tenant), lee, historial);
+}
+
+/**
+ * `[PQ.3.24]` `GET /compras/calendario/aviso`: el aviso «Hoy te toca» de Pedido (anexo C §10.16, DC35: manda el
+ * Calendario). Los proveedores con regla salen del MISMO calendario que ve quien pregunta (`leerCalendario`, con su
+ * alcance); los que no tienen regla, del ciclo por canal de Kepler —sin confirmar— y sólo en los almacenes de su alcance
+ * (`almacenes`: los mismos que recorta `worklist`; `null` = todos).
+ *
+ * La cobertura se mide contra TODAS las reglas vivas, no sólo las que ve: si la gerencia ya decidió sobre un proveedor
+ * en esa sucursal, no es «sin regla» aunque la regla sea de otra persona. Los canales van en un SAVEPOINT: si fallan, el
+ * aviso se entrega igual con `sin_regla.measured: false` (nunca 0 por defecto).
+ */
+export async function leerAviso(
+  trx: Knex.Transaction,
+  tenant: string,
+  lee: readonly string[] | null,
+  almacenes: readonly string[] | null,
+  avisa?: (e: unknown) => void,
+): Promise<AvisoCalendario> {
+  const cal = await leerCalendario(trx, tenant, lee);
+  const con_regla = avisoConRegla(cal.reglas);
+  const [todas, sucursales] = [await leerReglas(trx, tenant), await leerSucursales(trx)];
+  let sin_regla: AvisoCalendario['sin_regla'];
+  try {
+    const canales: CanalCiclo[] = (await trx.transaction((sp) =>
+      sp.raw(SQL_CANALES_CICLO, { hoy: cal.hoy, almacenes: almacenes === null ? null : [...almacenes] }))).rows;
+    sin_regla = { measured: true, ...avisoSinRegla(canales, todas, sucursales, cal.hoy), note: FUENTE_AVISO_SIN_REGLA };
+  } catch (e) {
+    avisa?.(e);
+    sin_regla = { measured: false, vencidos: null, hoy: null, note: 'No se pudo leer el ciclo por canal de Kepler: los proveedores sin regla no se contaron.' };
+  }
+  return { hoy: cal.hoy, con_regla, sin_regla, tu_alcance: cal.tu_alcance };
 }
 
 /** `[PQ.3.17]` El log compartido (VP.3.1) y el disparador que le suma las reglas (migración 20261124231747). */
