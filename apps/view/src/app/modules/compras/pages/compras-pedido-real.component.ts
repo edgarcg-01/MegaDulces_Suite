@@ -2,13 +2,14 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListene
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
-import { accionesNegociacion, coberturaAutoabasto, compareWarehouseCodes, type Freshness, type PedidoNegociacionDto, WAREHOUSE_DISPLAY_ORDER, warehouseName } from '@megadulces/contracts';
+import { accionesNegociacion, type AvisoCalendario, coberturaAutoabasto, compareWarehouseCodes, type Freshness, type PedidoNegociacionDto, WAREHOUSE_DISPLAY_ORDER, warehouseName } from '@megadulces/contracts';
 import { type EnlacesNegociacion, PedidoNegociacionPanelComponent } from '../pedido-negociacion-panel.component';
 import { PedidoNegociacionDetalleComponent } from '../pedido-negociacion-detalle.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { CalendarioComprasService } from '../calendario-compras.service';
 import { Permission } from '../../../core/constants/permissions';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, piezasDeCajas, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
@@ -173,7 +174,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     LoadStateComponent,
     CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, ConfirmDialogModule, PopoverModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, SidePeekComponent, ComprasFlujoComponent,
-    SucursalPipe,
+    SucursalPipe, RouterLink,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
@@ -251,31 +252,46 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       @if (mode()==='pedido') {
         <!-- RA-PRO.32.3 — PEDIDO unificado: workbook por SKU + desglose por sucursal (compra/traspaso/sobre) en el acordeón -->
         <app-metric-strip [items]="pedidoKpi()" ariaLabel="Resumen del pedido" />
-        <!-- [PQ.5] El CUÁNDO, enfrente. La pestaña Ciclo lo contesta desde [RA-CICLO.1] y nadie
-             entra por ahí: 7 hits en 30 d contra 3,734 de Pedido, con 637 canales de compra
-             vencidos (medido 2026-10-23). Si la consulta falla se dice «no se pudo medir»:
-             un «hoy no toca nadie» sobre una consulta rota afirma lo contrario de lo que pasa. -->
-        @if (cicloAvisoError()) {
+        <!-- [PQ.5] El CUÁNDO, enfrente (la pestaña Ciclo tenía 7 hits en 30 d contra 3,734 de Pedido).
+             [PQ.3.24] DC35, manda el Calendario: el aviso cuenta PROVEEDORES con regla de la gerencia por el
+             estado de hoy de sus reglas, y aparte, sin confirmar, los que no tienen regla y el ciclo por canal
+             de Kepler da por vencidos. Hasta el 2026-11-25 todo salía del ciclo por canal, que no conoce las
+             reglas (en los 12 proveedores con regla corporativa no coincidía ninguno). Si la consulta falla se
+             dice «no se pudo medir»: un «hoy no toca nadie» sobre una consulta rota afirma lo contrario. -->
+        @if (avisoCalError()) {
           <div class="pr-borrador pr-ciclo" role="status">
             <i class="pi pi-calendar" aria-hidden="true"></i>
-            <p>El ciclo de hoy <strong>no se pudo medir</strong>: no se sabe a quién le toca pedir.
-              <span class="pr-borrador-sub">Reintentá desde la pestaña Ciclo.</span></p>
+            <p>El aviso de hoy <strong>no se pudo medir</strong>: no se sabe a quién le toca pedir.
+              <span class="pr-borrador-sub">Revisa el Calendario o la pestaña Ciclo.</span></p>
+            @if (puedeVerCalendario) { <a class="pr-zlink" routerLink="/compras/calendario">Abrir el Calendario</a> }
             <button type="button" class="pr-zlink" (click)="setMode('ciclo')">Ver el ciclo</button>
           </div>
-        } @else if (cicloAviso(); as a) {
-          <!-- [PQ.74] Sin el rojo de urgencia: las fechas del ciclo son ESTIMADAS (lead time en 0, 25 % de
-               canales regulares; PQ.UI.5) y un rojo diario se aprende a ignorar. -->
+        } @else if (avisoCal(); as a) {
+          <!-- [PQ.74] Sin el rojo de urgencia: un rojo diario se aprende a ignorar. -->
           <div class="pr-borrador pr-ciclo" role="status">
             <i class="pi pi-calendar" aria-hidden="true"></i>
-            @if (a.vencidos + a.hoy > 0) {
-              <p>Hoy te toca pedirle a <strong>{{ cicloAvisoProveedores(a) }}</strong>:
-                <strong>{{ a.vencidos | number }}</strong> {{ a.vencidos === 1 ? 'canal vencido' : 'canales vencidos' }}
-                · <strong>{{ a.hoy | number }}</strong> {{ a.hoy === 1 ? 'toca hoy' : 'tocan hoy' }}
-                · {{ a.prox7 | number }} en los próximos 7 días.
-                <span class="pr-borrador-sub">Un canal es un proveedor en una sucursal.</span></p>
-            } @else {
-              <p>Hoy no le toca pedir a nadie. <strong>{{ a.prox7 | number }}</strong> {{ a.prox7 === 1 ? 'canal toca' : 'canales tocan' }} en los próximos 7 días.</p>
-            }
+            <p>
+              @if (a.con_regla.rezagados + a.con_regla.hoy > 0) {
+                Hoy te toca pedirle a <strong>{{ provs(a.con_regla.rezagados + a.con_regla.hoy) }}</strong> según el Calendario:
+                <strong>{{ a.con_regla.rezagados | number }}</strong> {{ a.con_regla.rezagados === 1 ? 'rezagado' : 'rezagados' }}
+                · <strong>{{ a.con_regla.hoy | number }}</strong> de hoy.
+              } @else if (a.con_regla.proveedores > 0) {
+                Según el Calendario, hoy no le toca pedir a nadie: {{ provs(a.con_regla.proveedores) }} con regla, al día.
+              } @else {
+                El Calendario todavía no tiene reglas{{ a.tu_alcance.todas ? '' : ' en tus sucursales' }}.
+              }
+              <span class="pr-borrador-sub">
+                @if (!a.sin_regla.measured) {
+                  Los proveedores sin regla no se pudieron contar.
+                } @else if ((a.sin_regla.vencidos ?? 0) + (a.sin_regla.hoy ?? 0) > 0) {
+                  Sin regla todavía: {{ provs((a.sin_regla.vencidos ?? 0) + (a.sin_regla.hoy ?? 0)) }} que el ciclo de Kepler da
+                  por vencidos ({{ a.sin_regla.vencidos | number }}) o de hoy ({{ a.sin_regla.hoy | number }}), sin confirmar.
+                } @else {
+                  Ningún proveedor sin regla vence hoy.
+                }
+              </span>
+            </p>
+            @if (puedeVerCalendario) { <a class="pr-zlink" routerLink="/compras/calendario">Abrir el Calendario</a> }
             <button type="button" class="pr-zlink" (click)="setMode('ciclo')">Ver el ciclo</button>
           </div>
         }
@@ -2164,7 +2180,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-borrador-sub { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
     /* [PQ.5] El aviso del ciclo: mismo molde que el borrador; con vencidos, el filete avisa. */
     /* [PQ.74] El aviso del ciclo en UNA línea, sin caja ni rojo; su definición de «canal» va en la misma línea. */
-    .pr-ciclo { margin: 0; padding: 0 .25rem; border: 0; background: transparent; }
+    .pr-ciclo { margin: 0; padding: 0 .25rem; border: 0; background: transparent; flex-wrap: wrap; }
+    /* [PQ.3.24] En el celular los dos enlaces se comían la mitad del ancho y el aviso quedaba en 9 renglones angostos
+       (prueba visual 2026-11-25): el texto toma el ancho y los enlaces bajan cuando no caben. */
+    .pr-ciclo p { flex: 1 1 16rem; min-width: 0; }
     .pr-ciclo .pr-borrador-sub { display: inline; margin-left: .35rem; }
     .pr-ciclo i { color: var(--text-muted); }
     /* RA-PEND.2 — lo que impide generar, arriba del boton apagado. */
@@ -2208,6 +2227,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-mo-kv dt { color: var(--text-muted); } .pr-mo-kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
     .pr-mo-note { font-size: var(--fs-micro); color: var(--text-faint); margin: .5rem 0 0; }
     .pr-zlink:hover { background: var(--card-bg); text-decoration: underline; }
+    a.pr-zlink { text-decoration: none; }
+    /* [PQ.3.24] Con el dedo, los enlaces del aviso medían 24 px (prueba visual 2026-11-25, Fold 7 y celular): al mínimo táctil. */
+    .pr-borrador .pr-zlink { min-height: var(--tap-min); display: inline-flex; align-items: center; }
     /* [RA-UX.5] Destructiva: nunca en --action (Von Restorff, DESIGN §10). */
     .pr-zlink.pr-zlink-bad { color: var(--bad-fg); }
     .pr-suc { color: var(--text-main); font-weight: 500; }   /* [SUC.2] la sucursal, por su nombre */
@@ -5990,30 +6012,26 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       });
   }
 
-  // ── `[PQ.5]` El CUÁNDO, enfrente del Pedido ───────────────────────────────────────────
-  /** Los agregados del ciclo de COMPRA, sin filas: una llamada al abrir, no una por filtro. `null` = todavía no se midió. */
-  readonly cicloAviso = signal<{ vencidos: number; hoy: number; prox7: number; prov_vencidos: number | null; prov_hoy: number | null } | null>(null);
-  readonly cicloAvisoError = signal(false);
+  // ── `[PQ.5]` El CUÁNDO, enfrente del Pedido · `[PQ.3.24]` lo dice el Calendario (DC35) ─────────────────
+  private readonly calendarioApi = inject(CalendarioComprasService);
+  /** El aviso de hoy: con regla (Calendario) y sin regla (ciclo por canal, sin confirmar). `null` = todavía no se midió. */
+  readonly avisoCal = signal<AvisoCalendario | null>(null);
+  readonly avisoCalError = signal(false);
+  /** «Abrir el Calendario» sólo a quien tiene una de sus tres llaves: a los demás la ruta les daría 403. */
+  get puedeVerCalendario(): boolean {
+    return this.perms.hasAny(Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR, Permission.COMPRAS_CALENDARIO_CICLO);
+  }
   cargarAvisoCiclo(): void {
-    this.cicloAvisoError.set(false);
-    this.api.worklist({ via: 'purchase', pageSize: 1 })
+    this.avisoCalError.set(false);
+    this.calendarioApi.aviso()
       .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((r) => {
-        if (!r) { this.cicloAviso.set(null); this.cicloAvisoError.set(true); return; }
-        this.cicloAviso.set({
-          vencidos: Number(r.vencidos) || 0, hoy: Number(r.hoy) || 0, prox7: Number(r.prox7) || 0,
-          // Un servidor anterior a PQ.5 no manda proveedores: se declara, no se cuenta como 0.
-          prov_vencidos: r.prov_vencidos == null ? null : Number(r.prov_vencidos),
-          prov_hoy: r.prov_hoy == null ? null : Number(r.prov_hoy),
-        });
+        if (!r) { this.avisoCal.set(null); this.avisoCalError.set(true); return; }
+        this.avisoCal.set(r);
       });
   }
-  /** «N proveedores» cuando el servidor los cuenta; si no, se dice en canales y no se inventa el N. */
-  cicloAvisoProveedores(a: { vencidos: number; hoy: number; prov_vencidos: number | null; prov_hoy: number | null }): string {
-    if (a.prov_vencidos == null || a.prov_hoy == null) return `${a.vencidos + a.hoy} canal(es)`;
-    const n = a.prov_vencidos + a.prov_hoy;
-    return n === 1 ? '1 proveedor' : `${n} proveedores`;
-  }
+  /** «1 proveedor» · «130 proveedores». */
+  provs(n: number): string { return n === 1 ? '1 proveedor' : `${n.toLocaleString('es-MX')} proveedores`; }
 
   /** `days_to_due` viene del servidor: <0 vencido · 0 hoy · >0 falta. */
   atrasoTxt(r: AtrasoDe): string {

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { ETIQUETA_MOTIVO_NO_SE_PIDE } from '@megadulces/contracts';
 
-import { NOMBRE_ESCALON } from './calendario-compras-reglas';
+import { FUENTE_ACTIVIDAD, NOMBRE_ESCALON } from './calendario-compras-reglas';
 import { direccionDelManual } from '../../shared/components/manual-link/manual-link.component';
 
 /**
@@ -14,7 +14,8 @@ import { direccionDelManual } from '../../shared/components/manual-link/manual-l
  * rótulos DE LA PANTALLA (no de una lista escrita a mano) y exige que cada uno esté en el manual:
  * - las opciones de los controles segmentados y las cifras del encabezado (`label: '…', value:`);
  * - los botones con texto fijo (`p-button-label`), los rótulos de los formularios (`cc-label`) y las columnas (`<th>`);
- * - los estados (`estadoEnPalabras`), los motivos de «Hoy no se pide» y los escalones del embudo.
+ * - los estados (`estadoEnPalabras`), los motivos de «Hoy no se pide», los escalones del embudo y (`[PQ.3.29]`) las
+ *   fuentes de «Última atención» (`FUENTE_ACTIVIDAD`): una fuente nueva tiene que explicarse en el manual.
  *
  * Un rótulo NUEVO en la pantalla lo pone en rojo hasta que el manual lo enseñe (o se exime aquí, con su porqué).
  * ⚠️ No prueba que el manual explique bien cada rótulo: sólo que no enseña uno que la pantalla ya no tiene ni se
@@ -54,6 +55,7 @@ function rotulosDeLaPantalla(): string[] {
     ...todos(/etiqueta: `([^$`]+)/g, r),
     ...Object.values(ETIQUETA_MOTIVO_NO_SE_PIDE),
     ...Object.values(NOMBRE_ESCALON).map(plano),
+    ...Object.values(FUENTE_ACTIVIDAD),
   ])];
 }
 
