@@ -66,7 +66,7 @@ import { ComprasService } from '../compras.service';
           <tr>
             <th class="fl-exp" aria-label="Detalle"></th>
             <th>Requisición</th><th>Fecha</th><th>Suc.</th><th>Proveedor</th>
-            <th class="fl-r">Renglones</th><th class="fl-r">$ Pedido</th><th>Etapa</th>
+            <th class="fl-r">Renglones</th><th class="fl-r" title="El costo guardado en la requisición: sin IVA ni IEPS.">$ Pedido sin IVA</th><th>Etapa</th>
             <th title="OC de Kepler sugerida: misma sucursal y proveedor, la que trae más productos de la requisición">OC Kepler (sugerida)</th>
             <th title="Órdenes de entrada de esa OC: surtido en dinero">Entrada</th>
             <th class="fl-r" title="Productos de la requisición que no vinieron en la OC">Negados</th>
@@ -117,7 +117,7 @@ import { ComprasService } from '../compras.service';
             <td colspan="11">
               @if (r.motivo) { <p class="fl-motivo">{{ r.motivo }}</p> }
               <table class="fl-sub">
-                <thead><tr><th>SKU</th><th>Producto</th><th class="fl-r">$ Pedido</th><th>¿Vino en la OC?</th></tr></thead>
+                <thead><tr><th>SKU</th><th>Producto</th><th class="fl-r" title="El costo guardado en la requisición: sin IVA ni IEPS.">$ Pedido sin IVA</th><th>¿Vino en la OC?</th></tr></thead>
                 <tbody>
                   @for (l of r.lineas; track $index) {
                     <tr>
@@ -148,7 +148,7 @@ import { ComprasService } from '../compras.service';
         @if (negados().length) {
           <p-table [value]="negados()" size="small">
             <ng-template #header>
-              <tr><th>SKU</th><th>Producto</th><th>Proveedor</th><th class="fl-r">Negado</th><th class="fl-r">$ Negado</th></tr>
+              <tr><th>SKU</th><th>Producto</th><th>Proveedor</th><th class="fl-r">Negado</th><th class="fl-r" title="El costo guardado en la requisición: sin IVA ni IEPS.">$ Negado sin IVA</th></tr>
             </ng-template>
             <ng-template #body let-n>
               <tr>

@@ -113,6 +113,15 @@ declarar en qué se diferencian.
 Dos cifras con la misma etiqueta y distinto periodo, a un centímetro, son una sola cosa para quien
 lee. Si no podés nombrar el universo de un número, no lo publiques.
 
+### 1.7 Todo monto dice si lleva impuestos
+
+Una cifra de dinero sin su base es dos cifras posibles. Cada monto dice **«con IVA»**, **«sin IVA»**,
+**«con impuestos»** (IVA + IEPS) o **«a precio»**, en su encabezado, en la bajada del KPI o en su `title`. Y dos
+montos se suman o se dividen sólo si comparten base. En compras, el dinero se muestra **con impuestos desde el
+pedido**; lo que se guarda conserva la base de Kepler. *Caso: una OC de $202,496.92 y un «esperado $175,767» sin
+base hicieron preguntar si el IVA se cobraba dos veces, y el pedido valuaba sin impuestos lo que se paga con ellos
+(GOTCHAS §96).* Lo hace cumplir `npm run check:montos`.
+
 ---
 
 ## Capa 2 · Alcance — lo que importa se puede llegar

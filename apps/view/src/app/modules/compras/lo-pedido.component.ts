@@ -62,7 +62,7 @@ const FECHA_HORA_MX = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, day: '
           @if (porAprobar().length) {
             <section class="lp-sec">
               <div class="lp-sec-h">
-                <h3>Por aprobar · {{ dinero(totalPorAprobar()) }}</h3>
+                <h3>Por aprobar · {{ dinero(totalPorAprobar()) }} {{ baseTotal() }}</h3>
                 @if (puedeAutorizar && !rechazandoTodas()) {
                   <span class="lp-sec-acc">
                     <button pButton type="button" class="p-button-sm" [disabled]="ocupado()" (click)="aprobar(porAprobar())">
@@ -104,7 +104,7 @@ const FECHA_HORA_MX = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, day: '
                     <td class="lp-mono"><button type="button" class="lp-folio" [attr.aria-expanded]="detalleDe() === r.id" (click)="verDetalle(r)">{{ r.folio }}</button><span class="lp-quien">{{ quien(r) }}</span></td>
                     <td>{{ r.warehouse_name || (r.warehouse_code | sucursal) }}</td>
                     <td>{{ que(r) }}@if (r.requested_by_branch) { <span class="lp-muted"> · la pidió la sucursal</span> }</td>
-                    <td class="lp-r">{{ dinero(r.total_cost) }}</td>
+                    <td class="lp-r">{{ montoRq(r) }}</td>
                     <td class="lp-acc">
                       @if (puedeAutorizar) {
                         @if (rechazando() === r.id) {
@@ -132,14 +132,14 @@ const FECHA_HORA_MX = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, day: '
             } @else {
               <p-table [value]="recientes()" dataKey="id" size="small" class="surf-table surf-table--plain">
                 <ng-template #header>
-                  <tr><th>Folio</th><th>Sucursal</th><th>Qué</th><th class="lp-r">Costo</th><th>Estado</th><th>En Kepler</th></tr>
+                  <tr><th>Folio</th><th>Sucursal</th><th>Qué</th><th class="lp-r" title="Con el IVA y el IEPS de la ficha de Kepler.">Con impuestos</th><th>Estado</th><th>En Kepler</th></tr>
                 </ng-template>
                 <ng-template #body let-r>
                   <tr>
                     <td class="lp-mono"><button type="button" class="lp-folio" [attr.aria-expanded]="detalleDe() === r.id" (click)="verDetalle(r)">{{ r.folio }}</button><span class="lp-quien">{{ quien(r) }}</span></td>
                     <td>{{ r.warehouse_name || (r.warehouse_code | sucursal) }}</td>
                     <td>{{ que(r) }}</td>
-                    <td class="lp-r">{{ dinero(r.total_cost) }}</td>
+                    <td class="lp-r">{{ montoRq(r) }}</td>
                     <td>{{ estado(r.estado) }}</td>
                     <!-- [PQ.85] El freno de duplicados en DOS piezas: el hecho y, abajo y tenue, qué hacer. Entero
                          era un párrafo de 12 renglones en rojo que partía la tabla (RQ-2026-02269, 2026-11-06). -->
@@ -168,14 +168,14 @@ const FECHA_HORA_MX = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, day: '
           <p class="lp-mal">{{ detalleError() }}</p>
         } @else if (detalle(); as d) {
           <table class="lp-t lp-t-det">
-            <thead><tr><th>Producto</th><th>Para</th><th class="lp-r">Cajas</th><th class="lp-r">Costo</th></tr></thead>
+            <thead><tr><th>Producto</th><th>Para</th><th class="lp-r">Cajas</th><th class="lp-r" title="Con el IVA y el IEPS de la ficha de Kepler.">Con impuestos</th></tr></thead>
             <tbody>
               @for (l of d.lines; track l.id) {
                 <tr>
                   <td>{{ l.nombre }} <span class="lp-muted">{{ l.sku }}</span></td>
                   <td>{{ l.destination_warehouse_name || '—' }}</td>
                   <td class="lp-r">{{ l.final_qty | number:'1.0-2' }}</td>
-                  <td class="lp-r">{{ dinero(l.line_cost) }}</td>
+                  <td class="lp-r">{{ l.line_cost_ci != null ? dinero(l.line_cost_ci) : dinero(l.line_cost) + ' sin IVA' }}</td>
                 </tr>
               }
             </tbody>
@@ -269,7 +269,15 @@ export class LoPedidoComponent {
       : `${k} ya ${k === 1 ? 'tiene folio en Kepler y allá sigue viva' : 'tienen folio en Kepler y allá siguen vivas'}: rechazarla aquí no la cancela allá.`;
   });
   readonly deSucursalPorAprobar = computed<number>(() => this.porAprobar().filter((r) => r.requested_by_branch).length);
-  readonly totalPorAprobar = computed(() => this.porAprobar().reduce((a, r) => a + (Number(r.total_cost) || 0), 0));
+  // [PQ.164]/[PQ.165] Con impuestos si el servidor los midió en TODAS; si falta alguno, el sin IVA, dicho.
+  private readonly ciCompleto = computed(() => this.porAprobar().every((r) => r.total_cost_ci != null));
+  readonly totalPorAprobar = computed(() => this.porAprobar().reduce((a, r) =>
+    a + (Number(this.ciCompleto() ? r.total_cost_ci : r.total_cost) || 0), 0));
+  baseTotal(): string { return this.ciCompleto() ? 'con impuestos' : 'sin IVA'; }
+  /** [PQ.165] Cada monto dice su base: con impuestos (medido) o sin IVA (cuando no se midió). */
+  montoRq(r: RequisitionRow): string {
+    return r.total_cost_ci != null ? this.dinero(r.total_cost_ci) : `${this.dinero(r.total_cost)} sin IVA`;
+  }
   /** `[PQ.31]` Cuántas esperan aprobación en TODO el universo (el listado trae a lo más 200). */
   readonly totalPorAprobarN = signal(0);
   /** `[PQ.31]` El resumen por estado de las COMPRAS, sobre todas (no sobre la ventana de 100). */
@@ -284,7 +292,7 @@ export class LoPedidoComponent {
     const n = (e: RequisitionEstado): number | string => (res ? (res.find((x) => x.estado === e)?.n ?? 0) : '—');
     const sinMedir = res ? {} : { state: 'no_medido' as const, stateNote: 'El servidor no mandó el resumen de compras.' };
     return [
-      { label: 'Por aprobar', value: this.totalPorAprobarN(), sub: this.dinero(this.totalPorAprobar()) },
+      { label: 'Por aprobar', value: this.totalPorAprobarN(), sub: `${this.dinero(this.totalPorAprobar())} ${this.baseTotal()}` },
       { label: 'Compras aprobadas sin OC', value: n('approved'), ...sinMedir },
       { label: 'Compras ordenadas', value: n('ordered'), ...sinMedir },
       { label: 'Compras recibidas', value: n('received'), ...sinMedir },

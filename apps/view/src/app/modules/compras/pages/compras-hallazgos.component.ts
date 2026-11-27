@@ -60,7 +60,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <tr>
             <th>Severidad</th><th>SKU</th><th>Producto</th><th>Almacén</th><th>ABC</th>
             <th class="hz-r">Existencia</th><th class="hz-r">Reorden</th><th class="hz-r">OC a recibir</th>
-            <th class="hz-r">Sugerido</th><th class="hz-r">Costo est.</th><th>Proveedor</th><th>Detectado</th>
+            <th class="hz-r">Sugerido</th><th class="hz-r" title="Costo del catálogo con IVA e IEPS (cost_with_tax); si el producto no lo tiene, el costo base, que va sin impuestos.">Costo est. con impuestos</th><th>Proveedor</th><th>Detectado</th>
           </tr>
         </ng-template>
         <ng-template #body let-f>
