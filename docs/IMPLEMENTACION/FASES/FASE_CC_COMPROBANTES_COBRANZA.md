@@ -711,3 +711,68 @@ mostrando la deuda vieja hasta forzar el recálculo a mano. Ahora el servicio **
 
 `check:pantalla finanzas-cobranza`: tipa con **0 errores semánticos** y **0 fallas NUEVAS** · `check:templates`
 verde (603 componentes) · **204 pruebas** en `finance` y **23** en el componente. ⚠️ **Sin validación visual.**
+
+---
+
+## CC.34 — La prueba del timbre FALLÓ, y al medir por qué apareció la quinta tabla (2026-11-27)
+
+> Edgar probó en Kepler el cobro `06/U-A-7/0000900` que había escrito la Suite. Kepler contestó:
+> *«El CFDI asignado a este documento KEPLER, no puede ser procesado por esta página. Versión CFDI: (vacío).
+> Permitidas en esta versión: 4.0»* — lo mismo que con `0000886` (`CC.29`).
+
+### 1. Qué significa de verdad ese error
+
+No es que Kepler se niegue a timbrar: es que **nuestro cobro no tiene NINGUNA ficha de CFDI**, y esa página
+trabaja sobre una ficha que ya existe. Medido en `kdfe33m1` de la 06:
+
+| Estado de la ficha | Filas |
+|---|---:|
+| con versión y **sin** folio fiscal (creada, **sin timbrar**) | **124** |
+| con versión y con folio fiscal (timbrada) | 2,942 |
+| sin versión | 0 |
+
+⭐⭐ **Kepler escribe la ficha PRIMERO y la timbra después.** En el caso medido: creada 13:09:43, timbrada
+13:11:48 — **dos minutos**. Nosotros escribimos **cuatro** tablas (`kdm1`, `kdue`, `kdm5`, póliza) y Kepler
+escribe **cinco**. La quinta es la que esa pantalla busca.
+
+### 2. Qué lleva la quinta tabla, comparando una sin timbrar contra una timbrada
+
+| Al **crear** (lo que podría escribir la Suite) | Lo que pone **el PAC** y se queda vacío |
+|---|---|
+| folio del CFDI, folio del cobro, fecha, emisor, receptor, importes, **versión `4.0`**, dos banderas de estado | los dos sellos, las rutas del `.key` y del `.cer`, la ruta del XML, **el folio fiscal (UUID)** y el sello del SAT |
+
+⭐ Escribir esa ficha **no falsifica nada**: el UUID y los sellos quedan **vacíos**, que es exactamente como
+Kepler la deja hasta que el PAC contesta.
+
+### 3. ⚠️ Pero tener la ficha NO garantiza el timbre
+
+De esas 124 sin timbrar, **21 son cobros `U-A-7` de septiembre**: llevan dos meses con su ficha creada y
+**nunca se timbraron**. Cuando la llamada al PAC falla, **nadie vuelve** — ni por el camino propio de Kepler.
+Es el mismo hallazgo de `CC.32` visto desde la otra punta.
+
+### 4. Lo que se hizo con el cobro de prueba
+
+Se **borró** `0000900` (`ops/prod/kepler-grants/cc34_borrar_cobro_suite_0000900.sql`), con las guardas de
+`CC.29` y ensayado antes en `BEGIN … ROLLBACK`. Verificado **fuera de la transacción**: la factura
+`8-1-0001446` vuelve a deber $15,539.63 y el cliente a $44,961.04.
+
+⛔ Y los **dos pasos de afuera** que `CC.30` enseñó: el espejo no ve los DELETE, así que quedó **1 fila
+fantasma en `kepler_ods.kdue`** —`kdm1` y `kdm5` sí se habían ido— que se limpió a mano antes de recalcular
+la cartera. Sin eso, el cliente aparecía debiendo $15,539.63 de menos.
+
+⛔ El folio `0000900` se consumió del contador y **no se retrocede**: queda un hueco. Se declara.
+
+### 5. Dónde queda el módulo
+
+**El interruptor `cobro` sigue APAGADO en las nueve sucursales** (verificado en prod: 9 filas, 0 encendidas,
+migración en batch 1281). `CC.33` está sellado y en `main`; con el interruptor apagado no cambia nada.
+
+| | Qué falta | Quién |
+|---|---|---|
+| **1** | Escribir la quinta tabla (`kdfe33m1` al crear) y probar con un **canario nuestro**, no con el cobro de un cliente | Claude |
+| **2** | Si con la ficha Kepler timbra → se enciende. Si no → `D-CC2`: la Suite prepara y la persona captura (lo que ya hace `CC.31`) | la prueba decide |
+
+⚠️ **La migración de `CC.33` no entraba en prod**: `kepler_push_switch_tipo_ck` enumera los tipos y `'cobro'`
+no estaba, así que el INSERT la violaba y **congeló el despliegue** (cuatro PRs sellados esperando). Lo
+corrigió otra sesión (`bcae544ac`) leyendo el CHECK con `pg_get_constraintdef` en vez de copiar la lista al
+código. **El defecto era mío**: no medí el dominio del tipo antes de insertar.
