@@ -177,3 +177,24 @@ describe('[CB.62.4] terminar lo que la Suite dejó a medias', () => {
     expect(r).toHaveLength(0);
   });
 });
+
+/**
+ * ⛔⛔ **La misma frontera, el mismo día, el mismo error.** `dia_venta` es una columna `date`, así que
+ * `pg` la entrega como objeto `Date`, y la propuesta trae un string `YYYY-MM-DD`. Compararlos con
+ * `===` falla SIEMPRE y en silencio: el día no se retoma y nada avisa.
+ *
+ * Pasó el 2026-11-27 con el retome recién desplegado, después de haber arreglado esa misma trampa esa
+ * misma sesión en `comisiones_kepler_desde` («Tue Nov 1»). Por eso la prueba va con un `Date` de
+ * verdad: un caso escrito con strings no habría visto nada.
+ */
+describe('[CB.62.4] el retome cuando la bitácora entrega Date, que es lo que hace pg', () => {
+  it('⭐ un dia_venta que llega como Date encuentra su día igual', () => {
+    const r = diasARetomar([diaParcial()], [enBitacora({ dia_venta: new Date(2026, 10, 15) })]);
+    expect(r).toHaveLength(1);
+  });
+
+  it('y un Date de OTRO día no lo encuentra: la normalización no puede volverse un comodín', () => {
+    const r = diasARetomar([diaParcial()], [enBitacora({ dia_venta: new Date(2026, 10, 16) })]);
+    expect(r).toHaveLength(0);
+  });
+});
