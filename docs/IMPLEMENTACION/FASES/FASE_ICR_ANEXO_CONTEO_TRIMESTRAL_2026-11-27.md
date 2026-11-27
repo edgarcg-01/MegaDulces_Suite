@@ -92,6 +92,20 @@ cierra una persona. Lo que es cierto es que **nunca se usó**: `inventory_kepler
 ⛔ Y queda en pie la incoherencia de fondo: en modo `erp` el folio **compara contra el ODS** (Kepler)
 y **corrige `commercial.stock`**. Compara contra un libro y corrige otro.
 
+⭐⭐ **Peor: ese otro libro está muerto, y por decisión.** Medido el 2026-11-27: las 8 sucursales
+tienen su última escritura en `commercial.stock` el **2026-11-25 a las 16:05:04.041** — **el mismo
+milisegundo para todas**, o sea una última corrida. El motivo está en el código:
+*«RETIRADO 2026-11-25 `[CANON.7.5]` (Edgar: "hay que matar ese importer")»*, y el commit se llama
+**«la existencia es el ODS y punto»**. El CEDIS quedó parado desde el 16-oct y un almacén de Morelia
+desde el 10-sep.
+
+Así que la reconciliación **escribe su ajuste en una tabla que nadie va a volver a alimentar**. Las
+484 diferencias contra el ODS en Yurécuaro no son un importer que falla: son **dos días de ventas
+que esa tabla ya no ve**. ⚠️ Para el martes no bloquea nada —lo que cierra el ciclo es el archivo de
+exportación con su acuse— pero quien compare la existencia de la Suite contra Kepler después del
+conteo **no va a cuadrar, y no por el conteo**. Retirar las copias es trabajo posterior al piloto y
+está encargado aparte.
+
 ---
 
 ## 3. Lo medido el 2026-11-27
@@ -285,11 +299,18 @@ la próxima sesión gaste el día en estos cuatro.
 | El **teórico está atrasado** y todas las diferencias salen mal | El feed de existencia de Kepler (`kepler_ods.kdil`) tiene **1 segundo** de antigüedad | **Falso.** El ODS es vivo |
 | Dos capturas simultáneas del mismo renglón **se pisan** | `submitCount` toma el renglón con `FOR UPDATE` | **Falso.** No hay carrera |
 | No se puede registrar **«aquí no hay nada»** | La validación admite `quantity >= 0` | **Falso.** El cero es capturable, que es lo que vuelve un hueco un faltante contado |
+| Se pueden abrir **dos folios del mismo almacén** y pisarse | Hay **dos** guardas: una sola sesión viva por (almacén, ritmo), y además **ningún SKU puede estar en dos folios vivos** — con el motivo escrito en el código: *«el segundo ajuste pisaría al primero»* | **Falso.** Bien guardado, en dos capas |
+| Alguien puede abrir el folio contra **la fuente equivocada** | La fuente **no se elige a mano**: el servicio prueba el ODS primero y sólo baja a las copias si el ODS no devuelve nada. Yurécuaro tiene 2,024 filas ahí | **Falso.** El folio del martes nace contra Kepler sí o sí |
+| `public.products` es un **segundo catálogo** que diverge del del ODS | Es una **vista** sobre `catalog.products`: mismas 14,986 filas, **0 divergencia** | **Falso.** Es un alias, no un catálogo |
 
-### 5.1 Los siete patrones nuevos (2026-11-27)
+### 5.1 Los nueve patrones nuevos (2026-11-27)
+
+> ⛔⛔ **E8 va primero porque es el único que, solo, impide que el martes ocurra.**
 
 | # | Patrón | Lo medido | Qué lo previene | |
 |---|---|---|---|:--:|
+| **E8** | ⛔⛔ **Nadie en Yurécuaro puede contar.** Y no es que les falte la llave: a tres de ellos **está puesta en «no»**, explícitamente | Las **8** personas de la sucursal —4 cajeras, la encargada de tienda, el de etiquetas, un vendedor de ruta y el verificador— tienen **0** de las llaves de contar, supervisar y reconciliar. En toda la empresa pueden contar **24** (17 de oficina, 3 de Padre Hidalgo, 2 de la 06, 2 sueltas). Los únicos roles operativos con la llave son `almacenista` y `superadmin`. ⚠️ `almacenista` **puede contar pero no supervisar**: no ve el avance de nada | **Repartir las llaves el lunes**, y que cada persona **vuelva a entrar** después (los permisos viajan en la sesión: sin eso, el martes es 403). Es acción de Edgar, no de Claude: son personas y es producción | ⛔ |
+| **E9** | ⛔ **Cuatro de cada diez códigos pueden no machear.** La resolución compara la cadena **tal cual**, sin normalizar | En el folio de Yurécuaro conviven **1,468 códigos de 13 dígitos y 786 de 12**, más 36 de 8 y 20 de 14. **117** de los de 12 ya empiezan con cero, y **16 códigos existen en las dos formas a la vez**. Un lector configurado para EAN-13 le pone un cero adelante a un UPC-A y deja de machear: hasta **786 productos, el 39 % del folio**. ⚠️ Y los 20 de 14 dígitos **empiezan con `0`**: son EAN-13 ya rellenados en nuestros propios datos | Probar el lector el lunes (**§6b, la hoja de ocho disparos**) y normalizar en el servidor: exacto primero, sin ceros a la izquierda después. **Control medido:** normalizar lleva los ambiguos de **7 a 9** sobre 2,313. ⛔ Los 9 ambiguos **se preguntan, no se adivinan** — hoy una CUCHARA y un TENEDOR comparten código | 🔨 |
 | **E1** | ⛔ **El umbral de recuento nace en CERO**, así que la red de seguridad está **apagada por defecto**: ni el count-back («aunque los dos coincidan, si la diferencia es grande va a revisión») ni la exigencia de motivo en una diferencia material | `recount_threshold_pct` `notNullable().defaultTo(0)` (migración `20260618190000`), y los dos guards son `if (umbral > 0)` | **Fijarlo al abrir el folio.** Es lo más barato y lo que más protege | 🔨 |
 | **E2** | ⛔ **Contar en cajas multiplica el error y el factor no se puede verificar.** Una caja mal convertida son 24 unidades de diferencia | **1,905 de 2,024** artículos de Yurécuaro tienen factor de caja. De los 133 con código de caja, **123 discrepan** del factor del ERP y **11 coinciden** | Que la pantalla **muestre la cuenta antes de aceptar** —«3 cajas × 24 = 72 paquetes»— y deje corregir el factor ahí | 🔨 |
 | **E3** | ⛔ **La foto del teórico envejece.** El folio congela el teórico **al abrirse**; si se abre el día antes, cada diferencia carga un día de ventas | El ODS es vivo (1 s), así que el desfase lo introduce **el momento de abrir**, no la ingesta | **El folio se abre el martes**, con la sucursal ya cerrada. El lunes se preparan racks y mapeo, no el folio | ⛔ |
@@ -382,8 +403,39 @@ Sin eso, nada del protocolo tiene dónde pararse.
 
 ### De los dispositivos
 
-- [ ] Cargados, y con el escáner probado contra un producto real.
+- [ ] Cargados, y con el escáner probado contra un producto real — **la hoja de abajo**.
 - [ ] **Probado el modo sin internet con varias personas a la vez.** Nunca se hizo.
+- [ ] **Cada dispositivo abre el folio CON red** antes de empezar: si llega sin conexión, no se
+      descarga el catálogo y ese teléfono no puede resolver ningún código.
+
+### ⭐ La prueba del escáner — ocho disparos, con productos reales de Yurécuaro
+
+> ⛔ **Esto no se puede medir desde la base: hay que apretar el gatillo.** Lo que decide el día no
+> es qué código tenemos guardado, sino **qué cadena escupe el lector**. Son cinco minutos y evita
+> descubrir el martes que el 39 % del folio «no existe».
+>
+> Para cada disparo se anota **exactamente** lo que aparece en el campo, dígito por dígito, y si el
+> producto se reconoció.
+
+| # | Qué probar | Código guardado | Producto | Qué se espera, y qué significa si falla |
+|---|---|---|---|---|
+| 1 | **UPC-A de 12** ⬅ el crítico | `719886052026` | PELON PELO RICO TAM BLS 12P (caja) | Si el lector devuelve **13 dígitos con un `0` adelante**, no va a machear. Son **786 productos, el 39 % del folio** |
+| 2 | **UPC-A de 12**, segunda prueba | `719886211713` | PELON PELO RICO TAM BLS 12P (pieza) | Mismo SKU que el 1 pero en otra unidad: confirma que el lector no mezcla |
+| 3 | **EAN-13** | `7622210529688` | HALLS TUBO XTRA STRONG LYPTUS (pieza) | Tiene que salir idéntico. Es el caso sano |
+| 4 | **EAN-13 de caja** | `7622210426987` | HALLS TUBO XTRA STRONG LYPTUS (caja) | Al escanear la caja, ¿la pantalla ofrece contar en cajas? |
+| 5 | **EAN-8** | `80050315` | KINDER BARRITA / 18 | ¿El lector lo alarga a 13? Son 36 códigos |
+| 6 | **Catorce dígitos** | `07503057269015` | LEVI CHAROLA 855/50 (caja) | ⚠️ Empieza con `0`: **es un EAN-13 rellenado a 14**. La prueba de que el relleno ya pasó en nuestros propios datos |
+| 7 | ⛔ **Código ambiguo** | `0001002010103` | **CUCHARA GRANDE BIO** *y* **TENEDOR MEDIANO**, los dos de Reyher | Hoy el sistema elige uno **al azar**. Tiene que preguntar, no adivinar. Hay 7 así en el folio |
+| 8 | **Sin código: búsqueda por nombre** | — | `AGUINALDO ESPECIAL / MEGA DULCES` (432 unidades) | Son **196 productos (10 %)**, casi todos de marca propia. ¿Se encuentran escribiendo? ¿Y sin red? |
+
+**Los otros dos códigos ambiguos que conviene conocer**, porque son productos que se parecen y están
+juntos en el anaquel: `018804060113` (JARRITOS GUMMIES **y** JARRITOS SOUR GUMMIES, Canel's) y
+`4500000500112` (ALTOS BAJA CORTADA **y** ALTOS ROLLO BAJA).
+
+⭐ **Si el disparo 1 devuelve el cero de adelante**, el arreglo del servidor —probar el código tal
+cual y después sin ceros a la izquierda— deja de ser conveniente y pasa a ser **obligatorio antes
+del martes**. Ya está encargado, y su control negativo está medido: normalizar lleva los códigos
+ambiguos de **7 a 9** sobre 2,313, o sea dos más.
 
 ### Del sistema (Claude)
 
@@ -409,7 +461,8 @@ Sin eso, nada del protocolo tiene dónde pararse.
 |---|---|---|---|
 | **A1** | ¿Se conserva la negación de que **una misma persona haga el 1.er y el 2.º conteo** del mismo producto? | **Sí.** Es lo único que hace real al doble conteo ciego | Edgar |
 | **A2** | ¿Cuántos racks tiene Yurécuaro y **cuánta gente** cuenta? | Define cuántos racks por persona y si el día alcanza | Edgar |
-| **A3** | **Quién autoriza** la reconciliación, y que no cuente | De oficinas, designado desde el lunes | Edgar |
+| **A3** | **Quién autoriza** la reconciliación, y que no cuente | De oficinas, designado desde el lunes. ⭐ Medido: reconciliar lo pueden **12 personas**, todas de oficina o compras, así que la segregación se cumple sola | Edgar |
+| **A6** | ⛔⛔ **A quién se le reparte la llave de contar** (E8). Hoy **nadie en Yurécuaro la tiene**, y a tres les está puesta en «no» | Claude prepara el diff exacto de llaves por persona en cuanto Edgar diga quiénes cuentan. **Sin esto el martes no ocurre** | Edgar |
 | **A4** | **Quién mapea** los productos a los racks de Yurécuaro | Alguien de la sucursal, el lunes, por marca | Edgar |
 | **A5** | ¿El trimestral corre con **doble conteo ciego**? Duplica el trabajo (2,024 → 4,048 capturas) | **Sí** en el piloto: es lo que protege del escaneo equivocado, que es invisible | Edgar |
 
@@ -421,4 +474,5 @@ Sin eso, nada del protocolo tiene dónde pararse.
 |---|---|
 | 2026-11-27 | Conversación con Edgar. Se acota la fase **sólo al trimestral**, se fija el piloto (**Yurécuaro, martes 1-dic**) y se acuerda el protocolo de toma de rack. Se mide que **el módulo nunca se usó** (máximo 3 artículos contados de 3,666) y aparecen **F31–F35**. Edgar firma el ajuste a Kepler, el cierre de la sucursal para contar, y la regla **«no negarlo, sólo advertirlo»**. Quedan abiertas A1–A5. |
 | 2026-11-27 | Edgar resuelve el fin de cola (§4.6): se pasa solo a la segunda vuelta, el libre **puede unirse** al rack ocupado porque el aviso anuncia el traslape, y el supervisor puede **liberar** un rack. De ahí sale que **el histórico es del rack, no de la persona**. |
+| 2026-11-27 | Siguen los patrones. **E8**: medido con las tres vías del permiso, **nadie en Yurécuaro puede contar** — es el único hallazgo que, solo, impide el martes. **E9**: la resolución del código de barras no normaliza y conviven dos formatos (1,468 de 13 dígitos contra 786 de 12), así que hasta el 39 % del folio podría no machear; se agrega la **hoja de ocho disparos** (§6b) porque eso sólo se mide apretando el gatillo. Y se descubre que `commercial.stock` **está muerta por decisión** (`[CANON.7.5]`, 2026-11-25): la reconciliación escribe en una tabla que ya nadie alimenta. Cuatro riesgos más descartados con medición (§5.0). |
 | 2026-11-27 | Edgar pide buscar más patrones de error. Se agregan **E1–E7** (§5.1) y, antes, los **cuatro riesgos descartados con medición** (§5.0): el catálogo duplicado no toca a Yurécuaro, el ODS no está atrasado, no hay carrera entre capturas y el cero sí es capturable. El más grave de los nuevos: **el umbral de recuento nace en cero**, o sea que la red de seguridad está apagada salvo que se encienda al abrir el folio. Se agrega la **lista de verificación del lunes** (§6b). |
