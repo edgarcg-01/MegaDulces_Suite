@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Compras › Revisión de facturas: no ofrece validar donde no puedes, y cuando algo falla dice por qué (RE.89 · 2026-11-26 · en código, sin soltar)
+- Quien ve todas las sucursales pero no escribe en ellas (Dirección) ya no ve «Dar por buena», «Devolver», «Descartar», «Reactivar» ni «Ligar» en las entradas donde el servidor se lo iba a rechazar. En el panel, donde iría «Dar por buena», dice «Sólo consulta: tu acceso no incluye validar en …». El estado «Validada» o «Devuelta» se sigue viendo, y el lote cuenta sólo lo que se puede aprobar.
+- «No se pudo validar» y «No se pudo devolver» traen el motivo del servidor; antes decía «Error al validar» a secas. Lo encontró Francisco en prod: dos intentos, dos 403 de alcance que no se explicaban.
+- Internal: `puedeEscribirEn()` en `DataScopeService`, el mismo criterio que `ScopeService.canWrite` del servidor; `ScopeDim` declara `valuesWrite`, que `me/scope` ya mandaba. Sin migración ni cambios de API.
+
 ### Added — Almacén › Ubicaciones: el croquis de la sucursal se acomoda arrastrando (UB.PL.8 · 2026-11-26 · en código, sin soltar)
 - El mapa deja de dibujar todo como pasillos: se toma cada mueble y se suelta en un renglón, hasta que la planta se parece a la tienda. Se puede con el mouse y también sin mouse, con el teclado.
 - La planta abre siempre con un renglón libre al final, y la bandeja «Sin lugar» dice cuántas piezas faltan y cómo se llaman.
