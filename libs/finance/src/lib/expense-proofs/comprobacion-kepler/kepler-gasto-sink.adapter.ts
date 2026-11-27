@@ -4,7 +4,7 @@ import { reservarFolioKepler, urlDeServidor, valorDeEnv, type Env, type FolioRes
 
 import { armarGastoKepler, polizaCuadra, type PlanGastoKepler } from '../../shared/gasto-kepler.armador';
 import { columnaCargoKdxg, columnasKdc126, tablaPolizaDelMes } from '../../shared/kepler-contable';
-import { clonarFila, insertarFila } from '../../shared/kepler-filas';
+import { clonarFila, insertarCompleta, insertarFila, sumarAcumuladoAcreedor, vacioDeTipo } from '../../shared/kepler-filas';
 
 /**
  * `[PGP.123]` G.7 C2 — **Escribe en Kepler la comprobación del gasto (`X-A-10` «Alta gasto CFDI») de una solicitud
@@ -133,25 +133,10 @@ const COLUMNA = /^c\d{1,3}$/;
 
 type Valor = string | number;
 
-/** Lo «vacío» de una columna de Kepler, como lo dejan los gastos medidos: texto en blanco, número en cero. */
-export function vacioDeTipo(tipo: string): Valor {
-  if (/char|text/.test(tipo)) return '';
-  if (/timestamp|date/.test(tipo)) return '1800-01-01';
-  if (/bool/.test(tipo)) return 0;
-  return 0;
-}
-
-/** Inserta en `tabla` una fila COMPLETA: lo que dice el plan y, en las demás columnas, lo vacío de su tipo. */
-export async function insertarCompleta(c: PoolClient, tabla: string, valores: Record<string, Valor>): Promise<void> {
-  const cols = (await c.query(
-    `SELECT a.attname AS n, format_type(a.atttypid, a.atttypmod) AS t FROM pg_attribute a
-      WHERE a.attrelid = $1::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`, [tabla])).rows as { n: string; t: string }[];
-  const conocidas = new Set(cols.map((x) => x.n));
-  for (const k of Object.keys(valores)) if (!conocidas.has(k)) throw new Error(`El plan trae ${k}, que no existe en ${tabla}`);
-  const fila: Record<string, Valor> = {};
-  for (const x of cols) fila[x.n] = valores[x.n] ?? vacioDeTipo(x.t);
-  await insertarFila(c, tabla, fila);
-}
+// `[PGP.172]` `vacioDeTipo` e `insertarCompleta` vivían acá y se movieron a `../../shared/kepler-filas`:
+// las necesitan los tres escritores que tocan los acumulados, no sólo éste (ADR-056). Se re-exportan
+// porque el ensayo y las pruebas de este adaptador las importan por su nombre de aquí.
+export { insertarCompleta, vacioDeTipo };
 
 @Injectable()
 export class KeplerGastoSinkAdapter implements OnModuleDestroy {
@@ -240,12 +225,12 @@ export class KeplerGastoSinkAdapter implements OnModuleDestroy {
         throw new Error(`La celda ${m.concepto}/${m.departamento}/${m.proyecto}/${m.periodo} (kdcn26) trae ${x.rowCount} filas en ${w.sucursal}`);
       }
     }
-    const colG = columnaCargoKdxg(a.mes);
-    if (!COLUMNA.test(colG)) throw new Error(`Columna inválida: ${colG}`);
-    const g = await c.query(
-      `UPDATE md.kdxg SET ${colG} = ${colG} + $1, c4 = greatest(c4, $2::timestamp), c6 = greatest(c6, $2::timestamp)
-        WHERE btrim(c1) = 'PESOS' AND btrim(c2) = $3 AND btrim(c3) = $4`, [a.kdxg.cargo, a.kdxg.fecha, w.sucursal, a.kdxg.acreedor]);
-    if (g.rowCount !== 1) throw new Error(`El acumulado del acreedor ${a.kdxg.acreedor} (kdxg) trae ${g.rowCount} filas en ${w.sucursal}: se esperaba una`);
+    // `[PGP.172]` El acumulado del acreedor NACE con este cargo si el acreedor nunca tuvo movimiento aquí:
+    // `kdxg` es un acumulado, no un catálogo (ver `sumarAcumuladoAcreedor`). El gasto sube `c4` y `c6`.
+    await sumarAcumuladoAcreedor(c, {
+      sucursal: w.sucursal, acreedor: a.kdxg.acreedor, columna: columnaCargoKdxg(a.mes),
+      importe: a.kdxg.cargo, fecha: a.kdxg.fecha, fechas: ['c4', 'c6'],
+    });
 
     w.commitEnviado = true;
     await c.query('COMMIT');
@@ -362,12 +347,12 @@ export class KeplerGastoSinkAdapter implements OnModuleDestroy {
         await c.query('ROLLBACK');
         return { estado: 'rechazado', motivo: `Kepler (${e.sucursal}) no tiene exactamente una fila de ${faltan.join(', ')} en kdc126: Kepler la crearía; se captura a mano`, reintentable: false };
       }
-      const xg = Number((await c.query(`SELECT count(*)::int n FROM md.kdxg WHERE btrim(c1) = 'PESOS' AND btrim(c2) = $1 AND btrim(c3) = $2`,
-        [e.sucursal, plan.acumulados.kdxg.acreedor])).rows[0].n);
-      if (xg !== 1) {
-        await c.query('ROLLBACK');
-        return { estado: 'rechazado', motivo: `Kepler (${e.sucursal}) trae ${xg} filas del acreedor ${plan.acumulados.kdxg.acreedor} en kdxg: se esperaba una; se captura a mano`, reintentable: false };
-      }
+      // `[PGP.172]` Acá se rechazaba el gasto cuando el acreedor no tenía todavía su fila de acumulado en
+      // `kdxg`, con `reintentable: false` y «se captura a mano». Medido el 2026-11-27: eso era el 80.7 % de
+      // los pares (sucursal, acreedor) del catálogo —en Zamora Centro, 724 de 747—, o sea el PRIMER gasto de
+      // casi cualquier acreedor. Ahora la fila nace con el movimiento, igual que la crearía Kepler, y lo
+      // hace `sumarAcumuladoAcreedor`. Lo único que sigue siendo motivo de rechazo es que haya MÁS de una
+      // fila propia, que ya no se puede resolver adivinando: eso revienta ruidoso donde se escribe.
 
       // ── Las filas, en temporales: el gasto y sus renglones clonados de la solicitud; kdxe y la póliza, completas ──
       await c.query('CREATE TEMP TABLE _h (LIKE md.kdm1) ON COMMIT DROP');

@@ -95,9 +95,13 @@ export async function revisarEscrituraGasto(c: PoolClient, w: EscrituraGastoKepl
     if (n === 0) nuevas.push(`${m.concepto}/${m.departamento}/${m.proyecto}`);
   }
   if (nuevas.length) avisos.push(`kdcn26: ${nuevas.length} celdas nuevas en ${plan.acumulados.periodo} (${nuevas.slice(0, 4).join(', ')}${nuevas.length > 4 ? '…' : ''})`);
+  // `[PGP.172]` Mismo trato que `kdcn26`, doce líneas más arriba: SOBRAR filas bloquea (no se adivina cuál),
+  // pero que FALTE la fila no es un problema — el acumulado del acreedor nace con el movimiento, igual que lo
+  // crearía Kepler. Antes esto bloqueaba el 80.7 % de los pares (sucursal, acreedor) del catálogo.
   const xg = Number((await c.query(`SELECT count(*)::int n FROM md.kdxg WHERE btrim(c1) = 'PESOS' AND btrim(c2) = $1 AND btrim(c3) = $2`,
     [w.sucursal, plan.acumulados.kdxg.acreedor])).rows[0].n);
-  if (xg !== 1) no.push(`kdxg: el acreedor ${plan.acumulados.kdxg.acreedor} trae ${xg} filas`);
+  if (xg > 1) no.push(`kdxg: el acreedor ${plan.acumulados.kdxg.acreedor} trae ${xg} filas propias en ${w.sucursal}`);
+  if (xg === 0) avisos.push(`kdxg: el acreedor ${plan.acumulados.kdxg.acreedor} no tenía movimientos en ${w.sucursal}; su acumulado NACE con este gasto`);
 
   // ── El folio y el contador ───────────────────────────────────────────────────────────────────────────────────────
   const ct = w.contador;
@@ -119,7 +123,8 @@ export async function revisarEscrituraGasto(c: PoolClient, w: EscrituraGastoKepl
     [`has_table_privilege(current_user, '${t}', 'INSERT') AND has_table_privilege(current_user, '${t}', 'SELECT')`, `SELECT, INSERT ${t}`],
     [`has_table_privilege(current_user, 'md.kdc126', 'UPDATE') AND has_table_privilege(current_user, 'md.kdc126', 'SELECT')`, 'SELECT, UPDATE md.kdc126'],
     [`has_table_privilege(current_user, 'md.kdcn26', 'UPDATE') AND has_table_privilege(current_user, 'md.kdcn26', 'INSERT') AND has_table_privilege(current_user, 'md.kdcn26', 'SELECT')`, 'SELECT, INSERT, UPDATE md.kdcn26'],
-    [`has_table_privilege(current_user, 'md.kdxg', 'UPDATE') AND has_table_privilege(current_user, 'md.kdxg', 'SELECT')`, 'SELECT, UPDATE md.kdxg'],
+    // `[PGP.172]` INSERT además de UPDATE: la fila del acreedor nace aquí cuando es su primer movimiento.
+    [`has_table_privilege(current_user, 'md.kdxg', 'UPDATE') AND has_table_privilege(current_user, 'md.kdxg', 'INSERT') AND has_table_privilege(current_user, 'md.kdxg', 'SELECT')`, 'SELECT, INSERT, UPDATE md.kdxg'],
     [`has_column_privilege(current_user, 'md.sqliov', 'c4', 'UPDATE')`, 'UPDATE (c4) md.sqliov'],
     [`has_table_privilege(current_user, 'md.kdmm', 'SELECT') AND has_table_privilege(current_user, 'md.kdc3', 'SELECT')`, 'SELECT md.kdmm, md.kdc3'],
   ] as const) {

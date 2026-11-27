@@ -4,6 +4,7 @@ import { normalizarSucursal, reservarFolioKepler, urlDeServidor, valorDeEnv, typ
 
 import { TIPO_CHEQUE, TIPO_TRANSFERENCIA, armarPagosKepler, escrituraDePagoEncendida, type FacturaAPagar, type PlanPagoKepler, type ProveedorKepler } from './pago-kepler.armador';
 import { columnaAbonoKdxg, columnasKdc126, tablaPolizaDelMes } from '../../shared/kepler-contable';
+import { sumarAcumuladoAcreedor } from '../../shared/kepler-filas';
 
 /** Una factura del pago, como la conoce la Suite: la llave del documento en Kepler y lo aplicado. */
 export interface FacturaDelPago {
@@ -71,7 +72,7 @@ export function mesAnterior(fecha: string): string {
 
 /** Sólo nombres de columna de Kepler (`c1`…`c200`): lo que se interpola en el SQL nunca viene de fuera. */
 const COLUMNA = /^c\d{1,3}$/;
-const TABLA_POLIZA = /^kdc2\d{4}$/;
+export const TABLA_POLIZA = /^kdc2\d{4}$/;
 function setDe(cols: Record<string, unknown>, desde: number): { sql: string; valores: unknown[] } {
   const ks = Object.keys(cols);
   for (const k of ks) if (!COLUMNA.test(k)) throw new Error(`Columna inválida en el plan: ${k}`);
@@ -79,7 +80,7 @@ function setDe(cols: Record<string, unknown>, desde: number): { sql: string; val
 }
 
 /** Copia la fila base (`desde`, una fila) a `hacia` y le pisa las columnas: así ninguna `NOT NULL` queda sin valor. */
-async function clonarFila(c: PoolClient, desde: string, hacia: string, cols: Record<string, unknown>): Promise<void> {
+export async function clonarFila(c: PoolClient, desde: string, hacia: string, cols: Record<string, unknown>): Promise<void> {
   const r = await c.query(`INSERT INTO ${hacia} SELECT * FROM ${desde} RETURNING ctid::text AS t`);
   if (r.rowCount !== 1) throw new Error(`La fila base ${desde} trae ${r.rowCount} filas: se esperaba una`);
   const s = setDe(cols, 2);
@@ -87,7 +88,7 @@ async function clonarFila(c: PoolClient, desde: string, hacia: string, cols: Rec
 }
 
 /** Inserta una fila construida entera (sin plantilla): `kdxf` y `kdm5`, cuyas columnas se conocen todas. */
-async function insertarFila(c: PoolClient, hacia: string, fila: Record<string, unknown>): Promise<void> {
+export async function insertarFila(c: PoolClient, hacia: string, fila: Record<string, unknown>): Promise<void> {
   const ks = Object.keys(fila);
   for (const k of ks) if (!COLUMNA.test(k)) throw new Error(`Columna inválida en el plan: ${k}`);
   await c.query(`INSERT INTO ${hacia} (${ks.join(', ')}) VALUES (${ks.map((_, i) => `$${i + 1}`).join(', ')})`, ks.map((k) => fila[k]));
@@ -187,14 +188,15 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
     const a0 = w.documentos[0].plan.acumulados;
     const fecha = String(w.documentos[0].plan.poliza.fecha);
     const abono = Math.round(w.documentos.reduce((s, d) => s + d.plan.acumulados.abonoAcreedor * 100, 0)) / 100;
-    const colG = columnaAbonoKdxg(a0.mes);
-    // [PGP.131] La fila del acreedor es la de ESTE servidor (`c2` = sucursal), como la busca el escritor del gasto
-    // (`kepler-gasto-sink.adapter.ts`): La Piedad Abastos y 8 Esquinas guardan además filas de otras sucursales
-    // (medido 2026-11-20: en 8 Esquinas, 114 filas de 01, 02 y 03; la propia es única por acreedor en los 9 servidores).
-    const g = await c.query(
-      `UPDATE md.kdxg SET ${colG} = ${colG} + $1, c4 = greatest(c4, $2::timestamp), c7 = greatest(c7, $2::timestamp)
-        WHERE btrim(c3)=$3 AND btrim(c1)='PESOS' AND btrim(c2)=$4`, [abono, fecha, a0.acreedor, w.sucursal]);
-    if (g.rowCount !== 1) throw new Error(`El acumulado del acreedor ${a0.acreedor} (kdxg) trae ${g.rowCount} filas en ${w.sucursal}: se esperaba una`);
+    // [PGP.131] La fila del acreedor es la de ESTE servidor (`c2` = sucursal): La Piedad Abastos y 8 Esquinas
+    // guardan además filas de otras sucursales (medido 2026-11-20: en 8 Esquinas, 114 filas de 01, 02 y 03).
+    // `[PGP.172]` Y si el acreedor nunca tuvo movimiento aquí, la fila NACE con este abono en vez de reventar a
+    // media escritura: medido el 2026-11-27, de los 6 acreedores bancarios del catálogo sólo 1 tenía acumulado
+    // en casi toda sucursal (39 de 53 pares sin fila), así que la primera comisión de otro banco fallaba.
+    await sumarAcumuladoAcreedor(c, {
+      sucursal: w.sucursal, acreedor: a0.acreedor, columna: columnaAbonoKdxg(a0.mes),
+      importe: abono, fecha, fechas: ['c4', 'c7'],
+    });
 
     const porCuenta = new Map<string, { cargo: number; abono: number }>();
     for (const d of w.documentos) for (const m of d.plan.acumulados.cuentas) {
