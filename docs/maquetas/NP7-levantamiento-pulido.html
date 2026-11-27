@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Levantamiento — pulido</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Geist+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/primeicons@7.0.0/primeicons.css" rel="stylesheet">
+<style>
+/* Valores de libs/design-tokens/tokens.css, modo oscuro de Operations (el de las capturas de prod). */
+:root{
+  --font-body:'Hanken Grotesk',system-ui,sans-serif;--font-mono:'Geist Mono',ui-monospace,monospace;
+  --layout-bg:#09090B;--card-bg:#18181B;--surface-ground:#111113;--border-color:#27272A;
+  --fg-1:#FAFAFA;--fg-2:#A1A1AA;--fg-3:#8B8B94;
+  --action:#F05A28;--action-ink:#18181B;
+  --ok-fg:#22C55E;--ok-soft-bg:rgba(34,197,94,.15);--ok-soft-fg:#86EFAC;
+  --warn-soft-bg:rgba(251,191,36,.15);--warn-soft-fg:#FCD34D;
+  --bad-fg:#F87171;--bad-soft-bg:rgba(248,113,113,.14);
+  --r-sm:8px;--r-md:12px;--r-lg:16px;--r-pill:999px;
+  --fs-display:2.5rem;--fs-h2:1.25rem;--fs-h3:1rem;--fs-lg:1.125rem;--fs-body:.875rem;--fs-sm:.8125rem;--fs-xs:.75rem;--fs-micro:.6875rem;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#E9E7E4;font-family:var(--font-body);color:#1C1917}
+button{font-family:inherit}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1280px;margin:0 auto;padding:32px 20px 80px}
+.top h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}
+.top p{margin:0;color:#44403C;font-size:16px;max-width:820px;line-height:1.5}
+.nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0 8px;background:#E9E7E4;padding:10px 0}
+.nav a{height:40px;display:inline-flex;align-items:center;padding:0 16px;border-radius:999px;background:#fff;color:#1C1917;text-decoration:none;font-weight:700;font-size:14px;border:1px solid #D6D3D1}
+.sec{margin-top:44px}
+.sec h2{font-size:24px;margin:0 0 4px}
+.sec .sub{color:#57534E;margin:0 0 18px;font-size:15px}
+.row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:10px;align-items:center}
+.tag{font-size:13px;font-weight:800;letter-spacing:.06em;padding:5px 12px;border-radius:999px}
+.tag.a{background:#fff;color:#57534E;border:1px solid #D6D3D1}
+.tag.d{background:#1C1917;color:#fff}
+.notes{flex:1 1 300px;min-width:280px;background:#fff;border-radius:18px;padding:18px 20px;align-self:stretch}
+.notes h3{margin:0 0 10px;font-size:16px}
+.notes ol{margin:0;padding-left:20px;font-size:14.5px;line-height:1.5;color:#292524}
+.notes li{margin-bottom:8px}
+.notes code{font-size:12.5px;background:#F5F5F4;padding:1px 5px;border-radius:5px;color:#57534E}
+.notes .d{margin-top:12px;padding-top:12px;border-top:1px solid #E7E5E4;font-size:14px;color:#57534E}
+
+/* ── El teléfono ── */
+.phone{width:390px;height:844px;border-radius:34px;overflow:hidden;position:relative;background:var(--card-bg);color:var(--fg-1);box-shadow:0 0 0 8px #0C0A09,0 30px 60px -30px rgba(0,0,0,.5);font-size:14px;display:flex;flex-direction:column}
+.phone *{color:inherit}
+
+/* ── HOY: reconstruido del CSS de levantamiento.component.ts ── */
+.h .head{padding:12px 16px;border-bottom:1px solid var(--border-color)}
+.h .t{margin:0;font-size:var(--fs-h3);font-weight:700}
+.h .s{margin:4px 0 0;font-size:var(--fs-sm);color:var(--fg-2)}
+.h .lk{color:var(--fg-2);text-decoration:underline;text-underline-offset:3px;font-size:var(--fs-sm);margin-left:10px}
+.h .body{flex:1;display:flex;flex-direction:column;gap:12px;padding:16px;overflow:hidden}
+.h .btn{min-height:44px;border-radius:var(--r-md);border:1px solid var(--border-color);background:var(--card-bg);color:var(--fg-1);font-size:var(--fs-body);font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;width:100%}
+.h .pri{background:var(--action);border-color:var(--action);color:var(--action-ink)}
+.h .lg{min-height:64px;font-size:var(--fs-lg)}
+.h .code{display:flex;gap:8px}
+.h .code .in{flex:1;height:48px;border:1px solid var(--border-color);border-radius:var(--r-md);display:flex;align-items:center;gap:10px;padding:0 12px;color:var(--fg-3);font-size:var(--fs-lg)}
+.h .code .sq{width:48px;height:48px;border:1px solid var(--border-color);border-radius:var(--r-md);display:grid;place-items:center}
+.h .code .sq.o{background:#7A3420;border-color:#7A3420}
+.h .center{text-align:center}
+.h .kp{font-size:var(--fs-micro);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-2)}
+.h .kpi{display:flex;align-items:baseline;gap:8px}
+.h .kpi b{font-family:var(--font-mono);font-size:var(--fs-h2)}
+.h .kpi.sub{padding-left:16px;border-left:1px solid var(--border-color)}
+.h .ter{margin:0;font-size:var(--fs-xs);color:var(--fg-3)}
+.h .li{padding:10px 0;border-bottom:1px solid var(--border-color)}
+.h .li small{display:block;color:var(--fg-3);font-size:var(--fs-xs)}
+.h .foot{padding:12px 16px 18px;border-top:1px solid var(--border-color);display:flex;flex-direction:column;gap:4px}
+.h .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:0 24px}
+.h .q{font-size:var(--fs-h3);font-weight:600;margin:8px 0 0}
+.h .steps{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:var(--fs-xs);color:var(--fg-2);margin:0;padding:0;list-style:none}
+.h .steps li.on{color:var(--fg-1);font-weight:700}
+.h .frame{flex:1;border:2px dashed var(--border-color);border-radius:var(--r-lg);display:grid;place-items:center;color:var(--fg-3);min-height:240px}
+.h .opt{display:grid;gap:6px}
+.h .opt .btn.sel{border-color:var(--action);box-shadow:inset 0 0 0 1px var(--action)}
+.h .guia{border:1px solid var(--border-color);border-radius:var(--r-md);background:var(--surface-ground);padding:12px;font-size:var(--fs-sm)}
+.h .guia ul{margin:6px 0 8px;padding-left:16px;display:grid;gap:4px}
+
+/* ── PULIDO ── */
+.p .appbar{display:flex;align-items:center;gap:10px;padding:14px 16px 12px}
+.p .appbar .back{width:44px;height:44px;margin-left:-10px;border:0;background:none;display:grid;place-items:center;border-radius:var(--r-md)}
+.p .eyebrow{font-size:var(--fs-micro);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);margin:0}
+.p .title{font-size:var(--fs-h2);font-weight:700;margin:2px 0 0;letter-spacing:-.01em}
+.p .who{margin-left:auto;text-align:right;font-size:var(--fs-xs);color:var(--fg-3);line-height:1.35}
+.p .who a{color:var(--fg-2);text-decoration:underline;text-underline-offset:3px}
+.p .body{flex:1;display:flex;flex-direction:column;gap:16px;padding:4px 16px 16px;overflow:hidden}
+.p .btn{min-height:48px;border-radius:var(--r-md);border:1px solid var(--border-color);background:var(--card-bg);color:var(--fg-1);font-size:var(--fs-body);font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;width:100%}
+.p .pri{background:var(--action);border-color:var(--action);color:var(--action-ink)}
+.p .xl{min-height:72px;font-size:var(--fs-lg);font-weight:700;border-radius:var(--r-lg)}
+.p .xl i{font-size:22px}
+.p .field{height:52px;display:flex;align-items:center;gap:10px;padding:0 6px 0 14px;border:1px solid var(--border-color);border-radius:var(--r-md);background:var(--surface-ground)}
+.p .field .ph{flex:1;color:var(--fg-3);font-size:16px}
+.p .field .val{flex:1;font-size:16px}
+.p .field .scan{width:40px;height:40px;border-radius:var(--r-sm);border:1px solid var(--border-color);display:grid;place-items:center;background:var(--card-bg)}
+.p .hint{margin:-8px 0 0;font-size:var(--fs-xs);color:var(--fg-3)}
+.p .stat{background:var(--surface-ground);border:1px solid var(--border-color);border-radius:var(--r-lg);padding:14px 16px}
+.p .stat .n{font-family:var(--font-mono);font-size:var(--fs-display);font-weight:700;line-height:1;letter-spacing:-.02em}
+.p .stat .l{font-size:var(--fs-body);color:var(--fg-2);margin-top:4px}
+.p .stat .meta{display:flex;gap:14px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color);font-size:var(--fs-sm);color:var(--fg-2)}
+.p .stat .meta b{color:var(--fg-1);font-family:var(--font-mono)}
+.p .stat .fresh{margin-left:auto;color:var(--fg-3);font-size:var(--fs-xs);display:flex;align-items:center;gap:4px}
+.p .sect{display:flex;align-items:baseline;justify-content:space-between;margin:2px 0 -6px}
+.p .sect h3{margin:0;font-size:var(--fs-sm);font-weight:700}
+.p .sect span{font-size:var(--fs-xs);color:var(--fg-3)}
+.p .list{display:flex;flex-direction:column}
+.p .item{display:flex;align-items:center;gap:12px;min-height:60px;padding:8px 0;border-bottom:1px solid var(--border-color)}
+.p .item .ic{width:36px;height:36px;border-radius:var(--r-sm);background:var(--surface-ground);border:1px solid var(--border-color);display:grid;place-items:center;flex:none;color:var(--fg-2)}
+.p .item .tx{flex:1;min-width:0}
+.p .item .nm{font-size:var(--fs-body);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p .item .mt{font-size:var(--fs-xs);color:var(--fg-3);margin-top:2px;display:flex;gap:8px;align-items:center}
+.p .item .chev{color:var(--fg-3)}
+.p .pill{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-micro);font-weight:700;padding:3px 8px;border-radius:var(--r-pill);white-space:nowrap}
+.p .pill.falta{background:var(--warn-soft-bg);color:var(--warn-soft-fg)}
+.p .pill.tiene{background:var(--ok-soft-bg);color:var(--ok-soft-fg)}
+.p .pill.curso{background:var(--surface-ground);color:var(--fg-2);border:1px solid var(--border-color)}
+.p .item.dim .nm{color:var(--fg-2)}
+.p .more{min-height:48px}
+.p .foot{padding:12px 16px 22px;border-top:1px solid var(--border-color);display:flex;flex-direction:column;gap:6px;background:var(--card-bg)}
+.p .link{min-height:44px;background:none;border:0;color:var(--fg-2);font-size:var(--fs-sm);font-weight:600}
+.p .err{border:1px solid var(--border-color);border-radius:var(--r-lg);padding:18px 16px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.p .err .h{display:flex;gap:8px;align-items:center;font-weight:700;color:var(--bad-fg)}
+.p .err p{margin:0;font-size:var(--fs-sm);color:var(--fg-2)}
+.p .err .btn{width:auto;padding:0 16px;margin-top:6px}
+.p .prod{border:1px solid var(--border-color);border-radius:var(--r-lg);padding:16px;background:var(--surface-ground)}
+.p .prod .code{font-family:var(--font-mono);font-size:var(--fs-sm);color:var(--fg-2);display:flex;align-items:center;gap:6px}
+.p .prod .nm{font-size:var(--fs-lg);font-weight:700;margin:6px 0 0;line-height:1.3}
+.p .prod .ok{margin-top:10px;font-size:var(--fs-xs);color:var(--ok-soft-fg);display:flex;align-items:center;gap:6px}
+.p .q{font-size:var(--fs-h3);font-weight:700;margin:0}
+.p .opts{display:grid;gap:8px}
+.p .op{display:flex;align-items:center;gap:12px;min-height:60px;padding:10px 14px;border:1px solid var(--border-color);border-radius:var(--r-md);background:var(--card-bg)}
+.p .op .rd{width:20px;height:20px;border-radius:50%;border:2px solid var(--fg-3);flex:none}
+.p .op.sel{border-color:var(--action);box-shadow:inset 0 0 0 1px var(--action)}
+.p .op.sel .rd{border-color:var(--action);box-shadow:inset 0 0 0 4px var(--card-bg);background:var(--action)}
+.p .op .nm{font-weight:700;font-size:var(--fs-body)}
+.p .op .sb{font-size:var(--fs-xs);color:var(--fg-3)}
+.p .op .badge{margin-left:auto;font-size:var(--fs-micro);font-weight:700;color:var(--fg-2);border:1px solid var(--border-color);border-radius:var(--r-pill);padding:3px 8px}
+.p .progress{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.p .progress .seg{height:4px;border-radius:2px;background:var(--border-color)}
+.p .progress .seg.done{background:var(--ok-fg)}
+.p .progress .seg.on{background:var(--action)}
+.p .stepline{display:flex;justify-content:space-between;align-items:baseline;margin-top:-6px}
+.p .stepline b{font-size:var(--fs-h3)}
+.p .stepline span{font-size:var(--fs-xs);color:var(--fg-3)}
+.p .viewfinder{flex:1;position:relative;border-radius:var(--r-lg);background:radial-gradient(120% 90% at 50% 40%,#26262B 0,#141416 70%);min-height:300px;overflow:hidden}
+.p .viewfinder .box{position:absolute;inset:16% 18%;border-radius:var(--r-md)}
+.p .viewfinder .box i{position:absolute;width:26px;height:26px;border-color:#fff;border-style:solid;opacity:.9}
+.p .viewfinder .box i:nth-child(1){top:0;left:0;border-width:3px 0 0 3px;border-top-left-radius:10px}
+.p .viewfinder .box i:nth-child(2){top:0;right:0;border-width:3px 3px 0 0;border-top-right-radius:10px}
+.p .viewfinder .box i:nth-child(3){bottom:0;left:0;border-width:0 0 3px 3px;border-bottom-left-radius:10px}
+.p .viewfinder .box i:nth-child(4){bottom:0;right:0;border-width:0 3px 3px 0;border-bottom-right-radius:10px}
+.p .viewfinder .lab{position:absolute;left:0;right:0;bottom:14px;text-align:center;font-size:var(--fs-sm);color:#E4E4E7}
+.p .tipcard{border:1px solid var(--border-color);border-radius:var(--r-lg);background:var(--surface-ground);padding:14px}
+.p .tipcard h4{margin:0 0 10px;font-size:var(--fs-body)}
+.p .tip{display:flex;gap:10px;align-items:flex-start;font-size:var(--fs-sm);color:var(--fg-2);margin-bottom:8px;line-height:1.35}
+.p .tip i{width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:var(--r-sm);background:var(--card-bg);border:1px solid var(--border-color);color:var(--fg-1);font-size:13px}
+.p .tipcard .btn{margin-top:4px;min-height:44px}
+/* Inicio v2 */
+.p .sbar{height:48px;display:flex;align-items:center;gap:10px;padding:0 14px;border:1px solid var(--border-color);border-radius:var(--r-pill);background:var(--surface-ground);color:var(--fg-3);font-size:15px}
+.p .cov{border:1px solid var(--border-color);border-radius:var(--r-lg);padding:16px;background:linear-gradient(180deg,#1D1D21 0,var(--card-bg) 100%)}
+.p .cov .k{display:flex;align-items:center;justify-content:space-between}
+.p .cov .k span{font-size:var(--fs-micro);font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3)}
+.p .cov .k em{font-style:normal;font-size:var(--fs-xs);color:var(--fg-3);display:flex;align-items:center;gap:4px}
+.p .cov .big{display:flex;align-items:baseline;gap:8px;margin-top:10px}
+.p .cov .big b{font-family:var(--font-mono);font-size:var(--fs-display);line-height:1;letter-spacing:-.02em}
+.p .cov .big span{font-size:var(--fs-body);color:var(--fg-2)}
+.p .bar{height:6px;border-radius:3px;background:var(--border-color);margin-top:14px;overflow:hidden}
+.p .bar i{display:block;height:100%;width:2%;min-width:6px;background:var(--ok-fg);border-radius:3px}
+.p .cov .lg{display:flex;justify-content:space-between;margin-top:6px;font-size:var(--fs-xs);color:var(--fg-3)}
+.p .tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.p .tile{border:1px solid var(--border-color);border-radius:var(--r-md);padding:10px 12px}
+.p .tile b{display:block;font-family:var(--font-mono);font-size:var(--fs-h2)}
+.p .tile span{font-size:var(--fs-xs);color:var(--fg-3)}
+.p .dock{padding:12px 16px 24px;border-top:1px solid var(--border-color);background:var(--card-bg)}
+.p .avatar{width:36px;height:36px;border-radius:50%;background:var(--surface-ground);border:1px solid var(--border-color);display:grid;place-items:center;font-size:var(--fs-xs);font-weight:700;color:var(--fg-2)}
+/* Escáner */
+.cam{background:#000;color:#fff}
+.cam .feed{position:absolute;inset:0;background:radial-gradient(90% 60% at 50% 45%,#3A3A40 0,#121214 75%)}
+.cam .top{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:16px}
+.cam .rb{width:44px;height:44px;border-radius:50%;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.18);display:grid;place-items:center;color:#fff}
+.cam .ttl{font-weight:700;font-size:var(--fs-body)}
+.cam .shade{position:absolute;inset:0;background:rgba(0,0,0,.55);-webkit-mask:linear-gradient(#000 0 0) top/100% calc(50% - 64px) no-repeat,linear-gradient(#000 0 0) bottom/100% calc(50% - 64px) no-repeat,linear-gradient(#000 0 0) left/calc(50% - 150px) 100% no-repeat,linear-gradient(#000 0 0) right/calc(50% - 150px) 100% no-repeat;mask:linear-gradient(#000 0 0) top/100% calc(50% - 64px) no-repeat,linear-gradient(#000 0 0) bottom/100% calc(50% - 64px) no-repeat,linear-gradient(#000 0 0) left/calc(50% - 150px) 100% no-repeat,linear-gradient(#000 0 0) right/calc(50% - 150px) 100% no-repeat}
+.cam .win{position:absolute;left:50%;top:50%;width:300px;height:128px;transform:translate(-50%,-50%);border-radius:12px}
+.cam .win i{position:absolute;width:28px;height:28px;border-color:#fff;border-style:solid}
+.cam .win i:nth-child(1){top:0;left:0;border-width:3px 0 0 3px;border-top-left-radius:12px}
+.cam .win i:nth-child(2){top:0;right:0;border-width:3px 3px 0 0;border-top-right-radius:12px}
+.cam .win i:nth-child(3){bottom:0;left:0;border-width:0 0 3px 3px;border-bottom-left-radius:12px}
+.cam .win i:nth-child(4){bottom:0;right:0;border-width:0 3px 3px 0;border-bottom-right-radius:12px}
+.cam .win .laser{position:absolute;left:12px;right:12px;top:50%;height:2px;background:var(--action);box-shadow:0 0 12px 2px rgba(240,90,40,.7)}
+.cam .bars{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:220px;height:84px;background:repeating-linear-gradient(90deg,#E4E4E7 0 2px,transparent 2px 4px,#E4E4E7 4px 5px,transparent 5px 8px,#E4E4E7 8px 11px,transparent 11px 13px);opacity:.55;border-radius:2px}
+.cam .help{position:absolute;left:0;right:0;top:calc(50% + 84px);text-align:center;font-size:var(--fs-sm);color:#E4E4E7;padding:0 32px}
+.cam .help small{display:block;color:#A1A1AA;font-size:var(--fs-xs);margin-top:4px}
+.cam .bottom{position:absolute;left:0;right:0;bottom:0;padding:16px 16px 28px;display:flex;gap:10px}
+.cam .bottom button{flex:1;min-height:48px;border-radius:var(--r-md);border:1px solid rgba(255,255,255,.22);background:rgba(24,24,27,.85);color:#fff;font-weight:600;font-size:var(--fs-body);display:flex;align-items:center;justify-content:center;gap:8px}
+.hcam{background:var(--layout-bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px}
+.hcam .vid{width:100%;aspect-ratio:4/3;border-radius:var(--r-md);background:radial-gradient(90% 60% at 50% 45%,#3A3A40 0,#121214 75%);position:relative}
+.hcam .vid .bars{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:180px;height:70px;background:repeating-linear-gradient(90deg,#E4E4E7 0 2px,transparent 2px 4px,#E4E4E7 4px 5px,transparent 5px 8px,#E4E4E7 8px 11px,transparent 11px 13px);opacity:.55}
+.hcam p{margin:0;color:var(--fg-2);font-size:var(--fs-sm)}
+.hcam .x{min-height:48px;min-width:160px;border-radius:var(--r-md);border:1px solid var(--border-color);background:var(--card-bg);color:var(--fg-1);font-weight:700;display:grid;place-items:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Levantamiento · pulido</h1>
+    <p>Las mismas pantallas y las mismas funciones (ya con 4 fotos, presentación y estado en el buscador), con menos piezas compitiendo y una jerarquía clara. HOY se reconstruyó de las capturas de prod del 2026-11-26 y del CSS de <code>levantamiento.component.ts</code>; los datos son de ejemplo (sucursal real, persona ficticia). Modo oscuro, como en las capturas.</p>
+  </header>
+  <nav class="nav"><a href="#inicio">1 · Inicio</a><a href="#escanear">1b · Escanear</a><a href="#buscar">2 · Buscar</a><a href="#confirmar">3 · Confirmar</a><a href="#captura">4 · Captura</a></nav>
+
+  <!-- 1 · INICIO -->
+  <section class="sec" id="inicio">
+    <h2>1 · Inicio</h2>
+    <p class="sub">Para qué existe: que la persona empiece a fotografiar en un toque. Primario = escanear; secundario = cuánto falta; terciario = su semana.</p>
+    <div class="row">
+      <div class="col"><span class="tag a">HOY</span>
+        <div class="phone h">
+          <div class="head"><p class="t">Levantamiento · Padre Hidalgo</p><p class="s">Mariana Rivera <span class="lk">No soy yo</span></p></div>
+          <div class="body">
+            <div class="btn pri lg"><i class="pi pi-qrcode"></i> Escanear código</div>
+            <div class="code"><div class="in"><i class="pi pi-qrcode"></i> O escribe el código</div><div class="sq"><i class="pi pi-camera"></i></div><div class="sq o"><i class="pi pi-search"></i></div></div>
+            <p class="center" style="margin:4px 0"><span class="lk" style="margin:0">¿No pasa el código? Búscalo</span></p>
+            <div class="kpi"><b>4,235</b><span class="kp">Sin fotos</span><span class="ter">productos de esta sucursal</span></div>
+            <div class="kpi sub"><b>0</b><span class="kp">Publicadas esta semana</span></div>
+            <div class="kpi sub"><b>0</b><span class="kp">En revisión</span><span class="ter">no suman hasta publicarse</span></div>
+            <p class="ter">○ cargado ahora</p>
+            <p class="ter">Todo lo que levantes lo revisa Catálogo antes de publicarse.</p>
+            <p class="kp" style="margin:0">Búscalos en el anaquel y escanéalos</p>
+            <p class="ter" style="margin-top:-8px">Los que más se venden primero</p>
+            <div class="li">BIMBO BOCADIN BOLSA /50P<small>paquete</small></div>
+            <div class="li">ALTOS CAM GRANDE COLOR 1KG CLASICA<small>kilo</small></div>
+            <div class="li">LA ROSA MAZAPAN /30<small>paquete</small></div>
+          </div>
+        </div>
+      </div>
+      <div class="col"><span class="tag d">PULIDO v2</span>
+        <div class="phone p">
+          <div class="appbar"><div><p class="eyebrow">Levantamiento de fotos</p><p class="title">Padre Hidalgo</p></div><div class="who" style="display:flex;align-items:center;gap:8px;text-align:right"><div>Mariana Rivera<br><a>No soy yo</a></div></div></div>
+          <div class="body" style="gap:14px">
+            <div class="sbar"><i class="pi pi-search"></i> Buscar por nombre, SKU o código</div>
+            <div class="cov">
+              <div class="k"><span>Por fotografiar</span><em><i class="pi pi-clock" style="font-size:11px"></i> hace un momento</em></div>
+              <div class="big"><b>4,235</b><span>productos sin foto</span></div>
+              <div class="bar"><i></i></div>
+              <div class="lg"><span>7 de 4,242 con foto · 0.2 %</span><span>Catálogo revisa cada uno</span></div>
+            </div>
+            <div class="tiles"><div class="tile"><b>0</b><span>Tus publicadas esta semana</span></div><div class="tile"><b>0</b><span>Tuyas en revisión</span></div></div>
+            <div class="sect"><h3>Los más vendidos sin foto</h3><span>Ver todos</span></div>
+            <div class="list">
+              <div class="item"><span class="ic"><i class="pi pi-camera"></i></span><div class="tx"><div class="nm">BIMBO BOCADIN BOLSA /50P</div><div class="mt">Paquete</div></div><i class="pi pi-chevron-right chev"></i></div>
+              <div class="item"><span class="ic"><i class="pi pi-camera"></i></span><div class="tx"><div class="nm">ALTOS CAM GRANDE COLOR 1KG CLASICA</div><div class="mt">Kilo</div></div><i class="pi pi-chevron-right chev"></i></div>
+              <div class="item" style="border-bottom:0"><span class="ic"><i class="pi pi-camera"></i></span><div class="tx"><div class="nm">LA ROSA MAZAPAN /30</div><div class="mt">Paquete</div></div><i class="pi pi-chevron-right chev"></i></div>
+            </div>
+          </div>
+          <div class="dock"><button class="btn pri xl" style="min-height:60px"><i class="pi pi-qrcode"></i> Escanear código de barras</button></div>
+        </div>
+      </div>
+      <div class="notes"><h3>Qué cambia (v2)</h3><ol>
+        <li><b>Orden de app profesional:</b> buscador arriba (como cualquier app de catálogo), avance en el centro, lista, y <b>«Escanear» fijo abajo</b>, donde cae el pulgar (DESIGN M.3). Hoy el escáner empuja todo hacia abajo. <code>.lv-body</code> → barra fija <code>.lv-dock</code></li>
+        <li><b>Entradas: 5 → 2</b> (buscador y escanear). Sin campo de código suelto, cámara, lupa ni «¿No pasa el código?».</li>
+        <li><b>El avance se VE:</b> tarjeta «Por fotografiar» con 4,235 a 40 px y una barra de cobertura «7 de 4,242 con foto · 0.2 %». Sale de <code>universe</code> y <code>missing</code> que el servidor ya manda: no se inventa nada.</li>
+        <li><b>Tu semana en dos mosaicos</b> («Tus publicadas», «Tuyas en revisión») en vez de dos renglones en mayúsculas con sangría.</li>
+        <li><b>4 renglones de explicación → 1 nota</b> dentro de la tarjeta («Catálogo revisa cada uno»).</li>
+        <li><b>Filas de 60 px</b> con cámara y flecha; «Ver todos» en el título de la sección.</li>
+      </ol><div class="d"><b>Se conserva:</b> el naranja como única acción primaria, los sugeridos por venta, la edad del dato y «No soy yo» a la vista.</div></div>
+    </div>
+  </section>
+
+  <!-- 1b · ESCANEAR -->
+  <section class="sec" id="escanear">
+    <h2>1b · Escanear el código de barras</h2>
+    <p class="sub">Para qué existe: leer el código al primer intento. El recuadro tiene la forma de un código de barras (ancho y bajo, 300 × 128 px ≈ 2.3:1), no la de una foto (4:3).</p>
+    <div class="row">
+      <div class="col"><span class="tag a">HOY</span>
+        <div class="phone hcam">
+          <p>Encuadra el código de barras</p>
+          <div class="vid"><div class="bars"></div></div>
+          <div class="x">Cancelar</div>
+        </div>
+      </div>
+      <div class="col"><span class="tag d">PULIDO</span>
+        <div class="phone cam">
+          <div class="feed"></div>
+          <div class="bars"></div>
+          <div class="shade"></div>
+          <div class="win"><i></i><i></i><i></i><i></i><span class="laser"></span></div>
+          <div class="top"><button class="rb" aria-label="Cerrar"><i class="pi pi-times"></i></button><span class="ttl">Escanear código</span><button class="rb" aria-label="Linterna"><i class="pi pi-bolt"></i></button></div>
+          <div class="help">Centra el código de barras en el recuadro<small>Lee solo, sin apretar nada. Acerca el teléfono si no lo lee.</small></div>
+          <div class="bottom"><button><i class="pi pi-pencil"></i> Teclear el código</button></div>
+        </div>
+      </div>
+      <div class="notes"><h3>Qué cambia</h3><ol>
+        <li><b>Cámara a pantalla completa</b> (hoy un recuadro de 4:3 flotando en fondo negro): más imagen, enfoca mejor de cerca. <code>product-scan-field · .psf-cam-vid</code></li>
+        <li><b>Ventana con forma de código de barras</b>, 300 × 128 px (≈ 2.3:1), con el resto oscurecido y una línea de lectura: la persona sabe dónde poner el código y a qué distancia. Un EAN-13 impreso mide ≈ 1.4:1 con sus números; las barras solas, más anchas que altas.</li>
+        <li><b>Linterna</b> arriba a la derecha (anaqueles oscuros), si el teléfono la tiene.</li>
+        <li><b>«Teclear el código»</b> abajo, para el código que no pasa: reemplaza al campo suelto del inicio.</li>
+        <li><b>Texto que enseña:</b> «Lee solo, sin apretar nada. Acerca el teléfono si no lo lee.»</li>
+      </ol><div class="d"><b>Decisión a confirmar:</b> este lector es un componente COMPARTIDO (<code>app-product-scan-field</code>): también lo usan Caducidades de tienda y la revisión de caducidades. Recomiendo el recuadro nuevo para los tres, porque en los tres se lee un código de barras; si prefieres no tocar esas pantallas, va con una opción que sólo prende el levantamiento.</div></div>
+    </div>
+  </section>
+
+  <!-- 2 · BUSCAR -->
+  <section class="sec" id="buscar">
+    <h2>2 · Buscar</h2>
+    <p class="sub">Para qué existe: encontrar el producto cuando no hay código y saber si todavía le falta foto. Primario = el resultado y su estado.</p>
+    <div class="row">
+      <div class="col"><span class="tag a">HOY (con la búsqueda fallando)</span>
+        <div class="phone h">
+          <div class="head" style="display:flex;align-items:center;gap:18px"><i class="pi pi-chevron-left"></i><p class="t">Buscar el producto</p></div>
+          <div class="body">
+            <div class="code"><div class="in" style="color:var(--fg-1)"><i class="pi pi-search" style="color:var(--fg-3)"></i> mazapan</div></div>
+            <p class="ter">Palabras en cualquier orden. Sin escribir nada: lo más vendido aquí.</p>
+            <div class="empty"><i class="pi pi-inbox" style="font-size:40px;color:var(--fg-3)"></i><b>No aparece</b><span class="ter" style="font-size:var(--fs-sm)">Puede ser un producto que el sistema no tiene en esta sucursal. Avísale a tu encargado.</span></div>
+            <p style="margin:0">Sin conexión. Revisa la señal e intenta de nuevo.</p>
+          </div>
+        </div>
+      </div>
+      <div class="col"><span class="tag d">PULIDO · resultados</span>
+        <div class="phone p">
+          <div class="appbar"><button class="back"><i class="pi pi-chevron-left"></i></button><p class="title" style="margin:0">Buscar producto</p></div>
+          <div class="body">
+            <div class="field"><i class="pi pi-search" style="color:var(--fg-3)"></i><span class="val">mazapan</span><span class="scan"><i class="pi pi-qrcode"></i></span></div>
+            <p class="hint">Nombre, SKU o código, en cualquier orden.</p>
+            <div class="list">
+              <div class="item"><div class="tx"><div class="nm">LA ROSA MAZAPAN /30</div><div class="mt">Paquete de 30 <span class="pill falta"><i class="pi pi-camera" style="font-size:10px"></i> Falta foto</span></div></div><i class="pi pi-chevron-right chev"></i></div>
+              <div class="item"><div class="tx"><div class="nm">LA ROSA MAZAPAN GIGANTE /20</div><div class="mt">Paquete de 20 <span class="pill falta"><i class="pi pi-camera" style="font-size:10px"></i> Falta foto</span></div></div><i class="pi pi-chevron-right chev"></i></div>
+              <div class="item dim"><div class="tx"><div class="nm">DE LA ROSA MAZAPAN CHOCOLATE /16</div><div class="mt">Paquete de 16 <span class="pill curso"><i class="pi pi-clock" style="font-size:10px"></i> Alguien la está tomando</span></div></div><i class="pi pi-chevron-right chev"></i></div>
+              <div class="item dim"><div class="tx"><div class="nm">LA ROSA MAZAPAN PIEZA</div><div class="mt">Pieza <span class="pill tiene"><i class="pi pi-check" style="font-size:10px"></i> Tiene foto</span></div></div><i class="pi pi-chevron-right chev"></i></div>
+              <div class="item"><div class="tx"><div class="nm">MAZAPAN CON CACAHUATE DULCERIA /12</div><div class="mt">Paquete de 12 <span class="pill falta"><i class="pi pi-camera" style="font-size:10px"></i> Falta foto</span></div></div><i class="pi pi-chevron-right chev"></i></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col"><span class="tag d">PULIDO · la búsqueda falla</span>
+        <div class="phone p">
+          <div class="appbar"><button class="back"><i class="pi pi-chevron-left"></i></button><p class="title" style="margin:0">Buscar producto</p></div>
+          <div class="body">
+            <div class="field"><i class="pi pi-search" style="color:var(--fg-3)"></i><span class="val">mazapan</span><span class="scan"><i class="pi pi-qrcode"></i></span></div>
+            <div class="err"><div class="h"><i class="pi pi-wifi"></i> No se pudo buscar</div><p>Sin conexión. Revisa la señal: tu búsqueda sigue escrita.</p><button class="btn">Reintentar</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="notes"><h3>Qué cambia</h3><ol>
+        <li><b>El estado se lee de un vistazo:</b> pastilla con icono y palabra (ámbar «Falta foto», verde «Tiene foto», neutra «Alguien la está tomando»). Lo que ya tiene foto baja de contraste. Nunca sólo color. <code>.lv-res small</code> → <code>.lv-estado</code></li>
+        <li><b>Presentación con su cantidad</b> («Paquete de 30»), no «paquete» suelto.</li>
+        <li><b>El lector va dentro del buscador</b> (icono a la derecha): escanear o teclear en el mismo lugar. <code>.lv-search</code></li>
+        <li><b>El error es error:</b> tarjeta «No se pudo buscar» con «Reintentar», sin la caja «No aparece» (ya en código, L.22; aquí sólo se le da forma).</li>
+        <li><b>Ayuda: 2 renglones → 1</b> debajo del campo.</li>
+      </ol></div>
+    </div>
+  </section>
+
+  <!-- 3 · CONFIRMAR -->
+  <section class="sec" id="confirmar">
+    <h2>3 · Confirmar</h2>
+    <p class="sub">Para qué existe: asegurar que es el producto y elegir UNA presentación. Primario = el nombre; secundario = la presentación; terciario = el código.</p>
+    <div class="row">
+      <div class="col"><span class="tag a">HOY (código local, L.23)</span>
+        <div class="phone h">
+          <div class="head" style="display:flex;align-items:center;gap:18px"><i class="pi pi-chevron-left"></i><p class="t">Confirma el código</p></div>
+          <div class="body">
+            <p class="mono" style="margin:0;font-size:var(--fs-lg)">7622210571403</p>
+            <p style="margin:0;font-size:var(--fs-lg);font-weight:600">TRIDENT XTRA CARE MENTA /12</p>
+            <p class="q">¿Qué presentación tienes en la mano?</p>
+            <div class="opt"><div class="btn">pieza</div><div class="btn sel">paquete de 12</div><div class="btn">caja de 384</div></div>
+            <p class="ter">Las fotos son sólo de la que elijas.</p>
+            <p class="ter" style="margin-top:auto">En Kepler: PZA · factor 1 (tal cual)</p>
+          </div>
+          <div class="foot"><div class="btn pri">Sí, tomar fotos</div><div class="btn" style="border:0;text-decoration:underline;color:var(--fg-2)">No es éste</div></div>
+        </div>
+      </div>
+      <div class="col"><span class="tag d">PULIDO</span>
+        <div class="phone p">
+          <div class="appbar"><button class="back"><i class="pi pi-chevron-left"></i></button><p class="title" style="margin:0">¿Es este producto?</p></div>
+          <div class="body">
+            <div class="prod"><div class="code"><i class="pi pi-qrcode"></i> 7622210571403</div><p class="nm">TRIDENT XTRA CARE MENTA /12</p><div class="ok"><i class="pi pi-check-circle"></i> Falta foto · nadie lo está tomando</div></div>
+            <p class="q">¿Qué tienes en la mano?</p>
+            <div class="opts">
+              <div class="op"><span class="rd"></span><div><div class="nm">Pieza</div><div class="sb">1 pieza</div></div></div>
+              <div class="op sel"><span class="rd"></span><div><div class="nm">Paquete</div><div class="sb">12 piezas</div></div><span class="badge">Más vendida</span></div>
+              <div class="op"><span class="rd"></span><div><div class="nm">Caja</div><div class="sb">384 piezas</div></div></div>
+            </div>
+          </div>
+          <div class="foot"><button class="btn pri" style="min-height:52px;font-size:var(--fs-h3)"><i class="pi pi-camera"></i> Tomar 4 fotos del paquete</button><button class="link">No es éste</button></div>
+        </div>
+      </div>
+      <div class="notes"><h3>Qué cambia</h3><ol>
+        <li><b>La pregunta es del producto</b> («¿Es este producto?»), no del código: el código baja a una línea gris con su icono. <code>.lv-code</code></li>
+        <li><b>Presentación como opción de radio de 60 px</b> con nombre y cantidad en dos niveles; la marcada dice por qué («Más vendida»). Hoy, tres botones grises iguales en minúscula. <code>@if (puedeElegirPresentacion())</code></li>
+        <li><b>El botón dice qué va a pasar:</b> «Tomar 4 fotos del paquete», con el número de fotos y la presentación elegida. <code>.lv-foot .lv-pri</code></li>
+        <li><b>Se quita «En Kepler: PZA · factor 1 (tal cual)»</b>: la cantidad ya está en cada opción y el rótulo crudo no decide nada.</li>
+        <li><b>Estado del producto en la tarjeta</b> («Falta foto · nadie lo está tomando»), el mismo vocabulario del buscador.</li>
+      </ol><div class="d"><b>Decisión a confirmar:</b> quitar el renglón de Kepler «tal cual» (hoy lo pide §10b para auditar rótulos raros). Recomiendo quitarlo: Catálogo ya lo ve en su revisión.</div></div>
+    </div>
+  </section>
+
+  <!-- 4 · CAPTURA -->
+  <section class="sec" id="captura">
+    <h2>4 · Captura</h2>
+    <p class="sub">Para qué existe: tomar 4 fotos nítidas sin pensar. Primario = qué foto sigue; secundario = cómo tomarla; terciario = el avance.</p>
+    <div class="row">
+      <div class="col"><span class="tag a">HOY (primera vez, con la guía)</span>
+        <div class="phone h">
+          <div class="head"><div style="display:flex;align-items:center;gap:12px"><i class="pi pi-chevron-left"></i><p class="t" style="flex:1">TRIDENT XTRA CARE MENTA /12</p><span class="s" style="margin:0">1 de 4</span></div><p class="s">Fotografías: <b>paquete de 12</b></p></div>
+          <div class="body">
+            <div class="guia"><b>Para que las fotos salgan nítidas</b><ul><li>Busca buena luz: junto a una ventana o bajo una lámpara blanca. Sin flash si brilla el empaque.</li><li>El producto solo, sobre un fondo liso, llenando el marco.</li><li>Apoya los codos y toca la pantalla sobre el producto para enfocar…</li><li>Son 4 fotos. Si una sale borrosa, la app te pide repetirla.</li></ul><div class="btn">Entendido</div></div>
+            <ol class="steps"><li class="on">1 Frente</li><li>2 Reverso</li><li>3 Tabla nutr.</li><li>4 Información</li></ol>
+            <div class="frame">Frente</div>
+            <p style="margin:0;font-size:var(--fs-sm)">El frente derecho, llenando el marco y sin reflejos.</p>
+          </div>
+          <div class="foot"><div class="btn pri lg"><i class="pi pi-camera"></i> Tomar foto</div><p class="ter" style="text-align:center">El frente siempre se fotografía: es la foto principal del catálogo.</p></div>
+        </div>
+      </div>
+      <div class="col"><span class="tag d">PULIDO · primera vez</span>
+        <div class="phone p">
+          <div class="appbar"><button class="back"><i class="pi pi-times"></i></button><div style="min-width:0"><p class="eyebrow">Paquete de 12</p><p class="title" style="font-size:var(--fs-h3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">TRIDENT XTRA CARE MENTA /12</p></div></div>
+          <div class="body">
+            <div class="tipcard"><h4>Para que salgan nítidas</h4>
+              <div class="tip"><i class="pi pi-sun"></i><span>Buena luz, sin flash si el empaque brilla.</span></div>
+              <div class="tip"><i class="pi pi-stop"></i><span>El producto solo, sobre fondo liso, llenando el marco.</span></div>
+              <div class="tip"><i class="pi pi-mobile"></i><span>Codos apoyados. Toca el producto para enfocar y espera un segundo.</span></div>
+              <button class="btn">Entendido</button></div>
+            <div class="progress"><span class="seg on"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div>
+            <div class="stepline"><b>Frente</b><span>Foto 1 de 4</span></div>
+            <div class="viewfinder" style="min-height:180px"><div class="box"><i></i><i></i><i></i><i></i></div><div class="lab">El frente derecho, sin reflejos</div></div>
+          </div>
+          <div class="foot"><button class="btn pri xl"><i class="pi pi-camera"></i> Tomar foto del frente</button></div>
+        </div>
+      </div>
+      <div class="col"><span class="tag d">PULIDO · siguiente foto</span>
+        <div class="phone p">
+          <div class="appbar"><button class="back"><i class="pi pi-times"></i></button><div style="min-width:0"><p class="eyebrow">Paquete de 12</p><p class="title" style="font-size:var(--fs-h3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">TRIDENT XTRA CARE MENTA /12</p></div></div>
+          <div class="body">
+            <div class="progress"><span class="seg done"></span><span class="seg done"></span><span class="seg on"></span><span class="seg"></span></div>
+            <div class="stepline"><b>Tabla nutrimental</b><span>Foto 3 de 4</span></div>
+            <div class="viewfinder"><div class="box"><i></i><i></i><i></i><i></i></div><div class="lab">Acércate hasta que se lean los números</div></div>
+          </div>
+          <div class="foot"><button class="btn pri xl"><i class="pi pi-camera"></i> Tomar foto</button><button class="link">No la trae: saltar</button></div>
+        </div>
+      </div>
+      <div class="notes"><h3>Qué cambia</h3><ol>
+        <li><b>Avance como barra de 4 tramos</b> (verde lo hecho, naranja la actual) + «Foto 3 de 4». Hoy una lista de texto de 12 px que se parte en dos renglones. <code>.lv-steps</code></li>
+        <li><b>La guía: 4 párrafos → 3 renglones con icono</b>, y el «Son 4 fotos» lo dice la barra. <code>.lv-guia</code></li>
+        <li><b>Marco con esquinas</b> en vez de caja punteada, con el recordatorio dentro, donde está la vista. <code>.lv-marco</code></li>
+        <li><b>El encabezado deja de repetir</b> «Fotografías: paquete de 12»: la presentación es el sobretítulo. Salir es una «×», no una flecha atrás (sale del flujo).</li>
+        <li><b>El botón nombra la foto</b> en la primera («Tomar foto del frente»); el aviso «El frente siempre se fotografía…» sale, porque el frente ya no ofrece saltar.</li>
+      </ol><div class="d"><b>Se conserva:</b> el botón grande abajo al alcance del pulgar, saltar con motivo, el medidor de nitidez y «Salir sin terminar».</div></div>
+    </div>
+  </section>
+</div>
+</body>
+</html>

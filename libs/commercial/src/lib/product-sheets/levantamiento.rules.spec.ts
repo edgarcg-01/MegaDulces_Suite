@@ -2,7 +2,7 @@
 import { LEVANTAMIENTO_CARAS } from '@megadulces/contracts';
 import type { ResultadoEscaneo } from '../shared/kdii-codigo';
 import {
-  apartadoALiberar, apartadoVivo, decidirEscaneo, decidirRevision, estadoTrasFoto, motivosDeRevision, nombreUnidad, nuevoApartado, peldanoPrincipal,
+  apartadoALiberar, apartadoVivo, carasRequeridas, decidirEscaneo, presentacionAFotografiar, presentacionesDisponibles, decidirRevision, estadoTrasFoto, motivosDeRevision, nombreUnidad, nuevoApartado, peldanoPrincipal,
   caraResuelta, esDetalle, notaDetalle, ordenDeFoto, porQueNoDetalle, sinFotoReal, type EntradaEscaneo, type FotoFicha,
 } from './levantamiento.rules';
 
@@ -46,10 +46,37 @@ describe('decidirEscaneo · qué se le dice a quien escanea', () => {
     expect(decidirEscaneo(entrada({ estadoFicha: 'recapturar' })).accion).toBe('capturar');
   });
 
-  it('⭐ D23: el código de la caja cuando la principal es la pieza → otra_unidad (fuera del piloto)', () => {
-    expect(decidirEscaneo(entrada({ resultado: OK_DOS, principal: 'base' })).accion).toBe('otra_unidad');
-    // control: si la caja ES la unidad principal, sí se captura
+  it('⭐ [NP.7.L.23] el código de OTRA presentación ya no se rechaza: se captura la elegida', () => {
+    expect(decidirEscaneo(entrada({ resultado: OK_DOS, principal: 'base' })).accion).toBe('capturar');
     expect(decidirEscaneo(entrada({ resultado: OK_DOS, principal: 'dos' })).accion).toBe('capturar');
+  });
+
+  describe('[NP.7.L.23] qué presentación se fotografía (UNA, elegida)', () => {
+    const TRES = ['base', 'dos', 'tres'] as const;
+    it('sin pedir nada: la del código si es de paquete o caja', () => {
+      expect(presentacionAFotografiar({ disponibles: [...TRES], pedida: null, escaneada: 'tres', masVendida: 'dos' })).toBe('tres');
+    });
+    it('⭐ el código de la PIEZA no prueba que tenga una pieza: se marca la más vendida', () => {
+      expect(presentacionAFotografiar({ disponibles: [...TRES], pedida: null, escaneada: 'base', masVendida: 'dos' })).toBe('dos');
+    });
+    it('por el buscador (sin código): la más vendida; sin dato de venta, la pieza', () => {
+      expect(presentacionAFotografiar({ disponibles: [...TRES], pedida: null, escaneada: null, masVendida: 'tres' })).toBe('tres');
+      expect(presentacionAFotografiar({ disponibles: [...TRES], pedida: null, escaneada: null, masVendida: null })).toBe('base');
+    });
+    it('lo que la persona eligió manda, aunque el código o la venta digan otra', () => {
+      expect(presentacionAFotografiar({ disponibles: [...TRES], pedida: 'base', escaneada: 'tres', masVendida: 'dos' })).toBe('base');
+    });
+    it('⛔ elegir una presentación que el producto no tiene → null (el servicio responde 400)', () => {
+      expect(presentacionAFotografiar({ disponibles: ['base'], pedida: 'tres', escaneada: null, masVendida: null })).toBeNull();
+    });
+    it('la más vendida que ya no existe en Kepler no se propone', () => {
+      expect(presentacionAFotografiar({ disponibles: ['base', 'dos'], pedida: null, escaneada: 'base', masVendida: 'tres' })).toBe('base');
+    });
+    it('presentaciones disponibles: la pieza siempre; paquete y caja sólo con factor', () => {
+      expect(presentacionesDisponibles({ f2: 12, f3: 384 })).toEqual(['base', 'dos', 'tres']);
+      expect(presentacionesDisponibles({ f2: null, f3: 0 })).toEqual(['base']);
+      expect(presentacionesDisponibles({ f2: 0, f3: 24 })).toEqual(['base', 'tres']);
+    });
   });
 
   it('por el buscador no hay peldaño escaneado: se captura la unidad principal', () => {
@@ -97,16 +124,27 @@ describe('fotos · cuándo queda completa la unidad principal', () => {
     peldano: 'base', cara, storage_key: `k/${cara}.jpg`, sha256: `sha-${cara}`, captured_by: 'ana', captured_at: AHORA.toISOString(),
     saltada_motivo: null, calidad: null, ancho: 1200, alto: 1600, por_busqueda: false, ...p,
   });
-  const todas = [...LEVANTAMIENTO_CARAS].map((c) => foto(c));
+  /** `[NP.7.L.21]` Lo que se pide al escanear: 4 fotos guiadas. */
+  const todas = ['frente', 'reverso', 'tabla_nutricional', 'informacion'].map((c) => foto(c));
 
-  it('las 8 (5 caras + 3 acercamientos) → fotos_tomadas; 7 → sigue en_captura', () => {
-    expect(todas.map((f) => f.cara)).toEqual([
-      'frente', 'reverso', 'lateral_izq', 'lateral_der', 'base', 'tabla_nutricional', 'informacion', 'codigo_barras',
-    ]);
+  it('⭐ [NP.7.L.21] escaneado: las 4 (frente, reverso, tabla, información) → fotos_tomadas; 3 → sigue en_captura', () => {
+    expect(carasRequeridas()).toEqual(['frente', 'reverso', 'tabla_nutricional', 'informacion']);
     expect(estadoTrasFoto(todas, 'base')).toBe('fotos_tomadas');
-    expect(estadoTrasFoto(todas.slice(0, 7), 'base')).toBe('en_captura');
-    // Las 5 caras de antes ya no bastan: faltan los acercamientos (primer feedback de quien captura, 2026-11-07).
-    expect(estadoTrasFoto(todas.slice(0, 5), 'base')).toBe('en_captura');
+    expect(estadoTrasFoto(todas.slice(0, 3), 'base')).toBe('en_captura');
+    // Los lados y la base ya no se piden: con ellos y sin la información, no termina.
+    const conLados = [...todas.slice(0, 3), foto('lateral_izq'), foto('lateral_der'), foto('base')];
+    expect(estadoTrasFoto(conLados, 'base')).toBe('en_captura');
+  });
+
+  it('⭐ [NP.7.L.21] por el buscador se pide además el código de barras (al escanear, ya se leyó)', () => {
+    expect(carasRequeridas(true)).toEqual(['frente', 'reverso', 'tabla_nutricional', 'informacion', 'codigo_barras']);
+    const porBusqueda = todas.map((f) => ({ ...f, por_busqueda: true }));
+    expect(estadoTrasFoto(porBusqueda, 'base')).toBe('en_captura');
+    expect(estadoTrasFoto([...porBusqueda, foto('codigo_barras', { por_busqueda: true })], 'base')).toBe('fotos_tomadas');
+  });
+
+  it('una ficha vieja con las 8 tomadas sigue completa (las de más no estorban)', () => {
+    expect(estadoTrasFoto([...LEVANTAMIENTO_CARAS].map((c) => foto(c)), 'base')).toBe('fotos_tomadas');
   });
 
   it('un acercamiento que el empaque no trae se salta con motivo y completa igual (manda a revisión)', () => {
@@ -115,15 +153,15 @@ describe('fotos · cuándo queda completa la unidad principal', () => {
     expect(motivosDeRevision(sinTabla, 'base')).toEqual(['caras_saltadas']);
   });
 
-  it('⭐ los detalles NO cuentan para terminar: 7 obligatorias + 3 detalles sigue en_captura', () => {
-    const conDetalles = [...todas.slice(0, 7), foto('detalle_1'), foto('detalle_2'), foto('detalle_3')];
+  it('⭐ los detalles NO cuentan para terminar: 3 obligatorias + 3 detalles sigue en_captura', () => {
+    const conDetalles = [...todas.slice(0, 3), foto('detalle_1'), foto('detalle_2'), foto('detalle_3')];
     expect(estadoTrasFoto(conDetalles, 'base')).toBe('en_captura');
-    // Control: con la octava sí termina, con o sin detalles.
-    expect(estadoTrasFoto([...conDetalles, todas[7]], 'base')).toBe('fotos_tomadas');
+    // Control: con la cuarta sí termina, con o sin detalles.
+    expect(estadoTrasFoto([...conDetalles, todas[3]], 'base')).toBe('fotos_tomadas');
   });
 
   it('una cara saltada con motivo cuenta como resuelta, pero manda a revisión', () => {
-    const conSalto = [...todas.slice(0, 7), foto('codigo_barras', { storage_key: null, sha256: null, saltada_motivo: 'no_se_puede_girar' })];
+    const conSalto = [...todas.slice(0, 3), foto('informacion', { storage_key: null, sha256: null, saltada_motivo: 'no_se_puede_girar' })];
     expect(estadoTrasFoto(conSalto, 'base')).toBe('fotos_tomadas');
     expect(motivosDeRevision(conSalto, 'base')).toEqual(['caras_saltadas']);
   });

@@ -56,6 +56,7 @@ export function esCodigoCompleto(code: string, rafaga: boolean): boolean {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="psf">
+      @if (!soloCamara()) {
       <div class="psf-row">
         <span class="psf-ico" aria-hidden="true"><i class="pi" [class.pi-qrcode]="!ocupado()" [class.pi-spinner]="ocupado()" [class.pi-spin]="ocupado()"></i></span>
         <input
@@ -90,12 +91,26 @@ export function esCodigoCompleto(code: string, rafaga: boolean): boolean {
           <i class="pi pi-search" aria-hidden="true"></i>
         </button>
       </div>
+      }
 
       @if (camaraAbierta()) {
-        <div class="psf-cam-ov" role="dialog" aria-modal="true" aria-label="Escaneo con la cámara">
-          <p class="psf-cam-tip">Encuadra el código de barras</p>
+        <!-- [NP.7.L.24] Cámara a pantalla completa con una VENTANA con forma de código de barras (ancho y bajo):
+             la persona sabe dónde ponerlo y a qué distancia. La ventana es guía visual; zxing sigue leyendo el
+             cuadro entero, así que nada que antes se leía deja de leerse. -->
+        <div class="psf-cam-ov" role="dialog" aria-modal="true" aria-label="Escaneo con la cámara" (keydown.escape)="cerrarCamara()">
           <video #video class="psf-cam-vid" playsinline muted></video>
-          <button #cancelar type="button" class="psf-cam-x" (click)="cerrarCamara()" (keyup.escape)="cerrarCamara()">Cancelar</button>
+          <div class="psf-cam-win" aria-hidden="true"><i></i><i></i><i></i><i></i><span class="psf-cam-laser"></span></div>
+          <div class="psf-cam-top">
+            <button #cancelar type="button" class="psf-cam-rb" aria-label="Cerrar la cámara" (click)="cerrarCamara()"><i class="pi pi-times" aria-hidden="true"></i></button>
+            <span class="psf-cam-ttl">Escanear código</span>
+            @if (linternaDisponible()) {
+              <button type="button" class="psf-cam-rb" [class.on]="linterna()" [attr.aria-pressed]="linterna()" aria-label="Linterna" (click)="alternarLinterna()"><i class="pi pi-bolt" aria-hidden="true"></i></button>
+            } @else { <span class="psf-cam-rb-vacio" aria-hidden="true"></span> }
+          </div>
+          <p class="psf-cam-tip">Centra el código de barras en el recuadro<small>Lee solo, sin apretar nada. Acerca el teléfono si no lo lee.</small></p>
+          <div class="psf-cam-bottom">
+            <button type="button" class="psf-cam-x" (click)="teclear()"><i class="pi pi-pencil" aria-hidden="true"></i> Teclear el código</button>
+          </div>
         </div>
       }
 
@@ -160,21 +175,45 @@ export function esCodigoCompleto(code: string, rafaga: boolean): boolean {
     .psf-est.on { color: var(--ok-soft-fg); }
     .psf-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
     .psf-help { color: var(--text-faint); }
-    .psf-cam-ov {
-      position: fixed; inset: 0; z-index: 1200;
-      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .75rem;
-      background: var(--layout-bg); padding: 1rem;
+    /* [NP.7.L.24] Escaner a pantalla completa. Encima del video va siempre fondo oscuro, en claro y en
+       oscuro: es una camara, el texto blanco se lee sobre la imagen. */
+    .psf-cam-ov { position: fixed; inset: 0; z-index: 1200; background: #000; color: #fff; overflow: hidden; }
+    .psf-cam-vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    /* La ventana: ancha y baja como un codigo de barras (2.3:1). La sombra enorme oscurece todo lo demas. */
+    .psf-cam-win {
+      position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%);
+      width: min(80vw, 340px); aspect-ratio: 2.3 / 1; border-radius: var(--r-md, 12px);
+      box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55);
     }
-    .psf-cam-tip { margin: 0; color: var(--text-muted); font-size: var(--fs-sm, .85rem); }
-    .psf-cam-vid {
-      width: min(100%, 520px); aspect-ratio: 4 / 3; object-fit: cover;
-      background: var(--surface-ground); border-radius: var(--r-md, 8px);
+    .psf-cam-win i { position: absolute; width: 28px; height: 28px; border: 0 solid #fff; }
+    .psf-cam-win i:nth-child(1) { top: 0; left: 0; border-width: 3px 0 0 3px; border-top-left-radius: 12px; }
+    .psf-cam-win i:nth-child(2) { top: 0; right: 0; border-width: 3px 3px 0 0; border-top-right-radius: 12px; }
+    .psf-cam-win i:nth-child(3) { bottom: 0; left: 0; border-width: 0 0 3px 3px; border-bottom-left-radius: 12px; }
+    .psf-cam-win i:nth-child(4) { bottom: 0; right: 0; border-width: 0 3px 3px 0; border-bottom-right-radius: 12px; }
+    .psf-cam-laser { position: absolute; left: 12px; right: 12px; top: 50%; height: 2px; background: var(--action); box-shadow: 0 0 12px 2px var(--action); }
+    .psf-cam-top {
+      position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between;
+      padding: max(16px, env(safe-area-inset-top, 0)) 16px 16px;
     }
+    .psf-cam-ttl { font-weight: 700; font-size: var(--fs-body, .875rem); }
+    .psf-cam-rb, .psf-cam-rb-vacio { width: 44px; height: 44px; border-radius: 50%; }
+    .psf-cam-rb {
+      display: grid; place-items: center; background: rgba(0, 0, 0, .45); color: #fff;
+      border: 1px solid rgba(255, 255, 255, .22); cursor: pointer; font: inherit;
+    }
+    .psf-cam-rb.on { background: #fff; color: #000; }
+    .psf-cam-rb:focus-visible, .psf-cam-x:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    .psf-cam-tip {
+      position: absolute; left: 0; right: 0; top: calc(45% + min(80vw, 340px) / 4.6 + 20px);
+      margin: 0; padding: 0 2rem; text-align: center; color: #fff; font-size: var(--fs-sm, .8125rem); font-weight: 600;
+    }
+    .psf-cam-tip small { display: block; margin-top: 4px; color: rgba(255, 255, 255, .72); font-size: var(--fs-xs, .75rem); font-weight: 400; }
+    .psf-cam-bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 16px 16px max(24px, env(safe-area-inset-bottom, 0)); }
     .psf-cam-x {
-      min-height: 48px; min-width: 160px; padding: 0 1.25rem;
-      background: var(--card-bg); color: var(--text-main);
-      border: 1px solid var(--border-color); border-radius: var(--r-md, 8px);
-      font: inherit; font-weight: 700; cursor: pointer;
+      width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: .5rem;
+      background: rgba(24, 24, 27, .85); color: #fff;
+      border: 1px solid rgba(255, 255, 255, .22); border-radius: var(--r-md, 8px);
+      font: inherit; font-weight: 600; cursor: pointer;
     }
     @media (max-width: 40rem) { .psf-help { display: none; } }
   `],
@@ -198,15 +237,25 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
    * mostrador. En un celular abre el teclado y tapa media pantalla, así que el levantamiento lo apaga.
    */
   readonly autoEnfoque = input(true);
+  /**
+   * `[NP.7.L.24]` Sólo la cámara, sin el renglón del campo: la pantalla pone su propio botón «Escanear» y su
+   * buscador, y usa este componente por su escáner. Por defecto el campo se ve (las demás pantallas no cambian).
+   */
+  readonly soloCamara = input(false);
 
   readonly valorChange = output<string>();
   /** El operador disparó: pistola (Enter), cámara (lectura) o botón de lupa. */
   readonly buscar = output<string>();
   /** Motivo por el que la cámara no abrió, para que el padre lo muestre. */
   readonly sinCamara = output<string>();
+  /** `[NP.7.L.24]` «Teclear el código» desde la cámara: el padre decide a dónde llevar a la persona. */
+  readonly pidioTeclear = output<void>();
 
   readonly activo = signal(false);
   readonly camaraAbierta = signal(false);
+  /** `[NP.7.L.24]` La linterna sólo se ofrece si la cámara la tiene (Chrome en Android; Safari no la expone). */
+  readonly linternaDisponible = signal(false);
+  readonly linterna = signal(false);
   private readonly campo = viewChild<ElementRef<HTMLInputElement>>('campo');
   private readonly video = viewChild<ElementRef<HTMLVideoElement>>('video');
   private readonly cancelar = viewChild<ElementRef<HTMLButtonElement>>('cancelar');
@@ -300,6 +349,7 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
           v,
           (r) => { if (r) this.leido(r.getText()); },
         ), this.camaraAbierta());
+        this.revisarLinterna(v);
       } catch {
         this.cerrarCamara();
         this.sinCamara.emit('No se pudo abrir la cámara. Revisa los permisos del navegador (requiere HTTPS).');
@@ -317,8 +367,46 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
     setTimeout(() => this.buscar.emit(code), 0);
   }
 
+  /** La pista de video que está mostrando la cámara (null si no hay). */
+  private pista(v?: HTMLVideoElement | null): MediaStreamTrack | null {
+    const flujo = (v ?? this.video()?.nativeElement)?.srcObject as MediaStream | null | undefined;
+    return flujo?.getVideoTracks?.()[0] ?? null;
+  }
+
+  private revisarLinterna(v: HTMLVideoElement): void {
+    try {
+      const cap = this.pista(v)?.getCapabilities?.() as (MediaTrackCapabilities & { torch?: boolean }) | undefined;
+      this.linternaDisponible.set(!!cap?.torch);
+    } catch {
+      this.linternaDisponible.set(false);
+    }
+  }
+
+  /** Prende o apaga la linterna. Si el teléfono la rechaza, se deja de ofrecer (no se finge prendida). */
+  async alternarLinterna(): Promise<void> {
+    const pista = this.pista();
+    if (!pista) return;
+    const quiere = !this.linterna();
+    try {
+      await pista.applyConstraints({ advanced: [{ torch: quiere } as MediaTrackConstraintSet] });
+      this.linterna.set(quiere);
+    } catch {
+      this.linternaDisponible.set(false);
+      this.linterna.set(false);
+    }
+  }
+
+  /** «Teclear el código»: cierra la cámara y lleva al campo (o, sin campo, avisa al padre). */
+  teclear(): void {
+    this.cerrarCamara();
+    this.pidioTeclear.emit();
+    if (!this.soloCamara()) setTimeout(() => this.campo()?.nativeElement?.focus(), 0);
+  }
+
   cerrarCamara(): void {
     this.camaraAbierta.set(false);
+    this.linterna.set(false);
+    this.linternaDisponible.set(false);
     detenerLector(this.controles);
     this.controles = undefined;
     this.lector = undefined;

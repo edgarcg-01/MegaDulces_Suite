@@ -4,7 +4,7 @@
  * (§7.1 modelo, §10b.3 flujo, §10b.7 unidades).
  */
 import {
-  LEVANTAMIENTO_CARA_OBLIGATORIA, LEVANTAMIENTO_CARAS, LEVANTAMIENTO_DETALLE_MINUTOS, LEVANTAMIENTO_DETALLE_NOTA_MAX, LEVANTAMIENTO_DETALLES,
+  LEVANTAMIENTO_CARA_OBLIGATORIA, LEVANTAMIENTO_CARA_SOLO_BUSQUEDA, LEVANTAMIENTO_CARAS, LEVANTAMIENTO_CARAS_REQUERIDAS, LEVANTAMIENTO_DETALLE_MINUTOS, LEVANTAMIENTO_DETALLE_NOTA_MAX, LEVANTAMIENTO_DETALLES,
   type LevantamientoDetalle,
 } from '@megadulces/contracts';
 import type { KdiiFila, Peldano, ResultadoEscaneo } from '../shared/kdii-codigo';
@@ -48,15 +48,47 @@ export function peldanoPrincipal(f: Pick<KdiiFila, 'f2' | 'f3'>, rungModal: numb
   return null;
 }
 
+/**
+ * `[NP.7.L.23]` Las presentaciones que el producto tiene en Kepler: la pieza siempre; el paquete y la caja sólo
+ * con factor capturado (sin factor no se puede decir «paquete de N»).
+ */
+export function presentacionesDisponibles(f: Pick<KdiiFila, 'f2' | 'f3'>): Peldano[] {
+  const out: Peldano[] = ['base'];
+  if (f.f2 != null && Number(f.f2) > 0) out.push('dos');
+  if (f.f3 != null && Number(f.f3) > 0) out.push('tres');
+  return out;
+}
+
+/**
+ * `[NP.7.L.23]` A qué presentación se le toman fotos (cambia D23 con la luz verde del dueño del módulo, 2026-11-26).
+ * Sólo el 12.6 % de los paquetes y el 1.8 % de las cajas tienen código propio (§10a.1): casi siempre se escanea el
+ * de la pieza, así que el código no prueba qué tiene la persona en la mano. Por eso ELIGE, con una ya marcada:
+ *  1. la que pidió, si el producto la tiene (si no la tiene → null: el servicio responde 400);
+ *  2. la del código, si es de un paquete o una caja (ese código sí dice qué tiene en la mano);
+ *  3. la que más se vende en la sucursal;
+ *  4. la pieza.
+ */
+export function presentacionAFotografiar(e: {
+  disponibles: Peldano[]; pedida: Peldano | null; escaneada: Peldano | null; masVendida: Peldano | null;
+}): Peldano | null {
+  if (e.pedida) return e.disponibles.includes(e.pedida) ? e.pedida : null;
+  if (e.escaneada && e.escaneada !== 'base' && e.disponibles.includes(e.escaneada)) return e.escaneada;
+  if (e.masVendida && e.disponibles.includes(e.masVendida)) return e.masVendida;
+  return e.disponibles[0] ?? null;
+}
+
 // ── Caras por peldaño (§10b.7 punto 2) ─────────────────────────────────────────────────────────
 
 /** Una sola lista (la del contrato): las 5 caras y los 3 acercamientos, en el orden en que se piden. */
 export const CARAS_PRINCIPAL = LEVANTAMIENTO_CARAS;
 export type Cara = (typeof CARAS_PRINCIPAL)[number];
 
-/** En el piloto sólo se levanta la unidad principal (D23: la caja exterior queda fuera). */
-export function carasRequeridas(): readonly Cara[] {
-  return CARAS_PRINCIPAL;
+/**
+ * Lo que se pide de la unidad principal (D23: la caja exterior queda fuera). `[NP.7.L.21]` 4 fotos guiadas
+ * (`LEVANTAMIENTO_CARAS_REQUERIDAS`) y el código de barras sólo si el producto se eligió en el buscador.
+ */
+export function carasRequeridas(porBusqueda = false): readonly Cara[] {
+  return porBusqueda ? [...LEVANTAMIENTO_CARAS_REQUERIDAS, LEVANTAMIENTO_CARA_SOLO_BUSQUEDA] : LEVANTAMIENTO_CARAS_REQUERIDAS;
 }
 
 /** ¿Es un detalle libre (`detalle_n`)? No cuenta para terminar ni se salta. */
@@ -185,8 +217,7 @@ export function decidirEscaneo(e: EntradaEscaneo): DecisionEscaneo {
   if (e.estadoFicha && ESTADOS_CON_FICHA.includes(e.estadoFicha)) return no('ya_esta');
   if (e.estadoFicha && ESTADOS_EN_REVISION.includes(e.estadoFicha)) return no('en_revision');
   if (!e.principal) return no('sin_unidad_principal');
-  // Por el buscador no hay código que diga el peldaño: se levanta la unidad principal.
-  if (!e.porBusqueda && e.resultado.resuelto.peldano !== e.principal) return no('otra_unidad');
+  // `[NP.7.L.23]` Ya no se rechaza «otra unidad»: `principal` es la presentación ELEGIDA (presentacionAFotografiar).
   if (apartadoVivo(e.apartado, e.ahora) && e.apartado!.by !== e.userId) return no('apartado_por_otro');
   // Re-escanear lo que ya tengo apartado no cuenta como apartado nuevo.
   if (apartadoVivo(e.apartado, e.ahora) && e.apartado!.by === e.userId) return no('capturar');
@@ -241,7 +272,9 @@ export function carasResueltas(fotos: FotoFicha[], peldano: Peldano): Set<string
  */
 export function estadoTrasFoto(fotos: FotoFicha[], peldano: Peldano): EstadoLevantamiento {
   const hechas = carasResueltas(fotos, peldano);
-  return carasRequeridas().every((c) => hechas.has(c)) ? 'fotos_tomadas' : 'en_captura';
+  // Cada foto de la captura lleva `por_busqueda` (sale del peldaño de la ficha): si una lo trae, se pide el código.
+  const porBusqueda = fotos.some((f) => f.peldano === peldano && f.por_busqueda);
+  return carasRequeridas(porBusqueda).every((c) => hechas.has(c)) ? 'fotos_tomadas' : 'en_captura';
 }
 
 /**
