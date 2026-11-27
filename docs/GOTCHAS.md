@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 294 KB, 5073 líneas, 108 secciones.
+> **Índice navegable** — 295 KB, 5079 líneas, 108 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/GOTCHAS.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -114,7 +114,7 @@
 | 4993 | 5019 | 5 | 93. ⛔ `/api/health` en verde con la suite en blanco: el 404 que la CDN guarda durante un despliegue |
 | 5020 | 5100 | 6 | 94. ⛔⛔ Una prueba escrita en el Kepler vivo es un documento REAL: la sucursal la ejerce en minutos y la Suite  |
 | 5101 | 5145 | 3 | 95. ⛔⛔ Un pago a proveedor no se arregla por caso: se mide el cuadre de los libros, o el pago doble pasa entre |
-| 5146 | 5193 | 4 | 96. ⛔⛔ Todo monto dice si lleva impuestos: una cifra sin base hace dudar del cobro y hace comprar de más |
+| 5146 | 5199 | 4 | 96. ⛔⛔ Todo monto dice si lleva impuestos: una cifra sin base hace dudar del cobro y hace comprar de más |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5190,3 +5190,9 @@ impuestos; lo correcto es siempre agregar los impuestos desde que se genera la c
   «tax» no es la tasa: se arbitra contra un documento real.
 - ⭐ **Al sumar o dividir dos montos, primero se pregunta si comparten base** (con/sin impuestos, a costo/a precio). Si
   no, la cifra está mal aunque el rótulo diga la verdad.
+- ⛔ **Toda cantidad de mercancía dice su unidad** (cajas, piezas, paquetes, kg). Lo hace cumplir `npm run check:unidades`
+  (`scripts/check-cantidad-con-unidad.js`, 119 sellados). *Caso (`[PQ.166]`/`[PQ.167]`): el Excel de la requisición rotulaba
+  «Piezas» lo que eran cajas, y «Existencia» va en cajas en la ficha de la requisición y en piezas en `/compras/hallazgos`.*
+- ⭐ **Un respaldo de `COALESCE` no puede cambiar la base ni la unidad.** `COALESCE(cost_with_tax, cost_base, 0)` mezclaba con y
+  sin impuestos, por pieza y por bulto, y publicaba $0 (456 hallazgos); la «Venta/mes» caía al COSTO cuando faltaba el markup
+  (2,138 productos). Si falta el dato de la base buena, se declara (`NULL` + «sin costo»), no se sustituye por otro.

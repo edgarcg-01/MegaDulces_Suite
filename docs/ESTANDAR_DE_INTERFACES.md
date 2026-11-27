@@ -122,6 +122,10 @@ pedido**; lo que se guarda conserva la base de Kepler. *Caso: una OC de $202,496
 base hicieron preguntar si el IVA se cobraba dos veces, y el pedido valuaba sin impuestos lo que se paga con ellos
 (GOTCHAS §96).* Lo hace cumplir `npm run check:montos`.
 
+**Y toda cantidad de mercancía dice su unidad** — cajas, piezas, paquetes, kg —, medida contra el dato antes de
+rotularla. La misma palabra («Existencia», «Sugerido») va en cajas en una pantalla y en piezas en otra; sin la
+unidad escrita, se lee como si fuera la misma. Lo hace cumplir `npm run check:unidades`.
+
 ---
 
 ## Capa 2 · Alcance — lo que importa se puede llegar
