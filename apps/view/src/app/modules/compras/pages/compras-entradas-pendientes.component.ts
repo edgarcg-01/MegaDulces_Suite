@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, computed,
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subject, of, switchMap, catchError, debounceTime, firstValueFrom } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
@@ -35,7 +35,7 @@ import { motivoLabel, motivoDescarteLabel, plural } from '../receipt-verdict';
 import { ofrecerSelectorSucursal } from '../sucursal-selector';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { escalaDeLectura } from '@megadulces/contracts';
+import { escalaDeLectura, type MismaFacturaDuplicado } from '@megadulces/contracts';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -87,6 +87,11 @@ interface Hoja {
   /** `[RE.42]` Posible duplicado que NO frena (mismo folio, emisor sin confirmar): se muestra y se envía. */
   dupAviso?: string;
   motivo?: string;
+  /** `[RE.88]` El PDF repetido es la misma factura que cita esta entrada: se liga con motivo en vez de frenar. */
+  dupMisma?: MismaFacturaDuplicado | null;
+  motivoLiga?: string;
+  ligando?: boolean;
+  ligaError?: string;
   busqueda?: string;
   buscando?: boolean;
 }
@@ -123,7 +128,7 @@ interface Hoja {
     DatePickerModule,
     TagModule, ToastModule, TooltipModule, SegmentedComponent, LoadStateComponent,
     FreshnessPillComponent, ContextHelpComponent, DocViewerComponent, TableDensityComponent, SidePeekComponent,
-    PageTabsComponent,
+    PageTabsComponent, RouterLink,
   ],
   providers: [MessageService],
   template: `
@@ -610,11 +615,45 @@ interface Hoja {
                 <p class="ep-an-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo <b>{{ h.name }}</b>…</p>
               }
               @case ('duplicada') {
-                <p class="ep-an-msg is-bad">
-                  <i class="pi pi-ban" aria-hidden="true"></i>
-                  @if (h.dupMensaje) { {{ h.dupMensaje }} }
-                  @else { Este PDF ya está subido en la entrada <b class="mono">{{ h.dupDe }}</b>. No se vuelve a guardar. }
-                </p>
+                @if (h.dupMisma; as m) {
+                  <!-- [RE.88] No es un error: la mercancía llegó en dos entradas con la misma factura. Se liga con motivo. -->
+                  <p class="ep-veredicto warn" role="status">
+                    <i class="pi pi-link" aria-hidden="true"></i>
+                    <span>Es la <b>misma factura</b> que la entrada <b class="mono">{{ m.hermana.sucursal }}/{{ m.hermana.folio }}</b>:
+                      las dos citan <b class="mono">{{ m.referencia }}</b> en Kepler. El PDF no se vuelve a subir; esta entrada se liga a esa factura.</span>
+                  </p>
+                  <p class="ep-an-msg">
+                    @if (m.diferencia === null) { No se pudo leer el total de la factura. }
+                    @else if (m.diferencia === 0) { Las entradas suman {{ money(m.suma_entradas) }}, lo mismo que la factura. }
+                    @else {
+                      Las entradas suman <b>{{ money(m.suma_entradas) }}</b> y la factura{{ m.factura_fuente === 'papel' ? ' (leída del PDF)' : '' }}
+                      <b>{{ money(m.factura_total) }}</b>: {{ m.diferencia > 0 ? 'sobran' : 'faltan' }} <b>{{ money(abs(m.diferencia)) }}</b>.
+                      Revisa en el papel si esta mercancía viene en la factura.
+                    }
+                  </p>
+                  @if (m.no_se_puede) {
+                    <p class="ep-an-msg is-bad"><i class="pi pi-ban" aria-hidden="true"></i> {{ m.no_se_puede }}</p>
+                  } @else if (canValidate()) {
+                    <div class="ep-liga">
+                      <label class="ep-liga-lbl" [for]="'liga-' + h.id">Por qué esta entrada es parte de esa factura</label>
+                      <input pInputText [id]="'liga-' + h.id" class="ep-liga-in" [ngModel]="h.motivoLiga ?? ''" (ngModelChange)="parcharMotivoLiga(h, $event)"
+                             [disabled]="!!h.ligando" maxlength="300" />
+                      <button pButton type="button" class="p-button-sm" icon="pi pi-link" label="Ligar con motivo"
+                              [loading]="!!h.ligando" [disabled]="(h.motivoLiga ?? '').trim().length < MOTIVO_LIGA_MIN"
+                              (click)="ligarMisma(h, m)"></button>
+                    </div>
+                    @if (h.ligaError) { <p class="ep-an-msg is-bad">{{ h.ligaError }}</p> }
+                  } @else {
+                    <p class="ep-an-msg">La liga quien valida facturas, en
+                      <a [routerLink]="['/compras/revision-facturas']" [queryParams]="{ suc: m.hermana.sucursal }">Revisión de facturas</a>.</p>
+                  }
+                } @else {
+                  <p class="ep-an-msg is-bad">
+                    <i class="pi pi-ban" aria-hidden="true"></i>
+                    @if (h.dupMensaje) { {{ h.dupMensaje }} }
+                    @else { Este PDF ya está subido en la entrada <b class="mono">{{ h.dupDe }}</b>. No se vuelve a guardar. }
+                  </p>
+                }
               }
               @case ('error') {
                 <p class="ep-an-msg is-bad"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ h.motivo || 'No se pudo procesar' }}</p>
@@ -1034,6 +1073,10 @@ interface Hoja {
     .ep-an-msg { display: flex; gap: var(--sp-2); align-items: flex-start; margin: 0;
       font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.45; }
     .ep-an-msg.is-bad { color: var(--bad-fg); }
+    /* [RE.88] El motivo y su botón en una línea; en angosto, el botón baja. */
+    .ep-liga { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+    .ep-liga-lbl { flex-basis: 100%; font-size: var(--fs-sm); color: var(--text-muted); }
+    .ep-liga-in { flex: 1 1 16rem; min-width: 0; }
     .ep-an-msg em { font-style: normal; color: var(--text-faint); }
 
     /* El veredicto en una oración, antes de la tabla del análisis (DESIGN Q.1). */
@@ -1289,6 +1332,12 @@ export class ComprasEntradasPendientesComponent {
 
   readonly canManage = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
+  /** `[RE.88]` Ligar una factura compartida lo decide `_VALIDAR` (RE.86): quien sube no declara por sí mismo. */
+  readonly canValidate = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
+  /** El mínimo del motivo: el mismo que el CHECK de la base (`MOTIVO_LIGA_MIN` del servidor). */
+  readonly MOTIVO_LIGA_MIN = 10;
+  readonly abs = Math.abs;
 
   // ── alcance: decide si hay selector, chip fijo, o bloqueo explicado ──
   private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
@@ -1852,7 +1901,7 @@ export class ComprasEntradasPendientesComponent {
       // `[RE.42]` Bloquear o avisar lo decide el servidor; `duplicadoBloquea/Avisa` sólo lo leen.
       const d = o.duplicate;
       if (duplicadoBloquea(d)) {
-        this.parchar(h.id, { estado: 'duplicada', dupDe: `${d!.sucursal}/${d!.folio}`, dupMensaje: duplicadoMensaje(d!) });
+        this.parchar(h.id, { estado: 'duplicada', dupDe: `${d!.sucursal}/${d!.folio}`, dupMensaje: duplicadoMensaje(d!), dupMisma: d!.misma_factura ?? null });
         return;
       }
       if (duplicadoAvisa(d)) this.parchar(h.id, { dupAviso: duplicadoMensaje(d!) });
@@ -1912,7 +1961,7 @@ export class ComprasEntradasPendientesComponent {
         const cur = this.hojas().find((x) => x.id === id);
         if (!cur?.entrada || cur.entrada.sucursal !== destino.sucursal || cur.entrada.folio !== destino.folio) return;
         if (duplicadoBloquea(d)) {
-          this.parchar(id, { estado: 'duplicada', dupDe: `${d!.sucursal}/${d!.folio}`, dupMensaje: duplicadoMensaje(d!), dupAviso: undefined });
+          this.parchar(id, { estado: 'duplicada', dupDe: `${d!.sucursal}/${d!.folio}`, dupMensaje: duplicadoMensaje(d!), dupAviso: undefined, dupMisma: d!.misma_factura ?? null });
         } else {
           this.parchar(id, { dupAviso: duplicadoAvisa(d) ? duplicadoMensaje(d!) : undefined });
         }
@@ -1923,6 +1972,26 @@ export class ComprasEntradasPendientesComponent {
   desenlazar(h: Hoja): void {
     this.parchar(h.id, { entrada: null, estado: 'sin_match', candidatas: [], porMonto: false });
   }
+  parcharMotivoLiga(h: Hoja, v: string): void { this.parchar(h.id, { motivoLiga: v, ligaError: undefined }); }
+
+  /** `[RE.88]` Liga esta entrada a la factura que ya tiene la otra (RE.86), con el motivo que escribió quien valida. */
+  ligarMisma(h: Hoja, m: MismaFacturaDuplicado): void {
+    const motivo = (h.motivoLiga ?? '').trim();
+    if (!h.entrada || !m.cfdi_uuid || motivo.length < this.MOTIVO_LIGA_MIN) return;
+    this.parchar(h.id, { ligando: true, ligaError: undefined });
+    this.svc.ligarFacturaCompartida(h.entrada.sucursal, h.entrada.folio, m.cfdi_uuid, motivo)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: () => {
+          this.toast.add({ severity: 'success', summary: `Entrada ${h.entrada!.sucursal}/${h.entrada!.folio} ligada`,
+            detail: `A la factura ${m.referencia}, la misma de ${m.hermana.sucursal}/${m.hermana.folio}.` });
+          this.quitar(h);
+          if (!this.hojas().length) this.abierta.set(null);
+          this.reload();
+        },
+        error: (e: { error?: { message?: string } }) => this.parchar(h.id, { ligando: false, ligaError: e?.error?.message || 'No se pudo ligar. Vuelve a intentar.' }),
+      });
+  }
+
   quitar(h: Hoja): void {
     this.soltarBlob(h);
     if (this.vista() === h.id) this.vista.set(null);

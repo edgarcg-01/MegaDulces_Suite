@@ -11,6 +11,7 @@
  * Entrada por stdin, una línea cada una (la conexión nunca va en la línea de comandos):
  *   1. la URL de `kepler_push` del servidor
  *   2. JSON: { sucursal, plantilla, acreedor, factura: { tipo, subtipo, folio }, aplicado, origen: { bank, account_label } }
+ *      `[PGP.171]` con `cheque` (número) es el `X-D-25`: `plantilla` es entonces el folio de un cheque (`X-D-25`).
  */
 import * as readline from 'node:readline';
 import type { PoolClient } from 'pg';
@@ -43,17 +44,18 @@ async function main(): Promise<void> {
   const p = JSON.parse(json) as {
     sucursal: string; plantilla: string; acreedor: string; aplicado: number;
     factura: { tipo: number; subtipo: number; folio: string }; origen: { bank: string; account_label: string };
+    cheque?: string;
   };
   const env: Env = {
     KEPLER_PAGO_ESCRITURA: 'encendida',
     [`KEPLER_PUSH_URL_${p.sucursal}`]: url,
-    [`KEPLER_PAGO_TEMPLATE_FOLIO_${p.sucursal}`]: p.plantilla,
+    [`${p.cheque ? 'KEPLER_CHEQUE_TEMPLATE' : 'KEPLER_PAGO_TEMPLATE'}_FOLIO_${p.sucursal}`]: p.plantilla,
   };
   const ad = new AdaptadorEnsayo(env);
   const r = await ad.entregar({
     sucursal: p.sucursal, fecha: new Date().toISOString().slice(0, 10), hora: '00:00', referencia: REFERENCIA,
     acreedor: p.acreedor, importe: p.aplicado, origen: p.origen, destino: null,
-    facturas: [{ ...p.factura, aplicado: p.aplicado }],
+    facturas: [{ ...p.factura, aplicado: p.aplicado }], cheque: p.cheque ?? null,
   });
   console.log(JSON.stringify({ resultado: r, revisado: ad.revisado, fallas: ad.fallas }, null, 1));
   await ad.onModuleDestroy();

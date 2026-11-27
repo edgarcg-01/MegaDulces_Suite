@@ -146,6 +146,12 @@ export function entregasDelDia(
     // La comisión no trae comprobante: `c25` queda vacío (439 de 442) y `c11` lleva la referencia que esa
     // sucursal usa con ese banco, copiada de su último gasto (`PlantillaComisiones.referenciaGasto`).
     comprobante: { tipo: 'ticket', folio: p.referenciaGasto, fecha: null, uuid: null },
+    // ⛔ Y se DECLARA, porque el armador de la solicitud exige la fecha del documento (DS15) y sin esto
+    //    rechazaba el día entero: «Falta la fecha del documento que ampara el gasto». Lo encontró el
+    //    canario del 2026-11-26. Medido ese día en el ODS, acreedor GB% desde septiembre: de 690 X-A-15 y
+    //    653 X-A-10 de comisiones, CERO llevan renglón AMPARA. La regla DS15 es del flujo con ticket o
+    //    CFDI y ahí sigue en pie; acá se declara que no hay papel que fechar.
+    sinDocumentoQueAmpare: true,
     comentario: `COMISION TARJETA ${p.sucursalNombre} VTAS ${ddmmaaaa(d.dia_venta)}`,
     solicita: SOLICITA_SUITE,
     formaPago: null,

@@ -11,16 +11,30 @@ import { InputTextModule } from 'primeng/inputtext';
 import {
   aisleOrder,
   describeLocationCode,
-  CROQUIS_FILAS_MAX,
   FIXTURE_KINDS,
+  FIXTURE_KINDS as FORMAS,
+  MIRAS,
+  RACKS_DE_CARA,
+  racksDeLaCara,
   LOCATION_KINDS,
   LOCATION_LEVEL_MAX,
-  acomodar,
+  acomodarCara,
+  caraColocada,
+  nombreDeCara,
   nombrePieza,
+  plantaDeCaras,
   parseLocationCode,
   rackFace,
   rackOpuesto,
+  type CeldaDeLaPlanta,
   type CroquisResponse,
+  type CaraBody,
+  type PiezaBody,
+  type FixtureFace,
+  type FixtureKind,
+  type RacksDeCara,
+  type MiraHacia,
+  type SoltarCara,
   type LocationKind,
   type LocationZone,
   type RackFace,
@@ -81,16 +95,27 @@ export interface PasilloMapa {
  * genera ubicaciones) y cómo se dibuja. Una cabecera **no** lleva corredor en medio: es de una cara,
  * y dibujarle dos frentes es dibujar algo que no existe en la tienda.
  */
-interface PiezaEnCroquis {
-  pieza: WarehouseFixture;
-  bloque: PasilloMapa | null;
+/** `[UB.PL.11]` Una cara lista para dibujar: su nombre y los racks de SU letra. */
+interface CaraDibujable {
+  id: string;
   nombre: string;
-  dosFrentes: boolean;
+  frente: Fila | null;
+  pasillo: string | null;
 }
 
-interface FilaCroquis {
+/** Un mueble del croquis: una o dos caras en la misma celda, espalda con espalda. */
+interface MuebleDibujable {
+  columna: number;
+
+  caras: CaraDibujable[];
+  aria: string;
+}
+
+interface RenglonDibujable {
   fila: number;
-  piezas: PiezaEnCroquis[];
+  muebles: MuebleDibujable[];
+  /** Las letras que tocan el corredor de arriba. Vacío si no hay corredor que rotular. */
+  corredor: string;
 }
 
 const ESTADO_LABEL: Record<EstadoRack, string> = {
@@ -110,30 +135,6 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
  */
 export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): boolean {
   return p.fila != null && p.columna != null;
-}
-
-/** `[UB.PL.8]` Un renglón de la planta mientras se acomoda: su número y lo que ya hay en él. */
-export interface RenglonEditor {
-  fila: number;
-  piezas: WarehouseFixture[];
-}
-
-/**
- * `[UB.PL.8]` Los renglones que se dibujan al acomodar: los que ya tienen piezas **más uno libre
- * al final**. Sin ese renglón de más no habría dónde empezar la primera corrida —la planta nace
- * vacía— y haría falta un botón «agregar renglón» que nadie tendría por qué buscar.
- */
-export function renglonesDeLaPlanta(piezas: readonly WarehouseFixture[]): RenglonEditor[] {
-  const usadas = piezas.filter(estaAcomodada).map((p) => p.fila as number);
-  const hasta = Math.min(CROQUIS_FILAS_MAX, Math.max(0, ...usadas) + 1);
-  const renglones: RenglonEditor[] = [];
-  for (let fila = 1; fila <= hasta; fila++) {
-    renglones.push({
-      fila,
-      piezas: piezas.filter((p) => p.fila === fila).sort((a, b) => (a.columna ?? 0) - (b.columna ?? 0)),
-    });
-  }
-  return renglones;
 }
 
 /**
@@ -260,82 +261,141 @@ export function renglonesDeLaPlanta(piezas: readonly WarehouseFixture[]): Renglo
                 </div>
               </div>
 
-              <!-- [UB.PL.8] Acomodar: se dice DÓNDE está cada mueble. Se toma una pieza y se suelta
-                   en un renglón. El mouse arrastra y el teclado toma y suelta por el MISMO camino:
-                   una sola regla que probar, y la tarea se termina sin mouse. -->
+              <!-- [UB.PL.11] Acomodar: la planta es una rejilla de CELDAS y cada celda es un mueble.
+                   Lo que se arrastra es una CARA, y al soltarla se dice hacia dónde mira. Dos caras
+                   en la misma celda mirando a lados opuestos son el mismo mueble, espalda con
+                   espalda: así un anaquel ENTRE dos pasillos se puede decir, que era el pedido de
+                   Edgar. El corredor no se acomoda — es lo que queda entre dos filas. -->
               @if (acomodando()) {
                 <div class="ub-acomodo">
                   <p class="ub-hint" role="status" aria-live="polite">
                     @if (tomada(); as t) {
-                      <b>{{ nombreDeId(t) }}</b> en la mano: elige dónde va.
+                      <b>{{ nombreDeId(t) }}</b> en la mano: elige el lugar y hacia dónde mira.
                     } @else {
-                      Toma una pieza y suéltala en un renglón. Esto no cambia ningún código ni ninguna etiqueta.
+                      Toma una cara y suéltala en un lugar. Dos caras en el mismo lugar, una mirando arriba y otra abajo, son un solo mueble.
                     }
                   </p>
-                  @for (f of renglonesDelEditor(); track f.fila) {
-                    <div class="ub-ac-fila">
-                      <span class="ub-ac-n num" aria-hidden="true">{{ f.fila }}</span>
-                      <button type="button" class="ub-ac-hueco" [disabled]="!tomada() || guardandoAcomodo()"
-                        [attr.aria-label]="'Soltar al principio del renglón ' + f.fila"
-                        (dragover)="$event.preventDefault()" (drop)="soltar(f.fila, idEn(f.piezas, 0))"
-                        (click)="soltar(f.fila, idEn(f.piezas, 0))"></button>
-                      @for (p of f.piezas; track p.id; let i = $index) {
-                        <button type="button" class="ub-ac-pieza ub-pieza-{{ p.tipo }}" draggable="true"
-                          [class.tomada]="tomada() === p.id" [attr.aria-pressed]="tomada() === p.id"
-                          (dragstart)="tomar(p.id)" (click)="tomar(p.id)">{{ nombreDePieza(p) }}</button>
-                        <button type="button" class="ub-ac-hueco" [disabled]="!tomada() || guardandoAcomodo()"
-                          [attr.aria-label]="'Soltar en el renglón ' + f.fila + ', después de ' + nombreDePieza(p)"
-                          (dragover)="$event.preventDefault()" (drop)="soltar(f.fila, idEn(f.piezas, i + 1))"
-                          (click)="soltar(f.fila, idEn(f.piezas, i + 1))"></button>
+                  @for (renglon of planta(); track renglon[0].fila; let ri = $index) {
+                    @if (ri > 0) { <div class="ub-ac-pasaje" aria-hidden="true"><span>corredor</span></div> }
+                    <div class="ub-ac-fila" [attr.aria-label]="'Renglón ' + renglon[0].fila">
+                      <span class="ub-ac-n num" aria-hidden="true">{{ renglon[0].fila }}</span>
+                      @for (celda of renglon; track celda.columna) {
+                        <div class="ub-ac-celda" [class.doble]="celda.cuantas > 1">
+                          @for (lado of MIRAS; track lado) {
+                            @if (caraEn(celda, lado); as c) {
+                              <button type="button" class="ub-ac-cara ub-ac-{{ lado }}" draggable="true"
+                                [class.tomada]="tomada() === c.id" [attr.aria-pressed]="tomada() === c.id"
+                                [attr.aria-label]="nombreDeId(c.id) + ', renglón ' + celda.fila + ', lugar ' + celda.columna + ', mira ' + lado"
+                                (dragstart)="tomar(c.id)" (click)="tomar(c.id); configurarPiezaDe(c.id)">{{ nombreDeId(c.id) }}</button>
+                            } @else {
+                              <button type="button" class="ub-ac-hueco ub-ac-{{ lado }}" [disabled]="!tomada() || guardandoAcomodo()"
+                                [attr.aria-label]="'Soltar en el renglón ' + celda.fila + ', lugar ' + celda.columna + ', mirando ' + lado"
+                                (dragover)="$event.preventDefault()" (drop)="soltarCara(celda.fila, celda.columna, lado)"
+                                (click)="soltarCara(celda.fila, celda.columna, lado)"></button>
+                            }
+                          }
+                        </div>
                       }
-                      @if (!f.piezas.length) { <span class="ub-ac-vacio">renglón libre</span> }
                     </div>
                   }
                   <div class="ub-ac-bandeja">
-                    <h3 class="ub-ph">Sin lugar<span class="num"> · {{ piezasSinLugar().length }}</span></h3>
-                    @if (piezasSinLugar().length) {
+                    <h3 class="ub-ph">Sin lugar<span class="num"> · {{ carasSinLugar().length }}</span></h3>
+                    @if (carasSinLugar().length) {
                       <div class="ub-ac-chips">
-                        @for (p of piezasSinLugar(); track p.id) {
-                          <button type="button" class="ub-ac-pieza ub-pieza-{{ p.tipo }}" draggable="true"
-                            [class.tomada]="tomada() === p.id" [attr.aria-pressed]="tomada() === p.id"
-                            (dragstart)="tomar(p.id)" (click)="tomar(p.id)">{{ nombreDePieza(p) }}</button>
+                        @for (c of carasSinLugar(); track c.id) {
+                          <button type="button" class="ub-ac-cara" draggable="true"
+                            [class.tomada]="tomada() === c.id" [attr.aria-pressed]="tomada() === c.id"
+                            (dragstart)="tomar(c.id)" (click)="tomar(c.id); configurarPiezaDe(c.id)">{{ nombreDeId(c.id) }}</button>
                         }
                       </div>
                     } @else {
-                      <p class="ub-hint">Todas las piezas tienen su lugar.</p>
+                      <p class="ub-hint">Todas las caras tienen su lugar.</p>
                     }
-                    <button type="button" class="ub-ac-hueco ub-ac-sacar" [disabled]="!tomada() || guardandoAcomodo()"
-                      [attr.aria-label]="'Sacar del croquis la pieza que tienes en la mano'"
-                      (dragover)="$event.preventDefault()" (drop)="soltar(null, null)" (click)="soltar(null, null)">sacar del croquis</button>
+                    <button type="button" class="ub-ac-sacar" [disabled]="!tomada() || guardandoAcomodo()"
+                      aria-label="Sacar de la planta la cara que tienes en la mano"
+                      (dragover)="$event.preventDefault()" (drop)="soltarCara(null, null, null)" (click)="soltarCara(null, null, null)">sacar de la planta</button>
                   </div>
+                  <!-- [UB.PL.12] El panel donde se contesta TODO lo que antes decidía el código:
+                       qué es este mueble, cómo se llama, cuántas caras tiene y qué racks lleva cada
+                       una. Se abre tocando una cara; sin nada tomado, no estorba. -->
+                  @if (piezaEnMano(); as p) {
+                    <div class="ub-ac-config" role="group" [attr.aria-label]="'Configurar ' + nombrePiezaDe(p)">
+                      <div class="ub-ac-cfg-head">
+                        <h3 class="ub-ph">{{ nombrePiezaDe(p) }}</h3>
+                        <button type="button" class="ub-ac-sacar" (click)="piezaEnMano.set(null)">cerrar</button>
+                      </div>
+                      <div class="ub-ac-cfg-fila">
+                        <label class="ub-ac-cfg-campo"><span>Nombre</span>
+                          <input pInputText type="text" [ngModel]="p.label ?? ''" (ngModelChange)="borradorPieza.set({ ...borradorPieza(), label: $any($event) })" placeholder="Refrigerados, Caja 3…" />
+                        </label>
+                        <label class="ub-ac-cfg-campo"><span>Qué es</span>
+                          <select [ngModel]="borradorPieza().tipo ?? p.tipo" (ngModelChange)="borradorPieza.set({ ...borradorPieza(), tipo: $any($event) })">
+                            @for (k of FORMAS_LISTA; track k.tipo) { <option [value]="k.tipo">{{ k.label }}</option> }
+                          </select>
+                        </label>
+                        <label class="ub-ac-cfg-campo corto"><span>Racks</span>
+                          <input pInputText type="number" min="0" [ngModel]="borradorPieza().racks ?? p.racks" (ngModelChange)="borradorPieza.set({ ...borradorPieza(), racks: +$any($event) })" />
+                        </label>
+                        <label class="ub-ac-cfg-campo corto"><span>Niveles</span>
+                          <input pInputText type="number" min="0" [ngModel]="borradorPieza().niveles ?? p.niveles" (ngModelChange)="borradorPieza.set({ ...borradorPieza(), niveles: +$any($event) })" />
+                        </label>
+                        <button pButton type="button" class="p-button-sm" [disabled]="guardandoCfg()" (click)="guardarPieza(p.id)"><span class="p-button-label">Guardar</span></button>
+                      </div>
+                      <p class="ub-hint">Cambiar los racks dice cómo es el mueble; no da de alta ni quita códigos — eso sigue siendo la captura.</p>
+
+                      <h4 class="ub-ph">Caras<span class="num"> · {{ carasDe(p.id).length }}</span></h4>
+                      @for (c of carasDe(p.id); track c.id) {
+                        <div class="ub-ac-cfg-cara">
+                          <select [ngModel]="c.racks_modo" (ngModelChange)="configurarCara(c, $any($event))" [attr.aria-label]="'Qué racks lleva ' + nombreDeId(c.id)">
+                            @for (m of RACKS_MODOS; track m.modo) { <option [value]="m.modo">{{ m.label }}</option> }
+                          </select>
+                          @if (c.racks_modo === 'rango') {
+                            <input pInputText type="number" class="corto" min="1" [ngModel]="c.rack_desde ?? 1" (ngModelChange)="configurarCara(c, 'rango', +$any($event), c.rack_hasta)" aria-label="Del rack" />
+                            <span class="ub-ac-cfg-a">a</span>
+                            <input pInputText type="number" class="corto" min="1" [ngModel]="c.rack_hasta ?? p.racks" (ngModelChange)="configurarCara(c, 'rango', c.rack_desde, +$any($event))" aria-label="Al rack" />
+                          }
+                          <span class="ub-ac-cfg-cuenta num">{{ cuantosRacks(c, p.racks) }}</span>
+                          <span class="ub-ac-cfg-lugar">{{ c.fila ? 'en la planta' : 'sin lugar' }}</span>
+                          @if (carasDe(p.id).length > 1) {
+                            <button type="button" class="ub-ac-sacar" [disabled]="guardandoCfg()" (click)="quitarCara(c.id)" [attr.aria-label]="'Quitar ' + nombreDeId(c.id)">quitar</button>
+                          }
+                        </div>
+                      }
+                      <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardandoCfg() || carasDe(p.id).length >= 4" (click)="agregarCara(p.id)"><span class="p-button-label">Agregar una cara</span></button>
+                      <p class="ub-hint">Un mueble entre dos pasillos lleva dos caras, una para cada corredor. Una isla puede tener cuatro. Un refrigerador o una caja llevan una que no guarda nada.</p>
+                      @if (cfgErr(); as e) { <p class="ub-hint ub-bad" role="alert">{{ e }}</p> }
+                    </div>
+                  }
+
                   @if (acomodoErr(); as e) { <p class="ub-hint ub-bad" role="alert">{{ e }}</p> }
                 </div>
               }
 
-              <!-- [UB.PL] Si la sucursal ya tiene croquis, el mapa dibuja LA TIENDA: cada pieza en su
-                   lugar, y cada una como lo que es. Una cabecera no lleva corredor en medio porque es
-                   de una cara. Sin croquis se dibuja el mapa de siempre, que no desaparece. -->
+              <!-- [UB.PL.11] Con croquis, el mapa dibuja LA TIENDA: renglones de muebles con sus
+                   corredores entre medio. Cada mueble muestra las caras que tenga — dos si alguien
+                   puso una de cada lado (el anaquel entre pasillos), una si está contra la pared—,
+                   y cada cara trae los racks de SU letra. El corredor no es una pieza: es el aire
+                   entre dos renglones, y se rotula con las letras que lo tocan. -->
               @if (!acomodando() && hayCroquis()) {
-                <div class="ub-croquis" role="group" aria-label="Croquis de la sucursal: flechas para moverse, Enter para ver el rack" (keydown)="onGridKey($event)">
-                  @for (f of filasDelCroquis(); track f.fila) {
+                <div class="ub-croquis" role="group" aria-label="Croquis de la sucursal: flechas para moverse, Enter para ver el rack">
+                  @for (renglon of croquisDibujable(); track renglon.fila; let ri = $index) {
+                    @if (ri > 0) {
+                      <div class="ub-via" aria-hidden="true"><span>{{ renglon.corredor || 'corredor' }}</span></div>
+                    }
                     <div class="ub-cro-fila">
-                      @for (p of f.piezas; track p.pieza.id) {
-                        <section class="ub-pieza ub-pieza-{{ p.pieza.tipo }}" [attr.aria-label]="p.nombre">
-                          <h3 class="ub-ph">{{ p.nombre }}</h3>
-                          @if (p.bloque; as b) {
-                            <div class="ub-corredor" [style.--ub-cols]="b.columnas">
-                              @for (fr of (p.dosFrentes ? [b.nones, b.pares] : [b.nones]); track fr.cara) {
-                                @if (p.dosFrentes && fr.cara === 'pares') { <div class="ub-via" aria-hidden="true"><span>corredor</span></div> }
-                                @if (p.dosFrentes) { <span class="ub-cara">{{ fr.cara }}</span> } @else { <span class="ub-cara">frente</span> }
+                      @for (m of renglon.muebles; track m.columna) {
+                        <section class="ub-mueble" [class.doble]="m.caras.length > 1" [attr.aria-label]="m.aria">
+                          @for (cara of m.caras; track cara.id) {
+                            <div class="ub-cara-bloque">
+                              <h3 class="ub-ph">{{ cara.nombre }}</h3>
+                              @if (cara.frente; as fr) {
                                 <div class="ub-frente">
-                                  @if (fr.cara === 'nones') {
-                                    <div class="ub-nums">@for (c of fr.celdas; track c.rack) { <span class="ub-rh num">{{ dos(c.rack) }}</span> }</div>
-                                  }
+                                  <div class="ub-nums">@for (c of fr.celdas; track c.rack) { <span class="ub-rh num">{{ dos(c.rack) }}</span> }</div>
                                   <div class="ub-celdas">
-                                    @for (c of fr.celdas; track c.rack; let ci = $index) {
+                                    @for (c of fr.celdas; track c.rack) {
                                       <button type="button" class="ub-cell ub-c-{{ c.estado }}" [class.sel]="selKey() === fr.pasillo + c.rack"
-                                        [attr.data-pos]="fr.fi + '-' + ci" [attr.tabindex]="esFoco(fr.fi, ci) ? 0 : -1"
-                                        [attr.aria-label]="c.aria" [attr.aria-pressed]="selKey() === fr.pasillo + c.rack" (click)="pickRack(fr.pasillo, c, fr.fi, ci)">
+                                        [attr.aria-label]="c.aria" [attr.aria-pressed]="selKey() === fr.pasillo + c.rack"
+                                        (click)="pickRack(fr.pasillo, c, fr.fi, 0)">
                                         @if (c.estado === 'bloqueada') { <i class="pi pi-ban" aria-hidden="true"></i> }
                                         @else if (c.estado === 'contenido') { <i class="pi pi-box" aria-hidden="true"></i> }
                                         @else if (c.productos) { <span class="ub-cell-n num" aria-hidden="true">{{ c.productos }}</span> }
@@ -343,15 +403,11 @@ export function renglonesDeLaPlanta(piezas: readonly WarehouseFixture[]): Renglo
                                       </button>
                                     }
                                   </div>
-                                  @if (p.dosFrentes && fr.cara === 'pares') {
-                                    <div class="ub-nums">@for (c of fr.celdas; track c.rack) { <span class="ub-rh num">{{ dos(c.rack) }}</span> }</div>
-                                  }
                                 </div>
+                              } @else {
+                                <p class="ub-hint">No guarda códigos.</p>
                               }
                             </div>
-                          } @else {
-                            <!-- Una caja o un mostrador estan en el croquis para ubicarse y no guardan codigos. -->
-                            <p class="ub-hint">No guarda mercancía con código.</p>
                           }
                         </section>
                       }
@@ -527,25 +583,63 @@ export function renglonesDeLaPlanta(piezas: readonly WarehouseFixture[]): Renglo
     .ub-grid-wrap { overflow-x:auto; padding:.75rem .85rem .25rem; display:flex; flex-direction:column; gap:var(--sp-5); }
     /* [UB.PL] El croquis: los renglones de la tienda, y en cada uno sus piezas de izquierda a
        derecha. Se agrupa con ESPACIO; el borde de 1px es lo unico que delimita cada mueble. */
-    /* [UB.PL.8] La planta mientras se acomoda: renglones y chips, sin el detalle de los racks. */
-    .ub-acomodo { display:flex; flex-direction:column; gap:var(--sp-3); padding:.75rem .85rem; }
-    .ub-ac-fila { display:flex; align-items:center; gap:.15rem; flex-wrap:wrap; min-height:2.4rem; padding:.2rem .3rem; border-radius:var(--r-md); background:var(--surface-2); }
-    .ub-ac-n { min-width:1.4rem; text-align:center; color:var(--text-muted); font-size:var(--fs-xs); }
-    .ub-ac-pieza { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main);
-      padding:.3rem .6rem; font:inherit; font-size:var(--fs-xs); cursor:grab; white-space:nowrap; }
-    .ub-ac-pieza:hover { border-color:var(--action); }
-    .ub-ac-pieza.tomada { background:var(--action); color:var(--action-ink); border-color:var(--action); cursor:grabbing; }
-    .ub-ac-hueco { width:.85rem; min-height:1.9rem; border:1px dashed transparent; border-radius:var(--r-sm); background:none; padding:0; }
+    /* [UB.PL.11] La planta mientras se acomoda: celdas con dos lados, y el corredor entre renglones. */
+    .ub-acomodo { display:flex; flex-direction:column; gap:var(--sp-2); padding:.75rem .85rem; }
+    .ub-ac-fila { display:flex; align-items:stretch; gap:.2rem; flex-wrap:wrap; padding:.2rem .3rem; border-radius:var(--r-md); background:var(--surface-2); }
+    .ub-ac-n { min-width:1.4rem; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:var(--fs-xs); }
+    .ub-ac-pasaje { display:flex; align-items:center; gap:.5rem; color:var(--text-muted); font-size:var(--fs-nano); text-transform:uppercase; letter-spacing:.06em; padding:.1rem 1.7rem; }
+    .ub-ac-pasaje::before, .ub-ac-pasaje::after { content:''; flex:1; border-top:1px dashed var(--border-color); }
+    /* La celda es un mueble visto desde arriba: cada lado es un costado de verdad, no una lista.
+       Por eso una rejilla de 3x3 y no una columna -- en Padre Hidalgo los pasillos corren en
+       VERTICAL, y la cara que sirve a ese corredor tiene que verse a la izquierda o a la derecha. */
+    .ub-ac-celda { display:grid; grid-template-columns:1.4rem 5rem 1.4rem; grid-template-rows:1.3rem auto 1.3rem; gap:1px;
+      border:1px dashed var(--border-color); border-radius:var(--r-sm); padding:1px; }
+    .ub-ac-celda.doble { border-style:solid; border-color:var(--action); }
+    .ub-ac-arriba { grid-area:1 / 2 / 2 / 3; }
+    .ub-ac-abajo { grid-area:3 / 2 / 4 / 3; }
+    .ub-ac-izquierda { grid-area:2 / 1 / 3 / 2; writing-mode:vertical-rl; transform:rotate(180deg); }
+    .ub-ac-derecha { grid-area:2 / 3 / 3 / 4; writing-mode:vertical-rl; }
+    .ub-ac-celda .ub-ac-cara { overflow:hidden; text-overflow:ellipsis; }
+    .ub-ac-celda.doble { outline:1px solid var(--action); outline-offset:1px; border-radius:var(--r-sm); }
+    .ub-ac-cara { border:1px solid var(--border-color); border-radius:var(--r-sm); background:var(--card-bg); color:var(--text-main);
+      padding:.3rem .55rem; font:inherit; font-size:var(--fs-xs); cursor:grab; white-space:nowrap; text-align:left; }
+    .ub-ac-cara:hover { border-color:var(--action); }
+    .ub-ac-cara.tomada { background:var(--action); color:var(--action-ink); border-color:var(--action); cursor:grabbing; }
+    .ub-ac-hueco { min-height:1.6rem; border:1px dashed transparent; border-radius:var(--r-sm); background:none; padding:0; }
     .ub-ac-hueco:not(:disabled) { border-color:var(--action); background:color-mix(in srgb, var(--action) 12%, transparent); cursor:pointer; }
     .ub-ac-hueco:not(:disabled):hover { background:color-mix(in srgb, var(--action) 28%, transparent); }
-    .ub-ac-vacio { color:var(--text-muted); font-size:var(--fs-xs); font-style:italic; padding-left:.3rem; }
     .ub-ac-bandeja { display:flex; flex-direction:column; gap:var(--sp-2); padding:.5rem .3rem 0; border-top:1px solid var(--border-color); }
     .ub-ac-chips { display:flex; flex-wrap:wrap; gap:.35rem; }
-    .ub-ac-sacar { width:auto; padding:.3rem .6rem; font:inherit; font-size:var(--fs-xs); color:var(--text-muted); align-self:flex-start; }
-    .ub-ac-sacar:not(:disabled) { color:var(--text-main); }
-    @media (pointer:coarse) { .ub-ac-hueco { width:2.75rem; min-height:2.75rem; } .ub-ac-pieza { padding:.6rem .8rem; } }
-    .ub-croquis { display:flex; flex-direction:column; gap:var(--sp-5); padding:.75rem .85rem .25rem; overflow-x:auto; }
-    .ub-cro-fila { display:flex; gap:var(--sp-5); align-items:flex-start; min-width:min-content; }
+    .ub-ac-sacar { width:auto; padding:.3rem .6rem; font:inherit; font-size:var(--fs-xs); color:var(--text-muted); align-self:flex-start;
+      border:1px dashed var(--border-color); border-radius:var(--r-sm); background:none; }
+    .ub-ac-sacar:not(:disabled) { color:var(--text-main); cursor:pointer; }
+    @media (pointer:coarse) { .ub-ac-hueco { min-height:2.75rem; } .ub-ac-cara { padding:.6rem .8rem; } }
+
+    /* [UB.PL.12] El panel donde se contesta qué es el mueble y qué lleva cada cara. */
+    .ub-ac-config { display:flex; flex-direction:column; gap:var(--sp-2); padding:.6rem .5rem; margin-top:var(--sp-2);
+      border:1px solid var(--action); border-radius:var(--r-md); background:var(--card-bg); }
+    .ub-ac-cfg-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); }
+    .ub-ac-cfg-fila { display:flex; flex-wrap:wrap; align-items:flex-end; gap:var(--sp-2); }
+    .ub-ac-cfg-campo { display:flex; flex-direction:column; gap:.15rem; min-width:9rem; }
+    .ub-ac-cfg-campo.corto { min-width:4.5rem; }
+    .ub-ac-cfg-campo > span { color:var(--text-muted); font-size:var(--fs-nano); text-transform:uppercase; letter-spacing:.05em; }
+    .ub-ac-cfg-campo input, .ub-ac-cfg-campo select, .ub-ac-cfg-cara select, .ub-ac-cfg-cara input {
+      font:inherit; font-size:var(--fs-xs); padding:.3rem .4rem; border:1px solid var(--border-color);
+      border-radius:var(--r-sm); background:var(--card-bg); color:var(--text-main); }
+    .ub-ac-cfg-cara { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; padding:.3rem;
+      border-radius:var(--r-sm); background:var(--surface-2); }
+    .ub-ac-cfg-cara input.corto { width:4rem; }
+    .ub-ac-cfg-a { color:var(--text-muted); font-size:var(--fs-xs); }
+    .ub-ac-cfg-cuenta { color:var(--text-main); font-size:var(--fs-xs); }
+    .ub-ac-cfg-lugar { color:var(--text-muted); font-size:var(--fs-nano); }
+    @media (pointer:coarse) { .ub-ac-cfg-campo input, .ub-ac-cfg-campo select, .ub-ac-cfg-cara select { padding:.6rem .5rem; } }
+
+    /* [UB.PL.11] El croquis dibujado: renglones de muebles con corredores entre medio. */
+    .ub-croquis { display:flex; flex-direction:column; gap:var(--sp-3); padding:.75rem .85rem .25rem; overflow-x:auto; }
+    .ub-cro-fila { display:flex; gap:var(--sp-3); align-items:flex-start; min-width:min-content; }
+    .ub-mueble { display:flex; flex-direction:column; gap:.3rem; padding:.35rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); }
+    .ub-mueble.doble { border-color:var(--action); }
+    .ub-cara-bloque { display:flex; flex-direction:column; gap:.2rem; }
     .ub-pieza { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.5rem .6rem; display:flex; flex-direction:column; gap:.3rem; min-width:min-content; }
     /* Una cabecera es un mueble corto y de una cara: se ve distinta de un anaquel sin usar otro color. */
     .ub-pieza-cabecera { border-style:dashed; }
@@ -853,10 +947,7 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
 
   /** Las piezas de la zona que se está mirando, ya acomodadas en el croquis. */
   readonly piezasDeZona = computed(() => (this.croquis()?.piezas ?? []).filter((p) => p.zona === this.zona()));
-  readonly piezasAcomodadas = computed(() => this.piezasDeZona().filter(estaAcomodada));
   readonly piezasSinLugar = computed(() => this.piezasDeZona().filter((p) => !estaAcomodada(p)));
-  /** Hay croquis cuando alguien ya acomodó al menos una pieza: si no, se dibuja el mapa de siempre. */
-  readonly hayCroquis = computed(() => this.piezasAcomodadas().length > 0);
 
   /**
    * El croquis en renglones: cada uno con sus piezas en orden de columna, y cada pieza con los
@@ -865,29 +956,124 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
    */
   readonly nombresSinLugar = computed(() => this.piezasSinLugar().map((p) => nombrePieza(p)).join(', '));
 
-  // ── `[UB.PL.8]` Acomodar: decir DÓNDE está cada mueble ──────────────────────────────────────
-  /** La pieza que está «en la mano». Es lo mismo para el mouse (arrastre) y para el teclado. */
+  // ── `[UB.PL.11]` Acomodar: lo que se mueve es una CARA ──────────────────────────────────────
+  /** La cara que está «en la mano». Es lo mismo para el mouse (arrastre) y para el teclado. */
+  /** Los cuatro lados, para la plantilla: un corredor vertical usa izquierda y derecha. */
+  readonly MIRAS = MIRAS;
   readonly tomada = signal<string | null>(null);
   readonly acomodoErr = signal<string | null>(null);
   readonly guardandoAcomodo = signal(false);
 
-  /**
-   * Los renglones de la planta: los que ya tienen piezas, **más uno libre al final** para que
-   * siempre haya dónde empezar una corrida nueva sin tener que pedir «agregar renglón».
-   */
-  readonly renglonesDelEditor = computed<RenglonEditor[]>(() => renglonesDeLaPlanta(this.piezasDeZona()));
+  /** Las caras de la zona que se está mirando. */
+  readonly caras = computed<FixtureFace[]>(() => this.croquis()?.caras ?? []);
+  readonly carasSinLugar = computed(() => this.caras().filter((c) => !caraColocada(c)));
+  /** La planta dibujable: renglones de celdas, con uno libre de más para que se pueda crecer. */
+  readonly planta = computed(() => plantaDeCaras(this.caras()));
 
-  nombreDePieza(p: WarehouseFixture): string { return nombrePieza(p); }
-
+  /** El nombre de una cara en palabras de la tienda: «Anaquel de pasillo A · nones». */
   nombreDeId(id: string | null): string {
-    const p = id ? this.piezasDeZona().find((x) => x.id === id) : null;
-    return p ? nombrePieza(p) : 'la pieza';
+    const c = id ? this.caras().find((x) => x.id === id) : null;
+    if (!c) return 'la cara';
+    const p = this.piezasDeZona().find((x) => x.id === c.fixture_id);
+    return p ? nombreDeCara(p, c) : 'la cara';
   }
 
-  /** El id de la pieza que está en esa posición del renglón, o `null` si es el final. */
-  idEn(piezas: readonly WarehouseFixture[], i: number): string | null {
-    return piezas[i]?.id ?? null;
+  /** La cara de ese lado de la celda, si la hay. Evita indexar por string en la plantilla. */
+  caraEn(celda: CeldaDeLaPlanta, lado: MiraHacia): FixtureFace | null {
+    return celda.caras[lado] ?? null;
   }
+
+  // ── `[UB.PL.12]` Configurar el mueble y sus caras, desde la pantalla ────────────────────────
+  /** La pieza que se está configurando. Se abre al tocar una cara; `null` cierra el panel. */
+  readonly piezaEnMano = signal<WarehouseFixture | null>(null);
+  readonly borradorPieza = signal<PiezaBody>({});
+  readonly guardandoCfg = signal(false);
+  readonly cfgErr = signal<string | null>(null);
+
+  /** Los modos de racks y los tipos de mueble, para los selectores. */
+  readonly RACKS_MODOS = RACKS_DE_CARA;
+  readonly FORMAS_LISTA = Object.entries(FORMAS).map(([tipo, k]) => ({ tipo: tipo as FixtureKind, label: k.label }));
+
+  carasDe(fixtureId: string): FixtureFace[] {
+    return this.caras().filter((c) => c.fixture_id === fixtureId).sort((a, b) => a.slot - b.slot);
+  }
+
+  nombrePiezaDe(p: WarehouseFixture): string {
+    return nombrePieza(p);
+  }
+
+  /** Cuántos racks le tocan a esta cara: la cuenta que vuelve comprobable lo que se eligió. */
+  cuantosRacks(c: FixtureFace, racksDeLaPieza: number): string {
+    const n = racksDeLaCara(c, racksDeLaPieza).length;
+    return n === 0 ? 'sin racks' : n === 1 ? '1 rack' : `${n} racks`;
+  }
+
+  private tragarCaras(caras: FixtureFace[]): void {
+    this.guardandoCfg.set(false);
+    this.cfgErr.set(null);
+    this.croquis.update((c) => (c ? { ...c, caras } : c));
+  }
+
+  private seQuejo(e: HttpErrorResponse): void {
+    this.guardandoCfg.set(false);
+    const m = e.error?.message;
+    this.cfgErr.set(typeof m === 'string' ? m : 'No se pudo guardar. Nada quedó a medias.');
+  }
+
+  /** Abre el panel sobre la pieza de esa cara. */
+  configurarPiezaDe(caraId: string): void {
+    const c = this.caras().find((x) => x.id === caraId);
+    const p = c ? this.piezasDeZona().find((x) => x.id === c.fixture_id) ?? null : null;
+    this.borradorPieza.set({});
+    this.cfgErr.set(null);
+    this.piezaEnMano.set(p);
+  }
+
+  configurarCara(c: FixtureFace, modo: RacksDeCara, desde?: number | null, hasta?: number | null): void {
+    if (this.guardandoCfg()) return;
+    this.guardandoCfg.set(true);
+    const body: CaraBody = {
+      fixture_id: c.fixture_id,
+      racks_modo: modo,
+      rack_desde: modo === 'rango' ? desde ?? c.rack_desde ?? 1 : null,
+      rack_hasta: modo === 'rango' ? hasta ?? c.rack_hasta ?? null : null,
+    };
+    this.api.cambiarCara(c.id, body).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (caras) => this.tragarCaras(caras), error: (e: HttpErrorResponse) => this.seQuejo(e) });
+  }
+
+  agregarCara(fixtureId: string): void {
+    if (this.guardandoCfg()) return;
+    this.guardandoCfg.set(true);
+    // Nace llevándose lo que quede libre: 'todos' si es la primera, y si no, el modo que falta.
+    const ya = this.carasDe(fixtureId).map((c) => c.racks_modo);
+    const modo: RacksDeCara = !ya.length ? 'todos' : ya.includes('nones') && !ya.includes('pares') ? 'pares' : ya.includes('pares') && !ya.includes('nones') ? 'nones' : 'ninguno';
+    this.api.agregarCara({ fixture_id: fixtureId, racks_modo: modo }).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (caras) => this.tragarCaras(caras), error: (e: HttpErrorResponse) => this.seQuejo(e) });
+  }
+
+  quitarCara(id: string): void {
+    if (this.guardandoCfg()) return;
+    this.guardandoCfg.set(true);
+    this.api.quitarCara(id).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (caras) => this.tragarCaras(caras), error: (e: HttpErrorResponse) => this.seQuejo(e) });
+  }
+
+  guardarPieza(id: string): void {
+    if (this.guardandoCfg()) return;
+    this.guardandoCfg.set(true);
+    this.api.editarPieza(id, this.borradorPieza()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => {
+        this.guardandoCfg.set(false);
+        this.cfgErr.set(null);
+        this.borradorPieza.set({});
+        this.piezaEnMano.set(p);
+        this.croquis.update((c) => (c ? { ...c, piezas: c.piezas.map((x) => (x.id === p.id ? p : x)) } : c));
+      },
+      error: (e: HttpErrorResponse) => this.seQuejo(e),
+    });
+  }
+
 
   /** Tomar y volver a tocar para soltar: el equivalente del arrastre que sí funciona sin mouse. */
   tomar(id: string): void {
@@ -896,13 +1082,14 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   }
 
   /**
-   * Soltarla. El lugar nuevo lo calcula `acomodar` del contrato —la misma regla que probó el
-   * test—, y sólo viaja lo que cambió: **un gesto, una petición**.
+   * Soltar la cara que está en la mano. El lugar nuevo lo calcula `acomodarCara` del contrato —la
+   * misma regla que probó el test— y sólo viaja lo que cambió: **un gesto, una petición**.
    */
-  soltar(fila: number | null, antesDe: string | null): void {
+  soltarCara(fila: number | null, columna: number | null, mira: MiraHacia | null): void {
     const id = this.tomada();
     if (!id || this.guardandoAcomodo()) return;
-    const r = acomodar(this.piezasDeZona(), { id, fila, antes_de: antesDe });
+    const gesto: SoltarCara = { id, fila, columna, mira };
+    const r = acomodarCara(this.caras(), gesto);
     if (!r.ok) { this.acomodoErr.set(r.motivo); return; }
     this.tomada.set(null);
     this.acomodoErr.set(null);
@@ -910,11 +1097,11 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
     const w = this.warehouseId();
     if (!w) return;
     this.guardandoAcomodo.set(true);
-    this.api.acomodarCroquis({ warehouse_id: w, zona: this.zona(), piezas: r.cambios })
+    this.api.acomodarCroquis({ warehouse_id: w, zona: this.zona(), gesto })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (res) => {
           this.guardandoAcomodo.set(false);
-          this.croquis.update((c) => (c ? { ...c, piezas: res.piezas } : c));
+          this.croquis.update((c) => (c ? { ...c, caras: res.caras } : c));
         },
         error: (e: HttpErrorResponse) => {
           this.guardandoAcomodo.set(false);
@@ -954,18 +1141,46 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
     });
   }
 
-  readonly filasDelCroquis = computed<FilaCroquis[]>(() => {
+  /** `[UB.PL.11]` Hay croquis cuando alguien ya colocó al menos una CARA. */
+  readonly hayCroquis = computed(() => this.caras().some(caraColocada));
+
+  /**
+   * `[UB.PL.11]` El croquis dibujable: renglones de muebles, y cada mueble con las caras que tenga.
+   * El corredor entre dos renglones se rotula con **las letras que lo tocan**, que es lo que lo
+   * vuelve «el pasillo A» — no una propiedad guardada de nadie.
+   */
+  readonly croquisDibujable = computed<RenglonDibujable[]>(() => {
     const porPasillo = new Map(this.pasillos().map((p) => [p.pasillo, p]));
-    const porFila = new Map<number, PiezaEnCroquis[]>();
-    for (const pieza of this.piezasAcomodadas()) {
+    const piezas = this.piezasDeZona();
+    const frenteDe = (c: FixtureFace | null): CaraDibujable | null => {
+      if (!c) return null;
+      const pieza = piezas.find((p) => p.id === c.fixture_id);
+      if (!pieza) return null;
       const bloque = pieza.pasillo ? porPasillo.get(pieza.pasillo) ?? null : null;
-      const lista = porFila.get(pieza.fila as number) ?? [];
-      lista.push({ pieza, bloque, nombre: nombrePieza(pieza), dosFrentes: FIXTURE_KINDS[pieza.tipo]?.dosFrentes ?? false });
-      porFila.set(pieza.fila as number, lista);
-    }
-    return [...porFila.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([fila, piezas]) => ({ fila, piezas: piezas.sort((a, b) => (a.pieza.columna ?? 0) - (b.pieza.columna ?? 0)) }));
+      // [UB.PL.12] Qué racks dibuja esta cara ya no se deduce de su nombre: lo dice `racks_modo`,
+      // que es lo que alguien eligió en la pantalla. `ninguno` es un mueble que no guarda códigos.
+      const frente = !bloque || c.racks_modo === 'ninguno' ? null : c.racks_modo === 'pares' ? bloque.pares : bloque.nones;
+      return { id: c.id, nombre: nombreDeCara(pieza, c), frente, pasillo: pieza.pasillo };
+    };
+    const planta = this.planta();
+    return planta.map((renglon, i) => {
+      const muebles = renglon
+        .map((celda) => {
+          const caras = MIRAS.map((m) => frenteDe(celda.caras[m] ?? null)).filter((x): x is CaraDibujable => !!x);
+
+          return { columna: celda.columna, caras, aria: caras.map((c) => c.nombre).join(' y ') || 'lugar libre' };
+        })
+        .filter((m) => m.caras.length);
+      // El corredor de ARRIBA de este renglón: las caras que lo miran desde los dos lados.
+      const deAbajo = renglon.map((c) => frenteDe(c.caras.arriba ?? null)).filter((x): x is CaraDibujable => !!x);
+      const deArriba = i > 0 ? planta[i - 1].map((c) => frenteDe(c.caras.abajo ?? null)).filter((x): x is CaraDibujable => !!x) : [];
+      const letras = [...new Set([...deArriba, ...deAbajo].map((c) => c.pasillo).filter((p): p is string => !!p))].sort();
+      return {
+        fila: renglon[0]?.fila ?? i + 1,
+        muebles,
+        corredor: letras.length ? `pasillo ${letras.join(' · ')}` : '',
+      };
+    }).filter((r) => r.muebles.length);
   });
 
   ngOnInit(): void {

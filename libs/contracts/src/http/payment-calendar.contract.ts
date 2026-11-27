@@ -563,6 +563,25 @@ export interface PayableEvidenceRow {
 }
 
 /**
+ * `[PGP.231]` Cuántos documentos acepta UNA consulta de evidencia; el servidor recorta en este número. No se pide en
+ * tandas más chicas: cada consulta cuesta ~2.2–2.5 s fijos (el hash sobre los CFDI recibidos), así que partirla
+ * multiplicaría la espera.
+ */
+export const EVIDENCIA_REFS_POR_CONSULTA = 200;
+
+/**
+ * `[PGP.231]` El cuerpo de `POST finance/payment-calendar/evidencia/consulta`: las llaves `oblig:…` van en el CUERPO.
+ *
+ * ⛔ Por qué no en la URL (`GET …/evidencia?refs=`): 200 llaves son ~5.7 KB de URL, y el token de sesión lleva los
+ * permisos concedidos — el de `superadmin` pesa ~11 KB (239 permisos, medido en prod el 2026-11-26). Juntos pasan los
+ * 16 KB de cabeceras de Node y la API contesta **431** sin llegar al controlador: el Calendario se quedaba sin la
+ * evidencia de un día de muchas facturas justo para quien más lo usa. El cuerpo no tiene ese límite.
+ */
+export interface PayableEvidenceQuery {
+  refs: string[];
+}
+
+/**
  * `[PGP.21]` Un archivo de evidencia, ya firmado y listo para abrir.
  *
  * ⛔ Lo sirve el módulo de Pagos con `FINANCE_PAYMENTS_VER`, NO el de Compras. Medido el

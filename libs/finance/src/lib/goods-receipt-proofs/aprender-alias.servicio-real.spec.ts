@@ -1,6 +1,7 @@
 import knexFactory, { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { GoodsReceiptProofsService } from './goods-receipt-proofs.service';
+import { rfcsDelProveedor } from './fuente-renglones';
 
 /**
  * `[RE.53]` Aprender una equivalencia escribe en `commercial.supplier_item_aliases`: regla 13, el
@@ -108,5 +109,57 @@ describe.skipIf(!URL)('[RE.53] aprender una equivalencia — base real', () => {
   it('el endpoint de confirmar (RE.11.4) ya guarda con el nombre de quien confirma', async () => {
     const r = await svc.confirmLineMatch({ proveedor_rfc: RFC, descripcion: 'SQUIRT 9/2.0', sku: 'Q2L', unidad_proveedor: 'cj', box_factor: 9 }, 'Nombre De Persona');
     expect(r).toMatchObject({ sku: 'Q2L', veces_confirmado: 1 });
+  });
+
+  // `[PQ.150]` segundo tramo: lo aprendido se busca con el RFC de la factura Y el del acreedor en Kepler.
+  type Equivalencias = { aliasMap: Map<string, { sku: string }>; aliasPorCodigo: Map<string, { sku: string }>; historiaPorCodigo: Map<string, { sku: string }> };
+  type ConEquivalencias = { equivalenciasDe: (trx: Knex.Transaction, tenantId: string, quien: ReturnType<typeof rfcsDelProveedor>) => Promise<Equivalencias> };
+  const equivalencias = (kepler: string | null, factura: string | null) =>
+    tk.run((trx) => (svc as unknown as ConEquivalencias).equivalenciasDe(trx, T, rfcsDelProveedor(kepler, factura)));
+
+  it('[PQ.150] se busca con los dos RFC y, si los dos traen el mismo código, gana el de la factura', async () => {
+    const K = `K${RFC}`, F = `F${RFC}`;
+    const con = (rfc: string, descripcion: string, sku: string, codigo: string) => tk.run((trx) =>
+      (svc as unknown as UpsertCod).upsertAlias(trx, rfc, { descripcion, sku, nombre_interno: null, unidad_proveedor: null, box_factor: null, codigo_proveedor: codigo }));
+    // El mismo código en los dos RFC, insertado en órdenes OPUESTOS: sin la precedencia, el que gana depende del
+    // orden en que la base devuelve las filas, y con un solo orden la prueba podía pasar por suerte (pasó: un
+    // mutante sin precedencia sobrevivió una corrida). Con los dos órdenes, uno de los dos falla sin ella.
+    await con(K, 'GOMITA X KEPLER', 'SK', 'CODX');
+    await con(F, 'GOMITA X FACTURA', 'SF', 'CODX');
+    await con(F, 'GOMITA Y FACTURA', 'SFY', 'CODY');
+    await con(K, 'GOMITA Y KEPLER', 'SKY', 'CODY');
+    await con(K, 'SOLO EN KEPLER', 'SK2', 'CODK');
+    await con(F, 'SOLO EN FACTURA', 'SF2', 'CODF');
+
+    const ambos = await equivalencias(K, F);
+    expect(ambos.aliasPorCodigo.get('CODX')?.sku).toBe('SF');
+    expect(ambos.aliasPorCodigo.get('CODY')?.sku).toBe('SFY');
+    expect(ambos.aliasPorCodigo.get('CODK')?.sku).toBe('SK2');
+    expect(ambos.aliasPorCodigo.get('CODF')?.sku).toBe('SF2');
+    expect(ambos.aliasMap.get('solo en kepler')?.sku).toBe('SK2');
+
+    // CONTROL: sin factura ligada, como antes (sólo lo del RFC de Kepler).
+    const soloKepler = await equivalencias(K, null);
+    expect(soloKepler.aliasPorCodigo.get('CODX')?.sku).toBe('SK');
+    expect(soloKepler.aliasPorCodigo.get('CODY')?.sku).toBe('SKY');
+    expect(soloKepler.aliasPorCodigo.has('CODF')).toBe(false);
+
+    // El acreedor sin RFC en Kepler (42 % de las entradas): antes no buscaba nada; con la factura, encuentra.
+    expect((await equivalencias('', null)).aliasPorCodigo.size).toBe(0);
+    const sinRfc = await equivalencias('', F);
+    expect(sinRfc.aliasPorCodigo.get('CODX')?.sku).toBe('SF');
+    expect(sinRfc.aliasPorCodigo.has('CODK')).toBe(false);
+  });
+
+  it('[PQ.150] si la vista de historia no se puede leer, la conciliación sigue sin ella (savepoint): no tumba la transacción', async () => {
+    const r = await tk.run(async (trx) => {
+      const eq = await (svc as unknown as ConEquivalencias).equivalenciasDe(trx, T, rfcsDelProveedor(null, `F${RFC}`));
+      // La transacción sigue viva después del intento: otra consulta funciona.
+      const vivo = (await trx.raw('SELECT 1 AS uno')).rows[0].uno;
+      return { historia: eq.historiaPorCodigo.size, vivo, vista: (await trx.raw(`SELECT to_regclass('commercial.v_supplier_item_code_history') AS v`)).rows[0].v };
+    });
+    expect(r.vivo).toBe(1);
+    // En la base del CI la vista no existe (no tiene ODS): 0 propuestas de historia, sin error.
+    if (r.vista === null) expect(r.historia).toBe(0);
   });
 });

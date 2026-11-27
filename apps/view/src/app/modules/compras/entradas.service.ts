@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import type { AvisoSucursal, DevueltasResumen, EntradasSinOcResumen, ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, FacturaCompartidaLiga, IdentificacionEntrada, IdentificarLectura, LigaCompartidaCreada, LigaCompartidaDeshecha, MismaFactura, ReceiptExpediente } from '@megadulces/contracts';
+import type { AvisoSucursal, DevueltasResumen, EntradasSinOcResumen, ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, FacturaCompartidaLiga, IdentificacionEntrada, IdentificarLectura, LigaCompartidaCreada, LigaCompartidaDeshecha, MismaFactura, MismaFacturaDuplicado, ReceiptExpediente } from '@megadulces/contracts';
 
 /**
  * CC (extensión) — cliente de Comprobantes de Orden de Entrada (proyecto Compras).
@@ -422,6 +422,8 @@ export interface DuplicateHit {
   /** Texto listo para pintar (dice dónde vive la otra hoja y por qué). */
   mensaje?: string;
   monto?: number | null;
+  /** `[RE.88]` La otra entrada cita la MISMA factura en Kepler: se ofrece ligarla con motivo, no es un error. */
+  misma_factura?: MismaFacturaDuplicado | null;
 }
 
 /**
@@ -502,6 +504,8 @@ export interface ReconcileResult {
   sucursal: string;
   folio: string;
   proveedor_rfc: string | null;
+  /** `[PQ.150]` De dónde salió `proveedor_rfc`: el de la factura ligada (gana) o el del acreedor en Kepler. */
+  proveedor_rfc_fuente?: 'factura' | 'kepler' | null;
   proveedor_nombre: string | null;
   lines: ReconciledLine[];
   kepler_orphans: { linea: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: number; costo_unitario: number; importe: number }[];

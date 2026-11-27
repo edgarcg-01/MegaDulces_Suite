@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type {
-  CalendarioCompras, DefinirOcasionalesDto, DefinirOcasionalesRespuesta, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta,
+  AvisoCalendario, CalendarioCompras, DefinirOcasionalesDto, DefinirOcasionalesRespuesta, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta,
   MarcarRevisionDto, PropuestasCalendario, ResponsablesCalendario,
 } from '@megadulces/contracts';
 import { Permission, RequireAnyPermission, RequirePermissions } from '@megadulces/platform-core';
@@ -30,6 +30,18 @@ export class PurchaseCalendarController {
   @ApiOperation({ summary: 'PQ.3.4: las reglas de revisión con su estado de hoy (rezagada, toca hoy, al día…) leído de Kepler y de las marcas' })
   calendario(): Promise<CalendarioCompras> {
     return this.service.calendario();
+  }
+
+  /**
+   * `[PQ.3.24]` El aviso «Hoy te toca» de Pedido (anexo C §10.16, DC35: manda el Calendario). Vive en Pedido, así que
+   * también lo lee quien sólo tiene `COMPRAS_PEDIDO_VER` (16 puestos lo abren, medido 2026-11-25): son conteos, con
+   * el mismo alcance por sucursal que el calendario y que `worklist`.
+   */
+  @Get('aviso')
+  @RequireAnyPermission(Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR, Permission.COMPRAS_CALENDARIO_CICLO, Permission.COMPRAS_PEDIDO_VER)
+  @ApiOperation({ summary: 'PQ.3.24: el aviso «Hoy te toca» de Pedido: proveedores con regla por su estado de hoy y, sin regla, lo que propone el ciclo por canal de Kepler (sin confirmar)' })
+  aviso(): Promise<AvisoCalendario> {
+    return this.service.aviso();
   }
 
   /**
