@@ -138,6 +138,31 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
 }
 
 /**
+ * `[UB.PL.15]` Los nombres de las caras que todavía **no tienen lugar** en el croquis.
+ *
+ * ⛔ **Se miran las CARAS, no las piezas**, y la diferencia no es de estilo: desde `[UB.PL.11]` el
+ * lugar vive en la cara (`fila` · `columna` · `mira`) y `fixture.fila` quedó como campo viejo.
+ * Mirar la pieza hacía que la pantalla afirmara algo **falso** — medido en prod el 2026-11-27, con
+ * el croquis de Padre Hidalgo ya dibujado: las dos caras del pasillo B estaban en el dibujo, a la
+ * vista, y el aviso de abajo seguía diciendo «Anaquel de pasillo B, sin lugar todavía».
+ *
+ * ⭐ Una cara sin pieza conocida se **omite** en vez de nombrarse «sin nombre»: es un hueco del
+ * dato, y un renglón fantasma en la lista mandaría a buscar un mueble que nadie puede encontrar.
+ */
+export function nombresDeCarasSinLugar(
+  caras: readonly FixtureFace[],
+  piezas: readonly WarehouseFixture[],
+): string[] {
+  return caras
+    .filter((c) => !caraColocada(c))
+    .map((c) => {
+      const p = piezas.find((x) => x.id === c.fixture_id);
+      return p ? nombreDeCara(p, c) : null;
+    })
+    .filter((n): n is string => !!n);
+}
+
+/**
  * `[UB.1]` Mapa de ubicaciones (Fase UB, ADR-090).
  *
  * Los pasillos en renglones y los racks en columnas, por zona (bodega / tienda). Cada cuadro es
@@ -488,8 +513,8 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
                 <!-- [UB.PL.10] El botón hace trabajo real y tiene que DECIRLO. Este aviso vive FUERA
                      del bloque del croquis a propósito: las piezas nacen sin lugar, así que adentro era
                      una rama muerta — se armaban 8 piezas y la pantalla quedaba idéntica. -->
-                @if (!acomodando() && piezasSinLugar().length) {
-                  <p class="ub-hint" role="status"><b>{{ piezasSinLugar().length }}</b> piezas armadas, sin lugar todavía: {{ nombresSinLugar() }}. Falta acomodarlas en el croquis.</p>
+                @if (!acomodando() && carasSinLugar().length) {
+                  <p class="ub-hint" role="status"><b>{{ carasSinLugar().length }}</b> caras sin lugar todavía: {{ nombresSinLugar() }}. Falta acomodarlas en el croquis.</p>
                 }
                 @if (croquisErr(); as e) { <p class="ub-hint ub-bad" role="alert">{{ e }}</p> }
                 <p class="ub-hint">Cada pasillo tiene dos frentes, uno a cada lado del corredor: los racks <b>nones</b> de un lado y los <b>pares</b> del otro, así que el <b class="num">{{ dos(1) }}</b> queda enfrente del <b class="num">{{ dos(2) }}</b>. El número del cuadro es cuántos productos ya tienen su lugar ahí; tócalo para ver sus niveles.</p>
@@ -963,14 +988,22 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
 
   /** Las piezas de la zona que se está mirando, ya acomodadas en el croquis. */
   readonly piezasDeZona = computed(() => (this.croquis()?.piezas ?? []).filter((p) => p.zona === this.zona()));
-  readonly piezasSinLugar = computed(() => this.piezasDeZona().filter((p) => !estaAcomodada(p)));
 
   /**
    * El croquis en renglones: cada uno con sus piezas en orden de columna, y cada pieza con los
    * frentes que ya arma `armarPasillos` (por su letra). Así el dibujo sale de **dónde está cada
    * mueble**, no de suponer que todo es un pasillo.
    */
-  readonly nombresSinLugar = computed(() => this.piezasSinLugar().map((p) => nombrePieza(p)).join(', '));
+  /**
+   * `[UB.PL.15]` Lo que falta acomodar son **caras**, no piezas, y por eso este aviso las nombra a
+   * ellas.
+   *
+   * ⛔ Antes miraba `fixture.fila`, y eso afirmaba algo FALSO: desde `[UB.PL.11]` el lugar vive en
+   * la CARA (`fila`/`columna`/`mira`) y el campo de la pieza quedó viejo. Con las dos caras del
+   * pasillo B ya dibujadas en el croquis, la pantalla seguía diciendo «Anaquel de pasillo B, sin
+   * lugar todavía» — medido en prod el 2026-11-27, con el croquis de Padre Hidalgo armado.
+   */
+  readonly nombresSinLugar = computed(() => nombresDeCarasSinLugar(this.caras(), this.piezasDeZona()).join(', '));
 
   /** `[UB.PL.13]` Ubicaciones que no cuelgan de ninguna pieza, y de qué letras son. */
   readonly sinPieza = computed(() => this.croquis()?.sin_pieza ?? 0);

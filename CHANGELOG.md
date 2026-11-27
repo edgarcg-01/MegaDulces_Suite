@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Almacén › Ubicaciones: el croquis decía que un mueble no tenía lugar, con el mueble dibujado al lado (UB.PL.15 · 2026-11-27)
+- Con las corridas de los pasillos B y C ya dibujadas en el croquis, el pie de la pantalla seguía diciendo que no tenían lugar. Ahora el aviso cuenta las caras que faltan de verdad.
+- En el camino se corrigió el orden del croquis de Padre Hidalgo: las corridas van c, b, a de izquierda a derecha, como el plano de la sucursal.
+- Y el croquis quedó armado: las 110 ubicaciones de los pasillos I, J y K que estaban fuera entraron, el pasillo B pasó de 17 a 22 racks y el C de 17 a 18. Padre Hidalgo tiene por fin sus 11 piezas.
+- Internal: `nombresDeCarasSinLugar(caras, piezas)` reemplaza el filtro por `estaAcomodada(pieza)`; desde UB.PL.11 el lugar vive en la cara (`fila` · `columna` · `mira`) y `fixture.fila` quedó como campo viejo. 5 pruebas nuevas con negativa ejercida.
+- Pendiente declarado: dónde van las 5 cabeceras y las piezas I, J y K; y el croquis mide 5.3 pantallas de alto, que es demasiado para un mapa.
 ### Added — Cortes/Sucursales: cada corte dice dónde está hoy su dinero —en el banco, en Caja General o por qué todavía no se sabe— y las facturas de contado de su turno (CSU.26–31 · 2026-11-27)
 - Arriba, una frase responde «¿dónde está el dinero que vendió cada caja?»: cuánto de lo que Kepler aplicó a los cortes ya está en el banco o en Caja General, lo que todavía no se puede saber (con la cuenta y hasta qué día tiene Bancos su estado de cuenta), lo que está sin conciliar, lo que sigue sin depósito y la venta sin forma de pago. Cada número de la frase abre sus cortes.
 - Indicador nuevo, «Llegó a la empresa». Ése, «Pendiente de cobro» y «Sin cuadrar» filtran la lista al tocarlos, y la lista llega a su mismo número. «Mostrar» reemplaza a «Sólo con saldo»: 9 filtros, cada uno con su número.
