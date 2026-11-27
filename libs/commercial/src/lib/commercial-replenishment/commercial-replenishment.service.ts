@@ -5732,9 +5732,16 @@ export class CommercialReplenishmentService {
       const vivos = await trx('analytics.replenishment_plan')
         .where({ tenant_id: tenantId, warehouse_id: header.warehouse_id })
         .whereIn('product_id', (lines as any[]).map((l) => l.product_id))
-        .select('product_id', 'caja_cost');
+        .select('product_id', 'caja_cost', 'bf');
       const costoHoy = new Map<string, number>();
-      for (const v of vivos as any[]) costoHoy.set(String(v.product_id), Number(v.caja_cost) || 0);
+      // `[PQ.166]` El factor de caja (piezas por caja) del plan de ESE almacén: `final_qty` va en CAJAS y sin
+      // él el Excel no puede decir las piezas. `null` = el plan no tiene el producto (5 % de los renglones).
+      const factor = new Map<string, number>();
+      for (const v of vivos as Array<{ product_id: string; caja_cost: string | number | null; bf: string | number | null }>) {
+        costoHoy.set(String(v.product_id), Number(v.caja_cost) || 0);
+        if (Number(v.bf) > 0) factor.set(String(v.product_id), Number(v.bf));
+      }
+      for (const l of lines as Array<{ product_id: string; uxc?: number | null }>) l.uxc = factor.get(String(l.product_id)) ?? null;
       for (const l of lines as any[]) {
         const hoy = costoHoy.get(String(l.product_id));
         const cap = Number(l.unit_cost) || 0;

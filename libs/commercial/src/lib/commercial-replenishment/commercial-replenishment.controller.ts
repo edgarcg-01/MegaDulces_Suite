@@ -300,7 +300,11 @@ export class CommercialReplenishmentController {
         sku: l.sku, nombre: l.nombre,
         on_hand: l.on_hand, in_transit: l.in_transit,
         reorder_point: l.reorder_point, max_stock: l.max_stock,
-        suggested_qty: l.suggested_qty, piezas: l.final_qty,
+        // `[PQ.166]` `final_qty` va en CAJAS (line_cost = final_qty × costo de caja): antes salía rotulado
+        // «Piezas» y el Excel no tenía columna ni total de cajas. Las piezas se derivan con el factor del plan;
+        // sin factor, se dice (`piezas: null`), no se inventa.
+        suggested_qty: l.suggested_qty, cajas: l.final_qty, uxc: l.uxc ?? null,
+        piezas: l.uxc ? Number(l.final_qty) * Number(l.uxc) : null,
         received_qty: l.received_qty,
         unit_cost: l.unit_cost, line_cost: l.line_cost,
       })),

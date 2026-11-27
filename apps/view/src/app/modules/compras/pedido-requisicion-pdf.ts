@@ -28,6 +28,11 @@
 import type { HojaProveedor } from './pedido-requisicion-global';
 import { textoSumaUnidades, textoUnidades } from './pedido-redondeo';
 
+/** `[PQ.166]` La cantidad total de cajas de unos productos: cajas cerradas + piezas sueltas, sin convertir
+ *  piezas de productos distintos (la misma regla que el renglón «Pedido por almacén»). */
+const cajasDe = (ps: { cajas: number; uxc: number; et?: Parameters<typeof textoSumaUnidades>[0][number]['et'] }[]): string =>
+  textoSumaUnidades(ps.map((p) => ({ cajas: p.cajas, uxc: p.uxc, et: p.et })));
+
 import {
   INK, M, MUTED, RULE, altoPuntos, alinearTitulos, dias, dibujarEncabezado, encabezadoRequisicion,
   dibujarFirmas, dibujarNotas, dibujarPies, dibujarPuntos, dibujarRecuadro, fechaHoraArchivo, lastY, loadLibs,
@@ -222,15 +227,16 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
     y += 28;
     autoTable(doc, {
       ...tablaBase, startY: y,
-      head: [['Proveedor', 'Productos', 'Puntos de entrega', 'O. Compra a tramitar', 'Importe c/imp']],
+      // [PQ.166] La cantidad total de cajas, por proveedor y del lote (cajas cerradas + piezas sueltas).
+      head: [['Proveedor', 'Productos', 'Cajas', 'Puntos de entrega', 'O. Compra a tramitar', 'Importe c/imp']],
       body: hojas.map((h) => [
-        h.supplierName || 'Sin proveedor asignado', String(h.productos.length),
+        h.supplierName || 'Sin proveedor asignado', String(h.productos.length), cajasDe(h.productos),
         h.puntos.map((p) => p.code).join(', '), String(h.puntos.length), money(h.valor),
       ]),
-      foot: [['Total', String(hojas.reduce((s, h) => s + h.productos.length, 0)), '', String(nOc), money(totalValor)]],
+      foot: [['Total', String(hojas.reduce((s, h) => s + h.productos.length, 0)), cajasDe(hojas.flatMap((h) => h.productos)), '', String(nOc), money(totalValor)]],
       footStyles: { fillColor: RULE, textColor: INK, fontStyle: 'bold' },
-      columnStyles: { 1: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
-      didParseCell: alinearTitulos([1, 3, 4]),
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      didParseCell: alinearTitulos([1, 2, 4, 5]),
     });
     y = lastY(doc, y) + 10;
     dibujarNotas(doc, y, [
@@ -254,11 +260,13 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
     y = lastY(doc, y) + 8;
 
     const gap = 10;
-    const widths = [0.18, 0.22, 0.6].map((f) => f * (W - 2 * M - gap * 2));
+    // [PQ.166] El total de cajas del proveedor, junto a los productos y el importe.
+    const widths = [0.13, 0.2, 0.2, 0.47].map((f) => f * (W - 2 * M - gap * 3));
     const cardH = altoPuntos(h.puntos.length);
     dibujarRecuadro(doc, M, y, widths[0], cardH, 'Productos', String(h.productos.length));
-    dibujarRecuadro(doc, M + widths[0] + gap, y, widths[1], cardH, 'Importe con impuestos', money(h.valor));
-    dibujarPuntos(doc, M + widths[0] + widths[1] + gap * 2, y, widths[2], cardH, h.puntos);
+    dibujarRecuadro(doc, M + widths[0] + gap, y, widths[1], cardH, 'Total de cajas', cajasDe(h.productos));
+    dibujarRecuadro(doc, M + widths[0] + widths[1] + gap * 2, y, widths[2], cardH, 'Importe con impuestos', money(h.valor));
+    dibujarPuntos(doc, M + widths[0] + widths[1] + widths[2] + gap * 3, y, widths[3], cardH, h.puntos);
     y += cardH + 18;
 
     // Pedido al proveedor: una columna por punto de entrega.

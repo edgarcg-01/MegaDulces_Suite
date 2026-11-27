@@ -124,3 +124,19 @@ export function totalesOc(
   out.push({ etiqueta: 'Total', monto: r2(total), fuerte: true });
   return out;
 }
+
+/**
+ * `[PQ.166]` El TOTAL de cajas de una OC (Edgar, 2026-11-27: «agreguemos en el reporte la cantidad total de
+ * cajas»). Suma sólo las cajas VERIFICADAS por costo (`cajasDeRenglon`); los renglones que no se pueden
+ * convertir no se suman ni se dibujan como cero: se cuentan y se dicen («120 cj + 2 renglón(es) sin verificar»).
+ */
+export function textoTotalCajasOc(lineas: Pick<RenglonOc, 'cantidad' | 'unidades_por_caja' | 'costo_unitario' | 'costo_caja'>[]): string {
+  let cajas = 0, sinVerificar = 0;
+  for (const l of lineas) {
+    const c = cajasDeRenglon(l);
+    if (c === null) sinVerificar++; else cajas += c;
+  }
+  const cj = (Math.round(cajas * 10) / 10).toLocaleString('es-MX');
+  if (sinVerificar === lineas.length && lineas.length) return `${sinVerificar} renglón(es) sin cajas verificadas`;
+  return `${cj} cj` + (sinVerificar ? ` + ${sinVerificar} renglón(es) sin verificar` : '');
+}
