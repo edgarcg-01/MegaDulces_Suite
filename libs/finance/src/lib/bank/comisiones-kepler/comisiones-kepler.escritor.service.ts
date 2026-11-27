@@ -54,6 +54,47 @@ export const TIPO_INTERRUPTOR_COMISIONES = 'comisiones_terminal';
 /** Los estados desde los que un día SE PUEDE retomar. `escrito` y `en_duda` no están, a propósito. */
 export const ESTADOS_RETOMABLES = ['pendiente', 'reintento', 'rechazado'] as const;
 
+/** Un renglón de la bitácora que quedó a medias. */
+export interface DiaEnReintento {
+  sucursal: string; dia_venta: string; acreedor: string;
+  gasto_folio: string | null;
+  /** Los cargos cuyo pago YA se escribió, para no escribirlos dos veces. */
+  pagos: ReadonlyArray<{ cargo: string; folio: string }> | null;
+}
+
+/**
+ * ⭐ **Los días que la SUITE dejó a medias y hay que terminar.**
+ *
+ * Un día cuyo gasto ya está en Kepler deja de ser `lista` —el armador lo ve capturado, y es verdad—,
+ * así que sin esto nadie escribe sus pagos nunca y la CxP queda abierta. Pasó el 2026-11-26: el gasto
+ * `0000116` de la 05 se escribió, el pago reventó por el `c11`, y al reintentar el día ya no era
+ * candidato. Peor: el motivo decía «Finanzas ya capturó», y no había sido Finanzas.
+ *
+ * ⛔ **El candado:** sólo se retoma un día cuyo gasto en Kepler es EL QUE NOSOTROS ESCRIBIMOS — el
+ * folio de la bitácora tiene que aparecer entre los `kepler_gasto` que la propuesta ve. Si Finanzas
+ * capturó otro gasto para ese día, NO se toca: se escribiría encima de su trabajo.
+ */
+export function diasARetomar(
+  dias: readonly DiaPropuesta[],
+  bitacora: readonly DiaEnReintento[],
+): { dia: DiaPropuesta; yaPagados: Map<string, string> }[] {
+  const out: { dia: DiaPropuesta; yaPagados: Map<string, string> }[] = [];
+  for (const b of bitacora) {
+    const folio = String(b.gasto_folio ?? '').trim();
+    if (!folio) continue; // sin gasto escrito no hay nada a medias: el día vuelve por la vía normal
+    const dia = dias.find((d) => d.sucursal === b.sucursal && d.dia_venta === b.dia_venta && d.acreedor === b.acreedor);
+    if (!dia || dia.estado === 'lista') continue; // ya volverá como candidato normal
+    // El gasto que ve la propuesta tiene que ser el nuestro (la query lo publica como «gasto 0000116»).
+    const nuestro = dia.cargos.some((c) => String(c.kepler_gasto ?? '').includes(folio));
+    if (!nuestro) continue;
+    const yaPagados = new Map((b.pagos ?? []).map((p) => [String(p.cargo), String(p.folio)]));
+    // Si TODOS los cargos ya tienen su pago, no hay nada que terminar.
+    if (dia.cargos.every((c) => yaPagados.has(String(c.id)) || c.kepler_pago)) continue;
+    out.push({ dia, yaPagados });
+  }
+  return out;
+}
+
 /** Por qué no se pudo reclamar el día, con su estado real. Puro, para probarlo solo. */
 export function motivoDeNoReclamar(estado: string | undefined): string {
   switch (estado) {
@@ -161,7 +202,15 @@ export class ComisionesKeplerEscritorService {
     // ⛔ La propuesta se vuelve a leer AQUÍ: la que pintó la pantalla puede tener minutos y en ese rato Finanzas
     // pudo capturar el día. Nunca se escribe con lo que mandó el navegador.
     const propuesta = await this.propuestaSvc.propuesta(dias, hoy);
-    const candidatos = propuesta.dias.filter((d) => d.estado === 'lista');
+    // ⭐ Además de los días `lista`, los que la Suite dejó A MEDIAS: su gasto ya está escrito en Kepler y
+    // faltan pagos. Esos días DEJAN de ser `lista` (el armador los ve capturados, que es verdad), así que
+    // sin esto nadie los termina nunca y la CxP queda abierta — pasó con el gasto 0000116 de la 05 el
+    // 2026-11-26. Ver `diasARetomar` para el candado que impide tocar un gasto de Finanzas.
+    const bitacora = await this.diasEnReintento(tenantId);
+    const retomes = diasARetomar(propuesta.dias, bitacora);
+    const candidatos = [...propuesta.dias.filter((d) => d.estado === 'lista'), ...retomes.map((r) => r.dia)];
+    const esRetome = new Set(retomes.map((r) => r.dia));
+    const yaPagados = new Map(retomes.map((r) => [r.dia, r.yaPagados]));
     const resultados: ResultadoDia[] = [];
 
     if (!propuesta.medido) {
@@ -176,7 +225,8 @@ export class ComisionesKeplerEscritorService {
     const interruptores = await this.interruptores(tenantId);
 
     for (const d of candidatos) {
-      const r = await this.unDia(tenantId, d, diales, interruptores, hoy).catch((e: unknown) => this.rechazo(d, `Falla inesperada: ${(e as Error)?.message ?? e}`));
+      const r = await this.unDia(tenantId, d, diales, interruptores, hoy, esRetome.has(d), yaPagados.get(d) ?? new Map<string, string>())
+        .catch((e: unknown) => this.rechazo(d, `Falla inesperada: ${(e as Error)?.message ?? e}`));
       resultados.push(r);
     }
     return { candidatos: candidatos.length, escritos: resultados.filter((r) => r.estado === 'escrito').length, resultados, propuesta };
@@ -191,6 +241,14 @@ export class ComisionesKeplerEscritorService {
     return new Map(filas.map((f) => [String(f.account_label).trim(), { ...f, comisiones_kepler_desde: fechaDelDial(f.comisiones_kepler_desde) }]));
   }
 
+  /** Los días que quedaron a medias (`reintento`), con su gasto y los pagos que YA se escribieron. */
+  private async diasEnReintento(tenantId: string): Promise<DiaEnReintento[]> {
+    return this.tk.run((trx: Trx) => trx('finance.bank_commission_kepler_days')
+      .where({ tenant_id: tenantId, estado: 'reintento' })
+      .whereNotNull('gasto_folio')
+      .select<DiaEnReintento[]>('sucursal', 'dia_venta', 'acreedor', 'gasto_folio', 'pagos'));
+  }
+
   private async interruptores(tenantId: string): Promise<Map<string, { encendida: boolean; tope_dia: number | null }>> {
     const filas = await this.tk.run((trx: Trx) => trx('commercial.kepler_push_switch')
       .where({ tenant_id: tenantId, tipo: TIPO_INTERRUPTOR_COMISIONES })
@@ -203,12 +261,15 @@ export class ComisionesKeplerEscritorService {
   private async unDia(
     tenantId: string, d: DiaPropuesta, diales: Map<string, DialDeCuenta>,
     interruptores: Map<string, { encendida: boolean; tope_dia: number | null }>, hoy: string,
+    retome = false, yaPagados: Map<string, string> = new Map(),
   ): Promise<ResultadoDia> {
     const sw = interruptores.get(d.sucursal);
     if (!sw?.encendida) return this.apagado(d, `El interruptor ${TIPO_INTERRUPTOR_COMISIONES} de la sucursal ${d.sucursal} está apagado`);
     const cerrado = dialDeD3Cierra(d.cargos, diales);
     if (cerrado) return this.apagado(d, cerrado);
-    if (!d.plan) return this.rechazo(d, 'El armador no dejó plan para este día');
+    // El plan sólo lo arma el armador para los días `lista`, y `entregasDelDia` no lo usa: es la guarda de
+    // que el día es escribible desde cero. Un RETOME ya tiene su gasto en Kepler, así que no la necesita.
+    if (!d.plan && !retome) return this.rechazo(d, 'El armador no dejó plan para este día');
 
     // ⛔ La plantilla la publica la consulta, que la midió del último gasto real de esa sucursal con ese banco.
     // No se deduce del plan deshaciendo sus textos (ver `DiaPropuesta.plantilla`).
@@ -227,7 +288,7 @@ export class ComisionesKeplerEscritorService {
     if (noReclamado) return this.apagado(d, noReclamado);
 
     try {
-      return await this.escribir(tenantId, d, e, sw.tope_dia);
+      return await this.escribir(tenantId, d, e, sw.tope_dia, yaPagados);
     } catch (err) {
       const motivo = `Falla al escribir: ${(err as Error)?.message ?? err}`;
       await this.anotar(tenantId, e, { estado: 'rechazado', nota: motivo });
@@ -236,7 +297,7 @@ export class ComisionesKeplerEscritorService {
   }
 
   /** Los tres pasos, en orden. Cada escritor es idempotente por su cuenta; aquí sólo se encadenan. */
-  private async escribir(tenantId: string, d: DiaPropuesta, e: EntregasDelDia, tope: number | null): Promise<ResultadoDia> {
+  private async escribir(tenantId: string, d: DiaPropuesta, e: EntregasDelDia, tope: number | null, yaPagados: Map<string, string> = new Map()): Promise<ResultadoDia> {
     const base = { llave: e.llave, sucursal: d.sucursal, dia_venta: d.dia_venta };
 
     // 1 · La solicitud X-A-15. Si su marca ya está en el Kepler vivo, el escritor devuelve ese folio y no escribe otra.
@@ -270,8 +331,11 @@ export class ComisionesKeplerEscritorService {
     await this.anotar(tenantId, e, { estado: 'escribiendo', solicitud_folio: solicitud, gasto_folio: gasto, nota: null });
 
     // 3 · Un X-D-26 por cargo del banco, aplicado contra la CxP del gasto (kdxe c3='A', c4=10).
-    const escritos: { cargo: string; folio: string }[] = [];
+    // ⛔ Los pagos YA escritos en un intento anterior se conservan y NO se repiten: escribir dos veces el
+    //    mismo X-D-26 dejaría la CxP en negativo. Vienen de la bitácora (`pagos`), que los guarda uno a uno.
+    const escritos: { cargo: string; folio: string }[] = [...yaPagados].map(([cargo, folio]) => ({ cargo, folio }));
     for (const p of e.pagos) {
+      if (yaPagados.has(String(p.cargoId))) continue;
       const rp = await this.pagos.entregar({
         sucursal: d.sucursal, fecha: p.fecha, hora: e.solicitud.capturadaEn.hora,
         // ⛔ La referencia va SOLA. Antes se le concatenaba la llave del día y el resultado medía 30
