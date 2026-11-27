@@ -16,6 +16,7 @@ import { SelectButtonModule } from 'primeng/selectbutton';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { SelectModule } from 'primeng/select';
 import { MessageService, ConfirmationService } from 'primeng/api';
+import { Subject } from 'rxjs';
 import { debounceTime } from 'rxjs/operators';
 import { ComercialService, InventoryCountItem, InventorySupervisorProgress, AssignableUser, InventoryInterruptions, InventoryCountSession } from '../comercial.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -248,20 +249,65 @@ interface LiveCountEntry {
 
       <!-- Filtro -->
       <div class="in-filter">
-        <p-selectbutton [options]="filterOptions" [(ngModel)]="filter" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="sb-liquid"></p-selectbutton>
-        @if (listaTopada()) {
+        <div class="in-filter-row">
+          <p-selectbutton [options]="filterOptions" [(ngModel)]="filter" (onChange)="load()" optionLabel="label" optionValue="value" styleClass="sb-liquid"></p-selectbutton>
+          <!--
+            [IC.F5] La SALIDA al tope: esta busqueda pega contra el SERVIDOR y recorre el folio
+            entero ANTES del corte de 2,000, asi que alcanza lo que la lista no muestra. Un
+            filtro sobre las filas ya bajadas no podria, y es el error que parece lo mismo.
+          -->
+          <label class="sr-only" for="in-buscar">Buscar un articulo en todo el folio</label>
+          <input id="in-buscar" pInputText type="search" class="in-buscar"
+                 placeholder="Buscar en todo el folio: nombre, SKU, codigo de barras o ubicacion"
+                 [ngModel]="busqueda()" (ngModelChange)="buscar($event)" />
+          @if (busqueda()) {
+            <button pButton type="button" [text]="true" size="small" icon="pi pi-times" label="Limpiar" (click)="limpiarBusqueda()"></button>
+          }
+        </div>
+        @if (busqueda()) {
+          <p class="in-tope">
+            <i class="pi pi-search" aria-hidden="true"></i>
+            <span>
+              <strong>{{ items().length | number }}</strong> de
+              <strong>{{ totalDelFolio() | number }}</strong> articulos del folio coinciden.
+              @if (listaTopada()) { <strong>Hay mas de los que caben: afina la busqueda.</strong> }
+            </span>
+          </p>
+        } @else if (listaTopada()) {
           <!--
             [IC.F5] Cruce 1: si el encabezado dice N, la lista tiene que poder llegar a N.
-            La consulta se topa en 2,000 y devolvia un arreglo pelado, sin total ni has_more:
-            con 3,363 articulos el supervisor no veia 1,363 y NADA se lo decia.
+            La consulta se topa en 2,000 y devuelve un arreglo pelado, sin total ni has_more:
+            con 3,363 articulos el supervisor no veia 1,363 y NADA se lo decia. El tope sigue
+            -bajar el folio entero en cada carga no es gratis-, pero ya no encierra: el
+            buscador de arriba llega a cualquiera de los que no caben.
           -->
           <p class="in-tope">
             <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-            Se muestran <strong>{{ items().length | number }}</strong> de
-            <strong>{{ totalDelFolio() | number }}</strong> articulos:
-            <strong>{{ totalDelFolio() - items().length | number }}</strong> no caben en esta lista
-            y <strong>no se pueden alcanzar desde aqui</strong>. Filtrar por Discrepancias ayuda si
-            son menos de {{ TOPE_LISTA | number }}.
+            <span>
+              Se muestran <strong>{{ items().length | number }}</strong> de
+              <strong>{{ totalDelFolio() | number }}</strong> articulos:
+              <strong>{{ totalDelFolio() - items().length | number }}</strong> no caben en esta
+              lista. Para llegar a uno de esos, <strong>buscalo arriba</strong> por nombre o SKU.
+            </span>
+          </p>
+        }
+        @if (ubicacionesFaltantes() !== null) {
+          <!--
+            [IC.UB1] La columna «Ubic.» se ve vacia, y sin esto nadie sabe si es que el
+            producto no tiene ubicacion o si la pantalla no la trae. Ademas lleva a donde
+            se arregla, con el dato que lo justifica (Q.4: el numero que denuncia, navega).
+          -->
+          <p class="in-ubic">
+            <i class="pi pi-map-marker" aria-hidden="true"></i>
+            <span>
+              <strong>{{ progress()?.located | number }}</strong> de
+              <strong>{{ totalDelFolio() | number }}</strong> articulos tienen ubicacion
+              asignada.
+              @if (ubicacionesFaltantes()! > 0) {
+                <a routerLink="/almacen/ubicaciones/asignacion">Asignar las otras
+                  {{ ubicacionesFaltantes() | number }}</a>.
+              }
+            </span>
           </p>
         }
       </div>
@@ -377,6 +423,17 @@ interface LiveCountEntry {
     .in-assign-col small { color: var(--text-muted,#78716c); }
     :host ::ng-deep .in-ms { width: 100%; }
     .in-filter { margin-bottom: .75rem; }
+    /*
+      [IC.F5] El buscador vive al lado del filtro, que es donde la persona decide que mira.
+      Se estira para que quepa el placeholder entero y baja solo en pantalla angosta.
+    */
+    .in-filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+    .in-buscar { flex: 1 1 22rem; min-width: 14rem; }
+    /* [IC.UB1] Es un hecho de cobertura, no una alarma: va en texto secundario. */
+    .in-ubic {
+      margin: var(--sp-2) 0 0; display: flex; gap: var(--sp-2); align-items: baseline;
+      color: var(--text-muted); font-size: var(--fs-sm);
+    }
     .in-mono { font-family: var(--font-mono, monospace); }
     .in-name { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .in-num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -529,6 +586,27 @@ export class ComercialInventorySessionDetailComponent {
    * El tope exacto de 2,000 es inequívoco, porque es el `limit` del servicio.
    */
   readonly TOPE_LISTA = 2000;
+
+  /**
+   * ⛔⛔ `[IC.UB1]` **La columna «Ubic.» mostraba una constante.**
+   *
+   * Medido en prod el 2026-11-27: `public.products.location` tiene **un solo valor distinto**
+   * en los 11,816 productos que la traen, la cadena `Z000`, y el folio la copiaba al abrir —
+   * **3,005 de los 3,364 artículos de `INV-2026-00010`** la decían. Una columna llena, con
+   * cara de dato, que no ubicaba nada.
+   *
+   * Ahora la ubicación sale del catálogo de `/almacen/ubicaciones` (fase UB, ADR-090), y la
+   * cobertura real es **39 de 3,364**. Bajar de 3,005 a 39 es el punto: lo que no está
+   * asignado se ve vacío, y esta línea dice cuánto falta y dónde se asigna.
+   *
+   * `null` cuando el servidor no manda el campo (deploy viejo): no se dibuja un cero, que
+   * sería afirmar «ninguno tiene ubicación».
+   */
+  readonly ubicacionesFaltantes = computed<number | null>(() => {
+    const p = this.progress();
+    if (!p || p.located == null) return null;
+    return Math.max(0, (p.total ?? 0) - p.located);
+  });
   readonly totalDelFolio = computed(() => this.progress()?.total ?? 0);
   readonly listaTopada = computed(() => {
     const n = this.items().length;
@@ -576,9 +654,44 @@ export class ComercialInventorySessionDetailComponent {
   resolving = signal(false);
 
   filter = signal<string>('all');
+
+  /**
+   * `[IC.F5]` El texto que se busca EN EL SERVIDOR. Va con `debounceTime` porque cada pausa
+   * dispara una consulta sobre 3,364 renglones; sin eso, escribir «oblea» serían cinco.
+   */
+  busqueda = signal<string>('');
+  private readonly busquedaTecleada = new Subject<void>();
+
+  buscar(texto: string): void {
+    this.busqueda.set(texto ?? '');
+    this.busquedaTecleada.next();
+  }
+
+  limpiarBusqueda(): void {
+    this.buscar('');
+  }
+  /**
+   * [IC.F6] Los estados que EXISTEN, no los que suponiamos.
+   *
+   * Medido en prod el 2026-11-27 sobre los 7 folios con articulos: los unicos estados vivos
+   * son pending (22,197), counted (9) y resolved (3). discrepancy: CERO, porque nadie llego
+   * nunca a calcular. El filtro ofrecia «Discrepancias» y «Pendientes», y ninguna de las dos
+   * formas de ver trabajo YA HECHO.
+   *
+   * Y no era que estuvieran escondidas: listItems ordena discrepancy -> pending -> el resto y
+   * corta en 2,000, asi que en INV-2026-00010 (3,364 articulos, 3,361 pendientes) lo contado y
+   * lo resuelto caen SIEMPRE despues del corte. Sin filtro por estado eran inalcanzables; con
+   * el, el servidor devuelve 3 filas. Eso cierra F6, y es lo que vuelve alcanzable el boton
+   * «Corregir» de F3: resolver un articulo lo mandaba a un lugar al que nadie podia ir.
+   *
+   * El orden es por cuanta decision pide cada estado, no por el ciclo de vida: decidir ahora,
+   * revisar lo decidido, lo que ya cuadro, lo que nadie toco.
+   */
   filterOptions = [
     { label: 'Todos', value: 'all' },
     { label: 'Discrepancias', value: 'discrepancy' },
+    { label: 'Resueltos', value: 'resolved' },
+    { label: 'Contados', value: 'counted' },
     { label: 'Pendientes', value: 'pending' },
   ];
 
@@ -619,6 +732,9 @@ export class ComercialInventorySessionDetailComponent {
 
   constructor() {
     this.load();
+    this.busquedaTecleada
+      .pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.loadItems());
     if (this.canAssign()) this.loadAssignments();
     this.loadInterruptions();
     this.loadSessions();
@@ -741,8 +857,17 @@ export class ComercialInventorySessionDetailComponent {
         },
       });
 
+    this.loadItems();
+  }
+
+  /**
+   * `[IC.F5]` Los artículos se recargan solos al buscar, SIN volver a pedir el avance: con
+   * `load()` entero, cada pausa del teclado dispararía además un GET de progreso.
+   */
+  private loadItems() {
+    this.loading.set(true);
     const status = this.filter() === 'all' ? undefined : this.filter();
-    this.svc.inventoryCountItems(this.countId, status)
+    this.svc.inventoryCountItems(this.countId, status, this.busqueda().trim() || undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (its) => { this.items.set(its); this.itemsFalla.set(null); this.loading.set(false); },
