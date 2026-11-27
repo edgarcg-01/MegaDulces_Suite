@@ -1897,20 +1897,12 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-plan-sub { color: var(--text-muted); font-size: var(--fs-xs); margin-top: .15rem; }
     .pr-plan-hint { margin: .75rem 0 0; color: var(--text-muted); font-size: var(--fs-xs); }
     :host ::ng-deep .pr-abc { font-size: var(--fs-nano); padding: .02rem .3rem; line-height: 1.3; }
-    /* group header por sucursal */
-    .pr-grp td { background: var(--overlay-hover, var(--hover-bg)); border-top: 1px solid var(--border-color); }
-    .pr-grp-in { display: flex; align-items: center; gap: .6rem; padding: .15rem 0; }
-    .pr-grp-name { font-weight: 700; color: var(--text-main); font-size: var(--fs-sm); }
-    .pr-grp-name-btn { border: 0; background: transparent; padding: 0; cursor: pointer; text-align: left; }
-    :host ::ng-deep .pr-grp-tog { color: var(--text-muted); width: 1.7rem; height: 1.7rem; padding: 0; }
-    .pr-grp-n { font-size: var(--fs-micro); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+    /* [PQ.3.24] Fuera el encabezado de grupo por sucursal (.pr-grp*), '.pr-seg' y el botón de columnas
+       (.pr-colbtn*): ninguna plantilla ni prueba los usa, y con ellos el CSS pasaba el tope de 34 kB. */
     .pr-exp-bar { display: flex; align-items: center; gap: .4rem; margin-bottom: .5rem; }
     .pr-exp-hint { font-size: var(--fs-xs); color: var(--text-muted); }
-    .pr-grp-sub { display: inline-flex; gap: .5rem; font-size: var(--fs-xs); }
     .pr-gs { font-variant-numeric: tabular-nums; }
     .pr-gs-buy { color: var(--action); } .pr-gs-tr { color: var(--text-main); } .pr-gs-over { color: var(--warn-soft-fg, var(--text-muted)); }
-    .pr-grp-sp { flex: 1; }
-    :host ::ng-deep .pr-grp-btn { --p-button-sm-font-size: var(--fs-xs); }
     .pr-link { color: var(--action); cursor: pointer; text-decoration: underline; }
     .pr-supp { color: var(--text-muted); font-size: var(--fs-sm); white-space: nowrap; }
     .pr-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-sm); }
@@ -1982,13 +1974,6 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-min-warn i { font-size: var(--fs-xs); }
     .pr-bulk-sp { flex: 1; }
     /* RA-PRO.32 — vista Excel (workbook) */
-    .pr-seg { display: inline-flex; gap: .15rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .15rem; }
-    /* RA-PRO.32.1 — botón englobar/desglosar columnas por sucursal */
-    .pr-colbtn { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--fs-sm); padding: .4rem .75rem; border: 1px solid var(--border-color);
-      background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-sm, 8px); cursor: pointer; font-family: inherit; }
-    .pr-colbtn:hover { background: var(--overlay-hover, var(--hover-bg)); color: var(--text-main); }
-    .pr-colbtn-on { border-color: var(--action); color: var(--action); font-weight: 600; }
-    .pr-colbtn i { font-size: var(--fs-sm); }
     .pr-wb-scroll { overflow-x: auto; }
     :host ::ng-deep .pr-wb { font-size: var(--fs-sm); }
     /* [DESIGN §datos densos 10] Header de columna = --fs-micro, --fw-medium, muted, uppercase con
