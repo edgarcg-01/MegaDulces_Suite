@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Added — Compras › Proveedores › Acuerdos: lo que se decide en una reunión, con dueño y fecha (PQ.3.10 C0–C3 · 2026-11-27 · en código, sin soltar)
+- Nueva pestaña «Acuerdos» en Compras › Proveedores (`/compras/acuerdos`): los compromisos abiertos con lo vencido primero, cinco cifras que filtran (vencidos, vencen hoy, esta semana, al día, cerrados), «Míos», área con su conteo y el buscador común. Cumplir o cancelar, siempre con nota; cada acuerdo lleva a su reunión en Citas.
+- En el detalle de cada reunión realizada se capturan sus acuerdos (siempre salen de una reunión, DC45). El del proveedor guarda el nombre de su persona y lo sigue en la Suite quien organizó la reunión (DC43). Una reunión todavía agendada dice por qué no recibe acuerdos y muestra lo que sigue abierto con ese proveedor.
+- «Mi trabajo»: «Acuerdos con proveedores a tu cargo», con los vencidos; lleva a la pestaña con «Míos». Lo que vence hoy no cuenta como vencido.
+- Quién entra (DC44): las llaves de Citas, sin llaves nuevas. Agendan Compras, Mercadotecnia y Tesorería; Dirección consulta. El responsable de un acuerdo de Mega Dulces es alguien que agenda Citas: cada responsable cierra el suyo.
+- Changed: con el dedo, las pestañas de la barra compartida (`app-page-tabs`) miden 44 px; con mouse no cambia.
+- Migración, a mano antes de soltar: `20261126232231` (la tabla; no mueve datos).
+
 ### Fixed — Compras › Entradas pendientes: el botón «Ligar con motivo» salía vacío (RE.88 · 2026-11-27 · **en producción**)
 - El botón no tenía texto: se veía un recuadro con el ícono de la liga y nada más. Entró el 26 de noviembre con RE.88 y nadie lo vio, porque la única forma de notarlo es abrir esa pantalla con una entrada duplicada del mismo proveedor.
 - De paso destraba a todo el equipo: la compuerta que lo caza ponía «Lint & test» en rojo en **9 de los 10 PRs abiertos** —hasta en uno que sólo cambia dos archivos de documentación— por un defecto que no era de ellos.

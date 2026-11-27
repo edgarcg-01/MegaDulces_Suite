@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -29,6 +30,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { motivoHttp } from '../../almacen/shared/http-motivo';
 import { CitasProveedoresService } from '../citas-proveedores.service';
+import { AcuerdosDeReunionComponent } from '../components/acuerdos-de-reunion.component';
 import {
   aniosDelPlan, areaEnPalabras, choqueEnPalabras, diaCorto, diaLargo, dtoDeReunion, faltaParaGuardar, fechaDeIso, fechaIso, finSugerido, HORAS,
   horario, lugarEnPalabras, primeraDelDia, proveedorEnPalabras, quienVa, rangoSemana, relativo, respuesta, SEVERIDAD_SITUACION, sumarDiasIso,
@@ -50,13 +52,13 @@ interface FilaProveedor { id: string | null; name: string; job_title: string }
  *     siguen por confirmar (las dos últimas, de cualquier semana: son lo pendiente). Después la semana, de lunes a
  *     domingo, en orden de hora, con el día pintado en el primer renglón de cada día. «Agendar reunión» arriba.
  *  2. **Qué no ve.** Una rejilla de horas (con pocas reuniones sería casi toda vacía), las cifras del proveedor (eso es
- *     Revisión, PQ.3.9), los acuerdos (PQ.3.10) ni la lista «por programar» (Revisión). Una cancelada sí se ve en su
+ *     Revisión, PQ.3.9) ni la lista «por programar» (Revisión). Los acuerdos (PQ.3.10) se ven en el DETALLE de cada reunión. Una cancelada sí se ve en su
  *     día, en gris y con su etiqueta: dice «ya no vayas».
  *  3. **Accesibilidad.** El detalle a un clic (side-peek): temas, gente de las dos partes, choques de horario y la
- *     minuta de la reunión ANTERIOR con el mismo proveedor. Semana anterior y siguiente; filtro por tipo con su conteo.
+ *     minuta de la reunión ANTERIOR con el mismo proveedor, y sus acuerdos (`[PQ.3.10]`: se capturan ahí; `?reunion=<id>` la abre). Semana anterior y siguiente; filtro por tipo con su conteo.
  *     Todo con teclado; la situación siempre en palabras, el color sólo acompaña.
- *  4. **Ligas.** Cada reunión trae la anterior realizada con ese proveedor (lo que se dijo la vez pasada). Los acuerdos
- *     llegan con PQ.3.10. NO liga todavía a la regla del Calendario ni a Pedido (declarado en §10.19).
+ *  4. **Ligas.** Cada reunión trae la anterior realizada con ese proveedor (lo que se dijo la vez pasada), sus acuerdos y
+ *     lo que sigue abierto con el proveedor de otras reuniones (`[PQ.3.10]`); cada acuerdo lleva a la pestaña Acuerdos. NO liga todavía a la regla del Calendario ni a Pedido (declarado en §10.19).
  *  5. **¿Le toca a esta pantalla?** La agenda (semana + lo pendiente) vive aquí; las revisiones de negocio «por
  *     programar» y su ficha, en Revisión; las visitas por WhatsApp (PQ.3.13) entrarán aquí, sobre esta agenda.
  *
@@ -70,7 +72,7 @@ interface FilaProveedor { id: string | null; name: string; job_title: string }
   imports: [
     FormsModule, ButtonModule, TableModule, TagModule, DialogModule, DatePickerModule, InputTextModule, SelectModule, TextareaModule,
     CheckboxModule, AutoCompleteModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, SegmentedComponent,
-    SidePeekComponent, PageTabsComponent,
+    SidePeekComponent, PageTabsComponent, AcuerdosDeReunionComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -278,6 +280,9 @@ interface FilaProveedor { id: string | null; name: string; job_title: string }
               </section>
             }
 
+            <!-- [PQ.3.10] Sus acuerdos (se capturan aquí: siempre salen de una reunión, DC45) y lo abierto con el proveedor. -->
+            <app-acuerdos-de-reunion [meetingId]="d.reunion.id" [proveedor]="proveedor(d.reunion)" [puedeAgendar]="puedeAgendar()" />
+
             <section>
               <h3>La reunión anterior con este proveedor</h3>
               @if (d.anterior; as an) {
@@ -447,6 +452,7 @@ export class ComprasCitasComponent implements OnInit {
   private readonly api = inject(CitasProveedoresService);
   private readonly perms = inject(PermissionsService);
   private readonly auth = inject(AuthService);
+  private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly puedeAgendar = this.perms.has$(Permission.COMPRAS_CITAS_AGENDAR);
@@ -570,6 +576,9 @@ export class ComprasCitasComponent implements OnInit {
 
   ngOnInit(): void {
     this.cargar();
+    // `[PQ.3.10]` Un acuerdo lleva a su reunión: `/compras/citas?reunion=<id>` la abre en el detalle.
+    const reunion = this.route.snapshot.queryParamMap.get('reunion');
+    if (reunion) this.abrir(reunion);
   }
 
   cargar(): void {
@@ -777,7 +786,7 @@ export class ComprasCitasComponent implements OnInit {
     this.guardando.set(true);
     this.errorDlg.set(null);
     this.api.minuta(r.id, this.fMinuta).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.guardando.set(false); this.dlgMinuta.set(false); this.recargar(`Minuta guardada: la reunión con ${proveedorEnPalabras(r)} quedó realizada.`); },
+      next: () => { this.guardando.set(false); this.dlgMinuta.set(false); this.recargar(`Minuta guardada: la reunión con ${proveedorEnPalabras(r)} quedó realizada. Sus acuerdos se capturan en su detalle.`); },
       error: (e) => { this.guardando.set(false); this.errorDlg.set(motivoHttp(e, 'guardar la minuta')); },
     });
   }

@@ -345,7 +345,40 @@ export const FUENTES_VISIBLES: readonly FuenteTareaDef[] = [
       );
     },
   },
+  {
+    /*
+     * `[PQ.3.10]` (ADR-128) El acuerdo con el proveedor ES la tarea de su responsable: el de un área de Mega Dulces,
+     * de quien se eligió; el del proveedor, de quien organizó la reunión (DC43). Pendientes y en curso.
+     * ⚠️ `due_date` es una FECHA (el día de la Ciudad de México), no un instante; por eso no usa `medirTareas`, que la
+     * compararía con `now()`: un acuerdo que vence HOY no está vencido (el dominio lo dice «vence hoy»). Vencido = antes
+     * de hoy en México, y `vence_at` es el mediodía de ese día, para que «vence hoy / en N d» redondee al día correcto.
+     */
+    fuente: 'commercial.supplier_agreements',
+    label: 'Acuerdos con proveedores a tu cargo',
+    detalle: 'lo que se acordó en una reunión con el proveedor · se cierra con una nota',
+    ruta: '/compras/acuerdos',
+    queryParams: { de: 'mios' },
+    icono: 'pi pi-list-check',
+    anyOf: [Permission.COMPRAS_CITAS_VER, Permission.COMPRAS_CITAS_AGENDAR],
+    medir: (knex, tenantId, userId) => medirAcuerdos(knex, tenantId, userId),
+  },
 ];
+
+/** `[PQ.3.10]` Los acuerdos abiertos a nombre de la persona, con la fecha compromiso leída como día de México. */
+async function medirAcuerdos(knex: Knex, tenantId: string, userId: string): Promise<MedidaTarea> {
+  const a = adaptadorDe('commercial.supplier_agreements');
+  const MX = 'America/Mexico_City';
+  const { rows: [r] } = await knex.raw(`
+    SELECT count(*)::int AS n,
+           min(??) AS viejo,
+           min((?? + time '12:00') AT TIME ZONE '${MX}') AS vence,
+           count(*) FILTER (WHERE ?? < (now() AT TIME ZONE '${MX}')::date)::int AS vencidas
+      FROM commercial.supplier_agreements
+     WHERE tenant_id = ? AND ?? = ? AND ?? = ANY(?)`,
+  [a.col_asignado_at, a.col_vence, a.col_vence, tenantId, a.col_asignado_a, userId, a.col_estado, dialectosAbiertos(a)]);
+  const iso = (v: Date | string | null | undefined) => (v ? new Date(v).toISOString() : null);
+  return { total: Number(r?.n ?? 0), mas_viejo_at: iso(r?.viejo), vence_at: iso(r?.vence), vencidas: Number(r?.vencidas ?? 0) };
+}
 
 /**
  * `[MDT.1.3]` Lo pendiente HOY de las tareas del manual, derivado de la norma (no de filas emitidas).

@@ -111,6 +111,8 @@ export * from './http/temporadas.contract';
 export * from './http/purchase-calendar.contract';
 // `[PQ.3.8]` Compras › Proveedores › Citas: tipos, estados y participantes de una reunión con el proveedor.
 export * from './http/supplier-meetings.contract';
+// `[PQ.3.10]` Compras › Proveedores › Acuerdos: áreas y estados (el canónico del contrato de tareas, ADR-128).
+export * from './http/supplier-agreements.contract';
 // [GX.9] Egresos: etiqueta/serie por familia contable (150 activo · 511 compras · 6xx gastos · 702-764 financieros e impuestos).
 // Dato chico (4 entradas): no pega al bundle inicial.
 export * from './http/expense-family.contract';

@@ -1,10 +1,11 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
-import type { AgendaCitas, DetalleReunion, OpcionesCitas, ReunionVista } from '@megadulces/contracts';
+import type { AcuerdosDeReunion, AgendaCitas, DetalleReunion, OpcionesCitas, ReunionVista } from '@megadulces/contracts';
 import { ComprasCitasComponent } from './compras-citas.component';
 import { CitasProveedoresService } from '../citas-proveedores.service';
+import { AcuerdosProveedoresService } from '../acuerdos-proveedores.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -38,7 +39,7 @@ const agenda = (o: Partial<AgendaCitas> = {}): AgendaCitas => ({
   ...o,
 });
 
-function montar(o: { agenda?: AgendaCitas; agendar?: boolean; error?: boolean } = {}) {
+function montar(o: { agenda?: AgendaCitas; agendar?: boolean; error?: boolean; reunion?: string } = {}) {
   const api = {
     agenda: vi.fn(() => (o.error ? throwError(() => ({ status: 500 })) : of(o.agenda ?? agenda()))),
     detalle: vi.fn((): ReturnType<CitasProveedoresService['detalle']> => of({ reunion: reunion(), anterior: null } as DetalleReunion)),
@@ -47,6 +48,18 @@ function montar(o: { agenda?: AgendaCitas; agendar?: boolean; error?: boolean } 
     agendar: vi.fn(() => of({ id: 'nueva', choques: [] })),
     editar: vi.fn(), confirmar: vi.fn(() => of({ id: 'r1' })), minuta: vi.fn(() => of({ id: 'r3' })), cancelar: vi.fn(() => of({ id: 'r1' })),
   };
+  // `[PQ.3.10]` Los acuerdos de la reunión que se abre (el detalle los pide a su propio servicio).
+  const deReunion: AcuerdosDeReunion = {
+    hoy: HOY, meeting_id: 'r1', meeting_date: '2026-11-27', no_recibe: 'Los acuerdos salen de una reunión realizada: escribe primero su minuta.',
+    organizer: { user_id: 'U-YO', nombre: 'Compras Prueba' }, acuerdos: [],
+    del_proveedor: { total: 1, tope: 50, acuerdos: [{
+      id: 'a1', meeting_id: 'r0', supplier_code: 'PRV01', supplier_name: 'Dulcería de Prueba', meeting_date: '2026-11-20', area: 'supplier',
+      description: 'Mandar la lista de precios 2027', supplier_contact: 'Ejecutivo', assigned_to: { user_id: 'U-YO', nombre: 'Compras Prueba' },
+      due_date: '2026-11-25', status: 'pending', situacion: 'vencido', acciones: ['iniciar', 'cumplir', 'cancelar', 'editar'],
+      closed_by: null, closed_at: null, closing_note: null, assigned_by: 'Compras Prueba', assigned_at: '2026-11-20T18:00:00Z',
+    }] },
+  };
+  const acuerdos = { deReunion: vi.fn(() => of(deReunion)), capturar: vi.fn() };
   const agendar = o.agendar ?? true;
   const perms = { has$: (p: string) => signal(p === Permission.COMPRAS_CITAS_AGENDAR ? agendar : true), has: () => true, isAdmin: () => false };
   TestBed.configureTestingModule({
@@ -54,11 +67,13 @@ function montar(o: { agenda?: AgendaCitas; agendar?: boolean; error?: boolean } 
     providers: [
       provideRouter([]), { provide: CitasProveedoresService, useValue: api }, { provide: PermissionsService, useValue: perms },
       { provide: AuthService, useValue: { user: signal({ sub: 'U-YO' }) } },
+      { provide: AcuerdosProveedoresService, useValue: acuerdos },
+      ...(o.reunion ? [{ provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({ reunion: o.reunion }) } } }] : []),
     ],
   });
   const f = TestBed.createComponent(ComprasCitasComponent);
   f.detectChanges();
-  return { f, c: f.componentInstance, el: f.nativeElement as HTMLElement, api };
+  return { f, c: f.componentInstance, el: f.nativeElement as HTMLElement, api, acuerdos };
 }
 
 const texto = (el: HTMLElement) => (el.textContent ?? '').replace(/\s+/g, ' ');
@@ -143,6 +158,20 @@ describe('[PQ.3.8] Citas · la pantalla', () => {
     expect(api.agendar.mock.calls[0][0].participants).toEqual([{ id: null, side: 'internal', user_id: 'U-YO', area: 'compras' }]);
     c.fProveedorGente = [{ id: null, name: '', job_title: 'Gerente' }];
     expect(c.falta()).toBe('Escribe el nombre de cada quien va por el proveedor (o quita el renglón).');
+  });
+
+  it('[PQ.3.10] ?reunion= abre esa reunión, con sus acuerdos: si no recibe, dice por qué; y lo abierto con el proveedor', () => {
+    const { f, el, api, acuerdos } = montar({ reunion: 'r1' });
+    f.detectChanges();
+    expect(api.detalle).toHaveBeenCalledWith('r1');
+    expect(acuerdos.deReunion).toHaveBeenCalledWith('r1');
+    const t = texto(el);
+    expect(t).toContain('Acuerdos de esta reunión');
+    expect(t).toContain('Los acuerdos salen de una reunión realizada: escribe primero su minuta.');
+    expect(t).toContain('Sigue abierto con este proveedor, de otras reuniones (1)');
+    expect(t).toContain('Mandar la lista de precios 2027');
+    // Agendada: no se ofrece capturar (la misma regla que frena la escritura).
+    expect(botones(el, 'Capturar acuerdo')).toHaveLength(0);
   });
 
   it('sin proveedor no se puede guardar (y no llama a la API)', () => {
