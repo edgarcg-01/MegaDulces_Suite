@@ -10,6 +10,7 @@ import {
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import { totalesDeCorrida, type TotalesDeCorrida } from './commission-totales.logic';
 import { decidirEscalon, elegirEscalon } from './commission-escalon.logic';
+import { pagoDelChofer } from './commission-piso-pago.logic';
 import { escalaVigente, esFamiliaTabulador, type EscalaFila, type FamiliaTabulador } from './commission-escala';
 
 /**
@@ -201,6 +202,12 @@ export interface CommissionLine {
   bonos_detalle: { nombre: string; monto: number; metrica: string; umbral: number }[];
   bono_veredicto: string | null;
   nomina_banco: number;
+  /**
+   * En la línea del **chofer**: `no_aplica` · `aplicada` · `tope_piso` (`[RD.C1.0b]`: el pago
+   * llegó a cero y quedó deducción sin aplicar — lo no aplicado es
+   * `nomina_banco − (comision + bonos)`). En la del **supervisor** nace `null` y el motor le
+   * copia el estado por PERSONA al armar el neto.
+   */
   deduccion_status: string | null;
   a_pagar: number;
   motivo_no_pago: string | null;
@@ -816,14 +823,17 @@ export class CommercialCommissionsService {
         if (decision.chofer_bajo_piso) {
           lines.push(conEscala(this.emptyLine(cfg, 'chofer', 'bajo_piso', esperados(cfg), v, markup, margen)));
         } else {
+          // [RD.C1.0b] El piso de cero que el libro SI tiene (48 de sus 304 lineas lo tocaron) y
+          // el motor no tenia. La deduccion que no cupo se publica, no se pierde.
+          const pago = pagoDelChofer(comisionChofer, sum(bonosChofer), nomina);
           lines.push({
             ...comun,
             route_code: cfg.route_code, beneficiario: 'chofer', chofer_nombre: cfg.chofer_nombre,
             comision: r2(comisionChofer), bonos: r2(sum(bonosChofer)), bonos_detalle: bonosChofer,
             bono_veredicto: bonosChofer.length ? 'arbitrado' : null,  // el del chofer va por VENTA
             nomina_banco: r2(nomina),
-            deduccion_status: nomina > 0 ? 'aplicada' : 'no_aplica',
-            a_pagar: r2(comisionChofer + sum(bonosChofer) - nomina),
+            deduccion_status: pago.deduccion_status,
+            a_pagar: pago.a_pagar,
           });
         }
 

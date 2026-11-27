@@ -1428,10 +1428,18 @@ type Vista = typeof VISTAS[number];
                       <td role="cell" data-label="Comisión" class="comm-num">{{ money(l.comision) }}</td>
                       <td role="cell" data-label="Bonos" class="comm-num" [title]="bonosTip(l)">{{ l.bonos ? money(l.bonos) : '—' }}</td>
                       <!-- [AUD-CM.11] La nómina es un descuento normal, no un error: sin rojo. -->
-                      <td role="cell" data-label="Nómina" class="comm-num cm-muted">{{ l.nomina_banco ? ('−' + money(l.nomina_banco)) : '—' }}</td>
+                      <td role="cell" data-label="Nómina" class="comm-num cm-muted"
+                          [title]="l.deduccion_status === 'tope_piso' ? ('La nómina mandaba descontar ' + money(l.nomina_banco) + ' y sólo alcanzó ' + money(nominaAplicada(l)) + ': el pago llegó a cero.') : ''">
+                        {{ nominaAplicada(l) ? ('−' + money(nominaAplicada(l))) : '—' }}
+                      </td>
                       <td role="cell" data-label="A pagar" class="comm-num is-strong">{{ l.motivo_no_pago ? '—' : money(l.a_pagar) }}</td>
                       <td role="cell" data-label="Procedencia" class="cm-nota">
                         @if (l.motivo_no_pago) { <p-tag severity="warn" [value]="etiquetaVeredicto(l.motivo_no_pago)" /> }
+                        <!-- [RD.C1.0b] El title no alcanza: sin mouse no existe. La etiqueta dice
+                             cuánta nómina quedó sin descontar, con su monto. -->
+                        @if (l.deduccion_status === 'tope_piso') {
+                          <p-tag severity="warn" [value]="'nómina sin descontar ' + money(nominaSinAplicar(l))" />
+                        }
                         @if (l.dias_multifuente) {
                           <!-- [AUD.1] El span existia SOLO para colgar un title con la
                                definicion de «corte». Esa definicion ya vive en el diccionario
@@ -1455,7 +1463,7 @@ type Vista = typeof VISTAS[number];
                       <td></td><td></td>
                       <td class="comm-num">{{ money(sumCh('comision')) }}</td>
                       <td class="comm-num">{{ money(sumCh('bonos')) }}</td>
-                      <td class="comm-num cm-muted">−{{ money(sumCh('nomina_banco')) }}</td>
+                      <td class="comm-num cm-muted">−{{ money(sumChNominaAplicada()) }}</td>
                       <td class="comm-num is-strong">{{ money(sumCh('a_pagar')) }}</td>
                       <td></td>
                     </tr>
@@ -2261,6 +2269,29 @@ export class ComercialComisionesComponent {
 
   sumCh(campo: keyof CommissionLine): number {
     return this.choferes().reduce((s, l) => s + (Number(l[campo]) || 0), 0);
+  }
+
+  /**
+   * `[RD.C1.0b]` **Lo que de verdad se descontó**, que no siempre es la nómina entera.
+   *
+   * Cuando el pago toca el piso de cero (`deduccion_status = 'tope_piso'`), la nómina mandaba
+   * descontar más de lo que el chofer ganó: sólo se descontó lo ganado. ⛔ Pintar «−$5,000»
+   * junto a «A pagar $0» haría creer que se cobraron $5,000 — y se cobraron $1,200.
+   */
+  nominaAplicada(l: CommissionLine): number {
+    const mandada = Number(l.nomina_banco) || 0;
+    if (l.deduccion_status !== 'tope_piso') return mandada;
+    return Math.min(mandada, Math.max(0, (Number(l.comision) || 0) + (Number(l.bonos) || 0)));
+  }
+
+  /** Los pesos que la nómina mandaba descontar y el piso no dejó. Se publican, no se pierden. */
+  nominaSinAplicar(l: CommissionLine): number {
+    return (Number(l.nomina_banco) || 0) - this.nominaAplicada(l);
+  }
+
+  /** La suma de la columna «Nómina» del pie: lo APLICADO, para que cuadre con «A pagar». */
+  sumChNominaAplicada(): number {
+    return this.choferes().reduce((s, l) => s + this.nominaAplicada(l), 0);
   }
 
   bloqueantes(r: CommissionRunDetail): CommissionGate[] {
