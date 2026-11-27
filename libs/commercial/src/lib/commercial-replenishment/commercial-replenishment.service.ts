@@ -519,6 +519,15 @@ export interface RequisitionVigenciaDto {
   vigente: boolean | null;
 }
 
+/** `[PQ.162]` Lo que la ficha de la requisición necesita de cada renglón para ponerle impuestos (y lo que le escribe). */
+interface RenglonCI {
+  sku: string;
+  final_qty: number | string;
+  line_cost: number | string;
+  imp?: number | null;
+  line_cost_ci?: number;
+}
+
 /** `[RQ.2]` Conteo por estado del universo filtrado — no de la página. */
 export interface RequisitionResumenDto {
   estado: string;
@@ -5248,12 +5257,13 @@ export class CommercialReplenishmentService {
       // `[PQ.162]` Lo que se va a pagar por cada compra de la página (con impuestos). Sólo sus ids:
       // la subconsulta entera cuesta ~137 ms y aquí se pintan 50. Traspaso o sin réplica = null.
       const conKdii = await this.kdiiLista(trx);
-      const idsCompra = (rows as any[]).filter((r) => r.source_type !== 'branch').map((r) => r.id);
+      const filasCI = rows as unknown as Array<{ id: string; source_type?: string | null; total_cost_ci?: number | null; sin_tasa?: number | null }>;
+      const idsCompra = filasCI.filter((r) => r.source_type !== 'branch').map((r) => r.id);
       if (conKdii && idsCompra.length) {
         const ci = new Map<string, { total_ci: string; sin_tasa: number }>(
-          ((await trx.raw(this.sqlRequisicionCI(true, '?', ' AND r0.id = ANY(?)'), [tenantId, idsCompra])).rows as any[])
+          ((await trx.raw(this.sqlRequisicionCI(true, '?', ' AND r0.id = ANY(?)'), [tenantId, idsCompra])).rows as Array<{ requisition_id: string; total_ci: string; sin_tasa: number }>)
             .map((x) => [String(x.requisition_id), x]));
-        for (const r of rows as any[]) {
+        for (const r of filasCI) {
           const x = ci.get(String(r.id));
           r.total_cost_ci = x ? Number(x.total_ci) : null;
           r.sin_tasa = x ? Number(x.sin_tasa) : null;
@@ -5694,7 +5704,7 @@ export class CommercialReplenishmentService {
         l.costo_hoy = hoy != null && hoy > 0 ? Number(hoy.toFixed(4)) : null;
         l.costo_movido = l.costo_hoy != null && cap > 0 ? Math.abs(cap - l.costo_hoy) > 0.01 * l.costo_hoy : null;
       }
-      const impuestos = await this.impuestosDeRequisicion(trx, header, lines as any[]);
+      const impuestos = await this.impuestosDeRequisicion(trx, header, lines as unknown as RenglonCI[]);
       const vig = (await this.vigenciaDeRequisiciones(trx, tenantId, [id])).get(id) ?? null;
       const dias = Math.floor((Date.now() - new Date(header.created_at).getTime()) / 86400000);
 
@@ -5780,7 +5790,7 @@ export class CommercialReplenishmentService {
    * `null`: la pantalla lo declara y muestra el monto sin impuestos, nunca uno inventado.
    */
   private async impuestosDeRequisicion(
-    trx: Knex.Transaction, header: { source_type?: string | null; warehouse_code?: string | null }, lines: any[],
+    trx: Knex.Transaction, header: { source_type?: string | null; warehouse_code?: string | null }, lines: RenglonCI[],
   ): Promise<{ total_cost_ci: number | null; sin_tasa: number | null }> {
     const nada = { total_cost_ci: null, sin_tasa: null };
     if (header.source_type === 'branch' || !lines.length) return nada;

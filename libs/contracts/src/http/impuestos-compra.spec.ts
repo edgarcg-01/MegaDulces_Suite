@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { conImpuestos, tasaImpuestos } from './impuestos-compra.contract';
 
 describe('[PQ.162] la compra con impuestos, con la fórmula de Kepler', () => {
