@@ -16,7 +16,7 @@ hacen con varias transferencias, ¿me ayudas a adecuar el preparar el pago para 
 | … que recibieron **dos** X-D-26 | **8** (4.5 %); 3 desde dos cuentas nuestras distintas |
 | … de esos, los 3 más grandes | **sin casar con su salida del banco y sin validar**: la Suite buscaba UNA salida por el importe completo y el banco tenía dos parciales |
 | Cómo los registra Kepler | **cada transferencia es su propio X-D-26** con su cuenta de origen (`kdxe.c22`); si una factura se paga en dos, cada X-D-26 le abona una parte (CE012 31-ago y 24-sep, CP007 4-nov: un millón y el resto) |
-| ¿Hay un tope fijo por transferencia? | **No**: desde junio, 16 X-D-26 de más de un millón (uno de la misma cuenta que partió a CE012). Los importes los escribe la persona |
+| ¿Hay un tope fijo por transferencia? | **No**: desde junio, 16 X-D-26 de más de un millón (uno de la misma cuenta que partió a CE012). Los importes los escribe la persona. ⚠️ **Corregido el 2026-11-26 (`[PGP.221]`): BBVA SÍ tiene tope, $1,000,000.00 por operación** (Francisco; en la descarga del banco desde junio ninguna transferencia de BBVA pasa del millón y 14 son de un millón exacto). Ver §9 |
 | Pagos pendientes de más de un millón hoy | 7 |
 | Facturas de Kepler hoy en dos pagos pendientes a la vez | 0 (de 345 renglones pendientes) |
 
@@ -98,3 +98,41 @@ partes) y partir responde 503 «falta aplicar la migración». Sin permisos nuev
 ## 8. Bitácora
 
 - **2026-11-20** — Pedido de Francisco, C0 medido, decisión «Partir en pagos», C0–C3 en código y probados (`[PGP.190]` 🧪).
+- **2026-11-26** — Caso Effem: un pago de BBVA de más de un millón salió en dos SPEI sin estar partido en la Suite (Caja General no sabía usar «Sale en varias transferencias»: capacitada ese día). Francisco confirma el tope de BBVA. `[PGP.221]` (§9) y `[PGP.220]` 🧪.
+
+## 9. El tope por operación del banco (`[PGP.221]`, 2026-11-26)
+
+**El caso.** Effem, Morelia Abastos, $1,020,891.81 desde BBVA 5712, 25-nov: salió en $1,000,000.00 + $20,891.81 con la
+misma referencia. El banco lo dio por pagado como grupo (`[PGP.201]`) y la Suite escribió **un** X-D-26 por la suma; los dos
+PDF no entraron por ningún lado (el renglón acepta uno por pago, por su importe; «Comprobantes PDF» casa uno a uno). Francisco
+decidió dejar ese documento (y el del Effem del 23-nov) como uno; lo que se arregla es que no vuelva a pasar.
+
+**Lo medido (prod, sólo lectura, descarga del banco desde el 1-jun):** ninguna transferencia de BBVA pasa de $1,000,000.00
+(14 de un millón exacto: 9 SPEI, 1 traspaso BBVA→BBVA, 4 de otros formatos); arriba del millón sólo hay pagos de crédito.
+Santander sí deja (2 pagos > $1M desde octubre). «Sale en varias transferencias» se ha usado 0 veces. Francisco: *«es el tope
+por operación»*.
+
+**Cómo queda.** La regla vive en `@megadulces/contracts` (`tope-por-transferencia.contract.ts`): un tope por banco (hoy sólo
+BBVA; un banco sin tope medido no se bloquea).
+- «Preparar pago» abre **partido** cuando el origen es BBVA y el pago pasa del millón: $1,000,000.00 en cada transferencia y
+  el resto en la última, desde la misma cuenta, con una línea que dice por qué. Se puede cambiar importes y cuentas.
+- Si la persona quita «varias», el aviso sale bajo el origen y no se guarda. Un anticipo (no se parte, `[PGP.128]` D12) pide
+  una cuenta de origen de otro banco.
+- El servidor no prepara entera una transferencia que pasa del tope, nombra la parte que pasa al partir, y no autoriza (el pago
+  ni el día) lo preparado entero antes de la regla o con facturas sumadas después. El renglón lo dice: «Falta partirla».
+
+**Las cinco preguntas (`diseno` §0b).** (1) Lo que ve: el diálogo ya partido, con la razón arriba de las transferencias. (2) Lo
+que no ve: nada nuevo cuando el banco no tiene tope o el pago cabe. (3) Accesibilidad: la razón en texto, el error con
+`role="alert"`, mismos controles de teclado. (4) Ligas: cada parte casa con su salida del banco, recibe su PDF y lleva su
+X-D-26. (5) Le toca a «Preparar pago»: es donde se decide de qué cuenta sale.
+
+**Verificación.** Contrato 8/8; pantalla montada 8/8; servicio real contra Postgres local 12/12 (rollback) y PGP.190 24/24;
+11 mutantes en rojo, más uno de la prueba visual. **Prueba visual (2026-11-26; escritorio 1440, Fold 7 750 táctil y celular
+390; API local contra prod en sólo lectura y toda escritura bloqueada):** el pago de $1,128,131.19 del 26-nov desde BBVA abre
+partido en «1,000,000.00 + el resto»; sin «varias», el aviso bajo el origen y «Guardar» no manda nada; Santander, entero y sin
+aviso; el renglón **simulado** como preparado entero dice «Falta partirla…» y no ofrece «Autorizar». La prueba encontró que el
+importe precargado se veía «1000000.00» (ahora con comas). Sin tocar, por ser de antes: los controles del diálogo miden 35 px
+de alto con el dedo.
+
+**Fuera de alcance, con nombre:** que el banco parta un pago NO partido en la Suite y la Suite lo escriba como N documentos (la
+propuesta 2 del caso, sobre `[PGP.201]`, de Edgar); varios PDF para un pago (propuesta 3).

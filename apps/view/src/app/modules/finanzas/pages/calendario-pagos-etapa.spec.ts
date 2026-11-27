@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CierreKeplerPago } from '@megadulces/contracts';
-import { diasDeAtraso, etapaDelPago, etapaInicial, salioDelBanco, type EtapaPago, type PagoParaEtapa } from './calendario-pagos-etapa';
+import { avisoDeSaldadas, diasDeAtraso, etapaDelPago, etapaInicial, salioDelBanco, type EtapaPago, type PagoParaEtapa } from './calendario-pagos-etapa';
 
 const cierre = (estado: CierreKeplerPago['estado'], sin_medir = 0): CierreKeplerPago =>
   ({ estado, desfase_dias: null, pagado: 0, facturas: { total: 1, pagada: estado === 'pagado' ? 1 : 0, en_parte: 0, sin_pagar: 0, sin_medir, saldada_sin_dinero: 0 }, pagos: [] } as unknown as CierreKeplerPago);
@@ -90,5 +90,19 @@ describe('[PGP.114] días de atraso', () => {
     expect(diasDeAtraso('2026-11-10', '2026-11-10')).toBe(0);
     expect(diasDeAtraso('2026-11-12', '2026-11-10')).toBe(-2);
     expect(diasDeAtraso(null, '2026-11-10')).toBe(0);
+  });
+});
+
+describe('[PGP.220] el aviso de las facturas que Kepler ya no debe', () => {
+  const items = [{}, {}];
+  it('un pago pendiente con todas saldadas: «todas» (quítalo del día); con algunas: «algunas»; sin saldadas: nada', () => {
+    expect(avisoDeSaldadas({ status: 'pending', kepler_saldadas: 2, items })).toBe('todas');
+    expect(avisoDeSaldadas({ status: 'pending', kepler_saldadas: 1, items })).toBe('algunas');
+    expect(avisoDeSaldadas({ status: 'pending', kepler_saldadas: 0, items })).toBeNull();
+    expect(avisoDeSaldadas({ status: 'failed', kepler_saldadas: 2, items })).toBe('todas');
+  });
+  it('⛔ un pago YA PAGADO no dice «quítalo del día»: su factura dejó de deberse porque se pagó (caso Effem, 2026-11-26)', () => {
+    expect(avisoDeSaldadas({ status: 'executed', kepler_saldadas: 2, items })).toBeNull();
+    expect(avisoDeSaldadas({ status: 'executed', kepler_saldadas: 1, items })).toBeNull();
   });
 });
