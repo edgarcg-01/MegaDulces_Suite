@@ -37,6 +37,13 @@ esbuild.build({
       b.onLoad({ filter: /.*/, namespace: 'nest-minimo' }, () => ({ contents: NEST_MINIMO, loader: 'js' }));
     },
   }],
+  // [CC.35] Los alias del monorepo, para poder empaquetar un ensayo que corre EL ADAPTADOR DE PRODUCCION
+  // (que importa por alias) en vez de una copia suya. Salen de tsconfig.base.json; si agregás un dominio,
+  // agregalo aca tambien o esbuild se queja con «Could not resolve».
+  alias: {
+    '@megadulces/platform-core': path.join(__dirname, 'platform-core-minimo.ts'),
+    '@megadulces/contracts': path.join(__dirname, '../../../libs/contracts/src/index.ts'),
+  },
   tsconfigRaw: { compilerOptions: { experimentalDecorators: true } },
   logLevel: 'warning',
 }).then(() => console.log(`ok → ${salida} (de ${entrada})`)).catch(() => process.exit(1));

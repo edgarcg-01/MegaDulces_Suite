@@ -112,3 +112,47 @@ describe('[CC.33] armarCobro', () => {
     expect(String(r.valor.poliza[0].campos['c6'])).toHaveLength(40);
   });
 });
+
+/**
+ * `[CC.35]` La quinta tabla: la ficha del CFDI que a nuestro cobro le faltaba y por la que Kepler se negaba
+ * a abrirlo. ⛔ Lo que estas pruebas defienden es que **nunca escribamos un dato fiscal que no es nuestro**.
+ */
+describe('[CC.35] la ficha del CFDI', () => {
+  const F = (folio: string, monto: number, saldo = monto) => ({ tipo: 8, serie: 1, folio, monto, saldo });
+  const P = (over = {}) => ({
+    sucursal: '06', cliente: 'C3065', nombre: 'CLIENTE', referencia: 'SUITE-CC-abc',
+    fecha: '2026-11-23', hora: '09:00', caja: '30004', facturas: [F('0001446', 100)], ...over,
+  });
+
+  it('con ficha previa del cliente: nace CREADA y en versión 4.0', () => {
+    const r = armarCobro(P({ hayFichaPrevia: true }));
+    expect(r.ok).toBe(true);
+    if (!r.ok || !r.valor.cfdi) throw new Error('debía traer ficha');
+    expect(r.valor.cfdi.campos['c15']).toBe('4.0');
+    expect(r.valor.cfdi.campos['c4']).toBe(1);     // creada
+    expect(r.valor.cfdi.campos['c5']).toBe(0);     // sin timbrar
+    expect(r.valor.cfdi.campos['c6']).toBe('2026-11-23');
+  });
+
+  it('⛔ sin ficha previa NO se inventa una: los datos fiscales del cliente no salen de otro', () => {
+    expect(armarCobro(P({ hayFichaPrevia: false })).ok && armarCobro(P({ hayFichaPrevia: false })).ok).toBe(true);
+    const r = armarCobro(P({ hayFichaPrevia: false }));
+    if (!r.ok) throw new Error('el cobro igual se arma');
+    expect(r.valor.cfdi).toBeNull();
+    const sin = armarCobro(P());
+    if (!sin.ok) throw new Error('sin la bandera tampoco');
+    expect(sin.valor.cfdi).toBeNull();            // el control: por omisión, no hay ficha
+  });
+
+  it('⛔⛔ el folio fiscal y los sellos SIEMPRE se vacían: eso lo pone el PAC', () => {
+    const r = armarCobro(P({ hayFichaPrevia: true }));
+    if (!r.ok || !r.valor.cfdi) throw new Error('debía traer ficha');
+    for (const col of ['c54', 'c46', 'c47', 'c51', 'c66']) {
+      expect(r.valor.cfdi.vaciar).toContain(col);
+    }
+    // Y ninguna de esas columnas se escribe con valor desde el armador (el control).
+    for (const col of r.valor.cfdi.vaciar) {
+      expect(r.valor.cfdi.campos[col]).toBeUndefined();
+    }
+  });
+});

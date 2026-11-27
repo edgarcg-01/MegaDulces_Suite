@@ -89,7 +89,23 @@ const YA_ESCRITO_SQL = `
   SELECT btrim(c6) AS folio FROM md.kdm1
    WHERE c1 = $1 AND c2 = 'U' AND c3 = 'A' AND c4 = $2::numeric AND btrim(c11) = $3`;
 
-const NOMBRE_SQL = `SELECT btrim(coalesce(c3, '')) AS nombre FROM md.kdud WHERE btrim(c2) = $1 LIMIT 1`;
+const NOMBRE_SQL = `SELECT btrim(coalesce(c3, '')) AS nombre, btrim(coalesce(c10, '')) AS rfc FROM md.kdud WHERE btrim(c2) = $1 LIMIT 1`;
+
+/**
+ * `[CC.35]` La ficha de CFDI anterior **del mismo cliente**, que es la plantilla de la quinta tabla.
+ *
+ * ⛔⛔ Del mismo cliente y de nadie más: ahí viven su RFC, su nombre y su régimen fiscal, y **esos datos no
+ * se inventan ni se traen de otro**. Se llega a ella por el cobro al que pertenece (`c13` = folio del cobro),
+ * porque `kdfe33m1` no guarda la clave del cliente.
+ */
+const FICHA_PREVIA_SQL = `
+  SELECT btrim(f.c13) AS folio, btrim(coalesce(f.c34, '')) AS rfc
+    FROM md.kdfe33m1 f
+    JOIN md.kdm1 k ON k.c1 = f.c1 AND k.c2 = 'U' AND k.c3 = 'A' AND k.c4 = 7
+                  AND btrim(k.c6) = btrim(f.c13)
+   WHERE f.c1 = $1 AND btrim(f.c9) = 'U' AND btrim(f.c10) = 'A' AND btrim(f.c11::text) = '7'
+     AND btrim(k.c10) = $2
+   ORDER BY f.c7 DESC LIMIT 1`;
 
 /** Un fallo de red o de candado se puede reintentar; uno de reglas, no. */
 const REINTENTABLE = /timeout|ECONNRESET|ECONNREFUSED|terminating connection|deadlock|could not obtain lock/i;
@@ -135,9 +151,21 @@ export class KeplerCobroSinkAdapter implements OnModuleDestroy {
   protected async confirmar(
     c: PoolClient, sucursal: string, folio: string, poliza: number, plan: PlanCobro, facturas: FacturaDelCobro[],
   ): Promise<KeplerCobroEscrito['saldos']> {
-    for (const t of ['kdm1', 'kdue', 'kdm5', plan.tablaPoliza]) {
+    const tablas = ['kdm1', 'kdue', 'kdm5', plan.tablaPoliza, ...(plan.cfdi ? ['kdfe33m1'] : [])];
+    for (const t of tablas) {
       const r = await c.query(`INSERT INTO md.${t} SELECT * FROM _${t}`);
       if (!r.rowCount) throw new Error(`El INSERT en md.${t} no tocó ninguna fila`);
+    }
+
+    // ⛔⛔ El control que impide falsificar: la ficha que acabamos de escribir NO puede traer folio fiscal
+    //    ni sellos. Si trae alguno, es que la plantilla los filtró y la transacción se cae aquí.
+    if (plan.cfdi) {
+      const f = (await c.query(
+        `SELECT btrim(coalesce(c54, '')) AS uuid, btrim(coalesce(c46, '')) AS sello, btrim(coalesce(c15, '')) AS version
+           FROM md.kdfe33m1 WHERE c1 = $1 AND btrim(c13) = $2 AND btrim(c25) = 'P'`, [sucursal, folio])).rows[0];
+      if (!f) throw new Error('La ficha de CFDI no quedó escrita');
+      if (f.uuid || f.sello) throw new Error(`La ficha del cobro ${folio} salió con folio fiscal o sello: eso lo pone el PAC, no la Suite`);
+      if (f.version !== '4.0') throw new Error(`La ficha del cobro ${folio} quedó con versión «${f.version}» y Kepler exige 4.0`);
     }
 
     const saldos: KeplerCobroEscrito['saldos'] = [];
@@ -163,8 +191,16 @@ export class KeplerCobroSinkAdapter implements OnModuleDestroy {
       throw new Error(`La póliza no cuadra: cargo ${cuadre?.cargo} contra abono ${cuadre?.abono}`);
     }
 
-    await c.query('COMMIT');
+    await this.cerrar(c);
     return saldos;
+  }
+
+  /**
+   * El último acto. Aparte **para que un ensayo pueda correr TODO el SQL de producción y terminar en
+   * `ROLLBACK` aquí**: así lo que se prueba contra el Kepler vivo es este código, no una copia suya.
+   */
+  protected async cerrar(c: PoolClient): Promise<void> {
+    await c.query('COMMIT');
   }
 
   async entregar(e: EntregaCobro): Promise<ResultadoCobroKepler> {
@@ -208,11 +244,25 @@ export class KeplerCobroSinkAdapter implements OnModuleDestroy {
         }
         facturas.push({ tipo: f.tipo, serie: f.serie, folio: f.folio, monto: f.monto, saldo: s.saldo });
       }
-      const nombre = String((await c.query(NOMBRE_SQL, [e.cliente])).rows[0]?.nombre ?? '');
+      const kdud = (await c.query(NOMBRE_SQL, [e.cliente])).rows[0] ?? {};
+      const nombre = String(kdud.nombre ?? '');
+
+      // ── `[CC.35]` La quinta tabla: ¿hay una ficha de CFDI previa de ESTE cliente para clonar? ───────────
+      const previa = (await c.query(FICHA_PREVIA_SQL, [e.sucursal, e.cliente])).rows[0];
+      // ⛔ Y su RFC tiene que seguir siendo el del cliente HOY: una ficha vieja timbraría datos rancios.
+      const rfcHoy = String(kdud.rfc ?? '').toUpperCase();
+      const rfcFicha = String(previa?.rfc ?? '').toUpperCase();
+      const fichaUsable = !!previa && !!rfcHoy && rfcFicha === rfcHoy;
+      if (previa && !fichaUsable) {
+        this.logger.warn(
+          `Cobro ${e.referencia}: la ficha de CFDI previa del cliente ${e.cliente} trae RFC ${rfcFicha || '(vacío)'} ` +
+          `y hoy es ${rfcHoy || '(vacío)'}: no se clona, el cobro nace sin ficha.`,
+        );
+      }
 
       const armado = armarCobro({
         sucursal: e.sucursal, cliente: e.cliente, nombre, referencia: e.referencia,
-        fecha: e.fecha, hora: this.ahora, caja, facturas,
+        fecha: e.fecha, hora: this.ahora, caja, facturas, hayFichaPrevia: fichaUsable,
       });
       if (!armado.ok) return { estado: 'rechazado', motivo: armado.motivo, reintentable: false };
       const plan = armado.valor;
@@ -255,6 +305,24 @@ export class KeplerCobroSinkAdapter implements OnModuleDestroy {
       await clonarFila(c, '_kdm10', '_kdm1', { ...plan.kdm1, c6: folio });
       await clonarFila(c, '_kdue0', '_kdue', { ...plan.kdue, c6: folio });
       for (const r of plan.kdm5) await clonarFila(c, '_kdm50', '_kdm5', { ...r, c6: folio });
+
+      // ── `[CC.35]` La quinta tabla: la ficha del CFDI, en el estado «creada, sin timbrar» ────────────────
+      // ⛔⛔ El folio fiscal y los sellos quedan VACÍOS: los pone el PAC a través de Kepler. Escribirlos
+      //    sería falsificar un comprobante. Esto sólo deja el documento como Kepler lo deja antes de llamar.
+      if (plan.cfdi) {
+        const nF = await plantilla('kdfe33m1',
+          `c1 = $1 AND btrim(c9) = 'U' AND btrim(c10) = 'A' AND btrim(c11::text) = '7' AND btrim(c13) = $2`,
+          [e.sucursal, String(previa.folio)]);
+        if (nF !== 1) {
+          await c.query('ROLLBACK');
+          return {
+            estado: 'rechazado', reintentable: false,
+            motivo: `La ficha de CFDI plantilla ${e.sucursal}/${previa.folio} apareció ${nF} veces: no se clona a ciegas.`,
+          };
+        }
+        const vacias = Object.fromEntries(plan.cfdi.vaciar.map((k) => [k, '']));
+        await clonarFila(c, '_kdfe33m10', '_kdfe33m1', { ...plan.cfdi.campos, ...vacias, c3: folio, c13: folio });
+      }
 
       // ── La póliza: el siguiente número de ingresos del mes, y los dos renglones que cuadran ─────────────────
       const poliza = Number((await c.query(

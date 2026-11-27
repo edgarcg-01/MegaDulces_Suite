@@ -66,7 +66,38 @@ export interface PeticionCobro {
   /** La caja del cobro anterior del mismo cliente. Vacía = el adaptador ya debió negarse. */
   caja: string;
   facturas: FacturaDelCobro[];
+  /**
+   * `[CC.35]` Si el cliente tiene una ficha de CFDI previa que clonar. Sin ella no se escribe la quinta
+   * tabla: los datos fiscales del receptor (RFC, nombre, régimen) **no se inventan ni se traen de otro
+   * cliente**. El adaptador la busca y dice si la hay.
+   */
+  hayFichaPrevia?: boolean;
 }
+
+/**
+ * `[CC.35]` **La quinta tabla: la ficha del CFDI (`kdfe33m1`) tal como Kepler la deja ANTES de timbrar.**
+ *
+ * Medido el 2026-11-27 sobre las 892 fichas de cobro de la 06:
+ *  · `c3` (folio del CFDI) **= `c13`** (folio del cobro) en **892 de 892**: no hay contador aparte.
+ *  · `c2` (serie) = sucursal + código de documento (`06UA0701`) en **892 de 892**.
+ *  · Sin timbrar, `c4/c5` = **`1/0`** (21 casos). Timbrada, `4/1` (864); `3/0` son 7 (cancelaciones).
+ *  · `c15` = `4.0`, la versión que la pantalla de Kepler exige y que a nuestro cobro le faltaba.
+ *
+ * ⛔⛔ **Lo que queda VACÍO y no se escribe nunca:** los dos sellos, las rutas del `.key` y del `.cer`, la
+ * ruta del XML, el **folio fiscal (UUID)**, el sello del SAT y el nombre del programa. Eso lo pone el PAC a
+ * través de Kepler. Escribir cualquiera de esos campos sería **falsificar un comprobante fiscal**.
+ */
+export const CFDI_VERSION = '4.0';
+/** `c4`/`c5` de una ficha **creada y sin timbrar**. */
+export const CFDI_CREADA = { c4: 1, c5: 0 } as const;
+/**
+ * Las columnas que el PAC llena al timbrar. Se **vacían** al clonar: si la plantilla venía timbrada, su
+ * UUID y sus sellos son de OTRO documento y copiarlos sería inventar un comprobante.
+ */
+export const CFDI_DEL_PAC = [
+  'c46', 'c47', 'c48', 'c49', 'c50', 'c51', 'c52', 'c53', 'c54', 'c55', 'c56', 'c57', 'c58', 'c59',
+  'c60', 'c61', 'c62', 'c65', 'c66',
+] as const;
 
 /** Sólo las columnas DECIDIDAS: las demás salen de la plantilla clonada. */
 export interface PlanCobro {
@@ -75,6 +106,11 @@ export interface PlanCobro {
   kdm5: Record<string, unknown>[];
   /** Los dos renglones de la póliza, ya cuadrados. `cuenta` elige cuál de la plantilla se clona. */
   poliza: { cuenta: string; campos: Record<string, unknown> }[];
+  /**
+   * `[CC.35]` La ficha del CFDI, sin timbrar. `vaciar` son las columnas del PAC que se limpian al clonar.
+   * ⛔ `null` cuando no se va a escribir (el cliente no tiene una ficha previa que clonar).
+   */
+  cfdi: { campos: Record<string, unknown>; vaciar: readonly string[] } | null;
   /** `kdc2AAMM` de la fecha del depósito: una tabla por mes. */
   tablaPoliza: string;
   total: number;
@@ -152,6 +188,17 @@ export function armarCobro(p: PeticionCobro): Resolucion<PlanCobro> {
         { cuenta: CUENTA_BANCOS, campos: { c5: total, c4: 'C', c6: concepto } },
         { cuenta: CUENTA_CLIENTES, campos: { c5: total, c4: 'A', c6: concepto } },
       ],
+      // `[CC.35]` La ficha del CFDI, en el estado «creada, sin timbrar». Sólo si hay una previa del MISMO
+      // cliente que clonar: los datos fiscales del receptor no se inventan.
+      cfdi: p.hayFichaPrevia
+        ? {
+            campos: {
+              c3: '', c13: '', c6: p.fecha, c7: `${p.fecha}T${p.hora}:00`,
+              c15: CFDI_VERSION, ...CFDI_CREADA,
+            },
+            vaciar: CFDI_DEL_PAC,
+          }
+        : null,
       tablaPoliza: tablaDePoliza(p.fecha),
       total,
       facturas: fs.length,

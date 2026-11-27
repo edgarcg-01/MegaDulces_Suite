@@ -1,0 +1,23 @@
+-- [CC.35] Lo que le falta al carril para escribir la QUINTA tabla de un cobro: la ficha del CFDI.
+--
+-- ⛔⛔ ESTO NO SE APLICA SIN AUTORIZACION EXPLICITA: es la tabla fiscal, y el permiso amplia lo que la
+--    Suite puede escribir en Kepler. Se deja escrito para que la decision se tome mirando el diff.
+--
+-- Por que hace falta:
+--   · Kepler escribe la ficha de CFDI al CREAR el cobro (version 4.0, sin folio fiscal) y la timbra despues.
+--     Medido el 2026-11-27 en la 06: 124 fichas creadas sin timbrar, 2,942 timbradas, 0 sin version.
+--   · Un cobro escrito por la Suite nace SIN esa ficha, y por eso Kepler se niega a procesarlo:
+--     «El CFDI asignado a este documento KEPLER, no puede ser procesado por esta pagina. Version CFDI: (vacio)».
+--   · El ensayo contra el Kepler vivo (ops/prod/ensayo-cobro-kepler/ensayo-ficha.ts) muere exactamente aca:
+--     «permiso denegado a la tabla kdfe33m1».
+--
+-- Que NO hace falta, medido: `kdfe33pagm1` y `kdfe33pagm2` (el detalle del pago) las escribe el programa AL
+-- TIMBRAR -- de las 21 fichas de cobro sin timbrar de la 06, CERO tienen renglones ahi. Una sola tabla.
+--
+-- ⭐ SELECT e INSERT y nada mas: el carril puede CREAR, no deshacer. Sin UPDATE ni DELETE, igual que en el
+--    resto del rail (CC.28). Y lo que el adaptador escribe deja VACIOS el folio fiscal y los sellos: eso lo
+--    pone el PAC a traves de Kepler. Hay un control que aborta la transaccion si alguno sale con valor.
+--
+-- verificar: has_table_privilege('kepler_push','md.kdfe33m1','SELECT') AND has_table_privilege('kepler_push','md.kdfe33m1','INSERT') AND NOT has_table_privilege('kepler_push','md.kdfe33m1','UPDATE') AND NOT has_table_privilege('kepler_push','md.kdfe33m1','DELETE')
+
+GRANT SELECT, INSERT ON md.kdfe33m1 TO kepler_push;
