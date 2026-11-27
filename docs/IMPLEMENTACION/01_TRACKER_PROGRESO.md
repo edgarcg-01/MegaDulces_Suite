@@ -10386,6 +10386,12 @@ más) — PR aparte para no volver ilegible el diff.
     diseño manda cuando falta `TIENDA_WEBHOOK_TOKEN` — **no un 404** (la ruta existe y está
     registrada) ni un 403 (el secreto no está puesto). La prueba negativa del fallo-cerrado quedó
     ejercida **contra producción**, no contra un doble. `/api/health` sirve `38b164095`.
+    - ⭐ **Y responde desde internet, que es lo que Wix necesita:** la misma llamada a
+      `https://megadulcessuite.com/api/webhooks/tienda/pedido` devuelve **nuestro** cuerpo
+      (`{"message":"Webhook de la tienda no configurado.","statusCode":503}`), no el 503 del
+      proxy — o sea Cloudflare → caddy → Nest enrutan bien. **Esa es la URL que va al panel.**
+    - ⭐ Con un token cualquiera **sigue en 503**, no en 403: falla por el secreto ausente antes
+      de comparar nada. Confirma que `TIENDA_WEBHOOK_TOKEN` no está en el secreto `prod-env`.
   - ✅ **Construido el 2026-11-27 — el libro: `commercial.store_orders`** (migración
     `20261127081647`, 8 pruebas nuevas; la suite del servicio pasa de 14 a **22**).
     - ⛔⛔ **Por qué tiene que entrar ANTES de que Edgar encienda el disparo.** Hoy un pedido que
