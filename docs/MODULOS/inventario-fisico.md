@@ -529,7 +529,7 @@ nadie había llegado a contar lo suficiente para verlo.**
 >
 > ⚠️ **No hay F21.** La numeración salta del **F20** al **F22**; se verificó en el historial del
 > repositorio y **nunca existió**: es un hueco al numerar, no un hallazgo perdido. Con **F23** y
-> **F24** (agregados el 2026-11-27) y **F25** a **F28** (medidos en pantalla viva ese mismo dia) y **F29**-**F30** (medidos al construir C0 de la fase ICR), son **29**.
+> **F24** (agregados el 2026-11-27) y **F25** a **F28** (medidos en pantalla viva ese mismo dia) y **F29**-**F30** (medidos al construir C0 de la fase ICR) y **F31**-**F37** (de disenar el conteo TRIMESTRAL con Edgar, §9f), son **36**.
 
 | # | Sev. | Defecto | Cómo se midió |
 |---|:---:|---|---|
@@ -780,6 +780,47 @@ prod, 2026-11-27. El enlace padre-hijo entre los dos catálogos **existe como co
 llenó**. |
 
 ⭐ Por eso C1 de la fase ICR no es construir el reparto: es **darle un catálogo que exista**.
+
+## 9f. ⭐⭐ Lo que salió de diseñar el TRIMESTRAL con Edgar (2026-11-27)
+
+> El acta completa —el protocolo, la tabla de errores y la lista del lunes— está en
+> [`FASE_ICR_ANEXO_CONTEO_TRIMESTRAL_2026-11-27`](../IMPLEMENTACION/FASES/FASE_ICR_ANEXO_CONTEO_TRIMESTRAL_2026-11-27.md).
+> Acá sólo los defectos del módulo que aparecieron al recorrer el proceso con el PM y al leer el
+> fuente buscándolos a propósito.
+
+⭐ **El contexto que los ordena:** el módulo **nunca se usó**. Los siete folios previos son todos
+totales y el máximo que alguien contó fue **3 artículos de 3,666**; nunca hubo un segundo conteo ni
+más de dos personas. Así que ninguno de estos defectos lo reportó un usuario: **no hay usuarios**.
+
+| # | Sev. | Defecto | Cómo se midió |
+|---|:---:|---|---|
+| **F31** | 🔴 | **La pantalla del contador no menciona la palabra «pasillo» ni una vez.** El reparto por pasillo existe y el servidor acota a cada quien a lo suyo, pero quien está acotado **se entera chocando**: escanea y recibe «este SKU no pertenece a tu pasillo asignado». | Fuente, 2026-11-27: `grep -c "aisle\|pasillo"` sobre `comercial-inventory-count.component.ts` da **0**. |
+| **F32** | 🔴 | **No hay orden de recorrido entre pasillos, ni «terminé este rack».** `warehouse_aisles` tiene `grid_row`/`grid_col` para dibujar un mapa, no una secuencia. Sin lo primero nadie puede pedir el siguiente; sin lo segundo, al cerrar el folio **no se distingue «no está» de «nadie llegó»** — y por eso un folio total exige tocar los 3,364 renglones uno por uno. | Esquema + fuente, 2026-11-27. |
+| **F33** | 🟠 | **No hay deshacer, y la recaptura pisa en silencio.** Una captura sólo se reemplaza con otra: contaste 24, capturás 12 por accidente y queda **12**, sin aviso. El sistema no distingue «me corrijo» de «le di sin querer». | Fuente, `submitCount`: el slot propio se sobrescribe sin confirmación. |
+| **F34** | 🟠 | **La bitácora de escaneos existe y nadie la puede ver — ni guarda lo que importa.** `commercial.inventory_count_scan_log` registra quién y cuándo, pero **no hay endpoint ni pantalla** que la muestre, y **no guarda ni la cantidad ni el lugar**. El supervisor no puede auditar nada en vivo. | Prod + fuente, 2026-11-27: la tabla tiene `tenant_id, count_id, scan_uuid, item_id, slot, applied_by, applied_at` y **11 filas**; `grep` de `scan_log` en controladores y frontend: **0**. |
+| **F35** | 🔴 | **El mismo producto en dos racks se pierde.** El renglón es uno por producto: el primero que lo encuentra lo cuenta, y el segundo recibe *«ya tiene un primer conteo de otra persona; no se puede sobrescribir»*. Esa mercancía **no se cuenta y sale como faltante**. ⛔ En una distribuidora de dulces, producto en anaquel **y** en bodega es lo normal. | Fuente, `submitCount`. Confirmado en el catálogo de ubicaciones: de 40 productos asignados, **8 están en dos o tres** lugares. |
+| **F36** | 🔴 | **El umbral de recuento nace en CERO, así que la red de seguridad está apagada por defecto.** Con umbral 0 no corre el *count-back* (dos conteos coincidentes pero muy lejos del teórico se auto-resuelven) **ni** la exigencia de motivo en una diferencia material: un folio puede cerrarse con una merma enorme **sin que nadie escriba por qué**. | Migración `20260618190000`: `recount_threshold_pct` `notNullable().defaultTo(0)`; los dos guards de `computeDiscrepancies` y `bloqueosParaReconciliar` son `if (umbral > 0)`. |
+| **F37** | 🟠 | **La captura que sube tarde se pierde callada.** La idempotencia por `scan_uuid` protege el **reenvío** de un escaneo ya aplicado, pero una captura **nueva** que sincroniza cuando el folio ya cambió de estado **se rechaza** — la persona la contó y nunca llegó, y la pantalla no dice cuántas quedan sin subir. | Fuente: el guard de estado corre **después** del de idempotencia. |
+
+### Cuatro riesgos que se midieron y NO están (control negativo)
+
+⭐ Se escriben porque un riesgo descartado con una medición ahorra el día siguiente, y porque sin
+ellos esta lista parecería una lluvia de sospechas en vez de una revisión.
+
+| Sospecha | Lo medido (Yurécuaro, 2,024 artículos con existencia) | Veredicto |
+|---|---|---|
+| El catálogo duplicado parte el folio en dos renglones por producto | **0 SKUs repetidos · 0 sin SKU** · 5 con nombre repetido | No aplica a este universo |
+| El teórico llega atrasado y contamina todas las diferencias | `kepler_ods.kdil`: **1 segundo** de antigüedad | Falso: el ODS es vivo |
+| Dos capturas simultáneas del mismo renglón se pisan | `submitCount` toma el renglón con `FOR UPDATE` | Falso: no hay carrera |
+| No se puede registrar «aquí no hay nada» | La validación admite `quantity >= 0` | Falso: el cero es capturable |
+
+⚠️ **Y uno que no es defecto del módulo pero decide el día:** contar en cajas multiplica el error y
+**el factor no se puede verificar contra nada**. En Yurécuaro **1,905 de 2,024** artículos tienen
+factor de caja; de los 133 que además traen código de caja, **123 discrepan** del factor del ERP y
+sólo **11 coinciden**. Ninguna base de datos sabe cuántas piezas trae la caja que está en el
+anaquel: la pantalla tiene que **mostrar la cuenta** («3 cajas × 24 = 72») y dejar corregirla.
+
+---
 
 ### Lo que sigue SIN ver, aun con la pantalla abierta
 

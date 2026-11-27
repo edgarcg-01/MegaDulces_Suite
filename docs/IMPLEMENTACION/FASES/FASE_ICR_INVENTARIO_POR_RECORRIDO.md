@@ -24,6 +24,13 @@ recomendaciones de §4 tal como estaban escritas. **D5 queda partida**: el *meca
 ubicación mientras se cuenta— lo toma Claude; **quién** la captura y **cuándo** sigue siendo de Edgar,
 y no bloquea nada de C0 ni de C1.
 
+⛔⛔ **El alcance se acotó el mismo día: SÓLO el trimestral**, con piloto en **Yurécuaro el martes
+1-dic-2026**. Queda fuera el conteo cíclico entero. El acta de esa conversación —cómo funciona hoy
+el conteo de punta a punta, el protocolo de toma de rack, los errores previstos y la lista de
+verificación del lunes— está en
+[`FASE_ICR_ANEXO_CONTEO_TRIMESTRAL_2026-11-27`](FASE_ICR_ANEXO_CONTEO_TRIMESTRAL_2026-11-27.md).
+**Ese anexo manda sobre el resto de este plan** donde se contradigan: es más nuevo y lo firmó Edgar.
+
 ---
 
 ## 1. Qué problema resuelve
