@@ -1156,7 +1156,8 @@ describe('[RA-NEG.2] el desglose compacto: qué hacer, en pocas palabras', () =>
   const fila = () => FILA as never;
   const sucOf = (c: ComprasPedidoRealComponent, code: string) => c.branchBuys(fila()).find((b) => b.code === code)!;
   // [PQ.129] «Traspaso ✎»: el traspaso se cambia en el renglón, junto a «Pedir».
-  const COLS = ['Sucursal', 'Vende 30 d', 'Exist.', 'Hoy dura', 'Traspaso ✎', 'Pedir ✎', 'Queda', 'Valor'];
+  // [PQ.161] «Valor» dice su base: sin IVA.
+  const COLS = ['Sucursal', 'Vende 30 d', 'Exist.', 'Hoy dura', 'Traspaso ✎', 'Pedir ✎', 'Queda', 'Valor sin IVA'];
 
   it('la lista va en el orden en que se decide: la que menos aguanta HOY, arriba', () => {
     const c = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) }).componentInstance;
@@ -1482,7 +1483,7 @@ describe('[PQ.38] valor venta y valor existencia, en grande', () => {
     fix.detectChanges();
     const kpi = fix.componentInstance.pedidoKpi();
     expect(kpi.find((k: { label: string }) => k.label === 'Valor venta')).toMatchObject({ value: 18432109.5, format: 'currency' });
-    expect(kpi.find((k: { label: string }) => k.label === 'Valor existencia')).toMatchObject({ value: 9876543.21, sub: 'al costo, hoy' });
+    expect(kpi.find((k: { label: string }) => k.label === 'Valor existencia')).toMatchObject({ value: 9876543.21, sub: 'al costo sin IVA, hoy' });
     expect(texto(fix)).toContain('Valor venta');
     expect(texto(fix)).toContain('Valor existencia');
   });
@@ -1491,7 +1492,7 @@ describe('[PQ.38] valor venta y valor existencia, en grande', () => {
     const fix = montar({ ...VACIO, total: 1, totals: { pedido: 0, venta: 1, exis: 1 }, unit_rung: { skus: 7, celdas: 9, arbitrado: 1200 } });
     fix.detectChanges();
     const ex = fix.componentInstance.pedidoKpi().find((k: { label: string }) => k.label === 'Valor existencia');
-    expect(ex?.sub).toBe('al costo · faltan 7 SKU por valuar');
+    expect(ex?.sub).toBe('al costo, sin IVA · faltan 7 SKU por valuar');
   });
 });
 
@@ -1788,7 +1789,7 @@ describe('[PQ.129] el traspaso junto a lo que se pide: en la lista y en el rengl
     f.detectChanges();
     const el = f.nativeElement as HTMLElement;
     const ths = [...el.querySelectorAll('.pr-wb-tbl thead th')].map((t) => (t.textContent || '').replace(/\s+/g, ' ').trim());
-    expect(ths[ths.indexOf('$ Pedido') + 1]).toBe('Traspaso');
+    expect(ths[ths.indexOf('$ Pedido sin IVA') + 1]).toBe('Traspaso');
     expect(f.componentInstance.trasFilaEstado(fila())).toBe('hay');
     expect((el.querySelector('.pr-tra-col')?.textContent || '').replace(/\s+/g, ' ').trim()).toBe('+2 cj');
     expect(f.componentInstance.trasFilaTitle(fila())).toContain('Yurécuaro recibe 1 cj de Padre Hidalgo');

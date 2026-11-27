@@ -98,7 +98,7 @@ const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'o
       @if (d().proveedor; as p) {
         <dl class="ng-prov">
           <div [title]="'Recepciones de 12 meses, sin la doble captura de oficinas. Este producto: lo pagado en 12 meses ÷ compras al proveedor.'">
-            <dt>Compras 12 meses</dt><dd><b class="num">{{ dineroCorto(p.compras_12m) }}</b>
+            <dt>Compras 12 meses con IVA</dt><dd><b class="num">{{ dineroCorto(p.compras_12m) }}</b>
             <span class="ng-s">este producto {{ pct(participacion()) }}</span></dd></div>
           <div [title]="'Descuento por pronto pago + notas de crédito comerciales, contra lo comprado.'">
             <dt>Descuento</dt><dd><b class="num">{{ pct(p.descuento_pct) }}</b>

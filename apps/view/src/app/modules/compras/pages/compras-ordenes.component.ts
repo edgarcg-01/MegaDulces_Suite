@@ -70,7 +70,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <ng-template #header>
             <tr>
               <th>Proveedor</th><th class="oc-r">Órdenes</th><th class="oc-r">Unidades</th>
-              <th class="oc-r">Falta</th><th class="oc-r">Importe</th><th>Más vieja</th><th>Próxima entrega</th><th></th>
+              <th class="oc-r">Falta</th><th class="oc-r">Importe sin IVA</th><th>Más vieja</th><th>Próxima entrega</th><th></th>
             </tr>
           </ng-template>
           <ng-template #body let-g>
@@ -125,7 +125,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <tr>
             <th>Folio</th><th>Estado</th><th>Origen</th><th>Proveedor / origen</th><th>Almacén</th>
             <th class="oc-r">Líneas</th><th class="oc-r">Pedido</th><th class="oc-r">Recibido</th><th class="oc-r">Avance</th>
-            <th class="oc-r">Costo</th><th>Esperada</th><th>Creada</th>
+            <th class="oc-r">Costo sin IVA</th><th>Esperada</th><th>Creada</th>
           </tr>
         </ng-template>
         <ng-template #body let-r>

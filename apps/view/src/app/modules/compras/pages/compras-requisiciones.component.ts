@@ -120,7 +120,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <ng-template #header>
             <tr>
               <th>Lote</th><th>Qué se pidió</th>
-              <th class="rq-r">Docs</th><th class="rq-r">Renglones</th><th class="rq-r">Monto</th>
+              <th class="rq-r">Docs</th><th class="rq-r">Renglones</th><th class="rq-r">Monto sin IVA</th>
               <th>Estado</th><th class="rq-r">Días</th><th>Quién</th><th><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
@@ -188,7 +188,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <ng-template #header>
             <tr>
               <th style="width:7rem">Tipo</th><th>Folio</th><th>De dónde · a dónde</th>
-              <th class="rq-r">Líneas</th><th class="rq-r">Costo</th>
+              <th class="rq-r">Líneas</th><th class="rq-r">Costo sin IVA</th>
               <th>Estado</th><th class="rq-r">Días</th><th>Vigencia</th><th><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
@@ -286,7 +286,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr>
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Folio</th><th>Almacén</th><th>Proveedor</th>
-                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r">Costo</th>
+                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r">Costo sin IVA</th>
                   <th>Estado</th><th class="rq-r" title="Días desde que se creó. Lo calcula el servidor, no el reloj de esta máquina.">Días</th><th title="¿El costo capturado sigue siendo el de hoy? Se mide renglón por renglón contra el plan vigente.">Vigencia</th><th>Fecha</th><th>En Kepler</th>
                 </tr>
               </ng-template>
@@ -381,7 +381,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr>
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Folio</th><th>Origen</th><th>Destino</th>
-                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r">Costo est.</th>
+                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r">Costo est. sin IVA</th>
                   <th>Estado</th><th class="rq-r" title="Días desde que se creó. Lo calcula el servidor, no el reloj de esta máquina.">Días</th><th title="¿El costo capturado sigue siendo el de hoy? Se mide renglón por renglón contra el plan vigente.">Vigencia</th><th>Fecha</th><th><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
@@ -457,7 +457,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr>
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Pidió</th><th>Qué pide</th><th>Folio</th>
-                  <th class="rq-r">Líneas</th><th class="rq-r">Costo</th>
+                  <th class="rq-r">Líneas</th><th class="rq-r">Costo sin IVA</th>
                   <th>Estado</th><th class="rq-r">Días</th><th>Fecha</th>
                 </tr>
               </ng-template>
@@ -879,7 +879,7 @@ export class ComprasRequisicionesComponent implements OnInit {
     const rc = this.deResumen('received');
     return [
       { label: 'Esperando aprobación', value: p?.n ?? 0, tone: (p?.n ?? 0) > 0 ? 'warn' : undefined,
-        sub: p ? `${this.money(p.monto)} · ${p.dias_prom} d de promedio` : 'sin requisiciones' },
+        sub: p ? `${this.money(p.monto)} sin IVA · ${p.dias_prom} d de promedio` : 'sin requisiciones' },
       // `[PQ.1]` La casilla deja de contar «aprobadas» y cuenta las que NO tienen documento en
       // Kepler, que es la cola real: aprobar sin que salga al ERP no compra nada. Si el servidor
       // es anterior a PQ.1 y no manda el desglose, se dice «sin medir» — nunca 0 (ADR-056).
@@ -888,12 +888,12 @@ export class ComprasRequisicionesComponent implements OnInit {
         : { label: 'Aprobadas sin documento en Kepler', value: a ? a.n - (a.n_kepler ?? 0) : 0,
             tone: a && a.n - (a.n_kepler ?? 0) > 0 ? 'warn' : undefined,
             // `[PQ.14]` «salió mal» ya no incluye el apagado: ése se dice aparte y en la cinta.
-            sub: a ? `${this.money(a.monto_sin_kepler ?? 0)} · ${this.keplerSalioMal(a)} salió mal`
+            sub: a ? `${this.money(a.monto_sin_kepler ?? 0)} sin IVA · ${this.keplerSalioMal(a)} salió mal`
               + (a.n_kepler_apagado != null ? ` · ${a.n_kepler_apagado} con Kepler apagado` : '')
               + ` · ${a.n_sin_empujar ?? 0} sin empujar · hasta ${a.dias_max_sin_kepler ?? 0} d` : 'ninguna',
             drill: 'kepler_sin_documento', drillLabel: 'Ver las aprobadas sin documento en Kepler' },
-      { label: 'Ordenadas', value: o?.n ?? 0, sub: o ? this.money(o.monto) : 'ninguna' },
-      { label: 'Recibidas', value: rc?.n ?? 0, sub: rc ? this.money(rc.monto) : 'ninguna' },
+      { label: 'Ordenadas', value: o?.n ?? 0, sub: o ? `${this.money(o.monto)} estimado sin IVA` : 'ninguna' },
+      { label: 'Recibidas', value: rc?.n ?? 0, sub: rc ? `${this.money(rc.monto)} estimado sin IVA` : 'ninguna' },
     ];
   }
   /** Las pendientes que pasaron los 30 días — el escalón donde el costo deja de ser el de hoy. */
@@ -1045,7 +1045,7 @@ export class ComprasRequisicionesComponent implements OnInit {
     if (v.vigente == null) return `Ninguno de sus ${v.renglones} renglones tiene costo comparable hoy: no se puede decir si sigue vigente.`;
     const cola = v.sin_medir > 0 ? ` · ${v.sin_medir} renglón(es) sin medir` : '';
     if (v.vigente) return `Los ${v.medibles} renglones medibles conservan el costo con el que se capturaron${cola}.`;
-    return `${v.movidos} de ${v.medibles} renglones ya no tienen el costo de hoy: ${this.money(v.monto_capturado)} capturados contra ${this.money(v.monto_hoy)} actuales (${v.delta >= 0 ? '+' : ''}${this.money(v.delta)})${cola}. Recalcula antes de aprobar.`;
+    return `${v.movidos} de ${v.medibles} renglones ya no tienen el costo de hoy: ${this.money(v.monto_capturado)} capturados contra ${this.money(v.monto_hoy)} actuales, sin IVA (${v.delta >= 0 ? '+' : ''}${this.money(v.delta)})${cola}. Recalcula antes de aprobar.`;
   }
 
   // ── `[RQ.4]` Lote ──────────────────────────────────────────────────────────────────────────

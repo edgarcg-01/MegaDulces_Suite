@@ -313,7 +313,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         @if (deudaProv(); as d) {
           <div class="pr-deuda" [class.pr-deuda-bad]="d.vencido > 0">
             <i class="pi pi-wallet" aria-hidden="true"></i>
-            <span>Le debemos <strong>{{ money(d.pendiente) }}</strong></span>
+            <span>Le debemos <strong>{{ money(d.pendiente) }}</strong> con IVA</span>
             @if (d.vencido > 0) {
               <span class="pr-deuda-v">· <strong>{{ money(d.vencido) }}</strong> vencido</span>
             }
@@ -429,7 +429,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 por unidad de stock, así que la existencia no se convierte a cajas ni se multiplica
                 por el costo de caja. <strong>No valen cero — no se están midiendo.</strong>
                 @if (g.arbitrado > 0) {
-                  Contra lo pagado rondarían <strong>{{ money(g.arbitrado) }}</strong>, cifra de
+                  Contra lo pagado rondarían <strong>{{ money(g.arbitrado) }}</strong> sin IVA, cifra de
                   referencia para revisar y no para publicar.
                 }
                 En esos renglones la celda muestra la cantidad en la unidad que el ERP realmente
@@ -485,7 +485,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                     </span>
                   </th>
                   <th class="pr-r" title="Total de lo que se va a pedir, en la unidad de compra de cada producto (la que dice la celda: cj, kg, bto…). Es la suma de las sucursales del desglose y SE MUEVE al editarlas.">Σ Ped.<br/>a pedir</th>
-                  <th class="pr-r pr-val" title="Lo que cuesta ese pedido, valuado con el costo de caja de CADA sucursal.">$ Pedido</th>
+                  <th class="pr-r pr-val" title="Lo que cuesta ese pedido, valuado con el costo de caja de CADA sucursal. Sin IVA: en Kepler la OC lleva IVA encima.">$ Pedido sin IVA</th>
                   <!-- [PQ.129] El traspaso, JUNTO a lo que se pide (pedido del PM, 2026-11-17: «la accesibilidad a los
                        traspasos es muy complicada, necesito verlo en la interfaz principal junto a lo que pediré»).
                        Antes no estaba en la lista: había que abrir el producto y pulsar «Traspasos (n)». -->
@@ -493,7 +493,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <th class="pr-r" title="Existencia de toda la red, en CAJAS (suma de las sucursales). El desglose por sucursal está al abrir la fila.">Exist.<br/>red</th>
                   <th class="pr-c-m pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. ⛔ El Pedido NO la descuenta: muchas OC llevan meses abiertas porque en Kepler la orden se captura al RECIBIR, así que restarlas taparía compras que sí hacen falta. Mira esta columna antes de pedir: lo de acá se SUMA a lo que pidas.">En camino</th>
                   <th class="pr-c-m pr-r" title="Unidades del artículo según Kepler (1, 2 o 3): cuánto trae la unidad mayor en la base, y el paquete del medio si existe.">Unidad</th>
-                  <th class="pr-c-m pr-r">Costo/Cja</th>
+                  <th class="pr-c-m pr-r">Costo/Cja<br/>sin IVA</th>
                   <th class="pr-c-m pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
                   <th class="pr-c-m pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano. Si el fin de pico frenó alguna sucursal, lo dice el renglón del producto y, al abrirlo, la sucursal.">Est.</th>
                   <th class="pr-c-m pr-r" title="Cumplimiento del proveedor medido en Kepler (orden de compra vs vale de entrada), ponderado por dinero. El Pedido YA viene dividido por él, topado en +30%. — = no se midió (menos de 25 renglones, o nombre repetido en el catálogo): en ese caso el pedido NO se tocó.">Surt.</th>
@@ -501,8 +501,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <th class="pr-c-m pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
                   <th class="pr-c-m pr-r" title="Máximo de red (cajas)">Máx</th>
                   <th class="pr-c-m pr-r pr-muted-h" title="El mismo total, en la unidad BASE de cada artículo (pz, paq, kg…): cajas × unidades por caja.">Σ Base</th>
-                  <th class="pr-c-m pr-r">Valor<br/>venta</th>
-                  <th class="pr-c-m pr-r">Valor<br/>exist.</th>
+                  <th class="pr-c-m pr-r">Valor venta<br/>con IVA</th>
+                  <th class="pr-c-m pr-r">Valor exist.<br/>sin IVA</th>
                 </tr>
               </ng-template>
               <ng-template #body let-r>
@@ -612,7 +612,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                           <span class="pr-dx-res">{{ resumenDesglose(r) }}</span>
                           <span class="pr-bulk-sp"></span>
                           @if (perdida(r); as pd) {
-                            <span class="pr-sig pr-sig-warn" [title]="perdidaTitle(r)">venta perdida {{ dineroCorto(pd.total) }}</span>
+                            <span class="pr-sig pr-sig-warn" [title]="perdidaTitle(r)">venta perdida {{ dineroCorto(pd.total) }} con IVA</span>
                           } @else if (r.signals?.lost?.wincaja?.reportes_sin_verificar) {
                             <span class="pr-sig pr-muted" [title]="perdidaTitle(r)">venta perdida sin verificar</span>
                           }
@@ -681,7 +681,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       @if (verDetalle(r.product_id)) { <th class="pr-r" title="En qué unidad estás capturando ESTE renglón.">Unidad</th> }
                                       <th class="pr-r" title="Cuántos días queda con lo que pidas y el traspaso: (existencia + pedido + lo que llega − lo que manda) ÷ (venta 30 d ÷ 30.4).">Queda</th>
                                       @if (verDetalle(r.product_id)) { <th title="Dónde entrega el proveedor: directo en la sucursal, o consolidado en un CEDIS.">Entrega</th> }
-                                      <th class="pr-r pr-val" title="Pedido × costo de caja DE ESA SUCURSAL.">Valor</th>
+                                      <th class="pr-r pr-val" title="Pedido × costo de caja DE ESA SUCURSAL, sin IVA.">Valor sin IVA</th>
                                     </tr></thead>
                                     <tbody>
                                       @for (b of filasDesglose(r); track b.code) {
@@ -865,7 +865,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       <th class="pr-r" title="Existencia de la sucursal, en CAJAS.">Exist.</th>
                                       <th class="pr-r">Cant. ({{ unitLabelShort(r.product_id) }}) ✎</th>
                                       <th class="pr-r" title="Equivalente TOTAL en piezas de lo traspasado (cajas × piezas por caja). No es la unidad de captura — esa es la columna Cant.">= Piezas</th>
-                                      <th class="pr-r">Costo</th><th class="pr-r">Valor</th>
+                                      <th class="pr-r">Costo sin IVA</th><th class="pr-r">Valor sin IVA</th>
                                     </tr></thead>
                                     <tbody>
                                       @for (u of trasRows(r.product_id); track u.warehouse_code) {
@@ -930,7 +930,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                   <button type="button" class="pr-zlink" (click)="quitarDeRequisicion(r.product_id)" [attr.aria-label]="'Quitar ' + r.sku + ' de la requisición'">quitar</button>
                                 </span>
                               } @else {
-                                <p-button type="button" [label]="'Agregar a la requisición' + ((sumValor(r) + prodTr(r.product_id)) > 0 ? ' · ' + money(sumValor(r) + prodTr(r.product_id)) : '')"
+                                <p-button type="button" [label]="'Agregar a la requisición' + ((sumValor(r) + prodTr(r.product_id)) > 0 ? ' · ' + money(sumValor(r) + prodTr(r.product_id)) + ' sin IVA' : '')"
                                           icon="pi pi-plus" styleClass="p-button-sm"
                                           (click)="agregarARequisicion(r)" [disabled]="(sumValor(r) + prodTr(r.product_id)) <= 0"
                                           [title]="(sumValor(r) + prodTr(r.product_id)) > 0 ? 'Suma este producto, con lo que capturaste, a la requisición en armado. Se genera todo junto desde la barra de abajo.' : 'Sin cantidad para pedir ni traspasar: no hay nada que agregar.'"></p-button>
@@ -1005,7 +1005,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <i class="pi pi-shopping-cart" aria-hidden="true"></i>
                 <span><strong>{{ carrito().productos }}</strong> producto{{ carrito().productos === 1 ? '' : 's' }}
                   · {{ carrito().proveedores }} proveedor{{ carrito().proveedores === 1 ? '' : 'es' }}
-                  · comprar <strong>{{ money(carrito().valor) }}</strong>@if (carrito().traspaso > 0) { · traspaso {{ money(carrito().traspaso) }} }</span>
+                  · comprar <strong>{{ money(carrito().valor) }}</strong> sin IVA@if (carrito().traspaso > 0) { · traspaso {{ money(carrito().traspaso) }} }</span>
                 <span class="pr-cart-ver">Ver</span>
               </button>
               <!-- [RA-DYN.U3] El piso del proveedor, donde se decide. Antes el comprador armaba la
@@ -1018,7 +1018,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 </span>
               }
             } @else if (totCajas() > 0) {
-              <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> } · <em>abre un producto y agrégalo a la requisición</em></span>
+              <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página, sin IVA · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> } · <em>abre un producto y agrégalo a la requisición</em></span>
             } @else {
               <span class="pr-bulk-n">{{ wbTotal() }} productos en la vista</span>
             }
@@ -1155,7 +1155,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           } @else if (tranRows().length) {
             <p class="pr-uov-hint">
               <strong>{{ tranTotalCajas() | number:'1.0-1' }} cajas</strong> ya pedidas y sin recibir
-              ({{ money(tranTotalValor()) }}).
+              ({{ money(tranTotalValor()) }} sin IVA, al costo de hoy).
               La llegada es <strong>estimada</strong>: Kepler no guarda fecha prometida, así que se calcula
               como fecha de la orden + el tiempo de surtido del proveedor@if (tranLead()) { ({{ tranLead() }} d) }.
             </p>
@@ -1180,7 +1180,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               <thead><tr>
                 <th>Folio</th><th>Suc.</th><th>Proveedor</th><th>Fecha OC</th><th>Llega aprox.</th>
                 <th class="pr-r">Abierta</th>
-                <th class="pr-r">Pedido</th><th class="pr-r">Cajas</th><th class="pr-r">Valor</th>
+                <th class="pr-r">Pedido</th><th class="pr-r">Cajas</th><th class="pr-r" title="Las cajas en camino al costo de caja de hoy, sin IVA. En Abiertas en Kepler la misma OC sale con su total con IVA.">Valor sin IVA</th>
               </tr></thead>
               <tbody>
                 @for (o of tranRows(); track o.folio + ':' + o.sucursal) {
@@ -1216,7 +1216,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <div class="pr-plan">
               <p class="pr-plan-tit">Vas a generar <strong>{{ p.total }}</strong> documento{{ p.total === 1 ? '' : 's' }}
                 · <strong>{{ p.renglones }}</strong> renglón{{ p.renglones === 1 ? '' : 'es' }}
-                · <strong>{{ money(p.monto) }}</strong></p>
+                · <strong>{{ money(p.monto) }}</strong> sin IVA</p>
               <table class="pr-plan-tbl">
                 <tbody>
                   @if (p.compras > 0) {
@@ -1244,7 +1244,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <p class="pr-plan-tran">
                   <i class="pi pi-truck" aria-hidden="true"></i>
                   De estos productos <strong>ya vienen {{ p.trCajas | number:'1.0-1' }} cajas</strong>
-                  ({{ money(p.trValor) }}) en OC abiertas, en toda la red.
+                  ({{ money(p.trValor) }} sin IVA) en OC abiertas, en toda la red.
                   <strong>El sugerido no las descuenta</strong>: esta compra se suma a eso.
                   @if (p.trSinDato > 0) {
                     <span class="pr-plan-tran-nd">{{ p.trSinDato }} producto(s) del lote no están en las filas cargadas: su tránsito no se midió.</span>
@@ -1292,7 +1292,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <p-button type="button" label="Cancelar" styleClass="p-button-sm p-button-text" (click)="cancelarPlan()" [disabled]="saving()"></p-button>
                 <!-- [PQ.28] Con permiso de autorizar, este clic ES la compra (D1): el botón lo dice con
                      cuánto y cuánto dinero. Sin permiso, dice que va a aprobación. -->
-                <p-button type="button" [label]="saving() ? 'Enviando…' : (repetido() ? 'Enviar de todos modos' : (puedeAutorizar ? 'Enviar a Kepler · ' + p.total + ' · ' + money(p.monto) : 'Mandar a aprobación los ' + p.total))" icon="pi pi-check" [styleClass]="repetido() ? 'p-button-sm p-button-danger' : 'p-button-sm'" (click)="confirmarPlan()" [disabled]="saving() || planBloqueos().length > 0"></p-button>
+                <p-button type="button" [label]="saving() ? 'Enviando…' : (repetido() ? 'Enviar de todos modos' : (puedeAutorizar ? 'Enviar a Kepler · ' + p.total + ' · ' + money(p.monto) + ' sin IVA' : 'Mandar a aprobación los ' + p.total))" icon="pi pi-check" [styleClass]="repetido() ? 'p-button-sm p-button-danger' : 'p-button-sm'" (click)="confirmarPlan()" [disabled]="saving() || planBloqueos().length > 0"></p-button>
               </div>
             </div>
           }
@@ -1374,7 +1374,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <th title="Sucursales donde ya pasó la fecha o toca hoy.">Dónde</th>
                   <th class="pr-r" title="Cada cuántos días entrega, promedio de sus sucursales, derivado de sus entregas reales en Kepler. No se captura todavía.">Cadencia</th>
                   <th class="pr-r" title="SKUs de este proveedor, sumando sus sucursales, en o por debajo de su punto de reorden.">Bajo reorden</th>
-                  <th class="pr-r pr-val" title="Lo que costaría llenar el ciclo de todas sus sucursales, con la misma fórmula del Pedido.">Sugerido</th>
+                  <th class="pr-r pr-val" title="Lo que costaría llenar el ciclo de todas sus sucursales, al costo sin IVA.">Sugerido sin IVA</th>
                   <th style="width:6rem"></th>
                 </tr>
               </ng-template>
@@ -1439,7 +1439,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <th title="Cuándo toca el próximo pedido: última entrega + cadencia.">Próximo</th>
                 <th class="pr-r" title="Días que lleva pasada la fecha. Negativo = todavía no toca.">Atraso</th>
                 <th class="pr-r" title="SKUs de este proveedor en esta sucursal que ya están en o por debajo de su punto de reorden.">Bajo reorden</th>
-                <th class="pr-r pr-val" title="Lo que costaría llenar el ciclo completo de este canal, con la misma fórmula del Pedido.">Sugerido</th>
+                <th class="pr-r pr-val" title="Lo que costaría llenar el ciclo completo de este canal, al costo sin IVA.">Sugerido sin IVA</th>
                 <th style="width:6rem"></th>
               </tr>
             </ng-template>
@@ -1518,7 +1518,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU, producto o proveedor…" aria-label="Buscar" />
               </p-iconfield>
               <span class="pr-count">
-                {{ pmTotal() | number }} renglones · comprado {{ money(pmComprado()) }} en 180 d
+                {{ pmTotal() | number }} renglones · comprado {{ money(pmComprado()) }} sin IVA en 180 d
                 @if (pmComputedOn()) { <span class="pr-muted">· al {{ pmComputedOn() }}</span> }
                 @else { <span class="pr-muted">· frescura sin medir</span> }
               </span>
@@ -1535,7 +1535,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                      class="p-datatable-sm pr-table dt-stack">
               <ng-template #header>
                 <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th>
-                  <th class="pr-r pr-val">Comprado</th><th class="pr-r pr-val">Volvió a salir</th>
+                  <th class="pr-r pr-val">Comprado<br/>sin IVA</th><th class="pr-r pr-val">Volvió a salir</th>
                   <th class="pr-r" title="Lo que salió entre lo que se compró. Más de 100% no es error: movió más de lo que se le compró en la ventana.">Rotación</th>
                   <th class="pr-r pr-val">En piso hoy</th>
                   <th>Última compra</th><th>Proveedor</th></tr>
@@ -1596,7 +1596,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               Sólo lo que se quedó
             </button>
             <span class="pr-count">
-              {{ sobTotal() | number }} renglones · {{ money(sobQuedadoValor()) }} comprado y sin salida
+              {{ sobTotal() | number }} renglones · {{ money(sobQuedadoValor()) }} sin IVA, al costo de hoy, sin salida
               <span class="pr-muted">(ventana {{ sobVentana() }} d)</span>
             </span>
           </div>
@@ -1612,7 +1612,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <ng-template #header>
               <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th>
                 <th class="pr-r">Exist.<br/>cajas</th>
-                <th class="pr-r pr-val">Valor</th>
+                <th class="pr-r pr-val">Valor sin IVA</th>
                 <th class="pr-r" title="Días de cobertura al ritmo de venta de los últimos 30 días. «sin medir» = no hay venta: no es cero.">Cobertura</th>
                 <th>Última compra</th><th>Última salida</th><th>Proveedor</th></tr>
             </ng-template>
@@ -1657,7 +1657,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
           </p-iconfield>
-          @if (deadValue() > 0) { <span class="pr-count">{{ money(deadValue()) }} inmovilizado</span> }
+          @if (deadValue() > 0) { <span class="pr-count">{{ money(deadValue()) }} sin IVA inmovilizado</span> }
           <p-button type="button" label="XLSX" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportDead()" [disabled]="dl() || !deadRows().length"></p-button>
         </div>
         <p-table [value]="deadRows()" [loading]="loading()"
@@ -1666,7 +1666,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           <ng-template #header>
             <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th>
               <th class="pr-r" title="Existencia en CAJAS. La cantidad en la unidad suelta del almacén va en el tooltip de la celda.">Exist.<br/>cajas</th>
-              <th class="pr-r">Costo</th><th class="pr-r pr-val">Inmovilizado</th><th>Última actividad</th><th>Proveedor</th></tr>
+              <th class="pr-r">Costo sin IVA</th><th class="pr-r pr-val">Inmovilizado<br/>sin IVA</th><th>Última actividad</th><th>Proveedor</th></tr>
           </ng-template>
           <ng-template #body let-r>
             <tr>
@@ -1735,7 +1735,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               <div class="pr-mo-leg">
                 <span><i class="pr-mo-sw pr-mo-sw-cy"></i>este año</span>
                 <span><i class="pr-mo-sw pr-mo-sw-ly"></i>año anterior</span>
-                <span class="pr-muted">barra = venta en $ · número = cajas</span>
+                <span class="pr-muted">barra = venta en $ con IVA · número = cajas</span>
               </div>
               @if (m.data.window; as w) {
                 <dl class="pr-mo-kv">
@@ -3356,7 +3356,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   readonly carritoSub = computed(() => {
     const c = this.carrito();
     if (!c.productos) return null;
-    return `${c.productos} producto${c.productos === 1 ? '' : 's'} · ${c.proveedores} proveedor${c.proveedores === 1 ? '' : 'es'} · comprar ${this.money(c.valor)}`
+    return `${c.productos} producto${c.productos === 1 ? '' : 's'} · ${c.proveedores} proveedor${c.proveedores === 1 ? '' : 'es'} · montos sin IVA · comprar ${this.money(c.valor)}`
       + (c.traspaso > 0 ? ` · traspaso ${this.money(c.traspaso)}` : '');
   });
 
@@ -5143,16 +5143,16 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   pedidoKpi(): MetricStripItem[] {
     const t = this.wbTotals();
     return [
-      { label: 'A comprar', value: t.pedido, format: 'currency', tone: 'brand', sub: 'venta × cobertura' },
+      { label: 'A comprar', value: t.pedido, format: 'currency', tone: 'brand', sub: 'sin IVA · venta × cobertura' },
       // `[PQ.76]` Total del filtro completo (el del servidor). Antes era la suma de los primeros 500
       // renglones: medido el 2026-11-05, $3.5 M de $5.0 M en traspasos y $9.5 M de $13.2 M en sobrestock.
-      this.kpiDeLista('A traspasar', this.trTotal(), 'desde CEDIS'),
-      this.kpiDeLista('Sobrestock', this.ovTotal(), 'inmovilizado', 'warn'),
+      this.kpiDeLista('A traspasar', this.trTotal(), 'desde CEDIS · al costo, sin IVA'),
+      this.kpiDeLista('Sobrestock', this.ovTotal(), 'inmovilizado · al costo, sin IVA', 'warn'),
       // [PQ.74] «SKUs» salió: el paginador dice cuántos productos hay.
       // `[PQ.38]` Los dos operandos de «Días de existencia», a la vista y con los mismos filtros que
       // la tabla: la venta va A PRECIO (suma de «Valor venta»), la existencia AL COSTO (suma de
       // «Valor exist.»). Si hay almacenes sin valuar (U.2) la bajada lo dice: el total es parcial.
-      { label: 'Valor venta', value: t.venta, format: 'currency', sub: 'últimos 30 días, a precio' },
+      { label: 'Valor venta', value: t.venta, format: 'currency', sub: 'últimos 30 días, a precio con IVA' },
       { label: 'Valor existencia', value: t.exis, format: 'currency', sub: this.valorExisSub() },
       // `[RA-PRO.49]` El par: lo que HAY y lo que se BUSCA, uno al lado del otro. Suelto, "Cobertura
       // 30 días objetivo" no dice si estamos arriba o abajo de la meta; el número de al lado es el
@@ -5213,7 +5213,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   /** `[PQ.38]` Al costo; si el peldaño dejó SKUs sin valuar, el total no los incluye y se dice. */
   valorExisSub(): string {
     const g = this.rungGap();
-    return g ? `al costo · faltan ${g.skus} SKU por valuar` : 'al costo, hoy';
+    return g ? `al costo, sin IVA · faltan ${g.skus} SKU por valuar` : 'al costo sin IVA, hoy';
   }
 
   diasInventarioSub(): string {

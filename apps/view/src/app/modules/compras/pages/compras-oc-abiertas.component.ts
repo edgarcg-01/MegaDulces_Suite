@@ -94,7 +94,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
         @if (clasifOk()) {
           @if (muertas()) {
             De las {{ total() | number }} abiertas,
-            <b class="oa-bad">{{ muertas() | number }} por {{ money(valorMuertas()) }} no van a salir solas</b>
+            <b class="oa-bad">{{ muertas() | number }} por {{ money(valorMuertas()) }} con IVA no van a salir solas</b>
             <span class="oa-muted">— el ERP ya las cerró o su vale está cancelado. Hay que ir a Kepler.</span>
           } @else {
             Las {{ total() | number }} órdenes abiertas siguen vivas:
@@ -229,7 +229,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
             <th scope="col" class="comm-num" pSortableColumn="dias">Abierta <p-sorticon field="dias" /></th>
             <th scope="col" pSortableColumn="_claseLabel">Estado <p-sorticon field="_claseLabel" /></th>
             <!-- [PQ.34] «Total» con IVA e IEPS, el mismo número que Kepler llama IMPORTE y el PDF «Total». -->
-            <th scope="col" class="comm-num" pSortableColumn="valor">Total <p-sorticon field="valor" /></th>
+            <th scope="col" class="comm-num" pSortableColumn="valor" title="El total del documento en Kepler: con IVA e IEPS.">Total con IVA <p-sorticon field="valor" /></th>
             <th scope="col">Seguimiento</th>
           </tr>
         </ng-template>
@@ -284,7 +284,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
             <td></td>
             <!-- [PQ.31] «esperado» va con el valor, no bajo «Estado». -->
             <td class="comm-num"><span class="is-strong">{{ money(filtroValor()) }}</span>
-              <div class="oa-muted" title="El valor pesado por la probabilidad de llegar de cada orden.">esperado {{ money(filtroEsperado()) }}</div></td>
+              <div class="oa-muted" title="El total con IVA de cada orden por la probabilidad de que llegue según los días que lleva abierta (la tabla de abajo). No es el subtotal sin IVA.">probable que llegue {{ money(filtroEsperado()) }}</div></td>
             <td></td>
           </tr>
         </ng-template>
@@ -345,7 +345,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
             @if (peekPct() !== null) {
               <div class="oa-pk-surtido-v comm-num">{{ peekPct() | number:'1.0-1' }}%</div>
               <div class="oa-pk-bar"><i [style.width.%]="barPct()"></i></div>
-              <div class="oa-pk-surtido-s">{{ money(d.recibido) }} de {{ money(peekOrden()!.valor) }}</div>
+              <div class="oa-pk-surtido-s">{{ money(d.recibido) }} de {{ money(peekOrden()!.valor) }} con IVA</div>
             } @else {
               <!-- Sin importe no se puede dividir: se DECLARA, no se dibuja 0%. -->
               <div class="oa-pk-surtido-v oa-muted">sin medir</div>
@@ -356,7 +356,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
           @if (d.recepciones_descartadas.n) {
             <p class="oa-pk-warn">
               <span class="pi pi-info-circle" aria-hidden="true"></span>
-              {{ d.recepciones_descartadas.n }} recepción(es) por {{ money(d.recepciones_descartadas.monto) }}
+              {{ d.recepciones_descartadas.n }} recepción(es) por {{ money(d.recepciones_descartadas.monto) }} con IVA
               citan este folio pero <b>no cuentan</b>: son de otro proveedor o anteriores a la orden.
             </p>
           }
@@ -406,7 +406,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
           } @else { <p class="oa-pk-msg oa-muted">La orden no trae renglones.</p> }
 
           <!-- Lo que ya llego contra esta orden. -->
-          <h3 class="oa-pk-h">Recepciones <span class="oa-muted">({{ d.recepciones.length | number }})</span></h3>
+          <h3 class="oa-pk-h">Recepciones <span class="oa-muted">({{ d.recepciones.length | number }} · montos con IVA)</span></h3>
           @if (d.recepciones.length) {
             <ul class="oa-pk-list">
               @for (r of d.recepciones; track r.folio) {
@@ -504,7 +504,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
               <p class="oa-pk-canc-msg oa-muted">
                 <span class="pi pi-sliders-h" aria-hidden="true"></span>
                 <span>Cantidades cambiadas en Kepler el {{ ei.ultima!.editada_en | date:'dd/MM/yy HH:mm' }} por {{ ei.ultima!.editada_por || 'alguien sin nombre registrado' }}
-                  ({{ money(ei.ultima!.total_antes) }} → {{ money(ei.ultima!.total_despues) }}): {{ ei.ultima!.motivo }}</span>
+                  ({{ money(ei.ultima!.total_antes) }} → {{ money(ei.ultima!.total_despues) }} con IVA): {{ ei.ultima!.motivo }}</span>
               </p>
             }
             @if (!ei.disponible) {
@@ -557,7 +557,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
               @if (r.estado === 'aplicada') {
                 <p class="oa-canc-ok" role="status">
                   <span class="pi pi-check-circle" aria-hidden="true"></span>
-                  <span>Kepler ya tiene las cantidades nuevas de la OC {{ o.folio }}: el total pasó de {{ money(r.total_antes) }} a {{ money(r.total_despues) }}.</span>
+                  <span>Kepler ya tiene las cantidades nuevas de la OC {{ o.folio }}: el total con IVA pasó de {{ money(r.total_antes) }} a {{ money(r.total_despues) }}.</span>
                 </p>
                 <p class="oa-dlg-hint">La lista y el detalle lo reflejan en unos segundos, cuando llega la réplica de Kepler.</p>
               } @else {
@@ -571,7 +571,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
                   <caption class="oa-sr">Cantidades de la orden {{ o.folio }}</caption>
                   <thead>
                     <tr><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col" class="comm-num">Hoy</th>
-                      <th scope="col" class="comm-num">Nueva</th><th scope="col">Unidad</th><th scope="col" class="comm-num">Importe nuevo</th></tr>
+                      <th scope="col" class="comm-num">Nueva</th><th scope="col">Unidad</th><th scope="col" class="comm-num">Importe nuevo sin IVA</th></tr>
                   </thead>
                   <tbody>
                     @for (l of edRenglones(); track l.renglon) {
@@ -592,7 +592,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
                 </table>
               </div>
               <p class="oa-ed-total" aria-live="polite">
-                Total sin impuestos: {{ money(subtotalHoy()) }} → <b>{{ money(subtotalNuevo()) }}</b>
+                Subtotal sin IVA: {{ money(subtotalHoy()) }} → <b>{{ money(subtotalNuevo()) }}</b>
                 @if (subtotalNuevo() !== subtotalHoy()) { <span class="oa-muted">({{ subtotalNuevo() > subtotalHoy() ? '+' : '−' }}{{ money(abs(subtotalNuevo() - subtotalHoy())) }})</span> }
               </p>
               @if (edInfo()?.requisicion; as rq) {
@@ -641,7 +641,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
                 <p class="oa-dlg-hint">No se escribió nada en Kepler. El intento quedó registrado con tu motivo.</p>
               }
             } @else {
-              <p class="oa-dlg-sub">{{ o.proveedor || 'Sin proveedor' }} · {{ o.almacen | sucursal }} · {{ money(o.valor) }}</p>
+              <p class="oa-dlg-sub">{{ o.proveedor || 'Sin proveedor' }} · {{ o.almacen | sucursal }} · {{ money(o.valor) }} con IVA</p>
               <p class="oa-canc-que">
                 La orden queda <b>cancelada en Kepler</b> y se borran sus renglones, igual que si la cancelaras allá.
                 @if (cancInfo()?.reabriria_requisicion; as rq) {
@@ -677,7 +677,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
                 [header]="segOrden() ? 'Seguimiento · OC ' + segOrden()!.almacen + '-' + segOrden()!.folio : ''">
         @if (segOrden(); as o) {
           <div class="oa-dlg">
-            <p class="oa-dlg-sub">{{ o.proveedor || 'Sin proveedor' }} · {{ money(o.valor) }} · {{ o.dias }} días abierta</p>
+            <p class="oa-dlg-sub">{{ o.proveedor || 'Sin proveedor' }} · {{ money(o.valor) }} con IVA · {{ o.dias }} días abierta</p>
             <label class="oa-dlg-lbl" for="oa-seg-estatus">Estatus</label>
             <p-select inputId="oa-seg-estatus" [options]="segEditOpts" [ngModel]="segEstatus()" (ngModelChange)="segEstatus.set($event)" optionLabel="label" optionValue="value"
                       appendTo="body" [fluid]="true"></p-select>

@@ -181,7 +181,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               <th class="rd-r">Existencia</th><th class="rd-r">Reorden</th><th class="rd-r">Sugerido</th>
               <th class="rd-r">Pedir</th>
               @if (showRecibido()) { <th class="rd-r">Recibido</th> }
-              <th class="rd-r">Costo unit.</th><th class="rd-r">Importe</th>
+              <th class="rd-r">Costo unit. sin IVA</th><th class="rd-r">Importe sin IVA</th>
             </tr>
           </ng-template>
           <ng-template #body let-l>
@@ -401,7 +401,7 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
       // `[PQ.23]` Sin impuestos: Kepler suma IVA e IEPS al total del documento (RQ-2026-01601:
       // $787,585 aquí, $850,496.05 en Kepler). Sin decirlo, las dos cifras parecen no cuadrar.
       { label: 'Costo estimado', value: r.total_cost, format: 'currency', tone: 'brand',
-        sub: r.source_type === 'branch' ? undefined : 'sin IVA ni IEPS' },
+        sub: r.source_type === 'branch' ? 'al costo, sin IVA' : 'sin IVA ni IEPS' },
       { label: 'Creada', value: fmtDate(r.created_at), format: 'text' },
     ];
     if (r.notes) items.push({ label: 'Nota', value: r.notes, format: 'text' });

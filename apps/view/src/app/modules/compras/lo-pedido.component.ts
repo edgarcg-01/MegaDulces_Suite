@@ -181,7 +181,7 @@ const FECHA_HORA_MX = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, day: '
             </tbody>
           </table>
           @if (oc(); as o) {
-            <p class="lp-oc">OC {{ o.orden.folio }} en Kepler · {{ o.pct_surtido === null ? 'surtido sin medir' : 'entró ' + (o.pct_surtido | number:'1.0-0') + ' %' }} ({{ dinero(o.recibido) }} de {{ dinero(o.orden.monto) }})</p>
+            <p class="lp-oc">OC {{ o.orden.folio }} en Kepler · {{ o.pct_surtido === null ? 'surtido sin medir' : 'entró ' + (o.pct_surtido | number:'1.0-0') + ' %' }} ({{ dinero(o.recibido) }} de {{ dinero(o.orden.monto) }} con IVA)</p>
           } @else if (ocError()) {
             <p class="lp-muted">OC {{ r.oc_folio }}: {{ ocError() }}</p>
           }
