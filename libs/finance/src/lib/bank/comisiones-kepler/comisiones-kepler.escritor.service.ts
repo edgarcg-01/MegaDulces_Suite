@@ -56,7 +56,10 @@ export const ESTADOS_RETOMABLES = ['pendiente', 'reintento', 'rechazado'] as con
 
 /** Un renglón de la bitácora que quedó a medias. */
 export interface DiaEnReintento {
-  sucursal: string; dia_venta: string; acreedor: string;
+  sucursal: string;
+  /** ⛔ Viene de una columna `date`: puede llegar como `Date`. Normalizar con `toMxDateKey` antes de comparar. */
+  dia_venta: string | Date;
+  acreedor: string;
   gasto_folio: string | null;
   /** Los cargos cuyo pago YA se escribió, para no escribirlos dos veces. */
   pagos: ReadonlyArray<{ cargo: string; folio: string }> | null;
@@ -82,7 +85,13 @@ export function diasARetomar(
   for (const b of bitacora) {
     const folio = String(b.gasto_folio ?? '').trim();
     if (!folio) continue; // sin gasto escrito no hay nada a medias: el día vuelve por la vía normal
-    const dia = dias.find((d) => d.sucursal === b.sucursal && d.dia_venta === b.dia_venta && d.acreedor === b.acreedor);
+    // ⛔⛔ `dia_venta` es una columna `date`: `pg` la devuelve como objeto **Date**, y la propuesta trae
+    //    un string `YYYY-MM-DD`. Compararlos con `===` falla SIEMPRE y en silencio — el día nunca se
+    //    retoma y nada avisa. Es el mismo defecto que ya me mordió hoy con `comisiones_kepler_desde`
+    //    («Tue Nov 1»), repetido en la misma sesión y en la misma frontera base→código.
+    const diaVenta = toMxDateKey(b.dia_venta);
+    const dia = dias.find((d) => d.sucursal === String(b.sucursal).trim()
+      && d.dia_venta === diaVenta && d.acreedor === String(b.acreedor).trim());
     if (!dia || dia.estado === 'lista') continue; // ya volverá como candidato normal
     // El gasto que ve la propuesta tiene que ser el nuestro (la query lo publica como «gasto 0000116»).
     const nuestro = dia.cargos.some((c) => String(c.kepler_gasto ?? '').includes(folio));
