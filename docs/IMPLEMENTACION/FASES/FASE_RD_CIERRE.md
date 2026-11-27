@@ -22,11 +22,12 @@ MÉTRICA 2: delta del motor contra el libro SIN clasificar
 CAPA TOPE: C3
 ÁREA:      Comercial
 DUEÑO:     <por asignar — Edgar>
-ESTADO:    ⬜
+ESTADO:    🔨 desde el 2026-11-27
 ```
 
-⛔ **No pasa a 🔨 hasta que tenga fila en el roadmap de `CLAUDE.md` y haya cupo.** Hoy hay **8
-fases 🔨 contra el cupo de 4** (§3 del método). Decisión **D1**, abajo.
+✅ **Abierta por Edgar el 2026-11-27** («ábrela»), **por encima del cupo**: es la **9ª fase 🔨
+contra el cupo de 4** (§3 del método). Fila puesta en el roadmap de `CLAUDE.md` el mismo día.
+⚠️ Sigue sin **dueño** asignado; el método pide una fase 🔨 por dev.
 
 ---
 
@@ -111,7 +112,7 @@ el contraste usa el malo.
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
 | RD.C0.1 | `dias_esperados` del contraste deja de derivarse de la propia fila: pasa a ser la **mediana de los días que tuvieron las rutas hermanas de la misma plaza en ese periodo**, que es el criterio que el gate `cobertura_dias` ya usa. Vista `derive-no-copy`, sin tabla nueva | ⬜ | las 14 filas de Q4 y Q7 tienen que **cambiar** de `sin_explicar` a `faltan_dias_en_la_fuente`; las 136 que cuadran al centavo **no se mueven** (control negativo) |
-| RD.C0.2 | Causa nueva `fuente_incompleta_ese_dia`: cuando el día existe pero trajo **menos de la mitad de las sucursales** que su mediana. Distinta de `faltan_dias_en_la_fuente` (no llegó el día) — se arreglan distinto | ⬜ | 23-feb: 7 de 17 sucursales → marca. 24-feb: 17 de 17 → **no** marca |
+| RD.C0.2 | Causa nueva **`carga_truncada`**: el día existe, pero las rutas que aparecen traen **una fracción de los tickets que traen siempre**. Distinta de `faltan_dias_en_la_fuente` (no llegó el día) y de un feriado (operaron pocas rutas, pero las que salieron operaron normal) — las tres se arreglan distinto | 🔨 | **instrumento validado el 2026-11-27**, ver §3.0b |
 | RD.C0.3 | Q4 y Q7 quedan **declaradas no recalculables**, con el motivo escrito en la fila, no en un `.md`: *«la fuente perdió N sucursales el DD-MMM; el pago del libro es definitivo»* | ⬜ | `recalculate-from` sobre esos periodos tiene que **negarse** y decir por qué (prueba negativa) |
 | RD.C0.4 | Compuerta `check:ingesta-dia-flaco`: un día hábil con menos de la mitad de las sucursales de Wincaja **se ve el mismo día**, no nueve meses después | ⬜ | ⛔ rota a propósito una vez: inyectar un día flaco simulado y verificar el rojo |
 | RD.C0.5 | ~~Diagnosticar las 8 filas de **Q16**~~ — **hecho el 2026-11-27**, ver §3.0 abajo. Queda su consecuencia: **declarar** que una diferencia de base con días completos **no es diagnosticable** contra lo que la Suite guarda | 🧪 | el libro no tiene grano diario en la Suite: para cerrar esas filas haría falta el workbook |
@@ -133,6 +134,41 @@ total de la quincena, no el día**. Una diferencia de base con los días complet
 diagnosticable contra lo que la Suite tiene** — haría falta el workbook `INDICADORES RD 2026.xlsx`
 renglón por renglón. Decir «sin explicar» ahí es honesto; lo que no se vale es dejar que se lea como
 si fuera lo mismo que el hueco del 23-feb, que sí está explicado.
+
+#### 3.0b · El instrumento de RD.C0.2, validado el 2026-11-27
+
+⛔⛔ **La primera versión se tiró, y el caso vale contarlo.** Definí «día flaco» como *menos del
+60 % de las sucursales que Wincaja carga en la mediana del año*. Pasó su control puntual (23-feb: 7
+contra 17) y **devolvió 74 días**. No eran huecos: **Wincaja se fue apagando** —17 sucursales hasta
+junio, 8 en julio, 2 en agosto, **1 en septiembre**— porque las rutas migraron a otra fuente. Una
+mediana anual sobre una fuente que cambió de forma **mide la migración, no el hueco**. El
+instrumento se tira, no la medición (`auditoria-diseno` §4).
+
+**La versión que queda** compara cada día contra **su propia vecindad** (±5 días hábiles) y cuenta
+**rutas**, no sucursales:
+
+```
+dia atipico  ⇔  rutas con venta < 60 % de la mediana de rutas de los ±5 días hábiles vecinos
+```
+
+Da **4 días en todo 2026** y pasa sus cuatro controles: 23-feb presente ✅ · 24-feb ausente ✅ ·
+15-ago ausente ✅ · 1-sep ausente ✅ (los dos últimos son la migración de la fuente, no un hueco).
+
+| Día | | Rutas | Tickets | Mediana local | % | **Tickets por ruta** |
+|---|---|---:|---:|---:|---:|---:|
+| 2026-02-23 | lun | 2 | 2 | 13 | 15 % | **1.0** |
+| 2026-04-03 | vie | 6 | 141 | 13 | 46 % | 23.5 |
+| 2026-04-04 | sáb | 6 | 141 | 13 | 46 % | 23.5 |
+| 2026-09-16 | mié | 5 | 120 | 17 | 29 % | 24.0 |
+
+⭐⭐ **Y la última columna es la que separa las dos cosas, sin adivinar.** El 3 y 4 de abril y el 16
+de septiembre son feriados: operaron pocas rutas, pero **las que salieron operaron normal** (~24
+tickets cada una). El 23 de febrero las dos rutas que aparecen traen **un ticket cada una**: eso no
+es un camión que no salió, es **una carga que se cortó a la mitad**.
+
+> ⛔ Por eso la causa se llama `carga_truncada` y **no** «la fuente perdió el día»: lo que se puede
+> medir es que el día vino truncado. Que el camión saliera o no, el motor no lo sabe — y el gate
+> `cobertura_dias` ya lo dice con todas las letras. **Es el único día así en 2026.**
 
 ⭐ **El patrón que las 4 filas grandes comparten** (Q4: 321 y 22; Q16: 504 y 505): la diferencia de
 base no las hace cobrar *un poco menos* — las hace cobrar **cero**, porque el tabulador es un
@@ -184,7 +220,7 @@ archivo. Las observaciones de abajo salen de §6.3 del anexo de auditoría y de 
 
 | # | Decisión | Recomendación | Dueño | Estado |
 |---|---|---|---|---|
-| **D1** | La fase abre **por encima del cupo** (8 fases 🔨 contra 4), o espera | Abrirla: es la única que toca dinero que hoy se paga dos veces, y C0 es barato | Edgar | ⬜ |
+| **D1** | La fase abre **por encima del cupo** (8 fases 🔨 contra 4), o espera | — | Edgar | ✅ **Abierta el 2026-11-27** («ábrela»). Queda 9ª 🔨 |
 | **D2** | ¿Se parte la pantalla en «quincena» + «reglas»? Revierte en parte `[AUD-A6]`, que las fusionó por pedido suyo | Partirla: operar la quincena (24 veces al año) y configurar reglas son dos trabajos con distinta gente y distinta frecuencia. **La fusión resolvió un problema real** y por eso la decisión es suya, no de la auditoría | Edgar | ⬜ |
 | **D3** | ¿Cuál es el entregable que Finanzas/RH recibe hoy del Excel? | **Medirlo antes de construirlo** (RD.C2.1). Inventar el formato es la forma segura de que nadie lo use | Comercial + Finanzas | ⬜ |
 | **D4** | Q4 y Q7: declarar, no recalcular | ✅ **Decidido por Edgar el 2026-11-27** | Edgar | ✅ |
@@ -238,3 +274,5 @@ viva. Las de C3 arriba ya traen su severidad. Lo que falta decir del plan, no de
 | Fecha | Qué pasó |
 |---|---|
 | 2026-11-27 | Auditoría de la pantalla y del proceso (anexo). Localizada la causa del 89 % de la diferencia: el 23-feb Wincaja cargó 7 de 17 sucursales, y `dias_esperados` derivado de la propia fuente lo volvió invisible. Edgar decide **declarar Q4 y Q7, no recalcular**, y pide este plan por capas. |
+| 2026-11-27 | **Q16 cerrada** (RD.C0.5): una ruta pesa el 77 % y el límite del grano diario del libro queda declarado. **RD.C1.1 replanteado**: no falta el dato de nómina, falta la fila por persona. Aparece **RD.C1.0**: todos los choferes de una plaza tienen la misma `nomina_banco`, que coincide con la de su supervisor — hay que contrastar qué significa esa columna antes de tocar el neto. |
+| 2026-11-27 | **Edgar abre la fase** por encima del cupo. Arranca C0 por `RD.C0.1`. |
