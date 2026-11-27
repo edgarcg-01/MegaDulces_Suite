@@ -638,9 +638,9 @@ interface Hoja {
                       <label class="ep-liga-lbl" [for]="'liga-' + h.id">Por qué esta entrada es parte de esa factura</label>
                       <input pInputText [id]="'liga-' + h.id" class="ep-liga-in" [ngModel]="h.motivoLiga ?? ''" (ngModelChange)="parcharMotivoLiga(h, $event)"
                              [disabled]="!!h.ligando" maxlength="300" />
-                      <button pButton type="button" class="p-button-sm" icon="pi pi-link" label="Ligar con motivo"
-                              [loading]="!!h.ligando" [disabled]="(h.motivoLiga ?? '').trim().length < MOTIVO_LIGA_MIN"
-                              (click)="ligarMisma(h, m)"></button>
+                      <p-button type="button" size="small" icon="pi pi-link" label="Ligar con motivo"
+                                [loading]="!!h.ligando" [disabled]="(h.motivoLiga ?? '').trim().length < MOTIVO_LIGA_MIN"
+                                (onClick)="ligarMisma(h, m)" />
                     </div>
                     @if (h.ligaError) { <p class="ep-an-msg is-bad">{{ h.ligaError }}</p> }
                   } @else {
