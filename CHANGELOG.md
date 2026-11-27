@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Changed — Compras › Revisión de facturas: la conciliación reconoce al proveedor por el RFC de su factura y aprende de más facturas (PQ.150.2 · 2026-11-27 · en código, sin soltar)
+- Lo que la historia enseña del catálogo de cada proveedor ahora sale de la liga factura ↔ aplicación de PQ.150, sólo con el total igual: de 1,547 a 2,539 equivalencias y de 61 a 133 proveedores, con el mismo acierto (99.7 %, contra 0 % del placebo).
+- La conciliación por renglón busca lo aprendido con el RFC de la factura ligada además del de Kepler: 42 % de las entradas llegan sin RFC y para ellas no se buscaba nada. Renglones de factura con propuesta en 30 días: 39.4 % → 57.1 %.
+- Internal: migración `20261126232411` (`CREATE OR REPLACE VIEW`, antes de soltar, fuera de horario pico); `rfcsDelProveedor`, `porPrecedencia` y `equivalenciasDe`; la respuesta de la conciliación trae `proveedor_rfc_fuente`.
+
 ### Added — Almacén › Ubicaciones: el croquis de la sucursal se acomoda arrastrando (UB.PL.8 · 2026-11-26 · en código, sin soltar)
 - El mapa deja de dibujar todo como pasillos: se toma cada mueble y se suelta en un renglón, hasta que la planta se parece a la tienda. Se puede con el mouse y también sin mouse, con el teclado.
 - La planta abre siempre con un renglón libre al final, y la bandeja «Sin lugar» dice cuántas piezas faltan y cómo se llaman.

@@ -127,3 +127,44 @@ export function lecturaConfiable(
   }
   return { confiable, motivos };
 }
+
+/** `[PQ.150]` De quién es el código del renglón: con qué RFC se buscan y se aprenden las equivalencias. */
+export interface RfcsDelProveedor {
+  /** Bajo qué RFC se aprende al dar la factura por buena (`null` = no hay con qué). */
+  aprender: string | null;
+  /** De dónde salió `aprender`: lo dice la conciliación, no se supone. */
+  fuente: 'factura' | 'kepler' | null;
+  /** Con qué RFC se buscan alias e historia, en orden de precedencia (el primero gana). */
+  buscar: string[];
+}
+
+/**
+ * `[PQ.150]` segundo tramo. El código (`NoIdentificacion`) lo escribe **quien factura**, y la historia de
+ * `[PQ.148]` aprende bajo el RFC de la factura. Recepción buscaba sólo con el RFC del acreedor en Kepler,
+ * que falta o es otro con frecuencia. Medido el 2026-11-27 (prod, sólo lectura): de 1,077 entradas de 30
+ * días, 453 (42.1 %) llegan sin RFC al espejo; y de 4,235 pares factura ↔ aplicación con el total igual,
+ * en 947 Kepler no tiene RFC y en 814 tiene OTRO (con la de Kepler sola, esas facturas no proponían nada).
+ *
+ * Por eso: se busca con el de la factura primero y el de Kepler después (lo aprendido antes vive bajo el de
+ * Kepler), y se aprende bajo el de la factura. Sin factura ligada, todo queda como antes: el de Kepler.
+ */
+export function rfcsDelProveedor(rfcKepler: string | null | undefined, rfcFactura: string | null | undefined): RfcsDelProveedor {
+  const limpio = (v: string | null | undefined) => {
+    const t = String(v ?? '').trim().toUpperCase();
+    return t || null;
+  };
+  const factura = limpio(rfcFactura);
+  const kepler = limpio(rfcKepler);
+  const buscar = [...new Set([factura, kepler].filter((x): x is string => !!x))];
+  return { aprender: factura ?? kepler, fuente: factura ? 'factura' : kepler ? 'kepler' : null, buscar };
+}
+
+/**
+ * `[PQ.150]` Ordena filas de varios RFC para volcarlas en un mapa: las del RFC con MÁS precedencia (el primero
+ * de `buscar`) van al final, así su `set` es el último y gana. Una fila de un RFC que no está en `buscar` va
+ * al principio (pierde contra todos).
+ */
+export function porPrecedencia<R extends { proveedor_rfc: string }>(filas: R[], buscar: string[]): R[] {
+  const rango = (r: R) => { const i = buscar.indexOf(String(r.proveedor_rfc ?? '').trim().toUpperCase()); return i < 0 ? buscar.length : i; };
+  return [...filas].sort((a, b) => rango(b) - rango(a));
+}
