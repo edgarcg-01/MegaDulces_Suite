@@ -156,7 +156,7 @@ export async function generarRequisicionPdf(data: ReqPdfData): Promise<void> {
   const cards: [string, string][] = [
     ['Pedido', r.pedidoTxt],
     [r.precioVaria ? 'Precio por caja (prom.)' : 'Precio por caja', r.precio == null ? '-' : money(r.precio)],
-    ['Importe', money(r.importe)],
+    ['Importe con impuestos', money(r.importe)],
   ];
   let cx = M;
   cards.forEach(([t, v], i) => { dibujarRecuadro(doc, cx, y, widths[i], cardH, t, v); cx += widths[i] + gap; });
@@ -181,7 +181,7 @@ export async function generarRequisicionPdf(data: ReqPdfData): Promise<void> {
   }
   autoTable(doc, {
     ...tablaBase, startY: y + 4,
-    head: [['Cantidad', 'Destino', 'Venta 30 d (cj)', 'Existencia (cj)', 'Días inv. hoy', 'Días inv. con pedido', 'Valor']],
+    head: [['Cantidad', 'Destino', 'Venta 30 d (cj)', 'Existencia (cj)', 'Días inv. hoy', 'Días inv. con pedido', 'Valor c/imp']],
     body,
     columnStyles: {
       0: { halign: 'right', fontStyle: 'bold', cellWidth: 80 },
@@ -222,7 +222,7 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
     y += 28;
     autoTable(doc, {
       ...tablaBase, startY: y,
-      head: [['Proveedor', 'Productos', 'Puntos de entrega', 'O. Compra a tramitar', 'Importe']],
+      head: [['Proveedor', 'Productos', 'Puntos de entrega', 'O. Compra a tramitar', 'Importe c/imp']],
       body: hojas.map((h) => [
         h.supplierName || 'Sin proveedor asignado', String(h.productos.length),
         h.puntos.map((p) => p.code).join(', '), String(h.puntos.length), money(h.valor),
@@ -257,7 +257,7 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
     const widths = [0.18, 0.22, 0.6].map((f) => f * (W - 2 * M - gap * 2));
     const cardH = altoPuntos(h.puntos.length);
     dibujarRecuadro(doc, M, y, widths[0], cardH, 'Productos', String(h.productos.length));
-    dibujarRecuadro(doc, M + widths[0] + gap, y, widths[1], cardH, 'Importe', money(h.valor));
+    dibujarRecuadro(doc, M + widths[0] + gap, y, widths[1], cardH, 'Importe con impuestos', money(h.valor));
     dibujarPuntos(doc, M + widths[0] + widths[1] + gap * 2, y, widths[2], cardH, h.puntos);
     y += cardH + 18;
 
@@ -265,7 +265,7 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...INK);
     doc.text('PEDIDO AL PROVEEDOR', M, y);
     const pts = h.puntos;
-    const head = ['Código', 'Producto', 'U/caja', 'Precio cj', ...pts.map((p) => `Entrega ${p.code} ${p.name}`), 'Total', 'Importe'];
+    const head = ['Código', 'Producto', 'U/caja', 'Precio cj sin IVA', ...pts.map((p) => `Entrega ${p.code} ${p.name}`), 'Total', 'Importe c/imp'];
     const nCols = head.length;
     // [RA-PRO.55] Dos renglones de total: lo pedido por almacén (cajas cerradas + piezas sueltas,
     // sin convertir piezas de productos distintos) y el importe por almacén, con el importe del

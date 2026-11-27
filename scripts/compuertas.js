@@ -239,6 +239,14 @@ const COMPUERTAS = [
    * signal, no una llamada— y se arregló exigiendo DOS segmentos (`this.svc.x(`). Lo destapó
    * verificar dos hallazgos a mano antes de sellar, no el `--self-test`.
    */
+  /**
+   * `[PQ.165]` Todo monto dice si lleva impuestos. Nace del incidente del 2026-11-26/27: una OC de
+   * $202,496.92 y un «esperado $175,767» sin base hicieron preguntar si el IVA se cobraba dos veces, y el
+   * pedido valuaba SIN impuestos lo que se paga CON (GOTCHAS §96). Heurística de TEXTO sobre `<th>` y KPIs
+   * `format: 'currency'`; nace con 479 hallazgos sellados en 181 archivos y el flujo de compras en cero.
+   * Medido: 267–837 ms (tres corridas). `:self` con 12 casos, 4 en rojo a propósito.
+   */
+  { nombre: 'monto con base', script: 'check-monto-con-base.js', que: 'todo monto NUEVO dice si lleva IVA o no (con IVA / sin IVA / con impuestos / a precio)', push: true, ms: 840 },
   { nombre: 'cifra recorrible', script: 'check-cifra-recorrible.js', que: 'ninguna lista NUEVA se topa en silencio: o manda limit, o declara que se topó (ESTANDAR §1.2)', push: true, ms: 900 },
   { nombre: 'búsqueda', script: 'check-busqueda.js', que: 'ningún buscador con .toLowerCase().includes() (DESIGN D.8)', push: true, ms: 198 },
   // `[DS.1]` / `[DS.3]` Las dos de la auditoría del design system (2026-10-02/03). ⚠️ Nacieron

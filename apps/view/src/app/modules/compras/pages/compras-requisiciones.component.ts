@@ -80,7 +80,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       @if (atascadas(); as a) {
         <div class="rq-alerta" role="status">
           <i class="pi pi-clock" aria-hidden="true"></i>
-          <span><strong>{{ a.n | number }}</strong> requisición(es) llevan más de 30 días sin resolverse ({{ money(a.monto) }}{{ a.ci ? ' a pagar' : ' sin IVA' }}).
+          <span><strong>{{ a.n | number }}</strong> requisición(es) llevan más de 30 días sin resolverse ({{ money(a.monto) }}{{ a.ci ? ' con impuestos' : ' sin IVA' }}).
             A esa edad el costo capturado ya no es el de hoy en la mayoría de los renglones: hay que <strong>recalcular</strong> antes de aprobar, o rechazarlas.</span>
           <button pButton type="button" class="p-button-sm p-button-text" (click)="verPendientes()"><span class="p-button-label">Ver pendientes</span></button>
         </div>
@@ -120,7 +120,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <ng-template #header>
             <tr>
               <th>Lote</th><th>Qué se pidió</th>
-              <th class="rq-r">Docs</th><th class="rq-r">Renglones</th><th class="rq-r" title="Compra: con el IVA y el IEPS de la ficha de Kepler, lo que se va a pagar. Traspaso: al costo, no se paga.">A pagar</th>
+              <th class="rq-r">Docs</th><th class="rq-r">Renglones</th><th class="rq-r" title="Con el IVA y el IEPS de la ficha de Kepler: compras y traspasos (la mercancía vale lo que se pagó por ella).">Con impuestos</th>
               <th>Estado</th><th class="rq-r">Días</th><th>Quién</th><th><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
@@ -188,7 +188,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <ng-template #header>
             <tr>
               <th style="width:7rem">Tipo</th><th>Folio</th><th>De dónde · a dónde</th>
-              <th class="rq-r">Líneas</th><th class="rq-r" title="Compra: con el IVA y el IEPS de la ficha de Kepler, lo que se va a pagar. Traspaso: al costo, no se paga.">A pagar</th>
+              <th class="rq-r">Líneas</th><th class="rq-r" title="Con el IVA y el IEPS de la ficha de Kepler: compras y traspasos (la mercancía vale lo que se pagó por ella).">Con impuestos</th>
               <th>Estado</th><th class="rq-r">Días</th><th>Vigencia</th><th><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
@@ -298,7 +298,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-muted">{{ r.supplier_name || 'Varios' }}</td>
                   <td class="rq-r">{{ r.total_lines | number }}</td>
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
-                  <td class="rq-r">{{ r.source_type === 'branch' ? money(r.total_cost) : montoFila(r) }}</td>
+                  <td class="rq-r">{{ montoFila(r) }}</td>
                   <td class="rq-estado">
                     <span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
@@ -381,7 +381,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr>
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Folio</th><th>Origen</th><th>Destino</th>
-                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r" title="Un traspaso no se paga: va al costo.">Costo est. al costo</th>
+                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r" title="Con el IVA y el IEPS de la ficha de Kepler: la mercancía vale lo que se pagó por ella.">Con impuestos</th>
                   <th>Estado</th><th class="rq-r" title="Días desde que se creó. Lo calcula el servidor, no el reloj de esta máquina.">Días</th><th title="¿El costo capturado sigue siendo el de hoy? Se mide renglón por renglón contra el plan vigente.">Vigencia</th><th>Fecha</th><th><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
@@ -397,7 +397,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   </td>
                   <td class="rq-r">{{ r.total_lines | number }}</td>
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
-                  <td class="rq-r">{{ r.source_type === 'branch' ? money(r.total_cost) : montoFila(r) }}</td>
+                  <td class="rq-r">{{ montoFila(r) }}</td>
                   <td class="rq-estado">
                     <span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
@@ -457,7 +457,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr>
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Pidió</th><th>Qué pide</th><th>Folio</th>
-                  <th class="rq-r">Líneas</th><th class="rq-r" title="Compra: con el IVA y el IEPS de la ficha de Kepler, lo que se va a pagar. Traspaso: al costo, no se paga.">A pagar</th>
+                  <th class="rq-r">Líneas</th><th class="rq-r" title="Con el IVA y el IEPS de la ficha de Kepler: compras y traspasos (la mercancía vale lo que se pagó por ella).">Con impuestos</th>
                   <th>Estado</th><th class="rq-r">Días</th><th>Fecha</th>
                 </tr>
               </ng-template>
@@ -908,14 +908,13 @@ export class ComprasRequisicionesComponent implements OnInit {
 
   /**
    * `[PQ.162]` Una compra se paga con impuestos (Edgar, 2026-11-27): la lista dice lo que se va a
-   * pagar — compras con el IVA y el IEPS de la ficha de Kepler, traspasos al costo (no se pagan). Si
+   * pagar — con el IVA y el IEPS de la ficha de Kepler, compras y traspasos (`[PQ.164]`). Si
    * el servidor no lo midió (anterior, o sin la réplica de Kepler) se publica el sin IVA, DICHO.
    */
   montoRes(ci: number | null | undefined, sin: number): string {
-    return ci != null ? `${this.money(ci)} a pagar` : `${this.money(sin)} sin IVA`;
+    return ci != null ? `${this.money(ci)} con impuestos` : `${this.money(sin)} sin IVA`;
   }
   montoFila(r: RequisitionRow): string {
-    if (r.source_type === 'branch') return `${this.money(r.total_cost)} al costo`;
     if (r.total_cost_ci == null) return `${this.money(r.total_cost)} sin IVA`;
     return this.money(r.total_cost_ci) + (r.sin_tasa ? ` · ${r.sin_tasa} sin tasa` : '');
   }

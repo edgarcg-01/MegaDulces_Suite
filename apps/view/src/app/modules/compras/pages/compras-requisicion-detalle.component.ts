@@ -410,7 +410,7 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
       // `[PQ.162]` Una compra se paga con impuestos (Edgar, 2026-11-27): eso es lo que se aprueba. El
       // subtotal sin impuestos queda abajo porque es lo que Kepler escribe en los renglones.
       r.total_cost_ci != null
-        ? { label: 'A pagar', value: r.total_cost_ci, format: 'currency', tone: 'brand',
+        ? { label: r.source_type === 'branch' ? 'Con impuestos' : 'A pagar', value: r.total_cost_ci, format: 'currency', tone: 'brand',
             sub: `con IVA e IEPS · ${this.money(r.total_cost)} sin impuestos`
               + (r.sin_tasa ? ` · ${r.sin_tasa} renglón(es) sin tasa en Kepler` : '') }
         : { label: 'Costo estimado', value: r.total_cost, format: 'currency', tone: 'brand',

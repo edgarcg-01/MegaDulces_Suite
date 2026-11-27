@@ -90,7 +90,8 @@ export class ComprasToolsService implements ThotToolProvider {
       rows: (res.rows || []).slice(0, 25).map((r: any) => ({
         proveedor: r.supplier_name, almacen: r.warehouse_code, via: r.via,
         toca: r.next_due_date, dias: r.days_to_due, skus: r.n_skus,
-        sugerido_costo: r.suggested_cost != null ? Number(r.suggested_cost) : null,
+        // [PQ.164] con IVA e IEPS de la ficha de Kepler (lo que se va a pagar)
+        sugerido_costo_con_impuestos: r.suggested_cost != null ? Number(r.suggested_cost) : null,
       })),
     };
   }

@@ -602,6 +602,23 @@ const ACCIONES = ['sobrante', 'traspaso', 'traspaso_parcial', 'comprar', 'ok'] a
  * daba una lista vacía siempre — el filtro existía y nunca devolvía nada.
  */
 const ACCIONES_FUERA_DE_CRITICO = ['sobrante', 'ok'];
+/**
+ * `[PQ.164]` **Todo el flujo de compras es con impuestos** (Edgar, 2026-11-27: «todo es con impuestos»): el
+ * costo de una caja vale lo que se pagó por ella, con el IVA y el IEPS de la ficha de Kepler.
+ *
+ * `JOIN_IMP(wh, sku, a)` une la ficha (`kdii`) del almacén `wh` (expresión con su id) para el `sku` (expresión)
+ * y la de CEDIS como respaldo — la misma regla que el pedido (`[PQ.162]`) y el sink `[PQ.21]`.
+ * `FACTOR_IMP(a)` = 1 + (IVA% + IEPS%) / 100; sin ficha vale 1 (entra sin impuesto: 0.4 % de las celdas de
+ * sucursal, medido el 2026-11-27). Por JOIN y no por subconsulta correlacionada: sobre las 45 mil filas
+ * del plan, el JOIN cuesta 48 → 128 ms y la subconsulta 820 ms.
+ */
+const JOIN_IMP = (wh: string, sku: string, a: string): string => `
+          LEFT JOIN commercial.warehouses ${a}w ON ${a}w.id = ${wh}
+          LEFT JOIN kepler_ods.kdii ${a}k ON ${a}k.sucursal = ${a}w.code AND ${a}k.c1 = ${sku}
+          LEFT JOIN kepler_ods.kdii ${a}0 ON ${a}0.sucursal = '00' AND ${a}0.c1 = ${sku}`;
+const FACTOR_IMP = (a: string): string =>
+  `(1 + (abs(COALESCE(${a}k.c18, ${a}0.c18, 0)) + abs(COALESCE(${a}k.c19, ${a}0.c19, 0))) / 100.0)`;
+
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** `[CANON.5.25]` Los parámetros de pedido que deriva `import-supplier-params` y que una persona puede pisar. */
 const ORDER_PARAM_FIELDS = ['cadence_days_override', 'colchon_days', 'min_order_amount', 'min_order_boxes'] as const;
@@ -2562,8 +2579,8 @@ export class CommercialReplenishmentService {
                  -- Si no, va NULL: sumar un valuado que el dinero contradice lo esconde. Lo que el
                  -- árbitro sí puede afirmar viaja aparte, en rung_arbitrado.
                  CASE WHEN ${RUNG_OK}
-                      THEN round((COALESCE(sum(b.stock_pz),0) / ${DBF} * COALESCE(max(b.caja_cost),0))::numeric, 2)
-                 END                                                          AS valor_exis_col,
+                      THEN round((COALESCE(sum(b.stock_pz),0) / ${DBF} * COALESCE(max(b.caja_cost),0) * (1 + COALESCE(max(b.imp), 0) / 100.0))::numeric, 2)
+                 END                                                          AS valor_exis_col,   -- [PQ.164] con impuestos
                  -- RA-PRO.49 — la VENTA 30d valuada AL MISMO costo de caja que la existencia. Es el
                  -- denominador de los dias de inventario, y tiene que estar al costo: valor_venta
                  -- (revenue30) esta a PRECIO, y dividir inventario-al-costo entre venta-a-precio
@@ -2575,11 +2592,11 @@ export class CommercialReplenishmentService {
                  -- y los dias saldrian de menos. Numerador y denominador cubren las mismas celdas.
                  -- SIN BACKTICKS EN ESTE COMENTARIO: va dentro de un template literal de JS.
                  CASE WHEN ${RUNG_OK}
-                      THEN round((COALESCE(sum(b.daily_pieces),0) * 30 / (${SUF} * ${BF}) * COALESCE(max(b.caja_cost),0))::numeric, 2)
-                 END                                                          AS valor_vta_col,
+                      THEN round((COALESCE(sum(b.daily_pieces),0) * 30 / (${SUF} * ${BF}) * COALESCE(max(b.caja_cost),0) * (1 + COALESCE(max(b.imp), 0) / 100.0))::numeric, 2)
+                 END                                                          AS valor_vta_col,   -- [PQ.164] mismo factor arriba y abajo: los dias no cambian
                  max(b.rung_veredicto)                                        AS rung_veredicto,
                  round(max(b.rung_razon)::numeric, 3)                         AS rung_razon,
-                 round(max(b.rung_valor_arbitrado)::numeric, 2)               AS rung_arbitrado,
+                 round((max(b.rung_valor_arbitrado) * (1 + COALESCE(max(b.imp), 0) / 100.0))::numeric, 2)    AS rung_arbitrado,   -- [PQ.164]
                  max(b.rung_base_label)                                       AS rung_base_label,
                  -- La CANTIDAD suelta, que sí es verdad aunque su conversión a cajas no lo sea:
                  -- el comprador necesita saber que hay 2,679 KG ahí, no un blanco.
@@ -3260,6 +3277,15 @@ export class CommercialReplenishmentService {
          ORDER BY oc.doc_date`,
         [lead, cajaCost, cajaCost, cajaCost, bf, prod.sku])).rows as Array<Record<string, unknown>>;
 
+      // [PQ.164] Con impuestos: la tasa de la ficha de Kepler de la sucursal de cada OC (o CEDIS).
+      const tasas = new Map<string, number | null>();
+      if ((await trx.raw(`SELECT to_regclass('kepler_ods.kdii') AS t`)).rows[0]?.t) {
+        for (const x of (await trx.raw('SELECT sucursal, c18, c19 FROM kepler_ods.kdii WHERE c1 = ?', [prod.sku])).rows as Array<{ sucursal: string; c18: string; c19: string }>) {
+          tasas.set(String(x.sucursal).trim(), tasaImpuestos(x.c18, x.c19));
+        }
+      }
+      const tasaDe = (suc: string): number | null => tasas.get(suc) ?? tasas.get('00') ?? null;
+
       const out = rows.map((r) => ({
         folio: String(r.folio ?? '').trim(),
         sucursal: String(r.sucursal ?? '').trim(),
@@ -3271,7 +3297,7 @@ export class CommercialReplenishmentService {
         unidad: (r.unidad as string) || null,
         cantidad: Number(r.cantidad) || 0,
         cajas: Number(r.cajas) || 0,
-        valor: Math.round((Number(r.cajas) || 0) * cajaCost * 100) / 100,
+        valor: conImpuestos((Number(r.cajas) || 0) * cajaCost, tasaDe(String(r.sucursal ?? '').trim())),
       }));
       return {
         product: { sku: prod.sku, nombre: prod.nombre },
@@ -3767,6 +3793,9 @@ export class CommercialReplenishmentService {
       const cte = `WITH def AS (
         SELECT rp.warehouse_id AS wh, rp.source_warehouse_id AS src, rp.product_id, rp.sku, rp.nombre,
                rp.supplier_id, rp.category_id, rp.bf AS uxc, rp.caja_cost,
+               -- [PQ.164] el factor de impuestos de la ficha: el VALOR va con impuestos; el costo
+               -- unitario sin ellos, porque es el que se GUARDA en el renglon de la requisicion.
+               ${FACTOR_IMP('ti')} AS imp_f,
                -- RA-PRO.41: el traspaso también anticipa la estación
                rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (GREATEST(rp.suf,1) * GREATEST(rp.bf,1)) AS dem_cjs,
                rp.stock_pz / GREATEST(COALESCE(rp.display_bf, rp.bf, 1), 1) AS stock_cjs,
@@ -3783,7 +3812,7 @@ export class CommercialReplenishmentService {
                rp.stock_pz / GREATEST(rp.rung_bf_esperado, 1) AS stock_cjs_arb
           FROM analytics.replenishment_plan rp
           LEFT JOIN analytics.replenishment_plan cs
-                 ON cs.tenant_id = rp.tenant_id AND cs.warehouse_id = rp.source_warehouse_id AND cs.product_id = rp.product_id
+                 ON cs.tenant_id = rp.tenant_id AND cs.warehouse_id = rp.source_warehouse_id AND cs.product_id = rp.product_id${JOIN_IMP('rp.warehouse_id', 'rp.sku', 'ti')}
          WHERE rp.tenant_id = :t AND rp.source_warehouse_id IS NOT NULL${brandScope}
       ),
       dx AS (
@@ -3800,7 +3829,7 @@ export class CommercialReplenishmentService {
           FROM def
       ),
       bd AS (
-        SELECT wh, src, product_id, sku, nombre, supplier_id, category_id, uxc, caja_cost, deficit_cjs,
+        SELECT wh, src, product_id, sku, nombre, supplier_id, category_id, uxc, caja_cost, imp_f, deficit_cjs,
                rung_veredicto, rung_dest, rung_src, omitidos,
                deficit_cjs * LEAST(1.0, CASE WHEN SUM(deficit_cjs) OVER (PARTITION BY src, product_id) > 0
                                              THEN avail_cjs / SUM(deficit_cjs) OVER (PARTITION BY src, product_id) ELSE 0 END) AS transfer_cjs
@@ -3829,14 +3858,15 @@ export class CommercialReplenishmentService {
                round(bd.transfer_cjs::numeric, 1) AS transfer_cajas,
                round(GREATEST(0, (bd.deficit_cjs - bd.transfer_cjs) * bd.uxc)::numeric, 0) AS shortfall_pieces,
                round(bd.caja_cost::numeric, 4) AS unit_cost,
+               round((bd.caja_cost * bd.imp_f)::numeric, 4) AS unit_cost_ci,
                -- U.2 — sólo se valúa el traspaso cuyos DOS almacenes tienen el peldaño verificado.
                CASE WHEN bd.rung_veredicto IS NULL
-                    THEN round((bd.transfer_cjs * bd.caja_cost)::numeric, 2) END AS transfer_value,
+                    THEN round((bd.transfer_cjs * bd.caja_cost * bd.imp_f)::numeric, 2) END AS transfer_value,
                bd.rung_veredicto,
                CASE WHEN bd.rung_dest AND bd.rung_src THEN 'ambos'
                     WHEN bd.rung_dest THEN 'destino' WHEN bd.rung_src THEN 'origen' END AS rung_lado,
                COUNT(*) OVER() AS _total,
-               ROUND(SUM(bd.transfer_cjs * bd.caja_cost) FILTER (WHERE bd.rung_veredicto IS NULL) OVER()::numeric, 2) AS _total_valor,
+               ROUND(SUM(bd.transfer_cjs * bd.caja_cost * bd.imp_f) FILTER (WHERE bd.rung_veredicto IS NULL) OVER()::numeric, 2) AS _total_valor,
                ROUND(SUM(bd.transfer_cjs) OVER()::numeric, 0) AS _total_cajas,
                COUNT(*) FILTER (WHERE bd.rung_veredicto IS NOT NULL) OVER() AS _sin_medir,
                MAX(bd.omitidos) OVER() AS _omitidos
@@ -3912,7 +3942,7 @@ export class CommercialReplenishmentService {
       // la resta cruda mezclaba unidades y marcaba sobrestock donde no había (o lo escondía).
       const cte = `WITH ov AS (
         SELECT rp.warehouse_id AS wh, rp.product_id, rp.sku, rp.nombre, rp.supplier_id, rp.category_id,
-               rp.bf AS uxc, rp.caja_cost, rp.source_warehouse_id,
+               rp.bf AS uxc, rp.caja_cost * ${FACTOR_IMP('oi')} AS caja_cost, rp.source_warehouse_id,   -- [PQ.164] con impuestos
                rp.eff_daily * COALESCE(rp.season_ratio,1) / (GREATEST(rp.suf,1) * GREATEST(rp.bf,1)) AS eff_daily_cjs,
                rp.stock_pz / GREATEST(COALESCE(rp.display_bf, rp.bf, 1), 1) AS on_hand_cjs,
                -- RA-PRO.41: el sobrestock se mide contra la demanda del HORIZONTE (un SKU navideño con
@@ -3923,8 +3953,8 @@ export class CommercialReplenishmentService {
                -- base): si el costo de compra contradice ese divisor, el excedente no es una
                -- cantidad de cajas y no se puede valuar. Se declara, no se dibuja en cero.
                -- Columna del fact → sin joins (la vista auditable cuesta 8-25 s, ver rungMedible()).
-               rp.rung_veredicto, rp.rung_arbitrado
-          FROM analytics.replenishment_plan rp
+               rp.rung_veredicto, rp.rung_arbitrado * ${FACTOR_IMP('oi')} AS rung_arbitrado
+          FROM analytics.replenishment_plan rp${JOIN_IMP('rp.warehouse_id', 'rp.sku', 'oi')}
          WHERE rp.tenant_id = :t AND (rp.source_warehouse_id IS NOT NULL OR rp.is_hub) AND rp.eff_daily > 0${brandScope}
       )`;
       const from = `
@@ -4035,7 +4065,9 @@ export class CommercialReplenishmentService {
       // de la unidad BASE de Kepler, que en Wincaja no es la nativa (ADR-055).
       // El catálogo queda de respaldo para los pares sin fila en el fact: 456 pares quedan en
       // costo 0 con las dos fórmulas, así que el respaldo no tapa ningún hueco nuevo.
-      const cost = `COALESCE(rpl.caja_cost / NULLIF(GREATEST(COALESCE(rpl.display_bf, rpl.bf, 1), 1), 0), pr.cost_with_tax, pr.cost_base, 0)`;
+      // [PQ.164] Con impuestos. `cost_with_tax` del catálogo YA los trae (cost_with_tax = u1_cost × (1+imp)):
+      // no se multiplica — antes era la caída que mezclaba con y sin dentro de una cifra sin IVA (PQ.161 #3).
+      const cost = `COALESCE(rpl.caja_cost / NULLIF(GREATEST(COALESCE(rpl.display_bf, rpl.bf, 1), 1), 0) * ${FACTOR_IMP('ci')}, pr.cost_with_tax, pr.cost_base * ${FACTOR_IMP('ci')}, 0)`;
       // RA-PRO.12 — categoría de compra: el agg (n_skus/sugerido) solo cuenta productos de la categoría.
       const catFrag = q.category_id && UUID_RX.test(q.category_id) ? 'AND pr.category_id = :cat' : '';
 
@@ -4099,7 +4131,7 @@ export class CommercialReplenishmentService {
                 -- Se quita el join además de dejar de leerlo, para que nadie lo vuelva a usar
                 -- sin pasar por la medición de arriba.
                 LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
-                LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id
+                LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id${JOIN_IMP('rp.warehouse_id', 'pr.sku', 'ci')}
             ) x
            GROUP BY 1, 2
         )
@@ -4164,7 +4196,9 @@ export class CommercialReplenishmentService {
       const basis = this.basis(q.target_basis);
       const target = basis === 'cadence' ? this.cadenceTarget() : this.targetCol(basis);
       const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
-      const cost = `COALESCE(rpl.caja_cost / NULLIF(GREATEST(COALESCE(rpl.display_bf, rpl.bf, 1), 1), 0), pr.cost_with_tax, pr.cost_base, 0)`;
+      // [PQ.164] Con impuestos. `cost_with_tax` del catálogo YA los trae (cost_with_tax = u1_cost × (1+imp)):
+      // no se multiplica — antes era la caída que mezclaba con y sin dentro de una cifra sin IVA (PQ.161 #3).
+      const cost = `COALESCE(rpl.caja_cost / NULLIF(GREATEST(COALESCE(rpl.display_bf, rpl.bf, 1), 1), 0) * ${FACTOR_IMP('ci')}, pr.cost_with_tax, pr.cost_base * ${FACTOR_IMP('ci')}, 0)`;
       const catFrag = q.category_id && UUID_RX.test(q.category_id) ? 'AND pr.category_id = :cat' : '';
       const filters: string[] = [
         `rc.tenant_id = :t`,
@@ -4208,7 +4242,7 @@ export class CommercialReplenishmentService {
                 JOIN commercial.reorder_policy rp ON rp.tenant_id=rc.tenant_id
                      AND rp.warehouse_id=rc.warehouse_id AND rp.product_id=pr.id
                 LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
-                LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id
+                LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id${JOIN_IMP('rp.warehouse_id', 'pr.sku', 'ci')}
             ) x
            GROUP BY 1, 2
         )
@@ -4292,7 +4326,8 @@ export class CommercialReplenishmentService {
     // nativa — §3.2: *"al mismo grano que la cantidad"*), así que el dinero es una multiplicación
     // directa: **no se divide por `box_factor`**. `vbf` sigue sólo para MOSTRAR cajas.
     // Control de placebo: la vista tiene 249,040 filas para 249,040 llaves → el join no duplica.
-    const costUnitario = 'COALESCE(euc.costo_unitario, 0)';
+    // [PQ.164] Con impuestos: la ficha de Kepler de ese almacén (o CEDIS), unida abajo como dik/di0.
+    const costUnitario = `COALESCE(euc.costo_unitario, 0) * ${FACTOR_IMP('di')}`;
     const valueExpr = `(COALESCE(s.qty_stock_units,0) * ${costUnitario})`;
     // GREATEST ignora NULLs → la más reciente entre última venta y último movimiento.
     //
@@ -4330,6 +4365,8 @@ export class CommercialReplenishmentService {
         // tiene que inventar una bandera a mano — ADR-056 con el primitivo que ya existe.
         .leftJoin('analytics.v_erp_unit_cost as euc', (j) =>
           j.on('euc.tenant_id', 'pr.tenant_id').andOn('euc.warehouse_id', 'w.id').andOn('euc.product_id', 'pr.id'))
+        .leftJoin('kepler_ods.kdii as dik', (j) => j.on('dik.sucursal', 'w.code').andOn('dik.c1', 'pr.sku'))
+        .leftJoin('kepler_ods.kdii as di0', (j) => j.onVal('di0.sucursal', '00').andOn('di0.c1', 'pr.sku'))
         .where('pr.tenant_id', tenantId)
         .andWhere('pr.activo', true)
         .whereNull('w.deleted_at')
@@ -5108,7 +5145,8 @@ export class CommercialReplenishmentService {
    * cuyo SUBTOTAL ya no es el de la requisición (folio cruzado en 03, o vacío) y 8 tienen en Kepler
    * una tasa que la ficha de hoy ya no trae (cambió después; para una compra nueva manda la de hoy).
    *
-   * Los traspasos no se pagan: no salen aquí. `sin_tasa` cuenta renglones sin ficha (van sin impuesto).
+   * `[PQ.164]` Desde el 2026-11-27 también los traspasos («todo es con impuestos», Edgar): la mercancía vale lo
+   * que se pagó por ella. `sin_tasa` cuenta renglones sin ficha (van sin impuesto).
    * Sin la réplica (base de pruebas) devuelve cero filas, los montos `_ci` van null y la pantalla lo DECLARA.
    * Cuesta ~137 ms sobre todas las requisiciones del tenant: se une sólo donde se SUMA (resumen y
    * lotes); la página se pide por sus ids con `extra`.
@@ -5124,11 +5162,11 @@ export class CommercialReplenishmentService {
           LEFT JOIN commercial.warehouses w0 ON w0.tenant_id = r0.tenant_id AND w0.id = r0.warehouse_id
           LEFT JOIN kepler_ods.kdii k  ON k.sucursal = w0.code AND k.c1 = pr0.sku
           LEFT JOIN kepler_ods.kdii k0 ON k0.sucursal = '00' AND k0.c1 = pr0.sku
-         WHERE r0.tenant_id = ${tenant} AND r0.source_type <> 'branch'${extra}
+         WHERE r0.tenant_id = ${tenant}${extra}
          GROUP BY l.requisition_id`;
   }
-  /** `[PQ.162]` El monto de una requisición tal como se paga: compra con impuestos, traspaso al costo. */
-  private static readonly SQL_MONTO_CI = `CASE WHEN r.source_type = 'branch' THEN r.total_cost ELSE COALESCE(ci.total_ci, r.total_cost) END`;
+  /** `[PQ.162]`/`[PQ.164]` El monto de una requisición con impuestos (compra y traspaso). Sin réplica: el sin impuestos. */
+  private static readonly SQL_MONTO_CI = `COALESCE(ci.total_ci, r.total_cost)`;
   /** `[PQ.162]` ¿Está la réplica de la ficha de Kepler? Se pregunta una vez por proceso. */
   private rqKdii: boolean | null = null;
   private async kdiiLista(trx: Knex.Transaction): Promise<boolean> {
@@ -5264,7 +5302,7 @@ export class CommercialReplenishmentService {
       // la subconsulta entera cuesta ~137 ms y aquí se pintan 50. Traspaso o sin réplica = null.
       const conKdii = await this.kdiiLista(trx);
       const filasCI = rows as unknown as Array<{ id: string; source_type?: string | null; total_cost_ci?: number | null; sin_tasa?: number | null }>;
-      const idsCompra = filasCI.filter((r) => r.source_type !== 'branch').map((r) => r.id);
+      const idsCompra = filasCI.map((r) => r.id);   // [PQ.164] compras y traspasos
       if (conKdii && idsCompra.length) {
         const ci = new Map<string, { total_ci: string; sin_tasa: number }>(
           ((await trx.raw(this.sqlRequisicionCI(true, '?', ' AND r0.id = ANY(?)'), [tenantId, idsCompra])).rows as Array<{ requisition_id: string; total_ci: string; sin_tasa: number }>)
@@ -5791,7 +5829,7 @@ export class CommercialReplenishmentService {
    * renglón de la OC `[PQ.21]`—, o la de CEDIS si ese almacén no tiene ficha (la tasa es la misma en
    * las 9 sucursales salvo 1 SKU). Escribe `imp` y `line_cost_ci` en cada renglón y devuelve el total.
    *
-   * Un traspaso no se paga: no lleva impuestos (`total_cost_ci` = `null`). Un renglón sin ficha entra
+   * `[PQ.164]` El traspaso también lleva impuestos (la mercancía vale lo que se pagó). Un renglón sin ficha entra
    * sin impuesto y se cuenta en `sin_tasa`. Si la réplica no está (base de pruebas) o falla, todo va
    * `null`: la pantalla lo declara y muestra el monto sin impuestos, nunca uno inventado.
    */
@@ -5799,7 +5837,7 @@ export class CommercialReplenishmentService {
     trx: Knex.Transaction, header: { source_type?: string | null; warehouse_code?: string | null }, lines: RenglonCI[],
   ): Promise<{ total_cost_ci: number | null; sin_tasa: number | null }> {
     const nada = { total_cost_ci: null, sin_tasa: null };
-    if (header.source_type === 'branch' || !lines.length) return nada;
+    if (!lines.length) return nada;   // [PQ.164] también el traspaso
     try {
       if (!(await trx.raw(`SELECT to_regclass('kepler_ods.kdii') AS t`)).rows[0]?.t) return nada;
       const suc = String(header.warehouse_code ?? '').trim() || '00';
@@ -6993,7 +7031,8 @@ export class CommercialReplenishmentService {
 
     const DBF = 'NULLIF(COALESCE(rp.display_bf, rp.bf, 1), 0)';
     const COV = `rp.stock_pz / ${DBF} * COALESCE(rp.suf,1) * COALESCE(rp.bf,1) / NULLIF(rp.daily_pieces, 0)`;
-    const VAL = `rp.stock_pz / ${DBF} * COALESCE(rp.caja_cost, 0)`;
+    // [PQ.164] con impuestos (la ficha de Kepler unida abajo como sik/si0)
+    const VAL = `rp.stock_pz / ${DBF} * COALESCE(rp.caja_cost, 0) * ${FACTOR_IMP('si')}`;
     // SIN ACENTOS GRAVES EN LOS COMENTARIOS DE ABAJO: van dentro de template literals de JS.
     const ESCOMPRA = `sm.movement_kind = 'entrada' AND sm.movement_label IN ('Orden de entrada','Compra','Compra (pedido)')`;
     // ⛔ `no_vende` ANTES que `sin_venta`, y sale del DATO (`warehouses.sells_to_public`), no de
@@ -7031,7 +7070,7 @@ export class CommercialReplenishmentService {
                (wh.sells_to_public IS FALSE) AS no_vende
           FROM analytics.replenishment_plan rp
           JOIN catalog.products pr ON pr.tenant_id = rp.tenant_id AND pr.id = rp.product_id
-          JOIN commercial.warehouses wh ON wh.tenant_id = rp.tenant_id AND wh.id = rp.warehouse_id
+          JOIN commercial.warehouses wh ON wh.tenant_id = rp.tenant_id AND wh.id = rp.warehouse_id${JOIN_IMP('rp.warehouse_id', 'rp.sku', 'si')}
          WHERE ${where}
       ), mov AS (
         SELECT sm.product_id, sm.warehouse_id,

@@ -55,7 +55,7 @@ import { type PedidoNegociacionDto, warehouseName } from '@megadulces/contracts'
 
         <h3 class="nd-h">Las últimas entradas <span class="nd-dim">({{ d().pagado.entradas.length }} de {{ d().pagado.renglones }} renglones)</span></h3>
         <table class="nd-t">
-          <thead><tr><th>Fecha</th><th>Sucursal</th><th class="r">Cantidad</th><th class="r">Costo{{ u() }}</th><th class="r">vs estándar</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Sucursal</th><th class="r">Cantidad</th><th class="r" title="El costo del renglón en Kepler: sin IVA ni IEPS.">Costo sin IVA{{ u() }}</th><th class="r">vs estándar</th></tr></thead>
           <tbody>
             @for (e of d().pagado.entradas; track $index) {
               <tr [class.nd-est]="vsEst(e.costo_base) === 0">

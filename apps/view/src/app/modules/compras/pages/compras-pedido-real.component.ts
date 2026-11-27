@@ -66,6 +66,8 @@ interface URow {
   supplier_id: string | null; supplier_name: string | null;
   from_code: string | null; from_warehouse_id: string | null; to_warehouse_id: string | null;
   uxc: number; unit_cost: number;
+  /** `[PQ.164]` El mismo costo con IVA e IEPS: lo que se MUESTRA. `unit_cost` es el que se guarda. */
+  unit_cost_ci: number;
   qty: number; editable: boolean;
   on_hand: number; cover: number | null; sell_daily: number; deficit: number; surplus: number; days_on_hand: number | null;
   fill_rate: number | null; abc_class: string | null; unit_source: string | undefined;
@@ -431,7 +433,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 por unidad de stock, así que la existencia no se convierte a cajas ni se multiplica
                 por el costo de caja. <strong>No valen cero — no se están midiendo.</strong>
                 @if (g.arbitrado > 0) {
-                  Contra lo pagado rondarían <strong>{{ money(g.arbitrado) }}</strong> sin IVA, cifra de
+                  Contra lo pagado rondarían <strong>{{ money(g.arbitrado) }}</strong> con impuestos, cifra de
                   referencia para revisar y no para publicar.
                 }
                 En esos renglones la celda muestra la cantidad en la unidad que el ERP realmente
@@ -504,7 +506,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <th class="pr-c-m pr-r" title="Máximo de red (cajas)">Máx</th>
                   <th class="pr-c-m pr-r pr-muted-h" title="El mismo total, en la unidad BASE de cada artículo (pz, paq, kg…): cajas × unidades por caja.">Σ Base</th>
                   <th class="pr-c-m pr-r">Valor venta<br/>con IVA</th>
-                  <th class="pr-c-m pr-r">Valor exist.<br/>sin IVA</th>
+                  <th class="pr-c-m pr-r">Valor exist.<br/>con impuestos</th>
                 </tr>
               </ng-template>
               <ng-template #body let-r>
@@ -867,7 +869,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       <th class="pr-r" title="Existencia de la sucursal, en CAJAS.">Exist.</th>
                                       <th class="pr-r">Cant. ({{ unitLabelShort(r.product_id) }}) ✎</th>
                                       <th class="pr-r" title="Equivalente TOTAL en piezas de lo traspasado (cajas × piezas por caja). No es la unidad de captura — esa es la columna Cant.">= Piezas</th>
-                                      <th class="pr-r">Costo sin IVA</th><th class="pr-r">Valor sin IVA</th>
+                                      <th class="pr-r">Costo con impuestos</th><th class="pr-r">Valor con impuestos</th>
                                     </tr></thead>
                                     <tbody>
                                       @for (u of trasRows(r.product_id); track u.warehouse_code) {
@@ -881,8 +883,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                           <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-1') ?? ''" [severity]="existSevU(u)" class="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
                                           <td class="pr-r"><input type="number" min="0" step="any" class="pr-qty pr-qty-sm" (keydown)="onQtyKey($event)" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + sucNom(u.warehouse_code) + ' (' + unitLabelShort(r.product_id) + ')'" /></td>
                                           <td class="pr-r pr-muted">{{ piezasDeCajas(u.qty, u.uxc) | number:'1.0-0' }}</td>
-                                          <td class="pr-r pr-muted">{{ money(u.unit_cost) }}</td>
-                                          <td class="pr-r pr-strong">{{ money(u.qty * u.unit_cost) }}</td>
+                                          <td class="pr-r pr-muted">{{ money(u.unit_cost_ci) }}</td>
+                                          <td class="pr-r pr-strong">{{ money(u.qty * u.unit_cost_ci) }}</td>
                                         </tr>
                                       }
                                     </tbody>
@@ -932,7 +934,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                   <button type="button" class="pr-zlink" (click)="quitarDeRequisicion(r.product_id)" [attr.aria-label]="'Quitar ' + r.sku + ' de la requisición'">quitar</button>
                                 </span>
                               } @else {
-                                <p-button type="button" [label]="'Agregar a la requisición' + (sumValor(r) > 0 ? ' · compra ' + money(sumValorCI(r)) + ' con impuestos' : '') + (prodTr(r.product_id) > 0 ? ' · traspaso ' + money(prodTr(r.product_id)) + ' al costo' : '')"
+                                <p-button type="button" [label]="'Agregar a la requisición' + (sumValor(r) > 0 ? ' · compra ' + money(sumValorCI(r)) + ' con impuestos' : '') + (prodTr(r.product_id) > 0 ? ' · traspaso ' + money(prodTr(r.product_id)) + ' con impuestos' : '')"
                                           icon="pi pi-plus" styleClass="p-button-sm"
                                           (click)="agregarARequisicion(r)" [disabled]="(sumValor(r) + prodTr(r.product_id)) <= 0"
                                           [title]="(sumValor(r) + prodTr(r.product_id)) > 0 ? 'Suma este producto, con lo que capturaste, a la requisición en armado. Se genera todo junto desde la barra de abajo.' : 'Sin cantidad para pedir ni traspasar: no hay nada que agregar.'"></p-button>
@@ -1007,7 +1009,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <i class="pi pi-shopping-cart" aria-hidden="true"></i>
                 <span><strong>{{ carrito().productos }}</strong> producto{{ carrito().productos === 1 ? '' : 's' }}
                   · {{ carrito().proveedores }} proveedor{{ carrito().proveedores === 1 ? '' : 'es' }}
-                  · comprar <strong>{{ money(carrito().valor) }}</strong> con impuestos@if (carrito().traspaso > 0) { · traspaso {{ money(carrito().traspaso) }} al costo }</span>
+                  · comprar <strong>{{ money(carrito().valor) }}</strong> con impuestos@if (carrito().traspaso > 0) { · traspaso {{ money(carrito().traspaso) }} con impuestos }</span>
                 <span class="pr-cart-ver">Ver</span>
               </button>
               <!-- [RA-DYN.U3] El piso del proveedor, donde se decide. Antes el comprador armaba la
@@ -1020,7 +1022,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 </span>
               }
             } @else if (totCajas() > 0) {
-              <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página · comprar <strong>{{ money(totBuy()) }}</strong> con impuestos · traspaso <strong>{{ money(totTr()) }}</strong> al costo@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> } · <em>abre un producto y agrégalo a la requisición</em></span>
+              <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página · comprar <strong>{{ money(totBuy()) }}</strong> con impuestos · traspaso <strong>{{ money(totTr()) }}</strong> con impuestos@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> } · <em>abre un producto y agrégalo a la requisición</em></span>
             } @else {
               <span class="pr-bulk-n">{{ wbTotal() }} productos en la vista</span>
             }
@@ -1157,7 +1159,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           } @else if (tranRows().length) {
             <p class="pr-uov-hint">
               <strong>{{ tranTotalCajas() | number:'1.0-1' }} cajas</strong> ya pedidas y sin recibir
-              ({{ money(tranTotalValor()) }} sin IVA, al costo de hoy).
+              ({{ money(tranTotalValor()) }} con impuestos, al costo de hoy).
               La llegada es <strong>estimada</strong>: Kepler no guarda fecha prometida, así que se calcula
               como fecha de la orden + el tiempo de surtido del proveedor@if (tranLead()) { ({{ tranLead() }} d) }.
             </p>
@@ -1182,7 +1184,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               <thead><tr>
                 <th>Folio</th><th>Suc.</th><th>Proveedor</th><th>Fecha OC</th><th>Llega aprox.</th>
                 <th class="pr-r">Abierta</th>
-                <th class="pr-r">Pedido</th><th class="pr-r">Cajas</th><th class="pr-r" title="Las cajas en camino al costo de caja de hoy, sin IVA. En Abiertas en Kepler la misma OC sale con su total con IVA.">Valor sin IVA</th>
+                <th class="pr-r">Pedido</th><th class="pr-r">Cajas</th><th class="pr-r" title="Las cajas en camino al costo de caja de hoy, con el IVA y el IEPS de la ficha de Kepler. En Abiertas en Kepler la OC sale con su total del día en que se capturó.">Valor con impuestos</th>
               </tr></thead>
               <tbody>
                 @for (o of tranRows(); track o.folio + ':' + o.sucursal) {
@@ -1218,7 +1220,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <div class="pr-plan">
               <p class="pr-plan-tit">Vas a generar <strong>{{ p.total }}</strong> documento{{ p.total === 1 ? '' : 's' }}
                 · <strong>{{ p.renglones }}</strong> renglón{{ p.renglones === 1 ? '' : 'es' }}
-                @if (p.compras > 0) { · compra <strong>{{ money(p.montoCompra) }}</strong> con impuestos }@if (p.traspasos > 0) { · traspaso <strong>{{ money(p.montoTraspaso) }}</strong> al costo }@if (p.sinTasa > 0) { <span class="pr-muted">· {{ p.sinTasa }} renglón(es) sin tasa en Kepler van sin impuestos</span> }</p>
+                @if (p.compras > 0) { · compra <strong>{{ money(p.montoCompra) }}</strong> con impuestos }@if (p.traspasos > 0) { · traspaso <strong>{{ money(p.montoTraspaso) }}</strong> con impuestos }@if (p.sinTasa > 0) { <span class="pr-muted">· {{ p.sinTasa }} renglón(es) sin tasa en Kepler van sin impuestos</span> }</p>
               <table class="pr-plan-tbl">
                 <tbody>
                   @if (p.compras > 0) {
@@ -1294,7 +1296,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <p-button type="button" label="Cancelar" styleClass="p-button-sm p-button-text" (click)="cancelarPlan()" [disabled]="saving()"></p-button>
                 <!-- [PQ.28] Con permiso de autorizar, este clic ES la compra (D1): el botón lo dice con
                      cuánto y cuánto dinero. Sin permiso, dice que va a aprobación. -->
-                <p-button type="button" [label]="saving() ? 'Enviando…' : (repetido() ? 'Enviar de todos modos' : (puedeAutorizar ? 'Enviar a Kepler · ' + p.total + ' · ' + (p.compras > 0 ? money(p.montoCompra) + ' con impuestos' : money(p.montoTraspaso) + ' al costo') : 'Mandar a aprobación los ' + p.total))" icon="pi pi-check" [styleClass]="repetido() ? 'p-button-sm p-button-danger' : 'p-button-sm'" (click)="confirmarPlan()" [disabled]="saving() || planBloqueos().length > 0"></p-button>
+                <p-button type="button" [label]="saving() ? 'Enviando…' : (repetido() ? 'Enviar de todos modos' : (puedeAutorizar ? 'Enviar a Kepler · ' + p.total + ' · ' + (p.compras > 0 ? money(p.montoCompra) + ' con impuestos' : money(p.montoTraspaso) + ' con impuestos') : 'Mandar a aprobación los ' + p.total))" icon="pi pi-check" [styleClass]="repetido() ? 'p-button-sm p-button-danger' : 'p-button-sm'" (click)="confirmarPlan()" [disabled]="saving() || planBloqueos().length > 0"></p-button>
               </div>
             </div>
           }
@@ -1376,7 +1378,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <th title="Sucursales donde ya pasó la fecha o toca hoy.">Dónde</th>
                   <th class="pr-r" title="Cada cuántos días entrega, promedio de sus sucursales, derivado de sus entregas reales en Kepler. No se captura todavía.">Cadencia</th>
                   <th class="pr-r" title="SKUs de este proveedor, sumando sus sucursales, en o por debajo de su punto de reorden.">Bajo reorden</th>
-                  <th class="pr-r pr-val" title="Lo que costaría llenar el ciclo de todas sus sucursales, al costo sin IVA.">Sugerido sin IVA</th>
+                  <th class="pr-r pr-val" title="Lo que costaría llenar el ciclo de todas sus sucursales, con el IVA y el IEPS de la ficha de Kepler.">Sugerido con impuestos</th>
                   <th style="width:6rem"></th>
                 </tr>
               </ng-template>
@@ -1441,7 +1443,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <th title="Cuándo toca el próximo pedido: última entrega + cadencia.">Próximo</th>
                 <th class="pr-r" title="Días que lleva pasada la fecha. Negativo = todavía no toca.">Atraso</th>
                 <th class="pr-r" title="SKUs de este proveedor en esta sucursal que ya están en o por debajo de su punto de reorden.">Bajo reorden</th>
-                <th class="pr-r pr-val" title="Lo que costaría llenar el ciclo completo de este canal, al costo sin IVA.">Sugerido sin IVA</th>
+                <th class="pr-r pr-val" title="Lo que costaría llenar el ciclo completo de este canal, con el IVA y el IEPS de la ficha de Kepler.">Sugerido con impuestos</th>
                 <th style="width:6rem"></th>
               </tr>
             </ng-template>
@@ -1598,7 +1600,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               Sólo lo que se quedó
             </button>
             <span class="pr-count">
-              {{ sobTotal() | number }} renglones · {{ money(sobQuedadoValor()) }} sin IVA, al costo de hoy, sin salida
+              {{ sobTotal() | number }} renglones · {{ money(sobQuedadoValor()) }} con impuestos, al costo de hoy, sin salida
               <span class="pr-muted">(ventana {{ sobVentana() }} d)</span>
             </span>
           </div>
@@ -1614,7 +1616,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <ng-template #header>
               <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th>
                 <th class="pr-r">Exist.<br/>cajas</th>
-                <th class="pr-r pr-val">Valor sin IVA</th>
+                <th class="pr-r pr-val">Valor con impuestos</th>
                 <th class="pr-r" title="Días de cobertura al ritmo de venta de los últimos 30 días. «sin medir» = no hay venta: no es cero.">Cobertura</th>
                 <th>Última compra</th><th>Última salida</th><th>Proveedor</th></tr>
             </ng-template>
@@ -1659,7 +1661,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
           </p-iconfield>
-          @if (deadValue() > 0) { <span class="pr-count">{{ money(deadValue()) }} sin IVA inmovilizado</span> }
+          @if (deadValue() > 0) { <span class="pr-count">{{ money(deadValue()) }} con impuestos inmovilizado</span> }
           <p-button type="button" label="XLSX" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportDead()" [disabled]="dl() || !deadRows().length"></p-button>
         </div>
         <p-table [value]="deadRows()" [loading]="loading()"
@@ -1668,7 +1670,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           <ng-template #header>
             <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th>
               <th class="pr-r" title="Existencia en CAJAS. La cantidad en la unidad suelta del almacén va en el tooltip de la celda.">Exist.<br/>cajas</th>
-              <th class="pr-r">Costo sin IVA</th><th class="pr-r pr-val">Inmovilizado<br/>sin IVA</th><th>Última actividad</th><th>Proveedor</th></tr>
+              <th class="pr-r">Costo con impuestos</th><th class="pr-r pr-val">Inmovilizado<br/>con impuestos</th><th>Última actividad</th><th>Proveedor</th></tr>
           </ng-template>
           <ng-template #body let-r>
             <tr>
@@ -2803,7 +2805,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       const c = this.sumCajas(row);
       if (!(c > 0)) continue;
       const g = m.get(row.supplier_id) ?? { cajas: 0, monto: 0, productos: 0 };
-      g.cajas += c; g.monto += this.sumValor(row); g.productos++;
+      g.cajas += c; g.monto += this.sumValorCI(row); g.productos++;   // [PQ.164] el mínimo se mide con impuestos
       m.set(row.supplier_id, g);
     }
     return m;
@@ -3362,7 +3364,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const c = this.carrito();
     if (!c.productos) return null;
     return `${c.productos} producto${c.productos === 1 ? '' : 's'} · ${c.proveedores} proveedor${c.proveedores === 1 ? '' : 'es'} · comprar ${this.money(c.valor)} con impuestos`
-      + (c.traspaso > 0 ? ` · traspaso ${this.money(c.traspaso)} al costo` : '');
+      + (c.traspaso > 0 ? ` · traspaso ${this.money(c.traspaso)} con impuestos` : '');
   });
 
   /**
@@ -3736,7 +3738,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       const cur = porProv.get(r.supplier_id)
         ?? { nombre: r.supplier_name || '—', cajas: 0, monto: 0, minCajas, minMonto };
       cur.cajas += cajas;
-      cur.monto += this.sumValor(r);
+      cur.monto += this.sumValorCI(r);   // [PQ.164] el mínimo se mide con impuestos
       porProv.set(r.supplier_id, cur);
     }
     return [...porProv.entries()]
@@ -3890,7 +3892,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       destino: `${this.sucNom(b.code)}${seQueda ? ' (se queda)' : ''}`,
       vta: b.vta, exis: b.exis,
       diasActual: this.diasHoy(b), diasCon: this.diasInv(r, b),
-      valor: this.qtyOf(r, b) * b.cc,
+      valor: this.valorCI(r, b),   // [PQ.164]
     });
 
     // Un bloque por CEDIS que recibe consolidado (su propia sucursal "se queda", el resto baja por
@@ -3907,7 +3909,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     }));
 
     const cajas = this.sumCajas(r);
-    const importe = this.sumValor(r);
+    const importe = this.sumValorCI(r);   // [PQ.164]
     const costos = new Set(rows.map((b) => Math.round(b.cc * 100)));
 
     const avisos: string[] = [];
@@ -3954,7 +3956,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         uxc: Number(l.r.uxc), unidad: this.unidadBase(l.r), et: this.etOf(l.r),
         branchCode: l.b.code, branchName: l.b.name,
         entregaCode: to, entregaName: l.toCode ? this.nameOf(to) : l.b.name,
-        cajas: l.qty, valor: l.qty * l.b.cc,
+        cajas: l.qty, valor: this.valorCI(l.r, l.b),   // [PQ.164]
       };
     });
     const avisos: string[] = [];
@@ -4255,7 +4257,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   /** Filas por-sucursal (comprar/traspaso/sobre) del producto, ordenadas acción→sucursal
    *  (sucursal en el orden canónico PH · MA · MM · 8ESQ · LPA · YUR · CAN · Zamora · CEDIS). */
   detailRows(pid: string): URow[] { return this.detailMap().get(pid) ?? SIN_FILAS; }
-  prodTr(pid: string): number { return this.trasRows(pid).reduce((s, u) => s + u.qty * u.unit_cost, 0); }
+  prodTr(pid: string): number { return this.trasRows(pid).reduce((s, u) => s + u.qty * u.unit_cost_ci, 0); }   // [PQ.164]
 
   // ── [RA-NEG.2] EL DESGLOSE COMPACTO ─────────────────────────────────────────────────────────
   // Pedido del PM (2026-10-22): «¿es posible hacer que todo entre en una interfaz sin necesidad de
@@ -4330,7 +4332,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
   trasCeldaTitle(r: WorkbookRow, b: BranchBuy, u: URow): string {
     const cajas = Number(u.qty) || 0;
-    return `Le llegan ${uno(cajas)} ${this.etOf(r).mayor} desde ${this.sucNom(u.from_code)} (${this.money(cajas * u.unit_cost)}). `
+    return `Le llegan ${uno(cajas)} ${this.etOf(r).mayor} desde ${this.sucNom(u.from_code)} (${this.money(cajas * u.unit_cost_ci)}). `
       + `Se cambia en ${this.unitLabelBranch(r, b)}, la misma unidad que «Pedir». 0 = no traspasar.`;
   }
   /**
@@ -5174,8 +5176,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         : { label: 'A comprar', value: t.pedido, format: 'currency', tone: 'brand', sub: 'sin IVA · venta × cobertura' },
       // `[PQ.76]` Total del filtro completo (el del servidor). Antes era la suma de los primeros 500
       // renglones: medido el 2026-11-05, $3.5 M de $5.0 M en traspasos y $9.5 M de $13.2 M en sobrestock.
-      this.kpiDeLista('A traspasar', this.trTotal(), 'desde CEDIS · al costo, sin IVA'),
-      this.kpiDeLista('Sobrestock', this.ovTotal(), 'inmovilizado · al costo, sin IVA', 'warn'),
+      this.kpiDeLista('A traspasar', this.trTotal(), 'desde CEDIS · con impuestos'),
+      this.kpiDeLista('Sobrestock', this.ovTotal(), 'inmovilizado · con impuestos', 'warn'),
       // [PQ.74] «SKUs» salió: el paginador dice cuántos productos hay.
       // `[PQ.38]` Los dos operandos de «Días de existencia», a la vista y con los mismos filtros que
       // la tabla: la venta va A PRECIO (suma de «Valor venta»), la existencia AL COSTO (suma de
@@ -5241,7 +5243,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   /** `[PQ.38]` Al costo; si el peldaño dejó SKUs sin valuar, el total no los incluye y se dice. */
   valorExisSub(): string {
     const g = this.rungGap();
-    return g ? `al costo, sin IVA · faltan ${g.skus} SKU por valuar` : 'al costo sin IVA, hoy';
+    return g ? `con impuestos · faltan ${g.skus} SKU por valuar` : 'con impuestos, hoy';
   }
 
   diasInventarioSub(): string {
@@ -5609,6 +5611,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         supplier_id: r.supplier_id ?? null, supplier_name: r.supplier_name ?? null,
         from_code: null, from_warehouse_id: null, to_warehouse_id: null,
         uxc: Number(r.uxc) || 1, unit_cost: Number(r.unit_cost) || 0,
+        unit_cost_ci: conImpuestos(Number(r.unit_cost) || 0, this.impDe(r.product_id, r.warehouse_id)),
         qty: Math.round(Number(r.suggested_units) || 0), editable: true,
         on_hand: Number(r.on_hand_units) || 0, cover: r.days_cover ?? null, sell_daily: Number(r.sell_daily_cajas) || 0,
         deficit: 0, surplus: 0, days_on_hand: null,
@@ -5622,6 +5625,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         supplier_id: null, supplier_name: r.supplier_name ?? null,
         from_code: r.from_code ?? null, from_warehouse_id: r.from_warehouse_id ?? null, to_warehouse_id: r.to_warehouse_id ?? null,
         uxc: Number(r.uxc) || 1, unit_cost: Number(r.unit_cost) || 0,
+        unit_cost_ci: Number(r.unit_cost_ci ?? r.unit_cost) || 0,
         qty: Math.round(Number(r.transfer_cajas) || 0), editable: true,
         on_hand: 0, cover: null, sell_daily: 0, deficit: Number(r.deficit_cajas) || 0, surplus: 0, days_on_hand: null,
         fill_rate: null, abc_class: null, unit_source: undefined, buy: null,
@@ -5633,7 +5637,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         warehouse_code: r.warehouse_code || '—', warehouse_id: r.warehouse_id ?? null,
         supplier_id: null, supplier_name: r.supplier_name ?? null,
         from_code: null, from_warehouse_id: null, to_warehouse_id: null,
-        uxc: Number(r.uxc) || 1, unit_cost: Number(r.unit_cost) || 0,
+        uxc: Number(r.uxc) || 1, unit_cost: Number(r.unit_cost) || 0, unit_cost_ci: Number(r.unit_cost) || 0,
         qty: Math.round(Number(r.surplus_cajas) || 0), editable: false,
         on_hand: Number(r.on_hand_cajas) || 0, cover: null, sell_daily: 0, deficit: 0,
         surplus: Number(r.surplus_cajas) || 0, days_on_hand: r.days_on_hand ?? null,
@@ -5674,7 +5678,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     for (const r of this.flatRows()) {
       if (!pag.has(r.product_id)) continue;
       const g = m.get(r.warehouse_code) ?? { code: r.warehouse_code, name: this.nameOf(r.warehouse_code), buy: 0, tr: 0, over: 0, buyCj: 0, trCj: 0, n: 0 };
-      const val = r.qty * r.unit_cost;
+      const val = r.qty * r.unit_cost_ci;   // [PQ.164]
       if (r.type === 'comprar') { g.buy += val; g.buyCj += r.qty; }
       else if (r.type === 'traspaso') { g.tr += val; g.trCj += r.qty; }
       else g.over += val;
@@ -6363,8 +6367,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const traspasos = d.filter((x) => x.source_type === 'branch');
     const monto = (xs: CreateRequisitionDto[]) =>
       xs.reduce((s, x) => s + x.lines.reduce((t, l) => t + Number(l.final_qty || 0) * Number(l.unit_cost || 0), 0), 0);
-    // [PQ.162] La compra se paga con impuestos: cada renglón con la tasa de su almacén. El traspaso no
-    // se paga y queda al costo. Un renglón sin tasa (o fuera de las filas cargadas) entra sin
+    // [PQ.162] La compra se paga con impuestos: cada renglón con la tasa de su almacén. El traspaso
+    // también va con impuestos desde [PQ.164] («todo es con impuestos»). Un renglón sin tasa (o fuera de las filas cargadas) entra sin
     // impuestos y se CUENTA.
     let sinTasa = 0;
     const montoCI = (xs: CreateRequisitionDto[]) => xs.reduce((s, x) => s + x.lines.reduce((t, l) => {
@@ -6378,7 +6382,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       total: d.length,
       compras: compras.length, traspasos: traspasos.length,
       renglones: d.reduce((s, x) => s + x.lines.length, 0),
-      montoCompra, montoTraspaso: monto(traspasos), monto: monto(d), sinTasa,
+      montoCompra, montoTraspaso: montoCI(traspasos), monto: monto(d), sinTasa,
       proveedores: new Set(compras.map((x) => x.supplier_id || 'none')).size,
       // Lo que el comprador pregunta y la pantalla nunca contestó: DÓNDE entrega y A DÓNDE baja.
       entregas: [...new Set(compras.map((x) => codigo(x.warehouse_id)))].sort(),

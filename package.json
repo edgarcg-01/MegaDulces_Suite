@@ -128,7 +128,9 @@
     "check:suite-publica:self": "node scripts/check-suite-publica.js --self-test",
     "audit:memoria": "node scripts/audit-memoria.js",
     "check:cifra": "node scripts/check-cifra-recorrible.js",
-    "check:cifra:self": "node scripts/check-cifra-recorrible.js --self-test"
+    "check:cifra:self": "node scripts/check-cifra-recorrible.js --self-test",
+    "check:montos": "node scripts/check-monto-con-base.js",
+    "check:montos:self": "node scripts/check-monto-con-base.js --self-test"
   },
   "dependencies": {
     "@angular/cdk": "22.2.5",
