@@ -391,6 +391,8 @@ export function construirCorte(c: CorteCrudo, nombres: Record<string, string>): 
     // [CSU.8] Pasan tal cual: la clasificación la hace la vista, no esta capa. `null` cuando el
     // cobro no está en `analytics.erp_collections` — que es distinto de 'sin_declarar'.
     medio_cobro: x.medio_cobro ?? null, cuenta_tesoreria: x.cuenta_tesoreria ?? null,
+    // [CSU.29] La llegada la pone el servicio después (`anexarLlegadaYVenta`); hasta entonces, «no medido».
+    llegada: null,
   }));
   // [CSU.13] Se publican para VERLOS marcados; no tocan `cobrado` ni el saldo (ya los excluye la consulta).
   const cobros_cancelados: CorteCobroCancelado[] = (c.cobros_cancelados || []).map((x) => ({
@@ -420,6 +422,10 @@ export function construirCorte(c: CorteCrudo, nombres: Record<string, string>): 
     cuadre,
     diferencia,
     sin_cuadrar: sinCuadrar(cuadre, arqueo),
+    // [CSU.29] Los pone el servicio después (`anexarLlegadaYVenta`); hasta entonces, «no medido».
+    llegada: null,
+    venta_turno: null,
+    venta_sin_forma_de_pago: null,
   };
 }
 
@@ -483,6 +489,9 @@ export function armarRespuesta(
     },
     sucursales,
     cortes,
+    // [CSU.29] Los pone el servicio después (`anexarLlegadaYVenta`); hasta entonces, «no medido».
+    llegada: null,
+    venta_sin_forma_de_pago: null,
     // [CSU.20] Sólo los del periodo; el más reciente primero, como la lista.
     conteos_fuera_de_corte: fuera
       .filter((x) => x.fecha >= periodo.from && x.fecha <= periodo.to)

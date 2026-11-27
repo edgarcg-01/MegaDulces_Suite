@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Added — Cortes/Sucursales: cada corte dice dónde está hoy su dinero —en el banco, en Caja General o por qué todavía no se sabe— y las facturas de contado de su turno (CSU.26–31 · 2026-11-27)
+- Arriba, una frase responde «¿dónde está el dinero que vendió cada caja?»: cuánto de lo que Kepler aplicó a los cortes ya está en el banco o en Caja General, lo que todavía no se puede saber (con la cuenta y hasta qué día tiene Bancos su estado de cuenta), lo que está sin conciliar, lo que sigue sin depósito y la venta sin forma de pago. Cada número de la frase abre sus cortes.
+- Indicador nuevo, «Llegó a la empresa». Ése, «Pendiente de cobro» y «Sin cuadrar» filtran la lista al tocarlos, y la lista llega a su mismo número. «Mostrar» reemplaza a «Sólo con saldo»: 9 filtros, cada uno con su número.
+- En la lista, «¿Llegó?» reemplaza a «Cobro». El detalle del corte va en tres pasos: la venta del turno con sus facturas de contado (aunque se hayan facturado otro día), el arqueo como estaba, y cada depósito con el renglón del banco donde llegó o su entrada de Caja General. En celular y en el Fold se abre en un panel lateral.
+- «Corte distinto» se llama «Venta sin forma de pago» cuando la venta del turno lo explica (33 cortes del 1 al 25 de noviembre).
+- «Último cobro aplicado en Kepler» ya no publica una fecha futura que Kepler trae mal capturada: dice la última hasta hoy y avisa las que vienen después.
+- Internal: el testigo es la conciliación de Bancos (`bank_recon_matches`), no un pareo propio; `GET /finance/cortes-sucursales/facturas` con el mismo permiso (`FINANCE_CORTES_VER`) y alcance por sucursal que la lista; sin migración. Lo «por saber» es casi todo Santander 1604, cuyo estado de cuenta Bancos tiene sólo hasta el 10 de noviembre (lo destraba BFU, no esta pantalla), e incluye los depósitos del último día de cada estado de cuenta, que suele venir cortado (en 7 de 16 cuentas trae menos de la mitad de los abonos de un día hábil).
+
 ### Added — Almacén › Ubicaciones: el croquis de la sucursal se configura entero desde la pantalla (UB.PL.11–UB.PL.13 · 2026-11-27)
 - El croquis ya no decide por la tienda. Se agregan y se quitan caras a un mueble (hasta cuatro: una isla se ve por los cuatro costados), se dice qué racks lleva cada una (nones, pares, todos, un tramo, o ninguno), y se cambia qué es la pieza, cómo se llama y cuántos racks y niveles tiene.
 - «Ninguno» es para lo que no guarda códigos: un refrigerador, una caja, una columna. Van al croquis para ubicarse.

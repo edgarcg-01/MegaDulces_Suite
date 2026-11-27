@@ -1,11 +1,18 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
   TenantKnexService, TenantContextService, ScopeService, branchName,
   ligarPorCaptura, llaveTurnoFechado, type ConteoFechado, type TurnoFechado,
 } from '@megadulces/platform-core';
-import type { CortesAlcance, CortesSucursalesResponse } from '@megadulces/contracts';
+import type {
+  CobroLlegada, CorteMedioCobro, CortesAlcance, CortesSucursalesResponse, FacturasContadoResponse,
+} from '@megadulces/contracts';
+import { SQL_FACTURAS_CONTADO, armarFacturas, facturaDeContado, parametrosFacturas, type FacturaCruda } from './facturas-de-contado';
 import { armarRespuesta, type ConteoCajeroCrudo, type ConteoFueraCrudo, type CorteCrudo } from './cortes-sucursales.engine';
+import {
+  SQL_LLEGADA, clasificarLlegada, llaveDeDocumento, llaveDeposito, parametrosLlegada, type EvidenciaCruda,
+} from './llegada-al-banco';
+import { SQL_VENTA_TURNO, anexarLlegadaYVenta, type VentaTurnoCruda } from './llegada-del-corte';
 
 /**
  * `[CSU.1]` Cortes/Sucursales — lectura pura sobre el ODS, sin importer (derive-no-copy).
@@ -312,7 +319,7 @@ export class CortesSucursalesService {
     if (!alcance.todas && alcance.sucursales.length === 0) return armarRespuesta([], {}, periodo, alcance);
     const codigos = alcance.sucursales.map((x) => x.codigo);
     const t0 = Date.now();
-    return this.tk.run(async (trx) => {
+    const resp = await this.tk.run(async (trx) => {
       const r = await trx.raw(SQL, [periodo.from, periodo.to, alcance.todas, codigos, periodo.from, periodo.to, tenantId]);
       const filas = r.rows as CorteCrudo[];
       await this.completarCobros(trx, tenantId, filas);
@@ -340,10 +347,93 @@ export class CortesSucursalesService {
         }
         for (const f of filas) if (f.cajero_cierre) f.cajero_nombre = porClave.get(`${f.sucursal}|${f.cajero_cierre}`) ?? null;
       }
-      const resp = armarRespuesta(filas, nombres, periodo, alcance, fuera);
-      this.logger.debug(`cortes ${periodo.from}..${periodo.to}: ${resp.totales.cortes} en ${Date.now() - t0} ms`);
-      return resp;
+      const armada = armarRespuesta(filas, nombres, periodo, alcance, fuera);
+      this.logger.debug(`cortes ${periodo.from}..${periodo.to}: ${armada.totales.cortes} en ${Date.now() - t0} ms`);
+      return armada;
     });
+    await this.anexarFacturaAlBanco(tenantId, resp, periodo);
+    return resp;
+  }
+
+  /**
+   * `[CSU.30]` Facturas de contado (`U-D-5`, `U-D-12`) por tipo, con sus notas de crédito y el corte de su turno —y si
+   * el dinero de ese corte llegó—. Los cortes son los de `list()` del periodo ±1 día (la MISMA respuesta de la pestaña
+   * Cortes, con su llegada): una factura cuyo ticket es de fuera sale `otro_periodo`, no «sin corte».
+   * Mismo permiso y mismo alcance por sucursal (CSU.6): pedir una sucursal fuera del alcance es 403.
+   */
+  async facturas(q: CortesQuery & { sucursal?: string; corte?: string }): Promise<FacturasContadoResponse> {
+    const periodo = this.periodo(q);
+    const sucursal = q.sucursal?.trim() || null;
+    if (sucursal && !/^\d{2}$/.test(sucursal)) throw new BadRequestException('"sucursal" es el código de dos dígitos (ej. 08).');
+    const alcance = await this.alcance();
+    if (sucursal && !alcance.todas && !alcance.sucursales.some((s) => s.codigo === sucursal)) {
+      throw new ForbiddenException('Esa sucursal no está en tu alcance.');
+    }
+    const corte = q.corte?.trim() || null;
+    const rango = { desde: masDias(periodo.from, -1), hasta: masDias(periodo.to, 1) };
+    const cortes = await this.list({ from: rango.desde, to: rango.hasta });
+    const sucs = sucursal ? [sucursal] : [...new Set(cortes.cortes.map((c) => c.sucursal))];
+    const tenantId = this.tenantCtx.requireTenantId();
+    const t0 = Date.now();
+    const crudas = sucs.length
+      ? await this.tk.run(tenantId, async (trx) => (await trx.raw(SQL_FACTURAS_CONTADO, parametrosFacturas(periodo.from, periodo.to, sucs))).rows as FacturaCruda[])
+      : [];
+    const resp = armarFacturas(crudas.map(facturaDeContado), cortes.cortes, {
+      periodo, alcance, sucursal, corte, rango, llegada_medida: cortes.llegada !== null,
+    });
+    this.logger.debug(`[CSU.30] facturas ${periodo.from}..${periodo.to}: ${resp.facturas.length} en ${Date.now() - t0} ms (más los cortes)`);
+    return resp;
+  }
+
+  /**
+   * `[CSU.29]` Anexo FB: la llegada de cada depósito (CSU.26) y la venta del turno (CSU.27), colgadas de la respuesta.
+   * Las dos consultas corren EN PARALELO, cada una en su conexión: medido en prod (1–25 nov, la red), 314 ms y 369 ms.
+   * ⛔ Si una falla, su parte queda `null` («no medido») y la pantalla de siempre sigue: una función nueva no tumba
+   * la vieja (ADR-056: lo que no se pudo medir se declara, no se pinta como cero).
+   */
+  private async anexarFacturaAlBanco(
+    tenantId: string, resp: CortesSucursalesResponse, periodo: { from: string; to: string },
+  ): Promise<void> {
+    const deps = new Map<string, { sucursal: string; doc_prefix: string; folio: string; medio: CorteMedioCobro | null }>();
+    for (const c of resp.cortes) {
+      for (const b of c.cobros) {
+        const k = `${c.sucursal}|${b.doc_prefix}|${b.folio}`;
+        if (!deps.has(k)) deps.set(k, { sucursal: c.sucursal, doc_prefix: b.doc_prefix, folio: b.folio, medio: b.medio_cobro });
+      }
+    }
+    const sucs = [...new Set(resp.cortes.map((c) => c.sucursal))];
+    const t0 = Date.now();
+    const [llegadas, ventas] = await Promise.all([
+      this.medirLlegadas(tenantId, [...deps.values()]),
+      sucs.length
+        ? this.tk.run(async (trx) => (await trx.raw(SQL_VENTA_TURNO, [periodo.from, periodo.to, sucs])).rows as VentaTurnoCruda[])
+          .catch((e: unknown) => { this.logger.warn(`[CSU.29] venta del turno NO medida: ${(e as Error)?.message}`); return null; })
+        : Promise.resolve([] as VentaTurnoCruda[]),
+    ]);
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    anexarLlegadaYVenta(resp, llegadas, ventas, hoy);
+    this.logger.debug(`[CSU.29] anexo FB: ${deps.size} depósitos, ${sucs.length} sucursales en ${Date.now() - t0} ms`);
+  }
+
+  /** `[CSU.26]` La clase de cada depósito por `sucursal|doc_prefix|folio`; `null` si la consulta falló. */
+  private async medirLlegadas(
+    tenantId: string, deps: Array<{ sucursal: string; doc_prefix: string; folio: string; medio: CorteMedioCobro | null }>,
+  ): Promise<Map<string, CobroLlegada> | null> {
+    if (!deps.length) return new Map();
+    try {
+      const ev = await this.tk.run(async (trx) => (await trx.raw(SQL_LLEGADA, parametrosLlegada(deps, tenantId))).rows as EvidenciaCruda[]);
+      const porLlave = new Map(ev.map((e) => [llaveDeposito(e.sucursal, Number(e.c4), Number(e.c5), e.folio), e]));
+      const out = new Map<string, CobroLlegada>();
+      for (const d of deps) {
+        const k = llaveDeDocumento(d.doc_prefix);
+        const e = k ? porLlave.get(llaveDeposito(d.sucursal, k.c4, k.c5, d.folio)) ?? null : null;
+        out.set(`${d.sucursal}|${d.doc_prefix}|${d.folio}`, clasificarLlegada(d.medio, e));
+      }
+      return out;
+    } catch (e) {
+      this.logger.warn(`[CSU.29] llegada al banco NO medida: ${(e as Error)?.message}`);
+      return null;
+    }
   }
 
   /**
