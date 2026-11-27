@@ -3929,6 +3929,15 @@ export interface InventoryCountSession {
   interrupt_seconds: number;
 }
 
+/** `[IC.F24]` Una unidad en que se puede contar un producto, con su factor contra la nativa. */
+export interface UnidadDeConteo {
+  unit: string;
+  /** Unidades NATIVAS por cada una de ésta. La nativa vale 1. */
+  factor: number;
+  /** `true` si es la del código que viene con el SKU: la unidad del teórico. */
+  es_nativa: boolean;
+}
+
 export interface ResolvedProduct {
   product_id: string;
   sku: string | null;
@@ -3936,6 +3945,14 @@ export interface ResolvedProduct {
   brand_name: string | null;
   location: string | null;
   unit_sale: string | null;
+  /**
+   * `[IC.F24]` La unidad del código que viene con el SKU — la misma en que está el teórico.
+   * `null` cuando el producto no tiene código primario (15 % de los artículos): entonces la
+   * pantalla lo DECLARA en vez de suponer una.
+   */
+  unit_default?: string | null;
+  /** Todas las unidades en que ese SKU tiene código de barras. */
+  units_available?: UnidadDeConteo[];
 }
 
 export interface InventoryCountResult {
@@ -4016,6 +4033,14 @@ export interface InventoryCountItem {
   notes: string | null;
   reason_code: string | null;
   cost_base: number | string | null;
+  /**
+   * `[IC.F24]` En qué unidad DIJO contar cada persona. Las cifras de `count_N` ya vienen
+   * normalizadas a la unidad del teórico; esto es el testigo de la conversión, para que el
+   * supervisor no resuelva una diferencia sin saber que alguien contó en cajas.
+   */
+  count_1_unit?: string | null;
+  count_2_unit?: string | null;
+  count_3_unit?: string | null;
 }
 
 /** [IC.0] Un evento de conteo físico de Kepler (almacén × fecha) con su descuadre. */

@@ -42,6 +42,13 @@ export interface InventoryCountItemRow {
   notes: string | null;
   reason_code: string | null;
   cost_base: string | number | null;
+  /**
+   * `[IC.F24]` En qué unidad DIJO contar cada persona. `count_N` ya viene normalizado a la
+   * unidad del teórico; esto es el testigo de la conversión. `null` = no se declaró.
+   */
+  count_1_unit: string | null;
+  count_2_unit: string | null;
+  count_3_unit: string | null;
 }
 
 /**
@@ -155,6 +162,21 @@ export interface SubmitCountDto {
   /** OFF.0 — fase (1|2) en que se CAPTURÓ el escaneo, para colocar el slot
    *  correcto al sincronizar aunque el folio ya haya avanzado de fase. */
   capture_pass?: number;
+  /**
+   * `[IC.F24]` La unidad en que la persona dice haber contado (`PAQ`, `CJA`, `PZA`…).
+   * Si no viene, se usa la del código que trae el SKU — que es la unidad NATIVA, la misma
+   * del teórico. Si viene otra, la cantidad se normaliza con su factor antes de guardarse.
+   */
+  unit?: string;
+}
+
+/** `[IC.F24]` Una unidad en que se puede contar un producto, con su factor contra la nativa. */
+export interface UnidadDeConteo {
+  unit: string;
+  /** Unidades NATIVAS por cada una de ésta. La nativa vale 1. */
+  factor: number;
+  /** `true` si es la del código que viene con el SKU (`is_primary`): la nativa. */
+  es_nativa: boolean;
 }
 
 export interface ResolveItemDto {
@@ -679,6 +701,32 @@ export class InventoryCountService {
       // un count_1 encolado no se desvía a count_2 si el folio avanzó (preserva el
       // doble-conteo ciego en replay). Online (sin capture_pass) = igual que antes.
       const patch: Record<string, any> = { updated_at: trx.fn.now(), updated_by: uid };
+
+      // ⛔⛔ `[IC.F24]` **La cantidad se normaliza a la unidad NATIVA antes de guardarse.**
+      //
+      // `count_N` sigue viviendo en la misma unidad que `expected_qty`, así que todo lo que
+      // compara contra el teórico —varianza, cobertura, el valor en riesgo, el cierre— sigue
+      // funcionando sin tocarse. Lo que se agrega es el TESTIGO: qué unidad declaró la
+      // persona y con qué factor se convirtió.
+      //
+      // Sin unidad declarada y sin nativa conocida, el factor es 1 y la unidad queda NULL:
+      // se comporta exactamente como antes y **se ve** que nadie declaró nada.
+      const { nativa, opciones } = await this.unidadesDeConteo(trx, productId, productSku);
+      const pedida = (dto.unit ?? '').trim().toUpperCase();
+      let unidadUsada: string | null = nativa?.unit ?? null;
+      let factorUsado = 1;
+      if (pedida) {
+        const elegida = opciones.find((o) => o.unit.toUpperCase() === pedida);
+        if (!elegida)
+          throw new BadRequestException(
+            opciones.length
+              ? `Este producto no se cuenta en '${pedida}'. Sus unidades son: ${opciones.map((o) => o.unit).join(', ')}.`
+              : `Este producto no tiene unidades declaradas, así que no se puede contar en '${pedida}'.`,
+          );
+        unidadUsada = elegida.unit;
+        factorUsado = elegida.factor;
+      }
+      const cantidad = +(dto.quantity * factorUsado).toFixed(3);
       const livePass = Number(count.current_pass) || 1;
       const cp = dto.capture_pass === 1 || dto.capture_pass === 2 ? dto.capture_pass : null;
       const effectivePass = cp ?? livePass;
@@ -693,7 +741,9 @@ export class InventoryCountService {
             'No puedes hacer el tercer conteo (desempate) de un SKU que tú mismo contaste antes.',
           );
         slot = 'count_3';
-        patch.count_3 = dto.quantity;
+        patch.count_3 = cantidad;
+        patch.count_3_unit = unidadUsada;
+        patch.count_3_factor = factorUsado;
         patch.counted_by_3 = uid;
         patch.counted_at_3 = trx.fn.now();
       } else if (effectivePass >= 2) {
@@ -709,7 +759,9 @@ export class InventoryCountService {
             'Este SKU ya tiene un segundo conteo de otra persona; no se puede sobrescribir. Pide un reconteo de desempate.',
           );
         slot = 'count_2';
-        patch.count_2 = dto.quantity;
+        patch.count_2 = cantidad;
+        patch.count_2_unit = unidadUsada;
+        patch.count_2_factor = factorUsado;
         patch.counted_by_2 = uid;
         patch.counted_at_2 = trx.fn.now();
       } else {
@@ -719,7 +771,9 @@ export class InventoryCountService {
             'Este SKU ya tiene un primer conteo de otra persona; no se puede sobrescribir.',
           );
         slot = 'count_1';
-        patch.count_1 = dto.quantity;
+        patch.count_1 = cantidad;
+        patch.count_1_unit = unidadUsada;
+        patch.count_1_factor = factorUsado;
         patch.counted_by_1 = uid;
         patch.counted_at_1 = trx.fn.now();
       }
@@ -789,6 +843,11 @@ export class InventoryCountService {
         product_name: name,
         location: loc,
         quantity: dto.quantity,
+        /** `[IC.F24]` Lo que se guardó, y en qué unidad: el testigo de la conversión. */
+        unit: unidadUsada,
+        unit_factor: factorUsado,
+        quantity_native: cantidad,
+        units_available: opciones,
       };
     });
     // OFF.0 — no re-emitimos en replays idempotentes (ya se emitió la 1ra vez).
@@ -1239,6 +1298,9 @@ export class InventoryCountService {
           const cat = inv.categoria
             ? await trx('catalog.categories').where({ code: inv.categoria }).first('name')
             : null;
+          // `[IC.F24]` En qué unidad se cuenta: la del código que trae el SKU, y las demás
+          // como opción. Sin primario no se inventa una — la pantalla lo declara.
+          const un = await this.unidadesDeConteo(trx, null, inv.sku);
           return {
             product_id: null,
             sku: inv.sku,
@@ -1246,6 +1308,8 @@ export class InventoryCountService {
             barcode: inv.codigo_barras,
             brand_name: null,
             category_name: cat?.name ?? null,
+            unit_default: un.nativa?.unit ?? null,
+            units_available: un.opciones,
             location: null,
             unit_sale: inv.unidad_venta ?? null,
             source: 'inventory',
@@ -1265,11 +1329,15 @@ export class InventoryCountService {
       const brand = prod.brand_id
         ? await trx('public.brands').where({ id: prod.brand_id }).first()
         : null;
+      // `[IC.F24]` Misma regla en las dos ramas, para que la pantalla no tenga que adivinar.
+      const un = await this.unidadesDeConteo(trx, prod.id, prod.sku);
       return {
         product_id: prod.id,
         sku: prod.sku,
         product_name: prod.nombre,
         brand_name: brand?.nombre ?? null,
+        unit_default: un.nativa?.unit ?? null,
+        units_available: un.opciones,
         // Acá `brand_name` SÍ es la marca (`public.brands`). La categoría se manda en su
         // propio campo para que las dos ramas tengan la misma forma y nadie lea una por otra.
         category_name: null,
@@ -1340,6 +1408,48 @@ export class InventoryCountService {
         )
         .limit(20000);
     });
+  }
+
+  /**
+   * `[IC.F24]` **En qué unidades se puede contar este producto, y cuál es la de por defecto.**
+   *
+   * Sale de `catalog.product_barcodes`, que tiene una fila por código de barras con su unidad
+   * y su factor. Lo medido en prod el 2026-11-27, que es lo que autoriza a usarla así:
+   *   · los **7,109** códigos `is_primary` son **TODOS** `kepler_base` y **TODOS** con factor 1
+   *     ⇒ el código que viene con el SKU **nombra la unidad nativa**, la misma del teórico;
+   *   · de los 55 productos con dos primarios, **0 difieren en unidad** ⇒ el desempate no es
+   *     una moneda al aire;
+   *   · cobertura: **2,849 de 3,364** artículos del folio tienen primario, y **556** tienen
+   *     más de una unidad — ésos son los que hoy se podían contar mal en silencio.
+   *
+   * ⚠️ El factor de acá **NO** es el `display_box_factor` del ERP: se cruzaron y coinciden en
+   * 21 de 511 (4.1 %). Por eso sólo se usan las razones INTERNAS de esta tabla, que sí son
+   * consistentes entre sí, y nunca se mezclan las dos fuentes.
+   *
+   * Sin primario (15 % de los artículos) **no se inventa una unidad**: se devuelve `null` y
+   * la pantalla lo declara. Un relleno sería el mismo defecto que esto arregla.
+   */
+  async unidadesDeConteo(
+    trx: TrxConRaw,
+    productId: string | null | undefined,
+    sku: string | null | undefined,
+  ): Promise<{ nativa: UnidadDeConteo | null; opciones: UnidadDeConteo[] }> {
+    if (!productId && !sku) return { nativa: null, opciones: [] };
+    const { rows } = await trx.raw(
+      `SELECT DISTINCT ON (b.unit) b.unit, b.factor::float8 AS factor, b.is_primary
+         FROM catalog.product_barcodes b
+        WHERE b.deleted_at IS NULL AND b.unit IS NOT NULL
+          AND (b.product_id = ?::uuid OR (?::uuid IS NULL AND b.sku = ?))
+        ORDER BY b.unit, b.is_primary DESC NULLS LAST, b.factor ASC`,
+      [productId ?? null, productId ?? null, sku ?? null],
+    );
+    const filas = (rows ?? []) as unknown as { unit: string; factor: number; is_primary: boolean }[];
+    const opciones: UnidadDeConteo[] = filas.map((f) => ({
+      unit: f.unit,
+      factor: Number(f.factor) > 0 ? Number(f.factor) : 1,
+      es_nativa: f.is_primary === true,
+    }));
+    return { nativa: opciones.find((o) => o.es_nativa) ?? null, opciones };
   }
 
   /**
@@ -1414,6 +1524,11 @@ export class InventoryCountService {
           'i.notes',
           'i.reason_code',
           'p.cost_base',
+          // `[IC.F24]` El testigo de en qué unidad se contó, para que el supervisor no
+          // resuelva una diferencia sin saber que alguien contó en cajas.
+          'i.count_1_unit',
+          'i.count_2_unit',
+          'i.count_3_unit',
         )
         .orderByRaw(`CASE i.status WHEN 'discrepancy' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END`)
         .orderByRaw('COALESCE(p.nombre, ip.nombre) ASC')

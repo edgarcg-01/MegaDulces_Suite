@@ -592,7 +592,7 @@ almacén ubicado al **1.2 %** — y recién ahora se puede trabajar en eso.
 |---|:---:|---|---|
 | **F24** | 🔴🔴 | **El teórico del folio está en PAQUETES y el contador no lo sabe.** `expected_qty` sale de `v_erp_stock_on_hand.qty_stock_units`, que [`UNIDADES_DE_MEDIDA.md` §341](../UNIDADES_DE_MEDIDA.md) documenta como **«paquetes (crudo, a propósito)»**. El folio **sí estampa** el factor de caja al abrirse (ADR-057), pero **`unit_label` viene NULL en los 7 folios**, y ni la pantalla del contador ni la del supervisor nombran la unidad: el campo dice «Cantidad física», a secas. Si quien cuenta toma **cajas** donde el sistema espera paquetes, la varianza se equivoca por el factor —hasta **1,000×**— y el cierre escribe el ajuste con esa diferencia. | Prod, 2026-11-27, sólo lectura. `INV-2026-00010`: **3,363 de 3,364** traen `unit_factor`, todos con `unit_source` = kepler, rango **1 a 1,000**; **3,146** tienen factor > 1, **2,596 (77 %)** ≥ 12 y **210** ≥ 100. `unit_label`: **0 de 22,209** ítems en los 7 folios. Los otros 6 folios no tienen ni factor (0 de ~17 k). En el fuente, buscando `unit_label`, `unit_factor` y `unidad` en `comercial-inventory-count.component.ts` y `comercial-inventory-session-detail.component.ts`: **cero coincidencias en las dos**. Ejemplos del folio: `CLORETS 5 S TIPO AMERICANO` teórico **10,088** con 960 por caja (contando cajas daría **10.5**); `CH WRIGLEY S DOUBLEMINT` 10,272 con 800 (**12.8**). |
 
-⛔ **NO se arregló a propósito, y la razón es la regla misma.** Mostrar una unidad supuesta es
+⛔ **No se arregló de entrada, y la razón es la regla misma.** Mostrar una unidad supuesta es
 cometer el error que el hallazgo denuncia. Primero se decide **en qué unidad cuenta la gente en**
 **el piso** —preguntándole a quien cuenta, no deduciéndolo— y recién entonces la pantalla la
 muestra: o el rótulo de la unidad nativa, o el teórico convertido a lo que la persona tiene
@@ -627,17 +627,42 @@ artículos del folio que tienen un código `CJA` y además factor del ERP, el fa
 `display_box_factor` **coinciden en 21 — el 4.1 %**. Ejemplo: `44174 GALL EXH PAKETIN SURTIDO`,
 el código dice 1 por caja y el ERP dice 2.
 
-⭐ **Entonces el diseño no puede ser «el código dice la unidad y el sistema convierte solo».** La
-primera mitad sí; la segunda convertiría con un número que discrepa 96 veces de cada 100. Lo que
-sí se puede hacer, y es lo correcto de todos modos (ADR-056):
+#### ⭐⭐ La medición que lo destrabó, y que CORRIGE lo escrito arriba
 
-1. El escaneo **propone** la unidad de su código, y el contador puede cambiarla.
-2. Se guarda **qué se contó y en qué unidad**, textual, sin convertir.
-3. Si la unidad contada no es la del teórico, **la varianza no se calcula**: se declara que falta
-   convertir, en vez de publicar un número que finge que sabemos el factor.
+⛔ **Dos párrafos de esta sección decían que la unidad de conteo «no se puede derivar». Es**
+**falso, y lo refutó una medición mejor** (prod, 2026-11-27). Lo que fallaba eran mis dos
+primeros intentos, no la idea:
 
-Resolver el peldaño contra la escalera del ODS —y no contra esta tabla derivada— es el trabajo
-de fondo, y es una decisión de dato, no de pantalla.
+| Intento | Resultado |
+|---|---|
+| `products.unit_sale` como unidad nativa | ⛔ refutado: los `CJA` deberían tener factor 1 y sólo el 35 % lo tiene |
+| El `factor` del código contra el del ERP | ⛔ refutado: coinciden en 21 de 511 (4.1 %) |
+| **El código `is_primary` como unidad nativa** | ✅ **confirmado, sin excepciones** |
+
+Los **7,109** códigos `is_primary` son **TODOS** `kepler_base` y **TODOS** con `factor = 1`. O
+sea que el código que viene con el SKU **nombra la unidad nativa**, que es la del teórico — la
+etiqueta que faltaba. Sus unidades: **PAQ 5,656 · PZA 1,294 · KG 128 · CJA 13**. Y de los 55
+productos con dos primarios, **0 difieren en unidad**: el desempate no es una moneda al aire.
+
+Los códigos NO primarios traen su factor **contra esa misma base**, así que `cantidad × factor`
+normaliza **sin salir de la escalera** y sin tocar el factor del ERP, que es el que discrepa.
+Las dos refutaciones de arriba siguen valiendo: lo que no se puede es **mezclar** las fuentes.
+
+**Arreglado el 2026-11-27.** Migración `20261127102512_ic_f24_unidad_del_conteo`: cada ranura de
+conteo guarda `count_N_unit` y `count_N_factor`. `count_N` **sigue en la unidad del teórico**,
+así que varianza, cobertura, valor en riesgo y cierre no se tocan; lo nuevo es el testigo de la
+conversión (ADR-056). En la pantalla del contador la unidad se nombra antes de teclear, con
+selector cuando el producto tiene más de una (556 de 3,364); sin código primario (15 %) **no se**
+**inventa una**: se declara. La unidad viaja también por la cola offline, así que un conteo sin
+red llega con la suya. Y el supervisor la ve al resolver: «se contó en CJA; las cifras ya están
+convertidas».
+
+⚠️ **NO MEDIDO:** la migración no se probó contra una base real (no hay Postgres local en esta
+máquina y Docker no responde). Es idempotente por construcción (`hasColumn`), todas sus columnas
+son NULLABLE y trae `down`, pero **eso es razonamiento, no una prueba**.
+
+⚠️ Dos cosas sueltas que aparecieron al medir, sin dueño todavía: hay **3,658 códigos sin
+`product_id`** (no se pueden atribuir a nada) y `wincaja` no se sincroniza desde el **2026-11-10**.
 
 ⚠️ Dos cosas sueltas que aparecieron al medir, sin dueño todavía: hay **3,658 códigos sin
 `product_id`** (no se pueden atribuir a nada) y `wincaja` no se sincroniza desde el **2026-11-10**.

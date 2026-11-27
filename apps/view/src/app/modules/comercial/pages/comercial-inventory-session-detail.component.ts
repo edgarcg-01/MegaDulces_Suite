@@ -386,6 +386,17 @@ interface LiveCountEntry {
           <div class="in-form">
             <p class="in-resolve-name">{{ resolveItem()?.product_name }}</p>
             <p class="in-resolve-meta">Teórico: <b>{{ resolveItem()?.expected_qty | number: '1.0-3' }}</b> · C1: {{ (resolveItem()?.count_1 | number: '1.0-3') ?? '—' }} · C2: {{ (resolveItem()?.count_2 | number: '1.0-3') ?? '—' }} · C3: {{ (resolveItem()?.count_3 | number: '1.0-3') ?? '—' }}</p>
+            <!--
+              [IC.F24] Si alguien conto en OTRA unidad, se dice aca y no en un tooltip: es el
+              dato que decide si la diferencia es real o es una conversion. Las cifras de
+              arriba ya estan normalizadas a la unidad del teorico; esto declara de donde salen.
+            -->
+            @if (unidadesDeclaradas().length) {
+              <p class="in-resolve-unidad">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                <span>Se contó en {{ unidadesDeclaradas().join(' · ') }}; las cifras de arriba ya están convertidas.</span>
+              </p>
+            }
             <label>Cantidad física final</label>
             <p-inputnumber appCantidadFisica [(ngModel)]="resolveQty" [min]="0" styleClass="in-w-full"></p-inputnumber>
             <label>Motivo de la varianza</label>
@@ -463,6 +474,11 @@ interface LiveCountEntry {
     :host ::ng-deep .in-w-full { width: 100%; }
     .in-resolve-name { font-weight: 600; margin: 0; }
     .in-resolve-meta { color: var(--text-muted, #78716c); font-size: .85rem; margin: .25rem 0 0; }
+    /* [IC.F24] Es una aclaracion del dato, no una alarma: texto secundario con su icono. */
+    .in-resolve-unidad {
+      margin: var(--sp-1) 0 0; display: flex; gap: var(--sp-2); align-items: baseline;
+      color: var(--text-muted, #78716c); font-size: var(--fs-sm);
+    }
     .in-interrupt { background: var(--card-bg); border: 1px solid var(--surface-200,#e7e5e4); border-radius: 12px; padding: .85rem 1rem; margin-bottom: 1rem; }
     .in-interrupt-head { display: flex; align-items: center; gap: .5rem; font-weight: 600; margin-bottom: .6rem; }
     .in-interrupt-head i { color: var(--orange-500,#f97316); }
@@ -695,6 +711,20 @@ export class ComercialInventorySessionDetailComponent {
     { label: 'Contados', value: 'counted' },
     { label: 'Pendientes', value: 'pending' },
   ];
+
+  /**
+   * `[IC.F24]` Las unidades que declararon los contadores de ESTE artículo, sin repetir.
+   * Vacío cuando los tres contaron en la nativa (o no declararon): entonces no se dice nada,
+   * porque no hay nada que aclarar.
+   */
+  readonly unidadesDeclaradas = computed<string[]>(() => {
+    const it = this.resolveItem();
+    if (!it) return [];
+    const us = [it.count_1_unit, it.count_2_unit, it.count_3_unit].filter(
+      (u): u is string => typeof u === 'string' && u.length > 0,
+    );
+    return Array.from(new Set(us));
+  });
 
   resolveVisible = signal(false);
   resolveItem = signal<InventoryCountItem | null>(null);

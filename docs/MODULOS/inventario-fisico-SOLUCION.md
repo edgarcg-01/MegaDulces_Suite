@@ -47,7 +47,7 @@ Lo que falta está en §3.
 
 | Capa | Estado | Qué falta para cerrarla |
 |---|---|---|
-| **C0 · dato** | ⛔ **no cerrada** | **F24**: la unidad está estampada y **no se muestra** · el catálogo duplicado (frente B) sigue intacto |
+| **C0 · dato** | 🟡 **F24 cerrado el 27**; falta el catálogo duplicado | la unidad ya se nombra y se elige (código `is_primary` del SKU) · el catálogo duplicado (frente B) sigue intacto, y es de otra área |
 | **C1 · dominio** | 🟡 revisada LEYENDO | ninguna escritura se ejerció contra base real con el payload de la pantalla (regla 13) |
 | **C2 · API** | 🟡 permisos sí | `reconcile` y `kepler-export` **nunca corrieron**: 0 folios cerrados y 0 exportaciones en 9 meses |
 | **C3 · interfaz** | ⛔ **no vista** | ninguna pantalla se abrió viva; las compuertas verifican PRESENCIA, no verdad |
@@ -56,9 +56,14 @@ Lo que falta está en §3.
 que se valora la varianza (**99.9 %** de cobertura en `INV-2026-00010` contra
 `v_erp_unit_cost`; 70.3 % en el folio viejo) y la ubicación, que desde F23 sale del catálogo real.
 
-⛔ **El orden importa y lo dice el método:** mientras C0 tenga F24 abierto, lo verde de C1, C2 y
-C3 no significa que el módulo esté bien — significa que está bien **construido sobre un dato que**
-**la persona no puede interpretar**. Los tres defectos más graves de toda la auditoría (un 403
+⭐ **F24 se cerró el 2026-11-27** con la vía que indicó Edgar: la unidad por defecto es la del
+código que viene con el SKU y el contador puede cambiarla. Lo que destrabó el diseño fue medir
+que los **7,109** códigos `is_primary` son todos `kepler_base` con factor 1 — o sea que ese
+código **nombra la unidad nativa**. Dos intentos anteriores míos quedaron refutados y están
+escritos como tales en `inventario-fisico.md`.
+
+⛔ **El orden importa y lo dice el método:** lo verde de C1, C2 y C3 no significa que el módulo
+esté bien si C0 no lo está. Los tres defectos más graves de toda la auditoría (un 403
 pintado como ceros, un rótulo que nombraba una cosa y mostraba otra, y la ubicación constante)
 **pasaron todas las compuertas en verde**.
 
@@ -113,9 +118,9 @@ pintado como ceros, un rótulo que nombraba una cosa y mostraba otra, y la ubica
 | **F20** | 🟠 | `reconcile` trataba el no-contado como cero donde escribe | ✅ defensa en profundidad | `3e6320733` |
 | **F22** | 🟡 | Al contador sin asignar: «pedile a tu supervisor que abra uno» | ✅ el texto ya no miente | `df6eb36e8` |
 | **F23** | 🔴 | La columna «Ubic.» mostraba la constante `Z000`, no una ubicación | ✅ sale del catálogo de UB | `2c8f336e3` |
-| **F24** | 🔴🔴 | El teórico está en PAQUETES y ninguna pantalla se lo dice a quien cuenta | ⛔ **sin arreglar: falta DECIDIR la unidad** | — |
+| **F24** | 🔴🔴 | El teórico está en PAQUETES y ninguna pantalla se lo dice a quien cuenta | ✅ la unidad sale del código del SKU, con selector | `20261127102512` |
 
-**Cuentas:** **19 arreglados** · **1 de otro dueño** (F15) · **2 sin arreglar** (F10 y F24) ·
+**Cuentas:** **20 arreglados** · **1 de otro dueño** (F15) · **1 sin arreglar** (F10) ·
 **1 sin confirmar** (F19) · **1 retirado por estar mal** (F16).
 
 ⛔⛔ **F24 no es uno más de la lista: es el único que puede escribir un ajuste de inventario**

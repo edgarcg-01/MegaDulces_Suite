@@ -75,6 +75,8 @@ export class InventoryOfflineService {
     product_id?: string | null;
     barcode?: string | null;
     quantity: number;
+    /** `[IC.F24]` En qué unidad dijo haber contado. `null` = la del código del SKU. */
+    unit?: string | null;
     capture_pass: number;
   }): Promise<void> {
     await this.db.inventoryScans.put({
@@ -83,6 +85,7 @@ export class InventoryOfflineService {
       product_id: scan.product_id ?? null,
       barcode: scan.barcode ?? null,
       quantity: scan.quantity,
+      unit: scan.unit ?? null,
       capture_pass: scan.capture_pass,
       client_ts: new Date().toISOString(),
       sincronizado: false,
@@ -126,6 +129,7 @@ export class InventoryOfflineService {
               scan_uuid: s.scan_uuid,
               capture_pass: s.capture_pass,
               quantity: s.quantity,
+              unit: s.unit ?? undefined,
               ...(s.product_id ? { product_id: s.product_id } : { barcode: s.barcode }),
             }),
           );
