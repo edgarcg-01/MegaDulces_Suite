@@ -40,6 +40,30 @@ Lo que falta está en §3.
 
 ---
 
+## 0b. Por capas: ninguna está completa (2026-11-27)
+
+> ⭐ Pedido de Edgar al preparar las pruebas del 28-nov. El método (`METODO_DE_TRABAJO.md`) dice
+> que **una fase no sube de capa hasta que la de abajo está verificada**. Acá está cada una.
+
+| Capa | Estado | Qué falta para cerrarla |
+|---|---|---|
+| **C0 · dato** | ⛔ **no cerrada** | **F24**: la unidad está estampada y **no se muestra** · el catálogo duplicado (frente B) sigue intacto |
+| **C1 · dominio** | 🟡 revisada LEYENDO | ninguna escritura se ejerció contra base real con el payload de la pantalla (regla 13) |
+| **C2 · API** | 🟡 permisos sí | `reconcile` y `kepler-export` **nunca corrieron**: 0 folios cerrados y 0 exportaciones en 9 meses |
+| **C3 · interfaz** | ⛔ **no vista** | ninguna pantalla se abrió viva; las compuertas verifican PRESENCIA, no verdad |
+
+⭐ **Lo que sí quedó verificado en C0:** el origen del teórico (F12, tres cruces), el costo con
+que se valora la varianza (**99.9 %** de cobertura en `INV-2026-00010` contra
+`v_erp_unit_cost`; 70.3 % en el folio viejo) y la ubicación, que desde F23 sale del catálogo real.
+
+⛔ **El orden importa y lo dice el método:** mientras C0 tenga F24 abierto, lo verde de C1, C2 y
+C3 no significa que el módulo esté bien — significa que está bien **construido sobre un dato que**
+**la persona no puede interpretar**. Los tres defectos más graves de toda la auditoría (un 403
+pintado como ceros, un rótulo que nombraba una cosa y mostraba otra, y la ubicación constante)
+**pasaron todas las compuertas en verde**.
+
+---
+
 ## 1. Los ocho frentes, por orden de lo que destraba
 
 | # | Frente | Qué arregla | Estado |
@@ -55,15 +79,15 @@ Lo que falta está en §3.
 
 ---
 
-## 1b. Los 22 hallazgos, uno por uno — ¿cuál quedó y cuál no?
+## 1b. Los 23 hallazgos, uno por uno — ¿cuál quedó y cuál no?
 
 > ⭐ **Esta tabla es la respuesta a «¿ya quedó completo?».** La de arriba ordena el TRABAJO por
 > frentes; ésta recorre los HALLAZGOS, que es lo que se auditó. Si las dos se contradicen, gana
 > ésta y se corrige la otra.
 >
 > ⚠️ **No hay F21.** La numeración salta del F20 al F22 — se verificó en el historial del
-> repositorio: **nunca existió**, es un hueco al numerar, no un hallazgo perdido. Con **F23**,
-> agregado el 2026-11-27, son **22**.
+> repositorio: **nunca existió**, es un hueco al numerar, no un hallazgo perdido. Con **F23** y
+> **F24**, agregados el 2026-11-27, son **23**.
 
 | # | Sev. | En una línea | Estado | Dónde |
 |---|:---:|---|---|---|
@@ -89,9 +113,14 @@ Lo que falta está en §3.
 | **F20** | 🟠 | `reconcile` trataba el no-contado como cero donde escribe | ✅ defensa en profundidad | `3e6320733` |
 | **F22** | 🟡 | Al contador sin asignar: «pedile a tu supervisor que abra uno» | ✅ el texto ya no miente | `df6eb36e8` |
 | **F23** | 🔴 | La columna «Ubic.» mostraba la constante `Z000`, no una ubicación | ✅ sale del catálogo de UB | `2c8f336e3` |
+| **F24** | 🔴🔴 | El teórico está en PAQUETES y ninguna pantalla se lo dice a quien cuenta | ⛔ **sin arreglar: falta DECIDIR la unidad** | — |
 
-**Cuentas:** **18 arreglados** · **1 de otro dueño** (F15) · **1 sin arreglar** (F10) · **1 sin**
-**confirmar** (F19) · **1 retirado por estar mal** (F16).
+**Cuentas:** **19 arreglados** · **1 de otro dueño** (F15) · **2 sin arreglar** (F10 y F24) ·
+**1 sin confirmar** (F19) · **1 retirado por estar mal** (F16).
+
+⛔⛔ **F24 no es uno más de la lista: es el único que puede escribir un ajuste de inventario**
+**equivocado por un factor de hasta 1,000.** Y no lo cazó ninguna compuerta porque no hay nada
+roto que mirar — el dato está bien estampado, simplemente nadie lo muestra. Ver §C0 abajo.
 
 ### F15 no estaba en ningún frente de este plan — y hay que decirlo
 

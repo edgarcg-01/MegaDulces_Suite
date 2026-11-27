@@ -528,8 +528,8 @@ nadie había llegado a contar lo suficiente para verlo.**
 > cuando el defecto se arregla: si una fila y el plan se contradicen, gana la fecha más nueva.
 >
 > ⚠️ **No hay F21.** La numeración salta del **F20** al **F22**; se verificó en el historial del
-> repositorio y **nunca existió**: es un hueco al numerar, no un hallazgo perdido. Con **F23**
-> (agregado el 2026-11-27), son **22**.
+> repositorio y **nunca existió**: es un hueco al numerar, no un hallazgo perdido. Con **F23** y
+> **F24** (agregados el 2026-11-27), son **23**.
 
 | # | Sev. | Defecto | Cómo se midió |
 |---|:---:|---|---|
@@ -578,6 +578,29 @@ La pantalla declara la cobertura —«39 de 3,364 artículos tienen ubicación a
 ⭐ **Que la cobertura BAJE de 3,005 a 39 es el resultado correcto** (regla 11): lo que no está
 asignado se declara vacío. Lo que antes se veía como un almacén ubicado al 89 % es, medido, un
 almacén ubicado al **1.2 %** — y recién ahora se puede trabajar en eso.
+
+---
+
+### F24 — el teórico está en PAQUETES y ninguna pantalla se lo dice a quien cuenta
+
+> ⛔⛔ **Agregado el 2026-11-27**, al contestar «¿qué capa está completa?». Es el hallazgo más
+> caro del módulo y **no lo cazó ninguna compuerta**: no hay nada roto que mirar. Es la regla 10
+> del proyecto —*probar la unidad: ¿1, `bf` o `1/bf`?*— sin cumplir en el único módulo cuyo
+> producto final **mueve el saldo de inventario**.
+
+| # | Sev. | Defecto | Cómo se midió |
+|---|:---:|---|---|
+| **F24** | 🔴🔴 | **El teórico del folio está en PAQUETES y el contador no lo sabe.** `expected_qty` sale de `v_erp_stock_on_hand.qty_stock_units`, que [`UNIDADES_DE_MEDIDA.md` §341](../UNIDADES_DE_MEDIDA.md) documenta como **«paquetes (crudo, a propósito)»**. El folio **sí estampa** el factor de caja al abrirse (ADR-057), pero **`unit_label` viene NULL en los 7 folios**, y ni la pantalla del contador ni la del supervisor nombran la unidad: el campo dice «Cantidad física», a secas. Si quien cuenta toma **cajas** donde el sistema espera paquetes, la varianza se equivoca por el factor —hasta **1,000×**— y el cierre escribe el ajuste con esa diferencia. | Prod, 2026-11-27, sólo lectura. `INV-2026-00010`: **3,363 de 3,364** traen `unit_factor`, todos con `unit_source` = kepler, rango **1 a 1,000**; **3,146** tienen factor > 1, **2,596 (77 %)** ≥ 12 y **210** ≥ 100. `unit_label`: **0 de 22,209** ítems en los 7 folios. Los otros 6 folios no tienen ni factor (0 de ~17 k). En el fuente, buscando `unit_label`, `unit_factor` y `unidad` en `comercial-inventory-count.component.ts` y `comercial-inventory-session-detail.component.ts`: **cero coincidencias en las dos**. Ejemplos del folio: `CLORETS 5 S TIPO AMERICANO` teórico **10,088** con 960 por caja (contando cajas daría **10.5**); `CH WRIGLEY S DOUBLEMINT` 10,272 con 800 (**12.8**). |
+
+⛔ **NO se arregló a propósito, y la razón es la regla misma.** Mostrar una unidad supuesta es
+cometer el error que el hallazgo denuncia. Primero se decide **en qué unidad cuenta la gente en**
+**el piso** —preguntándole a quien cuenta, no deduciéndolo— y recién entonces la pantalla la
+muestra: o el rótulo de la unidad nativa, o el teórico convertido a lo que la persona tiene
+enfrente. Una vez decidido es media hora; decidirlo mal cuesta un inventario entero.
+
+⚠️ El factor ya está estampado en el renglón, así que la conversión **no pide volver a resolver**
+**la unidad contra otra tabla** (que es justo lo que ADR-057 existe para evitar). Lo que falta es
+la mitad de arriba: decir cuál es.
 
 ---
 
