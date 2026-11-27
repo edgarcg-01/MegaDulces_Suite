@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Almacén › Ubicaciones: no se podía crear ninguna pieza del croquis (UB.PL.14 · 2026-11-27)
+- Desde el 26 de noviembre, **todo intento de armar o ampliar el croquis fallaba** con un error del servidor: derivar las piezas de una sucursal, dar de alta una pieza nueva y agregarle una cara a un mueble. El módulo quedó inservible para escritura un día entero.
+- No se notó porque el único botón que lo dispara estaba escondido. Apareció el mismo día en que ese botón volvió a existir: **el arreglo de ayer fue lo que destapó el defecto de anteayer**.
+- Internal: dos causas apiladas de UB.PL.12 — el `ON CONFLICT` no repetía el predicado del índice parcial `commercial_faces_slot_unico` (parcial por `WHERE deleted_at IS NULL`; Postgres sólo acepta un índice parcial como árbitro si la cláusula lo repite), y la columna legado `cara` quedó `NOT NULL` sin que ningún camino la llene. Migración `20261127093312` afloja `cara` a nullable; no se borra la columna, y no se la rellena desde `racks_modo` porque `rango` y `ninguno` no tienen traducción a sus tres valores viejos.
+- Internal: el árbitro vive en `warehouse-fixtures.arbitros.ts` (sin dependencias, para que una prueba lo pueda importar sin arrastrar NestJS) con 4 pruebas que lo atan al índice leyendo la migración, y negativa ejercida. El arreglo se ejerció contra la base real de producción en una transacción con ROLLBACK, con control negativo y positivo.
 ### Added — Almacén › Autoabasto: la sucursal pide a mano a su matriz, a otra sucursal o a Compras (AB.PM.1–4 · 2026-11-27 · en código, sin soltar)
 - En la mesa de Autoabasto, «Pedir a mano» abre una captura como la de Cotizaciones: se busca el producto, se elige a quién se le pide y la cantidad en las presentaciones de Kepler (caja, paquete o pieza, siempre enteras). Cada renglón dice hasta cuántos días le alcanza, con la misma cuenta de Pedido de Compras.
 - Al mandar sale un pedido por cada sucursal a la que se le pide, por el mismo camino que el sugerido (requisición aprobada → traspaso en Kepler). Lo que va a Compras, y lo que Kepler rechazaría (factor de caja distinto, sin ficha en el origen, piezas no enteras), se queda en el borrador con su motivo, que se ve desde que se captura.
