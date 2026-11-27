@@ -484,7 +484,8 @@ export interface ReconciledLine {
   kepler: { linea: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: number; costo_unitario: number; importe: number } | null;
   resolved_sku: string | null;
   resolved_nombre: string | null;
-  method: 'alias' | 'barcode' | 'descripcion' | 'numeros' | 'sin_match';
+  /** `[PQ.148]` `historia` = el código del proveedor cayó siempre en ese SKU en facturas ya aplicadas (propuesta, no confirmación). */
+  method: 'alias' | 'barcode' | 'historia' | 'descripcion' | 'numeros' | 'sin_match';
   score: number;
   /** `[RE.72]` Factor de caja MEDIDO; `null` si no hay. */
   box_factor: number | null;
@@ -503,6 +504,8 @@ export interface ReconcileResult {
   sucursal: string;
   folio: string;
   proveedor_rfc: string | null;
+  /** `[PQ.150]` De dónde salió `proveedor_rfc`: el de la factura ligada (gana) o el del acreedor en Kepler. */
+  proveedor_rfc_fuente?: 'factura' | 'kepler' | null;
   proveedor_nombre: string | null;
   lines: ReconciledLine[];
   kepler_orphans: { linea: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: number; costo_unitario: number; importe: number }[];
