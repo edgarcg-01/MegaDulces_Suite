@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import type { Observable } from 'rxjs';
 import type {
-  CalendarioCompras, DefinirOcasionalesRespuesta, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta, MarcarRevisionDto,
+  AvisoCalendario, CalendarioCompras, DefinirOcasionalesRespuesta, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta, MarcarRevisionDto,
   PropuestasCalendario, ResponsablesCalendario,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
@@ -18,6 +18,11 @@ export class CalendarioComprasService {
 
   calendario(): Observable<CalendarioCompras> {
     return this.http.get<CalendarioCompras>(this.base);
+  }
+
+  /** `[PQ.3.24]` El aviso «Hoy te toca» de Pedido (DC35). Lo lee también quien sólo tiene `COMPRAS_PEDIDO_VER`. */
+  aviso(): Observable<AvisoCalendario> {
+    return this.http.get<AvisoCalendario>(`${this.base}/aviso`);
   }
 
   /** Lo que propone Kepler (vista PQ.3.1) para los proveedores con compra y sin regla. */

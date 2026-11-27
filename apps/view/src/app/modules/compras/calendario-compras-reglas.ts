@@ -121,10 +121,13 @@ export function estadoEnPalabras(e: EstadoDeRegla, r: Pick<ReglaCalendario, 'out
   }
 }
 
-const FUENTE: Readonly<Record<Exclude<FuenteActividad, 'marca'>, string>> = {
+/** De dónde salió la última atención, en palabras. Exportado para el candado del manual (`[PQ.3.29]`: una fuente nueva sin explicar lo pone en rojo). */
+export const FUENTE_ACTIVIDAD: Readonly<Record<Exclude<FuenteActividad, 'marca'>, string>> = {
   oc: 'Orden de compra',
   oc_cancelada: 'Orden de compra cancelada',
   entrada: 'Entrada aplicada',
+  // `[PQ.3.29]` DC40: la requisición de compra de la Suite, en la sucursal a la que va (no espera la OC de Kepler).
+  requisicion: 'Requisición de la Suite',
 };
 
 /** La última atención en palabras: qué documento (o qué marca) y cuándo. */
@@ -133,7 +136,7 @@ export function atencionEnPalabras(
   marca: MarcaVista | null,
 ): { readonly que: string; readonly cuando: string } {
   if (!u) return { que: 'Sin OC ni entrada en el último año', cuando: '' };
-  if (u.fuente !== 'marca') return { que: FUENTE[u.fuente], cuando: diaCorto(u.fecha) };
+  if (u.fuente !== 'marca') return { que: FUENTE_ACTIVIDAD[u.fuente], cuando: diaCorto(u.fecha) };
   if (marca?.outcome === 'ordered_outside_kepler') return { que: 'Se pidió fuera de Kepler', cuando: diaCorto(u.fecha) };
   const motivo = marca?.skip_reason ? ETIQUETA_MOTIVO_NO_SE_PIDE[marca.skip_reason] : '';
   return { que: `No se pidió${motivo ? ` (${motivo.toLowerCase()})` : ''}`, cuando: diaCorto(u.fecha) };

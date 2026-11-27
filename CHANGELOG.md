@@ -93,6 +93,15 @@
 - Una serie es el mismo cargo en la misma cuenta durante 3 meses o más: al mismo importe (arrendamiento, capital de crédito, cuotas) o con el mismo número de crédito (el interés que baja).
 - Medido en 12 meses: 47 series vigentes, ≈ $512 mil al mes, en 10 cuentas. De los 32 cargos de noviembre propone 19 (≈ $420 mil); lo que no ve se declara.
 - Migración `20261125224611`: la vista `finance.v_recurring_bank_charges` (sólo DDL, sin datos).
+### Changed — Compras › Proveedores › Calendario: la requisición de la Suite cuenta como revisado (PQ.3.29 · 2026-11-25 · en código, sin soltar)
+- Cuando sale una requisición de compra para un proveedor, el Calendario lo da por revisado en cada sucursal a la que va la mercancía, desde que se crea. Ya no hay que marcar a mano «se pidió fuera de Kepler» cuando la orden sale de otra sucursal.
+- Si la requisición se cancela, deja de contar. En «Última atención» se ve «Requisición de la Suite».
+- Internal: el calendario lee `commercial.purchase_requisitions` y sus renglones (destino), sin escribir marcas. Sin migración.
+### Changed — Compras › Pedido: el aviso «Hoy te toca» lo dice el Calendario (PQ.3.24 · 2026-11-25 · en código, sin soltar)
+- El aviso de Pedido cuenta primero los proveedores con regla de la gerencia, por cómo van hoy en el Calendario (rezagados y de hoy). Debajo, aparte y marcados «sin confirmar», los que no tienen regla y el ciclo de Kepler da por vencidos.
+- Antes contaba canales (proveedor por sucursal) del ciclo de Kepler, que no conoce las reglas, y un proveedor podía contar dos veces.
+- «Abrir el Calendario» aparece a quien puede verlo; «Ver el ciclo» sigue llevando a la pestaña Ciclo.
+- Internal: `GET /api/compras/calendario/aviso` (las llaves del Calendario o `COMPRAS_PEDIDO_VER`), con el alcance por sucursal de cada quien. Sin migración.
 ### Added — Compras › Calendario de compras: quién cambió cada regla y de qué a qué (PQ.3.17 · 2026-11-24 · en código, sin soltar)
 - El detalle de una regla dice, además de quién la definió, «Último cambio: quién, el día». Debajo, «Cambios» dice de qué a qué, el más nuevo primero: el patrón entero, el responsable, fuera de ciclo con su motivo, la nota y la baja.
 - De un cambio hecho antes de que se guardara el historial se dice quién y cuándo, no de qué a qué.
