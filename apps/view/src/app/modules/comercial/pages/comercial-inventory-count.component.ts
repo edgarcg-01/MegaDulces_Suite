@@ -244,7 +244,7 @@ interface FeedEntry {
                   [(ngModel)]="unidad"
                   optionLabel="etiqueta"
                   optionValue="unit"
-                  styleClass="ic-unidad"
+                  class="ic-unidad"
                 ></p-select>
               } @else if (unidad()) {
                 <p class="ic-unidad-fija">Se cuenta en <strong>{{ unidad() }}</strong>.</p>
@@ -362,7 +362,12 @@ interface FeedEntry {
     */
     .ic-unidad-fija { margin: .35rem 0 0; font-size: var(--fs-sm); color: var(--text-muted, #52525B); }
     .ic-unidad-falta { color: var(--warn-soft-fg); display: flex; gap: .4rem; align-items: baseline; }
-    :host ::ng-deep .ic-unidad { width: 100%; }
+    /*
+      [IC.F24] La clase va en el ELEMENTO p-select, no en styleClass: asi la regla alcanza
+      al host con el encapsulado normal y no hace falta perforar la cascada, que DESIGN.md §S reserva
+      para pelear contra vendor. La compuerta de cascada pide que esa deuda BAJE, no que crezca.
+    */
+    .ic-unidad { display: block; width: 100%; }
     .ic-label:first-child { margin-top: 0; }
     .ic-code-row { display: flex; gap: .5rem; align-items: stretch; }
     .ic-code-row .ic-input-code { flex: 1; }
