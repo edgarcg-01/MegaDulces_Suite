@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Added — Pagos › Contratos de los cargos del banco: la API para confirmarlos, y sus cargos del mes solos en el Calendario (PGP.213 · 2026-11-26 · en código, sin soltar)
+- Tesorería ya puede confirmar, corregir, terminar o rechazar los contratos que el sistema propone a partir de lo que el banco cobra solo (arrendamiento, crédito, seguro, cuotas de comisión), y subir su PDF. Al confirmar uno, su cargo del mes entra al Calendario ya autorizado; al terminarlo, lo que estaba programado después de su fin sale del Calendario.
+- Con cada carga del estado de cuenta, el sistema propone lo nuevo, recalcula el interés de los créditos, programa el cargo de cada mes y da por pagado lo que el banco ya cobró.
+- La lista de «cargos sin contrato» dice cuánto falta por sustentar (del 1 al 25 de noviembre: 59 cargos, $781,570.77).
+- Permiso nuevo: «Gestionar contratos de cargos del banco», para Tesorería y Finanzas (tesoreria, finanzas_operativo y finanzas). Esas personas tienen que volver a entrar.
+- Internal: `finance/charge-contracts` (contrato en `@megadulces/contracts`), `CargosDelBancoService` en el worker (escucha `bancos_movimientos`, sin reloj; se apaga con `DISABLE_CARGOS_DEL_BANCO`), migración `20261126230517` que reparte la clave.
+
 ### Added — Almacén › Ubicaciones: el croquis de la sucursal se acomoda arrastrando (UB.PL.8 · 2026-11-26 · en código, sin soltar)
 - El mapa deja de dibujar todo como pasillos: se toma cada mueble y se suelta en un renglón, hasta que la planta se parece a la tienda. Se puede con el mouse y también sin mouse, con el teclado.
 - La planta abre siempre con un renglón libre al final, y la bandeja «Sin lugar» dice cuántas piezas faltan y cómo se llaman.

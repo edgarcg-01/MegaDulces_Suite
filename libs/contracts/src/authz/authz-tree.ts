@@ -458,7 +458,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // es de dominio propio y NO cambió con la mudanza — el árbol sólo dice dónde
           // se muestra la casilla, no qué concede.
           { id: 'cuadre', label: 'Cuadre / Supervisor de movimientos', route: '/finanzas/cuadre', view: [Permission.RECONCILIATION_VER], manage: [Permission.RECONCILIATION_GESTIONAR] },
-          { id: 'calendario-pagos', label: 'Calendario de pagos', route: '/finanzas/calendario-pagos', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR] },
+          { id: 'calendario-pagos', label: 'Calendario de pagos', route: '/finanzas/calendario-pagos', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR, Permission.FINANCE_CHARGE_CONTRACTS_GESTIONAR] },
           // `[PGP.20]` TP.7 — vino del nodo de Compras el 2026-10-27, junto con la ruta: es el paso
           // siguiente del Calendario. CONSERVA los permisos de Compras a proposito, para que la
           // mudanza no le de ni le quite acceso a nadie. Aprobar la solicitud exige ademas

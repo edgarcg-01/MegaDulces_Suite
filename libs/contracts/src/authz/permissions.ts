@@ -579,6 +579,12 @@ export enum Permission {
   // migración a roles de gerencia/dirección. Mismo permiso autoriza el cambio de cuenta
   // bancaria de un proveedor (TP.7) — un solo "autorizador" de Finanzas para todo el módulo.
   FINANCE_PAYMENT_CALENDAR_AUTORIZAR = 'FINANCE_PAYMENT_CALENDAR_AUTORIZAR',
+  // `[PGP.213]` Los contratos que sustentan los cargos que el banco cobra solo (anexo CR, DCR1: «el sistema propone,
+  // Tesorería confirma»): proponer, dar de alta, corregir una propuesta, confirmar, terminar, rechazar y subir su PDF.
+  // Clave PROPIA: `FINANCE_PAYMENTS_GESTIONAR` la tienen también Marketing, Compras, Crédito y Contabilidad (medido en
+  // prod el 2026-11-26). Ver los contratos es `FINANCE_PAYMENTS_VER`. Fuera de todo MODULE_GROUP (molde TP.6): se reparte
+  // por migración a tesoreria, finanzas_operativo y finanzas (Francisco, 2026-11-26).
+  FINANCE_CHARGE_CONTRACTS_GESTIONAR = 'FINANCE_CHARGE_CONTRACTS_GESTIONAR',
   // Fase CG (ADR-070) — Caja General: la plataforma pasa a ser la FUENTE PRINCIPAL de los
   // ingresos y egresos de efectivo (hoy se capturan en el Access `Control`). Permisos PROPIOS:
   // hasta ahora los 15 endpoints de /finanzas/caja colgaban de FINANCE_BANK_VER, que es de
