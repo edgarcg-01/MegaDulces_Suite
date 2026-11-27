@@ -259,6 +259,9 @@ archivo. Las observaciones de abajo salen de §6.3 del anexo de auditoría y de 
 Nivel **C** por definición (`auditoria-diseno` §9): se leyó el plan y la fuente, no la pantalla
 viva. Las de C3 arriba ya traen su severidad. Lo que falta decir del plan, no de la pantalla:
 
+> ⭐ **RD.UI.16 a RD.UI.19 se agregaron la misma tarde, ya en nivel A** (pantalla viva sobre prod;
+> la medición completa está en [`FASE_RD_ANEXO_AUDITORIA_COMISIONES_2026-11-27.md`](FASE_RD_ANEXO_AUDITORIA_COMISIONES_2026-11-27.md) §4b).
+
 | # | Sev | Observación y costo | Ley | Criterio de aceptación |
 |---|---|---|---|---|
 | RD.UI.11 | 🔴 | **La prueba de la frase no pasa hoy**: la pantalla contesta cinco preguntas. El plan la corta en dos (RD.C3.1), pero si D2 sale «no se parte», las 9 observaciones restantes **sólo maquillan la conflación** | estándar §4.0b | la pantalla contesta *«¿cuánto se le paga a cada chofer esta quincena, y puedo firmarlo?»* sin la palabra «y» para dos temas distintos |
@@ -266,6 +269,10 @@ viva. Las de C3 arriba ya traen su severidad. Lo que falta decir del plan, no de
 | RD.UI.13 | 🟠 | El entregable de RD.C2.1 es **el único artefacto que sale de la pantalla hacia otra persona**. Un botón genérico de «Exportar» no dice qué se va a entregar ni a quién | Poka-yoke | el botón nombra el entregable y a quién va; antes de bajarlo, se ve qué contiene |
 | RD.UI.14 | 🟠 | Los 95 renglones con `motivo_no_pago` (27.7 % de las líneas) son **la pregunta que más va a recibir el que firma**: *¿por qué este no cobró?* Hoy están en la tabla como un motivo suelto | Jerarquía del dato | los 5 motivos (`bajo_umbral` 66, `fuera_no_es_camion` 18, `config_inactiva` 6, `tipo_sin_declarar` 3, `bajo_piso` 2) se agrupan y se cuentan antes de la tabla |
 | RD.UI.15 | 🟡 | El plan no dice qué pasa con `/comercial/comisiones/objetivo` ni con `/comercial/rutas/comisiones`, que **hoy cargan el mismo componente** | — | las rutas viejas siguen funcionando y llegan a la vista correcta (como ya hizo `[AUD-A6]`) |
+| **RD.UI.16** | 🔴 **nivel A** | **El trabajo nace debajo del pliegue.** Al abrir se ven **0 de 14 rutas**: la tabla arranca en el px **961** de 962 en monitor grande y en el **1055** de 770 en laptop (137 % de la ventana), detrás de **13 bloques** de antesala. En laptop **tampoco se ve «Aprobar»** — el único acto que la pantalla existe para permitir, con 0 usos en 59 días | Lectura Z/F · Jerarquía del dato | con la ventana en 768 px de alto, **la primera fila de pago y el acto de firmar se ven sin hacer scroll**. Se verifica con el instrumento de la skill: `marco_pct` ≤ 50 % y `filas_visibles_sin_scroll` ≥ 5 |
+| **RD.UI.17** | 🔴 **nivel A** | **El texto menos legible de la pantalla es el que explica un pago menor**: los días trabajados (`11 / 12`, clase `cm-corta`) van a **2.15:1**, contra un piso de 4.5. De 311 textos sólo 2 fallan, y el peor es justo ése | WCAG AA 1.4.3 | `cm-corta` usa `--warn-soft-fg` (o equivalente ≥ 4.5:1) en claro y oscuro; se re-mide con el instrumento **sobre el módulo entero**, no sólo sobre la ventana |
+| **RD.UI.18** | 🟠 **nivel A** | **96 % del texto (298 de 311) está en 13 px o menos**, repartido en **8 niveles** de tamaño contra los 3 que declara el estándar. Lo primario y lo terciario casi no se distinguen | §Q.5 escala tipográfica | ≤ 4 niveles en la vista de quincena, y el monto que se firma claramente mayor que el resto |
+| **RD.UI.19** | 🟠 **nivel A** | **16 peticiones al abrir** (10 de comisiones), varias para vistas que nadie pidió; la última contesta a los **2,726 ms** aunque la base rinde < 25 ms. Y el teclado llega a «Aprobar» en el **tab 65** | Doherty · Keyboard-first | la vista de quincena pide **sólo lo suyo**; el resto carga al abrir su pestaña. Pantalla completa < 1 s, y «Aprobar» alcanzable en menos de 15 tabulaciones |
 
 ---
 

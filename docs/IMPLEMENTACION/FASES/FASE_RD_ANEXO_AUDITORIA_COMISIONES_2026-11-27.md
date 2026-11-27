@@ -18,7 +18,7 @@
 |---|---|---|
 | **B — base de datos** | ✅ 11 consultas de sólo lectura contra `pg-prod` (`192.168.0.222:5434`, `system_identifier 7688376744939610156`) | corridas, líneas, padrón, contraste libro-motor, permisos por las tres vías, uso real (`analytics.ui_usage`), latencias |
 | **C — fuente** | ✅ componente (3,721 líneas), 5 servicios del backend (4,987 líneas), controlador (32 endpoints), `tokens.css` | estructura, carga de la plantilla, contraste calculado, qué pide al abrir |
-| **A — pantalla viva** | ⛔ **NO MEDIDO** | el navegador (playwright y chrome-devtools) estaba tomado por otra sesión. **Nada visual se afirma como medido**: px reales, pliegue, recorrido con teclado, `forced-colors` y lector de pantalla quedan pendientes |
+| **A — pantalla viva** | ✅ **añadido el mismo día, por la tarde** (`chrome-devtools` sobre prod, Chrome 157, 1978 × 962 y 1366 × 768) — ver **§4b** | pliegue y px reales, contraste de lo pintado, jerarquía, recorrido con teclado, objetivos, peticiones y tiempo de carga. ⛔ Siguen NO MEDIDOS: `forced-colors`, zoom 400 %, reflujo a 320 px, lector de pantalla y todo el **retrabajo**, porque exigen pulsar botones que **escriben en producción** |
 
 Instrumentos con su control (§4): la consulta de permisos **falló su primer control** (buscaba una
 clave `COMMERCIAL_REPLENISHMENT_*` que no existe) y se rehízo leyendo la resolución real del
@@ -182,18 +182,102 @@ cerrar 2.1 y 2.2 produce una pantalla más bonita que nadie usará tampoco.
 
 ---
 
+## 4b. Nivel A — la pantalla viva (2026-11-27, tarde)
+
+> Medido con `chrome-devtools` sobre **prod**, Chrome 157, ventana **1978 × 962** CSS px (DPR 1.25),
+> sesión `superoot SUPERADMIN`. ⛔ **Sólo lectura**: con una sesión que puede escribir, no se tocó
+> ningún botón que escriba — por eso «estado sucio», «doble envío» y «lote parcial» siguen NO
+> MEDIDOS. Controles del instrumento: contraste 21.00 y 4.48 ✅.
+
+### 4b.1 ⛔⛔ El hallazgo que sólo se ve con la pantalla abierta: **el trabajo nace debajo del pliegue**
+
+| Ventana | La tabla arranca en | Marco | Filas visibles al abrir | Hay que bajar |
+|---|---:|---:|---:|---:|
+| **1978 × 962** (el monitor de Edgar) | px **961** | **100 %** | **0 de 14** | 524 px |
+| **1366 × 768** (una laptop normal) | px **1055** | **137 %** | **0 de 14** | 1,136 px |
+
+⭐ **Se abre `/comercial/comisiones` y no se ve ni un chofer, ni un peso a pagar.** Lo que se ve es
+contexto: 13 bloques antes de la primera fila —pestañas del sub-módulo (46 px), título (52),
+conmutador de vistas (21), «LO QUE TOCA PAGAR» (90), la tira de 27 quincenas (55), el panel «Pasa,
+con reservas» (98), la tira de KPIs (74), «dato hasta 18 nov» (17), «LO QUE EL CÁLCULO TODAVÍA NO
+APLICA» (83), «FALTA APROBARLA» con sus botones (59), «LO QUE FALTÓ» (90) y un **segundo**
+conmutador (21)—. El contenido mide **2.36 veces** la altura de una laptop.
+
+⛔ **En laptop, ni siquiera el botón «Aprobar» se ve al abrir** (está en el px 854 de 770). El
+único acto que la pantalla existe para permitir —y que lleva **0 usos en 59 días**— pide scroll.
+Ésa es una explicación material del 2.2 que no requiere suponer nada sobre las costumbres de nadie.
+
+⚠️ **Y esto se midió dos veces, porque la primera lectura dio otra cosa.** Una lectura intermedia
+mostró el panel en `scrollTop: 300` con la tabla a la vista, lo que habría tumbado el hallazgo.
+Se recargó y se muestreó **40 veces en 6 segundos sin tocar nada**: `scrollTop` queda en **0** y la
+tabla en el px 961, sin un solo cambio. **La pantalla no se acomoda sola**; el 300 era una persona
+mirándola. (Aplica [[feedback_reproducibility_is_not_validity]]: un número reproducible de un
+estado equivocado no mide la pantalla al abrir.)
+
+### 4b.2 Contraste — sobre lo pintado, no sobre los tokens
+
+De **311 textos** del módulo, **2 quedan bajo el piso**:
+
+| Texto | Clase | px | Ratio | Piso |
+|---|---|---:|---:|---:|
+| `11 / 12` — los **días trabajados** | `comm-num cm-corta` | 13 | **2.15:1** | 4.5 |
+| `Anular` | `cm-btn--ghost` | 13 | **4.39:1** | 4.5 |
+
+⭐ El 2.15 del §4.3 se confirma en pantalla, y es **peor de lo que se leía en el código**: el texto
+menos legible de toda la pantalla es justo **el que explica por qué a alguien le pagan menos**.
+
+⚠️ **Nota de instrumento, que vale más que el dato:** la primera pasada sólo midió lo que estaba
+**dentro de la ventana** y encontró **1** falla. Midiendo el módulo entero aparecieron **2** — y la
+peor era la que estaba debajo del pliegue. Un medidor de contraste que filtra por viewport
+**absuelve justamente lo que nadie ve**. Se corrigió antes de publicar.
+
+### 4b.3 Jerarquía, teclado y objetivos — lo demás del nivel A
+
+| Variable | Medido en vivo | Veredicto |
+|---|---|---|
+| Niveles de tamaño | **8** (13 px ×188 · 11 ×75 · 12 ×35 · 24.8 ×5 · 16 ×3 · 24 ×2 · 14 ×2 · 20 ×1) | 🔴 contra los **3** declarados (§Q.5) |
+| Texto en 13 px o menos | **298 de 311 = 96 %** | 🔴 el nivel C estimaba 85 % de las *declaraciones*; lo pintado es peor |
+| Pesos fuera de escala | `600` (38 usos), que no está en 400/500/700/800 | 🟠 |
+| Tabs hasta «Aprobar» | **65** | 🔴 el acto principal es el penúltimo destino del teclado |
+| Tabs hasta la tabla | **72** | 🔴 |
+| Filas operables con teclado | **14 de 14** con `tabindex` | ✅ la compuerta `check:teclado` cumple |
+| Anillo de foco en «Aprobar» | `outline: auto 0.8px` — **el del navegador**, no el del sistema de diseño | 🟠 |
+| Objetivos bajo 24 × 24 (AA 2.5.8) | **3**: «Ayuda» 30 × 22 · «Ver las preguntas» 101 × 17 · «6 ruta(s) con margen» 266 × 21 | 🟠 |
+| Objetivos ≥ 44 px (táctil) | el equipo reporta puntero `fine` (mouse) | ⛔ **NO MEDIDO** — pide un equipo táctil |
+| `lang`, un solo `<h1>` | `es` ✅, 1 `<h1>` ✅ (hay un `<h2>` vacío) | ✅ |
+| `aria-live` | **1** región `polite` («Los datos pueden estar atrasados»), sin repetición medida | 🟠 |
+| El mismo hecho repetido | «costo de una fuente» ×8 · «14» ×7 · «quincena» ×4 | 🟠 |
+| Tabla cortada a lo ancho | en laptop, **8 px ocultos** a la derecha de 12 columnas | 🟠 límite, no hallazgo |
+
+### 4b.4 ⚠️ Corrección al §5: «Rendimiento ✅» era una afirmación de nivel B
+
+El §5 daba **✅ Pasa** porque las consultas rinden **< 25 ms**. Eso sigue siendo cierto y sigue
+siendo de la base. Lo que la persona espera es otra cosa, y ahora está medido:
+
+- **16 peticiones** al abrir (el §4 decía 9): **10 de comisiones** —`contrast`, `headroom`,
+  `universe`, `routes`, `supervisors`, `bonuses`, `scales`, `board`, `definitions`, `runs/:id`—
+  más 6 del marco de la app.
+- La **última respuesta llega a los 2,726 ms**. Las más lentas: `users/me/scope` 1,336 ms ·
+  `scales` 1,095 · `definitions` 1,073 · `bonuses` 1,058 · `board` 930.
+
+⭐ La base contesta en milisegundos y **la pantalla tarda casi tres segundos**, porque pide diez
+cosas a la vez —varias para vistas que nadie abrió todavía—. El veredicto de Rendimiento baja a
+🟠 y el defecto es de **orquestación**, no de SQL.
+
+---
+
 ## 5. Veredicto por capa (§3d) — nunca un promedio
 
 | Capa | Veredicto | Por qué |
 |---|---|---|
 | **1 · Veracidad** | 🔴 **No pasa** | no por lo que la pantalla dibuja —que declara sus huecos con un cuidado poco común: `total_neto` NULL se publica como «—· sin medir», `sin calcular` se distingue de `en curso`— sino porque **publica como estado actual un contraste de hace 23 días** y porque el número de fondo difiere 8 % del que de verdad se paga, con 65 renglones sin explicación |
-| **2 · Alcance** | 🔴 **No pasa** | el proceso no se puede terminar (0 aprobadas, 0 exportaciones) y **el monto de 27 quincenas sólo se alcanza con el mouse** |
+| **2 · Alcance** | 🔴 **No pasa** | el proceso no se puede terminar (0 aprobadas, 0 exportaciones), **el monto de 27 quincenas sólo se alcanza con el mouse** y —medido en vivo, §4b.1— **el trabajo nace debajo del pliegue en las dos ventanas probadas**: 0 de 14 rutas visibles al abrir, y en laptop ni el botón «Aprobar» |
 | **3 · Comprensión** | 🟠 Pasa con deuda | la prueba de la frase falla (5 preguntas en una pantalla); el vocabulario traducido es bueno; 8 términos del oficio sin definir en pantalla |
-| **4 · Sencillez** | 🟠 Pasa con deuda | ~40 controles y ~150 cifras en la vista de entrada; 9 peticiones al abrir, 4 de ellas para vistas no pedidas |
-| **5 · Respeto** | ⛔ **NO MEDIDO** | estado sucio, doble envío y lote parcial piden nivel A |
-| *(transversal)* Contraste | 🟠 | un token de texto a 2.15:1 |
-| *(transversal)* Jerarquía | 🟠 | 85 % del texto en 13 px / 11 px |
-| *(transversal)* Rendimiento | ✅ **Pasa** | todas las lecturas < 25 ms contra el listón de 500 ms |
+| **4 · Sencillez** | 🔴 **No pasa** *(era 🟠; lo baja el nivel A)* | **13 bloques de antesala** antes de la primera fila y 2.36 pantallas de alto en laptop; ~40 controles y ~150 cifras; **16 peticiones** al abrir, varias para vistas que nadie pidió |
+| **5 · Respeto** | ⛔ **NO MEDIDO** | estado sucio, doble envío y lote parcial exigen pulsar botones que **escriben en prod**: no se hizo a propósito. Pide un entorno de pruebas |
+| *(transversal)* Contraste | 🟠 | **medido sobre lo pintado**: 2 de 311 textos bajo el piso. El peor, a **2.15:1**, son los **días trabajados** — el dato que explica un pago menor |
+| *(transversal)* Jerarquía | 🔴 *(era 🟠)* | **8 niveles** de tamaño contra los 3 declarados, y **96 % del texto (298 de 311) en 13 px o menos** |
+| *(transversal)* Rendimiento | 🟠 *(era ✅; ver §4b.4)* | la base contesta **< 25 ms**, pero la pantalla termina de cargar a los **2,726 ms** con 16 peticiones. El defecto es de orquestación, no de SQL |
 
 ⛔ **Con una 🔴 en Veracidad y otra en Alcance, el módulo no pasa.** Y nada de eso se arregla
 cambiando la pantalla.
@@ -269,10 +353,13 @@ mismo permiso `GESTIONAR`). El bono por objetivo ya tiene ruta propia viva
 
 ⛔ Se declara, no se dibuja como verde (ADR-056):
 
-1. **Todo el nivel A**: px del marco, pliegue, recorrido con teclado, `forced-colors`, zoom, reflujo
-   a 320 px, lector de pantalla, objetivos táctiles.
+1. ~~Todo el nivel A~~ → **medido el mismo día, §4b**. Queda fuera lo que no se puede ver sin otro
+   equipo o sin escribir: **`forced-colors`, zoom 400 %, reflujo a 320 px, lector de pantalla** y
+   **objetivos táctiles** (el equipo de la medición tiene puntero `fine`).
 2. **Retrabajo en los diálogos**: estado sucio al salir del alta de padrón, doble clic en «Estrenar
-   esta versión» del tabulador, lote parcial en «recalcular desde».
+   esta versión» del tabulador, lote parcial en «recalcular desde». ⛔ **No se midió a propósito**:
+   con una sesión `SUPERADMIN` contra prod, ejercerlos **escribe**. Pide un entorno de pruebas
+   (es la regla 13 del proyecto, mirada desde el otro lado).
 3. **El proceso real de Comercial con el Excel**: cuántas personas, cuántas horas por quincena,
    quién entrega a quién. Sin eso, «lo usan porque ya se acostumbraron» sigue siendo una hipótesis.
 4. **Las 65 filas `sin_explicar`** una por una: están contadas, no diagnosticadas.
