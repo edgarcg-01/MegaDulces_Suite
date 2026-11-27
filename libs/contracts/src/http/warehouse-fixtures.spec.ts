@@ -19,6 +19,7 @@ import {
   expandFixture,
   nombreDeCara,
   nombrePieza,
+  piezaAlDia,
   piezasDerivadas,
   tipoDePieza,
   type WarehouseFixture,
@@ -494,5 +495,65 @@ describe('[UB.PL.12] qué racks lleva una cara', () => {
     it('⭐ y su nombre propio manda sobre todo lo demás', () => {
       expect(nombreDeCara(anaquel, { racks_modo: 'nones', label: 'Dulces a granel' })).toBe('Dulces a granel');
     });
+  });
+});
+
+/**
+ * `[UB.PL.13]` La pieza que ya existe se pone al día. El caso es real y está medido en prod el
+ * 2026-11-27, en Padre Hidalgo:
+ *
+ *  · la pieza del pasillo **B decía 17 racks** y sus ubicaciones llegaban al **22**;
+ *  · la de **C decía 17** y tenía **18**;
+ *  · **I, J y K no existían como pieza**: 110 de 471 ubicaciones (23 %) fuera del croquis.
+ *
+ * `derivar()` sólo creaba las piezas que faltaban, así que una letra capturada después quedaba
+ * afuera y una letra que creció seguía describiendo la tienda vieja. El efecto no es cosmético:
+ * las caras reparten `nones`/`pares` sobre `pieza.racks`, de modo que con 17 los racks 18 a 22 de B
+ * **no caían en ninguna cara** — existen en la tienda, tienen etiqueta pegada, y el croquis no los
+ * puede dibujar.
+ */
+describe('[UB.PL.13] la pieza se pone al día con lo que se capturó después', () => {
+  it('sube los racks cuando la captura agregó más — el caso de Padre Hidalgo', () => {
+    expect(piezaAlDia({ racks: 17, niveles: 5 }, { racks: 22, niveles: 5 })).toEqual({ racks: 22, niveles: 5 });
+    expect(piezaAlDia({ racks: 17, niveles: 5 }, { racks: 18, niveles: 5 })).toEqual({ racks: 18, niveles: 5 });
+  });
+
+  it('sube los niveles igual que los racks', () => {
+    expect(piezaAlDia({ racks: 9, niveles: 4 }, { racks: 9, niveles: 6 })).toEqual({ racks: 9, niveles: 6 });
+  });
+
+  it('⛔ NUNCA baja: un anaquel de 22 con 17 codificados se queda en 22', () => {
+    // Bajarlo pisaría lo que alguien escribió a mano en el panel, y los otros cinco racks existen
+    // en el mueble aunque todavía no tengan código.
+    expect(piezaAlDia({ racks: 22, niveles: 6 }, { racks: 17, niveles: 5 })).toBeNull();
+  });
+
+  it('devuelve null cuando no hay nada que cambiar: derivar sigue siendo idempotente', () => {
+    expect(piezaAlDia({ racks: 22, niveles: 5 }, { racks: 22, niveles: 5 })).toBeNull();
+  });
+
+  it('sube sólo lo que creció, y deja lo otro como estaba', () => {
+    expect(piezaAlDia({ racks: 22, niveles: 3 }, { racks: 20, niveles: 5 })).toEqual({ racks: 22, niveles: 5 });
+  });
+
+  it('una pieza recién nacida en cero toma lo que digan sus ubicaciones', () => {
+    expect(piezaAlDia({ racks: 0, niveles: 0 }, { racks: 9, niveles: 5 })).toEqual({ racks: 9, niveles: 5 });
+  });
+
+  it('⭐ y después de ponerla al día, las caras cubren los racks que antes quedaban fuera', () => {
+    // El control que de verdad importa: no es que el número suba, es que el rack 20 de B
+    // tenga dónde vivir. Con 17, `pares` llegaba hasta el 16.
+    const caras: FixtureFace[] = carasPorOmision('anaquel').map((c, i) => ({
+      id: `c${i}`, fixture_id: 'B', slot: i + 1,
+      racks_modo: c as RacksDeCara, rack_desde: null, rack_hasta: null,
+      label: null, fila: null, columna: null, mira: null,
+    }));
+    const antes = caras.flatMap((c) => racksDeLaCara(c, 17));
+    const despues = caras.flatMap((c) => racksDeLaCara(c, 22));
+    expect(antes).not.toContain(20);
+    expect(despues).toContain(20);
+    expect(despues).toContain(22);
+    // Y siguen sin pisarse: subir no puede crear una colisión.
+    expect(carasCoherentes(caras, 22).ok).toBe(true);
   });
 });
