@@ -53,7 +53,9 @@ function montar(resp: AutoabastoPedidoResponse, extra: Record<string, unknown> =
       provideZonelessChangeDetection(), provideRouter([]),
       { provide: AutoabastoService, useValue: {
         filtros: () => of({ warehouses }),
-        pedido: (id: string) => { pedidos.push(id); return of(resp); }, abrirPedido: () => of(null), ...extra,
+        pedido: (id: string) => { pedidos.push(id); return of(resp); }, abrirPedido: () => of(null),
+        // `[AB.PM.4]` El bloque «Pedir algo a mano» lee lo que lleva el borrador a mano; vacío por default.
+        mano: () => of({ pedido_id: null, renglones: [], grupos: [], viene_medido: true }), ...extra,
       } },
       { provide: AuthService, useValue: { user: () => ({ sub: 'u1', username: 'u1', permissions: {} }), token: () => null } },
     ],
@@ -546,5 +548,72 @@ describe('[AB.41] la venta por mes del producto, en este almacén', () => {
     c.abrirVentaMes(e, l, op as never);
     expect(op.hide).toHaveBeenCalled();
     expect(llamadas).toHaveLength(1);
+  });
+});
+
+/**
+ * `[AB.PM.4]` «Pedir algo a mano» en la mesa: un bloque que dice lo que lleva el borrador a mano, y la
+ * captura que se abre EN LUGAR de la mesa. Al volver con cambios la mesa se rearma, porque lo pedido a
+ * mano sale del sugerido (R1).
+ */
+describe('[AB.PM.4] Pedir algo a mano', () => {
+  const r = RESP();
+  const conMano = {
+    mano: () => of({
+      pedido_id: 'b-1', renglones: [{ product_id: 'p-9' }, { product_id: 'p-8' }], viene_medido: true,
+      grupos: [
+        { destino: { tipo: 'sucursal', code: '08' }, renglones: [{ product_id: 'p-9', destino: { tipo: 'sucursal', code: '08' }, cantidad_base: 30 }], total_base: 30, enviable: true, motivo: null },
+        { destino: { tipo: 'compras' }, renglones: [{ product_id: 'p-8', destino: { tipo: 'compras' }, cantidad_base: 5 }], total_base: 5, enviable: false, motivo: 'Ruta por confirmar.' },
+      ],
+    }),
+    manoOrigenes: () => of({ origenes: [{ code: '08', name: 'Morelia Abastos' }] }),
+    manoBuscar: () => of({ origen: null, productos: [], viene_medido: true }),
+  };
+
+  it('el bloque dice cuántos renglones lleva el pedido a mano y a quién, con NOMBRE', () => {
+    const { f } = montar(r, conMano);
+    f.detectChanges();
+    const t = texto(f);
+    expect(t).toContain('Pedir algo a mano');
+    expect(t).toContain('2 renglones');
+    expect(t).toContain('1 a Morelia Abastos, 1 a Compras');
+    expect(t).toContain('Seguir con tu pedido a mano');
+  });
+
+  it('sin nada a mano, el botón dice «Pedir a mano» y no hay resumen', () => {
+    const { f } = montar(r);
+    f.detectChanges();
+    expect(texto(f)).toContain('Pedir a mano');
+    expect(texto(f)).not.toContain('Tu pedido a mano:');
+  });
+
+  it('abrirlo reemplaza la mesa; volver CON cambios la rearma, SIN cambios no', () => {
+    // La captura lee sus propios datos: aquí, un pedido a mano vacío (sus reglas viven en su propia spec).
+    const { f, c, pedidos } = montar(r, { manoOrigenes: conMano.manoOrigenes, manoBuscar: conMano.manoBuscar });
+    c.abrirMano();
+    f.detectChanges();
+    expect(c.aManoAbierto()).toBe(true);
+    expect(texto(f)).toContain('Volver a tu mesa');
+    // Lo que sólo tiene la mesa ya no está (la captura nombra «Lo que te va a llegar» en su lateral).
+    expect(texto(f)).not.toContain('¿Hasta dónde pides?');
+    const antes = pedidos.length;
+    c.cerrarMano(false);
+    expect(pedidos.length).toBe(antes);
+    c.abrirMano();
+    c.cerrarMano(true);
+    expect(pedidos.length).toBe(antes + 1);
+    expect(c.aManoAbierto()).toBe(false);
+  });
+
+  it('lo que ya va en el sugerido viaja a la captura con la cantidad y la unidad que se ven (5 cj)', () => {
+    const { c } = montar(RESP([], { posiciones: ['bajo_minimo'] as never }), conMano);
+    expect(c.sugeridoPorProducto()['p-1']).toEqual({ cantidad: 5, unidad: 'cj' });
+    expect(c.matrizDefault()).toBe('00');
+  });
+
+  it('⛔ un ajuste GUARDADO viaja con SU unidad: si el motor pasó a cajas, 3 paquetes no se vuelven 3 cajas', () => {
+    const ajustada = linea({ ajuste: { cantidad: 3, unidad: 'paq', motivo: null, ajustado_por: 'u1', ajustado_at: '2026-11-26T18:00:00Z' } });
+    const { c } = montar(RESP([], { posiciones: ['bajo_minimo'] as never, grupos: [grupo([ajustada])] }), conMano);
+    expect(c.sugeridoPorProducto()['p-1']).toEqual({ cantidad: 3, unidad: 'paq' });
   });
 });

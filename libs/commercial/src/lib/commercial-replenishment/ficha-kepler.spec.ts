@@ -1,4 +1,83 @@
-import { factorExactoDeFicha, factorFichaKepler, frenoFichaSinCaja } from './ficha-kepler';
+import {
+  cajasDeBase, factorCoincideConFicha, factorExactoDeFicha, factorFichaKepler, frenoFichaSinCaja, rechazoDelTraspaso,
+} from './ficha-kepler';
+
+/**
+ * `[AB.PM.3]` R8 (d) — las tres revisiones del traspaso, hechas AL CAPTURAR. Medido el 2026-11-26
+ * (`pg-prod`, sólo lectura, SKU distintos y productos vivos): de 1,193 SKU que Morelia Madero pidió a
+ * Morelia Abastos en 30 días, 1,192 pasan; el 99948 no, porque la ficha de Abastos no da su factor.
+ * Los demás casos con SKU son reales (28022, 02031, 95579); los que no llevan SKU son de laboratorio.
+ */
+describe('[AB.PM.3] rechazoDelTraspaso: lo que el sink rechazaría, dicho al capturar', () => {
+  const ficha = (unidad_base: string | null, factor: number | null) => ({ unidad_base, factor });
+
+  it('28022: 2 cajas de 30 (60 PAQ), ficha de 08 con caja de 30 → pasa', () => {
+    expect(rechazoDelTraspaso({ sku: '28022', cantidadBase: 60, piezasPorCaja: 30, ficha: ficha('PAQ', 30) })).toBeNull();
+  });
+
+  it('[PQ.147] 02031: 32 piezas de una caja de 96 (0.333 cj) vuelven a 32 → pasa', () => {
+    expect(rechazoDelTraspaso({ sku: '02031', cantidadBase: 32, piezasPorCaja: 96, ficha: ficha('PZA', 96) })).toBeNull();
+  });
+
+  it('5 piezas de una caja de 7 (0.714 cj) vuelven a 5 → pasa', () => {
+    expect(rechazoDelTraspaso({ sku: 'x', cantidadBase: 5, piezasPorCaja: 7, ficha: ficha('PZA', 7) })).toBeNull();
+  });
+
+  it('⛔ sin factor de caja de la Suite en el almacén que pide (nulo o cero)', () => {
+    expect(rechazoDelTraspaso({ sku: 'x', cantidadBase: 10, piezasPorCaja: null, ficha: ficha('PAQ', 12) })).toBe('sin_factor_suite');
+    expect(rechazoDelTraspaso({ sku: 'x', piezasPorCaja: 0, ficha: ficha('PAQ', 12) })).toBe('sin_factor_suite');
+  });
+
+  it('⛔ 99948: la ficha del origen no da factor → no coincide', () => {
+    expect(rechazoDelTraspaso({ sku: '99948', cantidadBase: 6, piezasPorCaja: 6, ficha: ficha('PZA', null) })).toBe('factor_distinto');
+  });
+
+  it('⛔ factor de la Suite distinto del de la ficha (12 contra 10)', () => {
+    expect(rechazoDelTraspaso({ sku: 'x', cantidadBase: 24, piezasPorCaja: 12, ficha: ficha('PAQ', 10) })).toBe('factor_distinto');
+  });
+
+  it('⛔ la ficha del origen sin unidad base, o sin ficha', () => {
+    expect(rechazoDelTraspaso({ sku: 'x', cantidadBase: 12, piezasPorCaja: 12, ficha: ficha(null, 12) })).toBe('sin_ficha_origen');
+    expect(rechazoDelTraspaso({ sku: 'x', cantidadBase: 12, piezasPorCaja: 12, ficha: undefined })).toBe('sin_ficha_origen');
+  });
+
+  it('⛔ unidades base que no son enteras (19.75 KG) no pasan', () => {
+    expect(rechazoDelTraspaso({ sku: '95579', cantidadBase: 19.75, piezasPorCaja: 1, ficha: ficha('KG', 1) })).toBe('sin_piezas_enteras');
+  });
+
+  it('⛔ una caja tan grande que la cantidad se pierde al guardar 3 decimales (1 de 3,000) no pasa', () => {
+    expect(rechazoDelTraspaso({ sku: 'x', cantidadBase: 1, piezasPorCaja: 3000, ficha: ficha('PZA', 3000) })).toBe('sin_piezas_enteras');
+  });
+
+  it('⛔ piezas enteras que NO son lo pedido: 2 de una caja de 3,000 se guardan 0.001 cj = 3 piezas', () => {
+    expect(rechazoDelTraspaso({ sku: 'x', cantidadBase: 2, piezasPorCaja: 3000, ficha: ficha('PZA', 3000) })).toBe('sin_piezas_enteras');
+  });
+
+  it('el orden es el del sink: sin factor de la Suite se dice primero, aunque tampoco haya ficha', () => {
+    expect(rechazoDelTraspaso({ sku: 'x', cantidadBase: 1, piezasPorCaja: null, ficha: undefined })).toBe('sin_factor_suite');
+  });
+
+  it('sin cantidad (el buscador) sólo revisa lo que no depende de ella', () => {
+    expect(rechazoDelTraspaso({ sku: 'x', piezasPorCaja: 3000, ficha: ficha('PZA', 3000) })).toBeNull();
+    expect(rechazoDelTraspaso({ sku: 'x', piezasPorCaja: 12, ficha: ficha('PAQ', 10) })).toBe('factor_distinto');
+  });
+});
+
+describe('[PQ.19] factorCoincideConFicha y cajasDeBase', () => {
+  it('coincide dentro de la tolerancia de 0.001, y no fuera de ella', () => {
+    expect(factorCoincideConFicha(30, { factor: 30 })).toBe(true);
+    expect(factorCoincideConFicha('30.0005', { factor: 30 })).toBe(true);
+    expect(factorCoincideConFicha(30.002, { factor: 30 })).toBe(false);
+  });
+  it('⛔ la ficha que no da factor nunca coincide', () => {
+    expect(factorCoincideConFicha(30, { factor: null })).toBe(false);
+    expect(factorCoincideConFicha(30, undefined)).toBe(false);
+  });
+  it('las cajas se guardan a 3 decimales, como la columna', () => {
+    expect(cajasDeBase(36, 12)).toBe(3);
+    expect(cajasDeBase(32, 96)).toBe(0.333);
+  });
+});
 
 /**
  * `[PQ.19]` D24 — el factor de la ficha, con la misma regla que `analytics.v_kepler_unit_ladder`.

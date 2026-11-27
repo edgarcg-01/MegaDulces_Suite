@@ -42,6 +42,35 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // `[AB.PM.4]` El pedido a mano de Autoabasto (anexo PM del 2026-11-26). Lo lee quien pide en la
+  // sucursal: palabra llana. Cada definición está anclada a la cuenta real (`alcanceDelRenglon`,
+  // `propuestaDelRenglon`, `rechazoDelTraspaso`, `partirCaptura`), no a lo que la etiqueta sugiere.
+  'almacen-autoabasto-a-mano': {
+    title: 'Pedir a mano — lo que el sugerido no pidió',
+    intro: 'Aquí pides lo que tú sabes y el sistema no: un pedido grande de un cliente, algo nuevo, algo que se acabó hoy. Eliges a qué sucursal se lo pides, buscas el producto y lo agregas. Al mandarlo, cada sucursal recibe su pedido en Kepler ya autorizado y entra a Surtido, Checado y Embarque, igual que el que hoy tecleas allá. Todo se guarda solo.',
+    groups: [
+      {
+        heading: 'Lo que ves de cada producto',
+        entries: [
+          { term: 'Alcance', def: 'Cuántos días te dura lo que tienes, más lo que ya viene, más lo que pides, al ritmo de venta de los últimos 30 días (venta de 30 días ÷ 30.4 = venta de un día). Es la misma cuenta de Pedido de Compras. Se ve como «hoy → con lo que pides». Sin venta en 30 días no se mide: no es cero.' },
+          { term: 'Tope de 45 días', def: 'Ningún renglón debería dejarte más de 45 días de mercancía. Si lo pasa, el renglón lo dice, pero no te impide pedirlo: el tope gobierna lo que el sistema sugiere, no lo que tú decides.' },
+          { term: 'Hay allá', def: 'Lo que tiene la sucursal a la que le pides, en su unidad base. Es un dato, no un candado: puedes pedir aunque allá haya poco.' },
+          { term: 'Ya viene', def: 'Lo que ya te pidieron a otra sucursal (pedido abierto de 7 días o menos) y lo embarcado que todavía no recibes. Cuenta para el alcance. El folio y por dónde va se ven en «Lo que te va a llegar» de tu mesa.' },
+          { term: 'Lo que te proponemos', def: 'Lo que falta para cubrir los días que pide tu sucursal (21 en las que no surten a otras), con la regla de media caja de Pedido de Compras: media caja o más, en cajas cerradas; menos, en la unidad más chica, entera. Lo puedes cambiar.' },
+        ],
+      },
+      {
+        heading: 'Reglas',
+        entries: [
+          { term: 'Un producto, una vez', def: 'Si un producto ya va en tu pedido sugerido y lo pides aquí, sale del sugerido para que no te llegue dos veces. Si lo quitas de aquí, vuelve al sugerido.' },
+          { term: 'Sólo unidades enteras', def: 'Se pide en las presentaciones de Kepler (caja, paquete, pieza, kilo), en números enteros. Una presentación que no da unidades enteras —como un bulto de 19.75 kilos— no se ofrece: el pedido se escribe en la unidad base y Kepler sólo la acepta entera.' },
+          { term: 'Kepler lo rechazaría', def: 'Para escribir el pedido, la caja que usa la Suite en tu sucursal tiene que ser la misma de la ficha de la sucursal que surte. Si no lo es (o si falta), Kepler rechazaría el pedido ENTERO. Por eso ese renglón se queda fuera del envío y lo dice, para no tumbar a los demás. Se corrige la ficha en Kepler o se pide a otra sucursal.' },
+          { term: 'Compras', def: 'Lo que ninguna sucursal tiene se le pide a Compras. Por ahora se queda en tu pedido a mano con «ruta por confirmar»: no sale hasta que Compras pueda confirmar a quién se le pide.' },
+          { term: 'Si te equivocas', def: 'Un pedido ya mandado se cancela en Kepler: la Suite todavía no cancela un pedido de sucursal.' },
+        ],
+      },
+    ],
+  },
   // `[AB.28]` La mesa de Autoabasto (`/almacen/autoabasto`). La lee el almacenista y el encargado de
   // sucursal: palabra llana, nada de nombres de columna. Cada definición está anclada a la cuenta real
   // (`armarRenglon` en libs/contracts y FASE_AB §16.8), no a lo que la etiqueta sugiere.

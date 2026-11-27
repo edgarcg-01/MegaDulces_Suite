@@ -9,6 +9,8 @@ import type {
   AutoabastoRenglonesResponse, EstadoRenglon, SurteRenglon, OrdenMesa,
   AutoabastoEnviarRequest, AutoabastoEnviarResponse,
   AutoabastoVieneDoc, AutoabastoVieneRenglonesResponse, MonthlySalesResponse,
+  AutoabastoManoOrigenesResponse, AutoabastoManoBuscarResponse, AutoabastoManoResponse, AutoabastoManoRenglon,
+  AutoabastoManoGuardarRequest, AutoabastoManoQuitarRequest, AutoabastoManoEnviarRequest, AutoabastoManoEnviarResponse,
 } from '@megadulces/contracts';
 
 /** `[AB.27]` Filtros de `GET /commercial/autoabasto/renglones`. El almacén es obligatorio: una mesa por sucursal. */
@@ -313,6 +315,39 @@ export class AutoabastoService {
   /** `[AB.18]` Huella de apertura del pedido. */
   abrirPedido(req: AutoabastoAbrirRequest): Observable<{ ok: true }> {
     return this.http.post<{ ok: true }>(`${this.base}/pedido/abrir`, req);
+  }
+
+  // ── [AB.PM.4] El pedido a mano ──────────────────────────────────────────────────────────────
+
+  /** A quién se le puede pedir (R6): la misma regla con que el servidor valida el origen. */
+  manoOrigenes(warehouseId: string): Observable<AutoabastoManoOrigenesResponse> {
+    return this.http.get<AutoabastoManoOrigenesResponse>(`${this.base}/pedido/mano/origenes`, { params: this.params({ warehouse_id: warehouseId }) });
+  }
+
+  /** El buscador de Cotizaciones, sin precios, con los números de cada producto contra la sucursal elegida. */
+  manoBuscar(warehouseId: string, q: string, origenCode: string | null): Observable<AutoabastoManoBuscarResponse> {
+    const p: Record<string, string> = { warehouse_id: warehouseId, q };
+    if (origenCode) p['origen_code'] = origenCode;
+    return this.http.get<AutoabastoManoBuscarResponse>(`${this.base}/pedido/mano/buscar`, { params: new HttpParams({ fromObject: p }) });
+  }
+
+  /** Lo pedido a mano, partido como se va a mandar. */
+  mano(warehouseId: string): Observable<AutoabastoManoResponse> {
+    return this.http.get<AutoabastoManoResponse>(`${this.base}/pedido/mano`, { params: this.params({ warehouse_id: warehouseId }) });
+  }
+
+  /** Guarda o cambia un renglón a mano. El servidor pone el factor y valida el origen. */
+  manoGuardar(req: AutoabastoManoGuardarRequest): Observable<{ pedido_id: string; renglon: AutoabastoManoRenglon }> {
+    return this.http.put<{ pedido_id: string; renglon: AutoabastoManoRenglon }>(`${this.base}/pedido/mano`, req);
+  }
+
+  manoQuitar(req: AutoabastoManoQuitarRequest): Observable<{ pedido_id: string; product_id: string }> {
+    return this.http.post<{ pedido_id: string; product_id: string }>(`${this.base}/pedido/mano/quitar`, req);
+  }
+
+  /** Manda lo pedido a mano: un pedido por sucursal; lo que no puede salir se queda con su motivo. */
+  manoEnviar(req: AutoabastoManoEnviarRequest): Observable<AutoabastoManoEnviarResponse> {
+    return this.http.post<AutoabastoManoEnviarResponse>(`${this.base}/pedido/mano/enviar`, req);
   }
 
   /** `[AB.13]` Todas las filas + resumen + sello de fecha y hora, de un almacén de tu alcance. */

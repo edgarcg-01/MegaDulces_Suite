@@ -48,8 +48,29 @@ import {
   type AutoabastoVieneDoc,
   type AutoabastoVieneDocsResponse,
   type SucursalPendientesAlmacen,
+  // `[AB.PM.3]` El pedido a mano.
+  alcanceDelRenglon,
+  fallaDeOrigen,
+  type AutoabastoManoOrigenesResponse,
+  partirCaptura,
+  propuestaDelRenglon,
+  unidadDeCaptura,
+  unidadesDeCaptura,
+  RECHAZO_KEPLER_MSG,
+  type DestinoCaptura,
+  type AutoabastoManoMedidas,
+  type AutoabastoManoProducto,
+  type AutoabastoManoBuscarResponse,
+  type AutoabastoManoRenglon,
+  type AutoabastoManoResponse,
+  type AutoabastoManoGuardarRequest,
+  type AutoabastoManoQuitarRequest,
+  type AutoabastoManoEnviarRequest,
+  type AutoabastoManoEnviarResponse,
 } from '@megadulces/contracts';
-import { CommercialReplenishmentService, type CreateRequisitionDto } from './commercial-replenishment.service';
+import { CommercialReplenishmentService, venta30dBaseSql, type CreateRequisitionDto } from './commercial-replenishment.service';
+import { cajasDeBase, rechazoDelTraspaso } from './ficha-kepler';
+import { consultaBuscadorCatalogo, ORDEN_BUSCADOR_CATALOGO } from '../shared/catalogo-buscador';
 import {
   VENTANA_YA_PEDIDO_DIAS, VENTANA_NEGADO_DIAS, VENTANA_EN_CAMINO_DIAS, VENTANA_VIENE_DIAS,
   PEDIDOS_SUCURSAL_SQL, EMBARCADO_SIN_RECIBIR_SQL, sumarYaPedido, leerEscaleras,
@@ -233,6 +254,13 @@ interface FilaDoc { tipo: 'pedido' | 'embarque'; origen: string; serie: number; 
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** `[AB.PM.1]` Lo que contesta el sugerido cuando el producto ya está en el pedido a mano (R1). */
+const PEDIDO_A_MANO_MSG = 'Este producto lo pediste a mano: se cambia o se quita en «Pedir algo a mano», no en el sugerido.';
+/** `[AB.PM.3]` Por qué el envío del sugerido deja fuera un producto pedido a mano (R1). */
+const PEDIDO_A_MANO_ENVIO_MSG = 'Lo pediste a mano: sale con tu pedido a mano';
+/** `[AB.PM.3]` El renglón cambió mientras el pedido viajaba a Kepler: salió lo de antes, lo nuevo se queda. */
+const PEDIDO_A_MANO_CAMBIO_AL_ENVIAR_MSG = 'Cambió mientras se mandaba: salió con lo que tenía antes, y lo nuevo se queda en tu pedido a mano';
+
 const num = (v: unknown): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -314,11 +342,15 @@ export class AutoabastoPedidoService {
           posiciones = normalizarPosiciones(b?.posiciones);
         }
         const ajustes = new Map<string, AjusteLinea & { cantidad_base: number }>();
+        // `[AB.PM.3]` Lo pedido a mano NO es un ajuste del sugerido: vive aparte y saca al producto de
+        // la cuenta del sugerido (R1, un producto vive una vez en el borrador).
+        const aMano = new Set<string>();
         if (borrador) {
           const ls: FilaLinea[] = await trx('commercial.autoabasto_pedido_lineas')
             .where({ tenant_id: tenantId, pedido_id: borrador })
-            .select('product_id', 'cantidad', 'unidad', 'cantidad_base', 'motivo', 'ajustado_por_username', 'ajustado_at');
+            .select('product_id', 'cantidad', 'unidad', 'cantidad_base', 'motivo', 'ajustado_por_username', 'ajustado_at', 'captura');
           for (const l of ls) {
+            if (l.captura === 'mano') { aMano.add(l.product_id); continue; }
             ajustes.set(l.product_id, {
               cantidad: num(l.cantidad), unidad: l.unidad, motivo: (l.motivo as MotivoAjuste | null) ?? null,
               ajustado_por: l.ajustado_por_username, ajustado_at: new Date(l.ajustado_at).toISOString(),
@@ -337,14 +369,14 @@ export class AutoabastoPedidoService {
           : [];
         // `[AB.23]` Por (producto, unidad): se convierte a base más abajo, con la escalera.
         const pedidos = await kepler<FilaPedidos>(trx, PEDIDOS_SUCURSAL_SQL);
-        return { medidos, planes, deSucursal, pedidos, borrador, ajustes, guardable, posiciones };
+        return { medidos, planes, deSucursal, pedidos, borrador, ajustes, aMano, guardable, posiciones };
       }),
       this.tk.run(async (trx: Knex.Transaction) => ({
         enCamino: await kepler<FilaEnCamino>(trx, EMBARCADO_SIN_RECIBIR_SQL),
         docs: await kepler<FilaDoc>(trx, VIENE_DOCS_SQL),
       })),
     ]);
-    const { medidos, planes, deSucursal, borrador, ajustes, guardable, posiciones } = propio;
+    const { medidos, planes, deSucursal, borrador, ajustes, aMano, guardable, posiciones } = propio;
     // Sin cliente de traspaso, lo pedido NO se mide (≠ «cero»): se descarta, como antes.
     const pedidos = medidos ? propio.pedidos : [];
     const enCamino = medidos ? llega.enCamino : [];
@@ -365,7 +397,8 @@ export class AutoabastoPedidoService {
       planPorProducto.set(p.product_id, (planPorProducto.get(p.product_id) ?? 0) + num(p.final_qty));
     }
     const planDocs = porDocumento(planes);
-    const renglones: RenglonInterno[] = filas.map((f) => {
+    // `[AB.PM.3]` R1: lo pedido a mano no se cuenta otra vez en el sugerido (ni en «Mi pedido» ni en la mesa).
+    const renglones: RenglonInterno[] = filas.filter((f) => !aMano.has(String(f['product_id']))).map((f) => {
       const sku = String(f['sku']);
       // El factor del almacén: las cantidades "_nat" vienen en unidad base, las de la mesa en cajas.
       const cf = Math.max(1, num(f['caja_factor']));
@@ -401,7 +434,7 @@ export class AutoabastoPedidoService {
       });
       return { fila: f, cf, ...armado, linea: { ...armado.linea, linea: lineasProducto.get(sku) ?? null } };
     });
-    return { renglones, docs, planDocs, reqDocs, sinUnidad, medidos, borrador, guardable, posiciones };
+    return { renglones, docs, planDocs, reqDocs, sinUnidad, medidos, borrador, guardable, posiciones, aMano };
   }
 
   async pedido(almacen: Almacen, area: string, puedeAjustar = false): Promise<AutoabastoPedidoResponse> {
@@ -602,7 +635,7 @@ export class AutoabastoPedidoService {
    * verdad surte. La existencia se **muestra**, no frena.
    */
   private async origenElegido(tenantId: string, almacen: Almacen, code: string | null | undefined)
-    : Promise<{ id: string; code: string; name: string } | null> {
+    : Promise<OrigenMano | null> {
     const pedido = String(code ?? '').trim();
     if (!pedido) return null;
     const w = await this.tk.run(async (trx: Knex.Transaction) => trx('commercial.warehouses')
@@ -610,17 +643,13 @@ export class AutoabastoPedidoService {
       .first('id', 'code', 'name', 'active', 'kind', 'kepler_code')) as
       { id: string; code: string; name: string; active: boolean | null; kind: string | null; kepler_code: string | null } | undefined;
 
-    const falla: OrigenNoValido | null =
-      !w ? 'no_existe'
-        : w.active === false ? 'inactivo'
-          : String(w.kind ?? '').trim() === 'truck' ? 'es_camion'
-            : !String(w.kepler_code ?? '').trim() ? 'sin_kepler'
-              : w.id === almacen.id ? 'es_el_mismo'
-                : null;
+    // `[AB.PM.4]` La regla vive en `fallaDeOrigen`: la misma que arma la lista de orígenes de la pantalla.
+    const falla: OrigenNoValido | null = fallaDeOrigen(w, almacen.id);
     if (falla) {
       throw new BadRequestException(`No se puede pedir a «${pedido}»: ${ORIGEN_NO_VALIDO_MSG[falla]}.`);
     }
-    return { id: w!.id, code: w!.code, name: w!.name };
+    // `[AB.PM.3]` Con su sucursal de Kepler: su ficha es la que el traspaso tiene que respetar (R8 d).
+    return { id: w!.id, code: w!.code, name: w!.name, kepler_code: String(w!.kepler_code).trim() };
   }
 
   async enviar(almacen: Almacen, area: string, req: AutoabastoEnviarRequest): Promise<AutoabastoEnviarResponse> {
@@ -643,11 +672,13 @@ export class AutoabastoPedidoService {
       ? { tipo: 'matriz', clave: elegido.code, nombre: elegido.name }
       : s);
 
-    const { renglones } = await this.armarAlmacen(almacen, area);
+    const { renglones, aMano } = await this.armarAlmacen(almacen, area);
     const porId = new Map(renglones.map((r) => [r.linea.product_id, r]));
     const omitidos: AutoabastoEnviarResponse['omitidos'] = [];
     const grupos = new Map<string, RenglonInterno[]>();
     for (const id of ids) {
+      // `[AB.PM.3]` R1: lo pedido a mano sale con el pedido a mano, nunca dos veces.
+      if (aMano.has(id)) { omitidos.push({ product_id: id, motivo: PEDIDO_A_MANO_ENVIO_MSG }); continue; }
       const r = porId.get(id);
       if (!r) { omitidos.push({ product_id: id, motivo: 'No le falta a esta sucursal' }); continue; }
       const porque = motivoNoEnviable(r.linea);
@@ -954,7 +985,11 @@ export class AutoabastoPedidoService {
         .where({ tenant_id: tenantId, pedido_id: pedidoId, product_id: req.product_id }).first('cantidad');
       const antes = previo ? num(previo.cantidad) : sugerido;
       const ahora = new Date();
-      await trx.raw(
+      // `[AB.PM.1]` El renglón nuevo nace `captura = 'motor'` por el DEFAULT de la columna. Y si el
+      // producto ya está en el borrador PEDIDO A MANO, el ajuste del sugerido NO lo pisa (el `WHERE`
+      // del `DO UPDATE`): un producto vive una sola vez en el borrador (R1), y lo de a mano se cambia
+      // en el pedido a mano. Sin fila devuelta = no se escribió nada, y se dice.
+      const escrito = await trx.raw(
         `INSERT INTO commercial.autoabasto_pedido_lineas
            (tenant_id, pedido_id, product_id, sku, origen_tipo, origen_clave, sugerido, sugerido_unidad, sugerido_base,
             cantidad, unidad, cantidad_base, motivo, contexto, ajustado_por, ajustado_por_username, ajustado_at)
@@ -963,10 +998,13 @@ export class AutoabastoPedidoService {
            sugerido = EXCLUDED.sugerido, sugerido_unidad = EXCLUDED.sugerido_unidad, sugerido_base = EXCLUDED.sugerido_base,
            cantidad = EXCLUDED.cantidad, unidad = EXCLUDED.unidad, cantidad_base = EXCLUDED.cantidad_base,
            motivo = EXCLUDED.motivo, contexto = EXCLUDED.contexto, ajustado_por = EXCLUDED.ajustado_por,
-           ajustado_por_username = EXCLUDED.ajustado_por_username, ajustado_at = EXCLUDED.ajustado_at, updated_at = now()`,
+           ajustado_por_username = EXCLUDED.ajustado_por_username, ajustado_at = EXCLUDED.ajustado_at, updated_at = now()
+         WHERE commercial.autoabasto_pedido_lineas.captura = 'motor'
+         RETURNING id`,
         [tenantId, pedidoId, req.product_id, req.sku ?? null, req.origen_tipo, req.origen_clave ?? null,
           sugerido, req.unidad ?? null, sugerido * factor, cantidad, req.unidad ?? null, cantidad * factor,
           motivo, JSON.stringify(req.contexto ?? {}), ctx?.userId ?? null, ctx?.username ?? null, ahora]);
+      if (!(escrito.rows ?? []).length) throw new BadRequestException(PEDIDO_A_MANO_MSG);
       await this.huella(trx, {
         tenant_id: tenantId, warehouse_id: warehouseId, pedido_id: pedidoId, product_id: req.product_id,
         evento: 'ajustar', sugerido, antes, despues: cantidad, unidad: req.unidad ?? null, motivo, ms_en_renglon: ms,
@@ -987,12 +1025,18 @@ export class AutoabastoPedidoService {
       await this.exigeBorrador(trx);
       const pedidoId = await this.borradorDe(trx, tenantId, warehouseId);
       if (!pedidoId) throw new BadRequestException('No hay ajustes que restablecer.');
-      const previo = await trx('commercial.autoabasto_pedido_lineas')
-        .where({ tenant_id: tenantId, pedido_id: pedidoId, product_id: req.product_id })
-        .first('cantidad', 'sugerido', 'unidad');
+      // `[AB.PM.1]` Restablecer vuelve al SUGERIDO: sólo alcanza un renglón del motor. Borrar y leer lo
+      // borrado es UNA sentencia, así que nada se cuela entre leer y borrar. Si no borró nada y el
+      // producto está pedido a mano, se dice: un renglón a mano no tiene sugerido al que volver.
+      const [previo] = await trx('commercial.autoabasto_pedido_lineas')
+        .where({ tenant_id: tenantId, pedido_id: pedidoId, product_id: req.product_id, captura: 'motor' })
+        .delete(['cantidad', 'sugerido', 'unidad']);
+      if (!previo) {
+        const aMano = await trx('commercial.autoabasto_pedido_lineas')
+          .where({ tenant_id: tenantId, pedido_id: pedidoId, product_id: req.product_id, captura: 'mano' }).first('id');
+        if (aMano) throw new BadRequestException(PEDIDO_A_MANO_MSG);
+      }
       if (previo) {
-        await trx('commercial.autoabasto_pedido_lineas')
-          .where({ tenant_id: tenantId, pedido_id: pedidoId, product_id: req.product_id }).delete();
         await this.huella(trx, {
           tenant_id: tenantId, warehouse_id: warehouseId, pedido_id: pedidoId, product_id: req.product_id,
           evento: 'restablecer', sugerido: previo.sugerido, antes: previo.cantidad, despues: previo.sugerido,
@@ -1031,14 +1075,513 @@ export class AutoabastoPedidoService {
     });
     return { ok: true };
   }
+
+  // ── [AB.PM.3] El pedido a mano ──────────────────────────────────────────────────────────────
+  //
+  // Lo que la sucursal pide aunque el motor no lo sugiera, a la sucursal que ella elige (anexo PM del
+  // 2026-11-26). Vive en el MISMO borrador que los ajustes del sugerido, marcado `captura = 'mano'`
+  // (`[AB.PM.1]`), y sale por el MISMO escritor (`crearRequisicionesDeSucursal` + `soltarPedidoDeSucursal`,
+  // ADR-127). Nada de esto calcula otra cuenta: el alcance es `alcanceDelRenglon`, la propuesta
+  // `propuestaDelRenglon`, la partición `partirCaptura` y lo que Kepler rechazaría `rechazoDelTraspaso`.
+
+  /**
+   * Los números de los productos para pedirlos a mano, de las MISMAS fuentes que la mesa:
+   *  · existencia y venta de 30 días: `analytics.replenishment_plan` (`stock_pz` es la existencia de la
+   *    mesa con base 'demanda'; la venta, `venta30dBaseSql`, es el ritmo del tope de 45 días);
+   *  · lo que ya viene: `sumarYaPedido` sobre los pedidos abiertos y lo embarcado sin recibir (R2);
+   *  · la escalera (`leerEscaleras`) y el factor de caja del almacén que pide (`mv_warehouse_box_factor`,
+   *    el mismo que `pushToKepler` le pasa al sink);
+   *  · de cada origen: su existencia (su plan) y la ficha de su Kepler (`v_kepler_unit_ladder`).
+   * ⚠️ `v_kepler_unit_ladder` se lee sola, por `sucursal` y `sku = ANY`: unida a otra consulta tardaba
+   * de más (medido el 2026-11-26).
+   */
+  protected async medidasMano(
+    trx: Knex.Transaction, tenantId: string, almacen: Almacen,
+    productos: ReadonlyArray<{ id: string; sku: string }>, origenes: ReadonlyArray<OrigenMano>,
+  ): Promise<{ porProducto: Map<string, MedidasProducto>; vieneMedido: boolean }> {
+    const porProducto = new Map<string, MedidasProducto>();
+    const binds = { t: tenantId, suc: almacen.code };
+    const vieneMedido = ((await trx.raw(TIENE_DESTINO_SQL, binds)).rows ?? []).length > 0;
+    if (!productos.length) return { porProducto, vieneMedido };
+    const ids = [...new Set(productos.map((p) => p.id))];
+    const skus = [...new Set(productos.map((p) => p.sku))];
+    const plan = ((await trx.raw(
+      `SELECT rpl.warehouse_id, rpl.product_id, rpl.stock_pz, ${venta30dBaseSql('rpl')} AS venta_30d, rpl.rung_veredicto, rpl.caja_cost
+         FROM analytics.replenishment_plan rpl
+        WHERE rpl.tenant_id = ? AND rpl.warehouse_id = ANY(?::uuid[]) AND rpl.product_id = ANY(?::uuid[])`,
+      [tenantId, [almacen.id, ...origenes.map((o) => o.id)], ids])).rows ?? []) as Array<{
+        warehouse_id: string; product_id: string; stock_pz: unknown; venta_30d: unknown; rung_veredicto: unknown; caja_cost: unknown }>;
+    const bfSrc = (await trx.raw("SELECT to_regclass('analytics.mv_warehouse_box_factor') AS a")).rows?.[0]?.a
+      ? 'analytics.mv_warehouse_box_factor' : 'analytics.v_warehouse_box_factor';
+    const bfs = (await trx(bfSrc).where({ tenant_id: tenantId, warehouse_id: almacen.id }).whereIn('product_id', ids)
+      .select('product_id', 'box_factor')) as Array<{ product_id: string; box_factor: unknown }>;
+    const escaleras = await leerEscaleras(trx, skus);
+    const sucursales = [...new Set(origenes.map((o) => o.kepler_code).filter(Boolean))];
+    const fichas = (sucursales.length
+      ? (await trx.raw(
+        `SELECT btrim(sucursal) AS sucursal, btrim(sku) AS sku, u1_label, factor_caja
+           FROM analytics.v_kepler_unit_ladder WHERE sucursal = ANY(?::text[]) AND sku = ANY(?::text[])`,
+        [sucursales, skus])).rows ?? []
+      : []) as Array<{ sucursal: string; sku: string; u1_label: string | null; factor_caja: unknown }>;
+    let viene = new Map<string, VieneBase>();
+    if (vieneMedido) {
+      const pedidos = ((await trx.raw(PEDIDOS_SUCURSAL_SQL, binds)).rows ?? []) as FilaPedidos[];
+      const enCamino = ((await trx.raw(EMBARCADO_SIN_RECIBIR_SQL, binds)).rows ?? []) as FilaEnCamino[];
+      viene = sumarYaPedido(pedidos, enCamino, escaleras, new Set(skus)).viene;
+    }
+
+    const planDe = new Map(plan.map((p) => [`${p.warehouse_id}|${p.product_id}`, p]));
+    const bfDe = new Map(bfs.map((b) => [b.product_id, numONull(b.box_factor)]));
+    const fichaDe = new Map<string, { unidad_base: string | null; factor: number | null }>();
+    for (const f of fichas) {
+      const k = `${f.sucursal}|${f.sku}`;
+      if (!fichaDe.has(k)) fichaDe.set(k, { unidad_base: String(f.u1_label ?? '').trim().toUpperCase() || null, factor: numONull(f.factor_caja) });
+    }
+    for (const p of productos) {
+      const propio = planDe.get(`${almacen.id}|${p.id}`);
+      const v = viene.get(p.sku);
+      const origen: MedidasProducto['origen'] = new Map();
+      for (const o of origenes) {
+        const op = planDe.get(`${o.id}|${p.id}`);
+        origen.set(o.id, { existencia: op ? numONull(op.stock_pz) : null, ficha: fichaDe.get(`${o.kepler_code}|${p.sku}`) ?? null });
+      }
+      porProducto.set(p.id, {
+        sku: p.sku,
+        escalera: escaleras.get(p.sku) ?? null,
+        // Como la mesa (`COALESCE(rpl.stock_pz, 0)`): en el plan sin existencia es cero; fuera del plan, no medido.
+        existencia: propio ? num(propio.stock_pz) : null,
+        venta30: propio ? numONull(propio.venta_30d) : null,
+        noConfiable: propio ? propio.rung_veredicto != null : false,
+        // Lo que viene se resta como en la mesa: lo pedido abierto de 7 días y lo embarcado sin recibir.
+        viene: vieneMedido ? (v ? v.ya + v.camino : 0) : null,
+        bf: bfDe.get(p.id) ?? null,
+        cajaCost: propio ? numONull(propio.caja_cost) : null,
+        origen,
+      });
+    }
+    return { porProducto, vieneMedido };
+  }
+
+  /**
+   * `[AB.PM.4]` `GET pedido/mano/origenes` — a quién se le puede pedir: todos los almacenes que pasan
+   * `fallaDeOrigen` (la regla de `origenElegido`), por nombre. La pantalla no ofrece lo que el servidor
+   * rechazaría después.
+   */
+  async origenesMano(almacen: Almacen): Promise<AutoabastoManoOrigenesResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const ws = (await this.tk.run((trx: Knex.Transaction) => trx('commercial.warehouses')
+      .where({ tenant_id: tenantId }).whereNull('deleted_at')
+      .select('id', 'code', 'name', 'active', 'kind', 'kepler_code'))) as Array<{
+        id: string; code: string; name: string; active: boolean | null; kind: string | null; kepler_code: string | null }>;
+    return {
+      origenes: ws.filter((w) => !fallaDeOrigen(w, almacen.id))
+        .map((w) => ({ code: w.code, name: w.name }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'es')),
+    };
+  }
+
+  /** La sucursal de Kepler del almacén que pide. Sin ella el traspaso no tiene destino (`pushToKepler` lo frena). */
+  private async sucursalKepler(trx: Knex.Transaction, tenantId: string, almacen: Almacen): Promise<string> {
+    const w = await trx('commercial.warehouses').where({ tenant_id: tenantId, id: almacen.id }).first('kepler_code');
+    const k = String(w?.kepler_code ?? '').trim();
+    if (!k) throw new BadRequestException(`El almacén ${almacen.code} no tiene sucursal de Kepler: no se le puede escribir un pedido.`);
+    return k;
+  }
+
+  /**
+   * `GET pedido/mano/buscar` — el buscador de Cotizaciones (`consultaBuscadorCatalogo`: palabras en
+   * cualquier orden, código de barras, lo más vendido sin teclear) sobre el catálogo de la sucursal que
+   * pide, SIN precios (en un traspaso no deciden: la consulta de afuera sólo toma código, nombre e id),
+   * con los números de cada producto. Lo que ya va en el sugerido no se pregunta aquí: la mesa ya lo
+   * tiene en la pantalla (`/pedido`).
+   *
+   * Con los artículos de precio simbólico, como Cotizaciones (`[COT.27]`): también se traspasan. Medido el
+   * 2026-11-26: de los 1,193 SKU que Morelia Madero pidió a Morelia Abastos en 30 días, la vista de
+   * etiquetas sola encuentra 1,187; con ellos, los 1,193 (el 09049, «2 BLS MONTES = GRATIS 1 VITROLERO»).
+   */
+  async buscarMano(almacen: Almacen, q: string | null | undefined, origenCode?: string | null, limit = 20): Promise<AutoabastoManoBuscarResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const term = String(q ?? '').trim().slice(0, 80);
+    const n = Math.min(Math.max(Math.trunc(Number(limit) || 20), 1), 30);
+    const origen = String(origenCode ?? '').trim() ? await this.origenElegido(tenantId, almacen, origenCode) : null;
+    return this.tk.run(async (trx: Knex.Transaction) => {
+      const suc = await this.sucursalKepler(trx, tenantId, almacen);
+      const inner = consultaBuscadorCatalogo(trx, suc, term, n, { incluirPrecioSimbolico: true });
+      const encontrados = ((await trx.raw(
+        `SELECT v.sku, v.name, p.id AS product_id
+           FROM :inner v
+           JOIN catalog.products p ON p.tenant_id = :t AND p.sku = v.sku AND p.deleted_at IS NULL
+          ORDER BY ${ORDEN_BUSCADOR_CATALOGO}`,
+        { inner, term, pre: `${term}%`, t: tenantId })).rows ?? []) as Array<{ sku: string; name: string | null; product_id: string }>;
+      const { porProducto, vieneMedido } = await this.medidasMano(
+        trx, tenantId, almacen, encontrados.map((e) => ({ id: e.product_id, sku: e.sku })), origen ? [origen] : []);
+      const productos = encontrados.map((e): AutoabastoManoProducto => {
+        const m = porProducto.get(e.product_id);
+        const propuesta = propuestaDelRenglon({ ...entradaAlcance(m, almacen.code), escalera: m?.escalera ?? null });
+        return {
+          product_id: e.product_id, sku: e.sku, nombre: e.name ?? '',
+          ...medidasDe(m, origen?.id ?? null, almacen.code),
+          propuesta: propuesta ? { cantidad: propuesta.cantidad, unidad: String(propuesta.unidad), cantidad_base: propuesta.cantidad_base } : null,
+          kepler: origen ? rechazoDelTraspaso({ sku: e.sku, piezasPorCaja: m?.bf, ficha: m?.origen.get(origen.id)?.ficha }) : null,
+        };
+      });
+      return { origen: origen ? { code: origen.code, name: origen.name } : null, productos, viene_medido: vieneMedido };
+    });
+  }
+
+  /** Los renglones a mano del borrador (todos, o sólo los de `productIds`), con el producto. */
+  private filasMano(trx: Knex.Transaction, tenantId: string, pedidoId: string, productIds?: string[]): Promise<FilaMano[]> {
+    const q = trx('commercial.autoabasto_pedido_lineas as l')
+      .leftJoin('catalog.products as p', (j) => j.on('p.tenant_id', 'l.tenant_id').andOn('p.id', 'l.product_id'))
+      .where({ 'l.tenant_id': tenantId, 'l.pedido_id': pedidoId, 'l.captura': 'mano' })
+      .select('l.product_id', trx.raw('COALESCE(p.sku, l.sku) AS sku'), 'p.nombre', 'l.origen_tipo', 'l.origen_clave',
+        'l.cantidad', 'l.unidad', 'l.cantidad_base', 'l.ajustado_por_username', 'l.ajustado_at')
+      .orderBy('l.ajustado_at', 'desc');
+    if (productIds) q.whereIn('l.product_id', productIds);
+    return q as unknown as Promise<FilaMano[]>;
+  }
+
+  /** Lee lo pedido a mano y lo arma con sus números de hoy: lo comparten la lista y el envío. */
+  private async leerMano(trx: Knex.Transaction, tenantId: string, almacen: Almacen, pedidoId: string | null) {
+    const filas = pedidoId ? await this.filasMano(trx, tenantId, pedidoId) : [];
+    const codes = [...new Set(filas.filter((f) => f.origen_tipo === 'matriz' && f.origen_clave).map((f) => String(f.origen_clave).trim()))];
+    const ws = (codes.length
+      ? await trx('commercial.warehouses').where({ tenant_id: tenantId }).whereIn('code', codes).whereNull('deleted_at')
+        .select('id', 'code', 'name', 'kepler_code')
+      : []) as Array<{ id: string; code: string; name: string; kepler_code: string | null }>;
+    const origenes = new Map<string, OrigenMano>(ws.map((w) => [w.code, { id: w.id, code: w.code, name: w.name, kepler_code: String(w.kepler_code ?? '').trim() }]));
+    const { porProducto, vieneMedido } = await this.medidasMano(
+      trx, tenantId, almacen, filas.filter((f) => f.sku).map((f) => ({ id: f.product_id, sku: String(f.sku) })), [...origenes.values()]);
+    const renglones = filas.map((f) => renglonMano(f, porProducto.get(f.product_id), origenes, almacen.code));
+    return { renglones, porProducto, vieneMedido, filas };
+  }
+
+  /** `GET pedido/mano` — lo pedido a mano, con su alcance y lo que Kepler rechazaría, partido como se va a mandar. */
+  async pedidoAMano(almacen: Almacen): Promise<AutoabastoManoResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx: Knex.Transaction) => {
+      const hayTabla = (await trx.raw(`SELECT to_regclass('commercial.autoabasto_pedidos') IS NOT NULL AS ok`)).rows?.[0]?.ok;
+      const pedidoId = hayTabla ? await this.borradorDe(trx, tenantId, almacen.id) : null;
+      const { renglones, vieneMedido } = await this.leerMano(trx, tenantId, almacen, pedidoId);
+      const { grupos } = partirCaptura(renglones.map((r) => ({ product_id: r.product_id, destino: r.destino, cantidad_base: r.cantidad_base })), almacen.code);
+      return { pedido_id: pedidoId, renglones, grupos, viene_medido: vieneMedido };
+    });
+  }
+
+  /**
+   * `PUT pedido/mano` — guarda (o cambia) un renglón a mano. La pantalla manda QUÉ, A QUIÉN, CUÁNTO y
+   * EN QUÉ UNIDAD; el factor lo pone la escalera (R8 a) y el origen lo valida `origenElegido` (R6).
+   * Si el producto tenía un ajuste del sugerido, lo REEMPLAZA (R1: un producto vive una vez).
+   * Lo que Kepler rechazaría NO impide guardarlo: el renglón lo dice y no entra al envío (R8 d).
+   */
+  async guardarMano(almacen: Almacen, req: AutoabastoManoGuardarRequest): Promise<{ pedido_id: string; renglon: AutoabastoManoRenglon }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const cantidad = Number(req?.cantidad);
+    if (!Number.isInteger(cantidad) || cantidad < 1) throw new BadRequestException('La cantidad tiene que ser un número entero de 1 en adelante.');
+    const unidadPedida = String(req?.unidad ?? '').trim();
+    if (!unidadPedida) throw new BadRequestException('Falta la unidad en que lo pides.');
+    // R6 / R7: a una sucursal que sirve de origen, o a Compras.
+    const origen = String(req?.origen_code ?? '').trim() ? await this.origenElegido(tenantId, almacen, req.origen_code) : null;
+    const ms = req?.ms_en_renglon == null ? null : Math.max(0, Math.round(Number(req.ms_en_renglon) || 0));
+    const ctx = this.tenantCtx.get();
+
+    return this.tk.run(async (trx: Knex.Transaction) => {
+      await this.exigeBorrador(trx);
+      const p = await trx('catalog.products').where({ tenant_id: tenantId, id: req.product_id }).whereNull('deleted_at').first('id', 'sku');
+      const sku = String(p?.sku ?? '').trim();
+      if (!p || !sku) throw new BadRequestException('Ese producto no está en el catálogo.');
+      const { porProducto, vieneMedido } = await this.medidasMano(trx, tenantId, almacen, [{ id: p.id, sku }], origen ? [origen] : []);
+      const m = porProducto.get(p.id);
+      const u = unidadDeCaptura(m?.escalera ?? null, unidadPedida);
+      if (!u) {
+        const hay = unidadesDeCaptura(m?.escalera ?? null).map((x) => x.unidad);
+        throw new BadRequestException(hay.length
+          ? `${sku} no se puede pedir en «${unidadPedida.toUpperCase()}»: se pide en ${hay.join(', ')}.`
+          : `Kepler no trae la escalera de unidades de ${sku}: no se puede pedir a mano.`);
+      }
+      const base = cantidad * u.factor;
+      const pedidoId = await this.borradorOCrea(trx, tenantId, almacen.id);
+      const previo = await trx('commercial.autoabasto_pedido_lineas')
+        .where({ tenant_id: tenantId, pedido_id: pedidoId, product_id: p.id }).first('captura', 'cantidad', 'unidad', 'origen_clave');
+      const entrada = entradaAlcance(m, almacen.code);
+      const kepler = origen ? rechazoDelTraspaso({ sku, cantidadBase: base, piezasPorCaja: m?.bf, ficha: m?.origen.get(origen.id)?.ficha }) : null;
+      // La foto de lo que la persona tenía enfrente, calculada AQUÍ (no la manda la pantalla): es lo que el piloto mide.
+      const contexto = {
+        existencia: m?.existencia ?? null, viene: m?.viene ?? null, viene_medido: vieneMedido, venta_30d: m?.venta30 ?? null,
+        existencia_origen: origen ? m?.origen.get(origen.id)?.existencia ?? null : null,
+        alcance_hoy: alcanceDelRenglon({ ...entrada, pedidoBase: 0 }).hoy,
+        alcance_con_pedido: alcanceDelRenglon({ ...entrada, pedidoBase: base }).con_pedido,
+        factor: u.factor, kepler, reemplaza: previo?.captura === 'motor' ? 'sugerido' : null,
+      };
+      await trx.raw(
+        `INSERT INTO commercial.autoabasto_pedido_lineas
+           (tenant_id, pedido_id, product_id, sku, origen_tipo, origen_clave, sugerido, sugerido_unidad, sugerido_base,
+            cantidad, unidad, cantidad_base, motivo, contexto, ajustado_por, ajustado_por_username, ajustado_at, captura)
+         VALUES (?, ?, ?, ?, ?, ?, 0, NULL, 0, ?, ?, ?, NULL, ?::jsonb, ?, ?, ?, 'mano')
+         ON CONFLICT (tenant_id, pedido_id, product_id) DO UPDATE SET
+           origen_tipo = EXCLUDED.origen_tipo, origen_clave = EXCLUDED.origen_clave,
+           sugerido = 0, sugerido_unidad = NULL, sugerido_base = 0,
+           cantidad = EXCLUDED.cantidad, unidad = EXCLUDED.unidad, cantidad_base = EXCLUDED.cantidad_base,
+           motivo = NULL, contexto = EXCLUDED.contexto, captura = 'mano',
+           ajustado_por = EXCLUDED.ajustado_por, ajustado_por_username = EXCLUDED.ajustado_por_username,
+           ajustado_at = EXCLUDED.ajustado_at, updated_at = now()`,
+        [tenantId, pedidoId, p.id, sku, origen ? 'matriz' : 'sin_ruta', origen?.code ?? null,
+          cantidad, u.unidad, base, JSON.stringify(contexto), ctx?.userId ?? null, ctx?.username ?? null, new Date()]);
+      await this.huella(trx, {
+        tenant_id: tenantId, warehouse_id: almacen.id, pedido_id: pedidoId, product_id: p.id, evento: 'capturar',
+        antes: previo ? num(previo.cantidad) : null, despues: cantidad, unidad: u.unidad, ms_en_renglon: ms,
+        datos: JSON.stringify({
+          origen: origen?.code ?? 'compras', factor: u.factor, cantidad_base: base, kepler,
+          reemplaza: contexto.reemplaza, antes_unidad: previo?.unidad ?? null, antes_origen: previo?.origen_clave ?? null,
+        }),
+      });
+      const [fila] = await this.filasMano(trx, tenantId, pedidoId, [p.id]);
+      return { pedido_id: pedidoId, renglon: renglonMano(fila, m, new Map(origen ? [[origen.code, origen]] : []), almacen.code) };
+    });
+  }
+
+  /** `POST pedido/mano/quitar` — saca un renglón del pedido a mano (y el producto vuelve a la cuenta del sugerido). */
+  async quitarMano(almacen: Almacen, req: AutoabastoManoQuitarRequest): Promise<{ pedido_id: string; product_id: string }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const ms = req?.ms_en_renglon == null ? null : Math.max(0, Math.round(Number(req.ms_en_renglon) || 0));
+    return this.tk.run(async (trx: Knex.Transaction) => {
+      await this.exigeBorrador(trx);
+      const pedidoId = await this.borradorDe(trx, tenantId, almacen.id);
+      // Sólo lo de a mano: un ajuste del sugerido se restablece, no se «quita».
+      const [previo] = pedidoId
+        ? await trx('commercial.autoabasto_pedido_lineas')
+          .where({ tenant_id: tenantId, pedido_id: pedidoId, product_id: req.product_id, captura: 'mano' })
+          .delete(['cantidad', 'unidad', 'origen_clave'])
+        : [];
+      if (!pedidoId || !previo) throw new BadRequestException('Ese producto no está en tu pedido a mano.');
+      await this.huella(trx, {
+        tenant_id: tenantId, warehouse_id: almacen.id, pedido_id: pedidoId, product_id: req.product_id, evento: 'quitar',
+        antes: num(previo.cantidad), despues: 0, unidad: previo.unidad, ms_en_renglon: ms,
+        datos: JSON.stringify({ origen: previo.origen_clave ?? 'compras' }),
+      });
+      return { pedido_id: pedidoId, product_id: req.product_id };
+    });
+  }
+
+  /**
+   * `POST pedido/mano/enviar` — **un pedido por sucursal origen** (R5), por el escritor que ya existe:
+   * `crearRequisicionesDeSucursal` (una transacción, candado por almacén, no repite lo vivo) y
+   * `soltarPedidoDeSucursal` (nace autorizado en el Kepler del origen; si no sale, queda guardado con su
+   * motivo y lo recoge el reintento — ADR-127).
+   *
+   * Se queda en el borrador, con su motivo: lo que va a Compras (R7, espera `[AB.NI.11]`), lo que Kepler
+   * rechazaría (R8 d: un solo renglón así tumbaría el documento entero) y lo que ya va en un pedido vivo.
+   * Lo que sí salió deja el borrador: ya es un pedido y se ve en «Lo que te va a llegar».
+   */
+  async enviarMano(almacen: Almacen, req: AutoabastoManoEnviarRequest): Promise<AutoabastoManoEnviarResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const nota = String(req?.nota ?? '').trim().slice(0, 500);
+    const soloCode = String(req?.origen_code ?? '').trim() || null;
+    const { pedidoId, renglones, porProducto, filas } = await this.tk.run(async (trx: Knex.Transaction) => {
+      await this.exigeBorrador(trx);
+      const id = await this.borradorDe(trx, tenantId, almacen.id);
+      return { pedidoId: id, ...(await this.leerMano(trx, tenantId, almacen, id)) };
+    });
+    if (!pedidoId || !renglones.length) throw new BadRequestException('Tu pedido a mano está vacío.');
+
+    const porId = new Map(renglones.map((r) => [r.product_id, r]));
+    const { grupos, descartados } = partirCaptura(
+      renglones.map((r) => ({ product_id: r.product_id, destino: r.destino, cantidad_base: r.cantidad_base })), almacen.code);
+    const pendientes: AutoabastoManoEnviarResponse['pendientes'] = [...descartados];
+    const dtos: CreateRequisitionDto[] = [];
+    const surtes: SurteRenglon[] = [];
+    for (const g of grupos) {
+      if (g.destino.tipo === 'compras') {
+        for (const r of g.renglones) pendientes.push({ product_id: r.product_id, motivo: g.motivo ?? 'Va a Compras.' });
+        continue;
+      }
+      if (soloCode && g.destino.code !== soloCode) continue;
+      // R6 otra vez: la sucursal pudo dejar de servir de origen entre capturar y mandar.
+      let origen: OrigenMano | null = null;
+      try {
+        origen = await this.origenElegido(tenantId, almacen, g.destino.code);
+      } catch (e: unknown) {
+        for (const r of g.renglones) pendientes.push({ product_id: r.product_id, motivo: String((e as Error)?.message ?? e) });
+        continue;
+      }
+      if (!origen) continue;
+      const lineas: CreateRequisitionDto['lines'] = [];
+      for (const r of g.renglones) {
+        const k = porId.get(r.product_id)?.kepler;
+        if (k) { pendientes.push({ product_id: r.product_id, motivo: RECHAZO_KEPLER_MSG[k] }); continue; }
+        const m = porProducto.get(r.product_id);
+        const bf = Number(m?.bf);   // > 0: `rechazoDelTraspaso` ya lo exigió
+        lineas.push({
+          product_id: r.product_id, supplier_id: null, source_type: 'branch', source_warehouse_id: origen.id,
+          on_hand: m?.existencia != null ? cajasDeBase(m.existencia, bf) : 0,
+          in_transit: m?.viene != null ? cajasDeBase(m.viene, bf) : 0,
+          min_stock: 0, reorder_point: 0, max_stock: 0,
+          // El motor no lo sugirió (o la persona lo reemplazó): lo sugerido de este renglón es cero.
+          suggested_qty: 0,
+          final_qty: cajasDeBase(r.cantidad_base, bf),
+          unit_cost: m?.cajaCost ?? 0,
+        });
+      }
+      if (!lineas.length) continue;
+      dtos.push({
+        warehouse_id: almacen.id, source_type: 'branch', source_warehouse_id: origen.id, supplier_id: null, target_basis: 'demanda',
+        notes: `Pedida a mano por la sucursal ${almacen.name} desde Autoabasto.${nota ? ` Nota: ${nota}` : ''}`,
+        lines: lineas,
+      });
+      surtes.push({ tipo: 'matriz', clave: origen.code, nombre: origen.name });
+    }
+    if (!dtos.length) {
+      throw new BadRequestException(pendientes.length
+        ? `Nada se puede mandar todavía: ${pendientes[0].motivo}`
+        : 'No hay nada que mandar a esa sucursal.');
+    }
+
+    const { creadas, ya_pedidos } = await this.motor.crearRequisicionesDeSucursal(almacen.id, dtos);
+    const ya = new Set(ya_pedidos);
+    for (const id of ya_pedidos) pendientes.push({ product_id: id, motivo: `Ya lo pediste: va en un pedido de los últimos ${VENTANA_YA_PEDIDO_DIAS} días.` });
+    // ⛔ Al ERP DESPUÉS de commitear la requisición y fuera de toda transacción, como `enviar` (ADR-127).
+    const kepler = creadas.length ? await this.motor.soltarPedidoDeSucursal(creadas.map((c) => c.id)) : new Map<string, AutoabastoEnvioKepler>();
+    const salieron = creadas.flatMap((c) => dtos[c.indice].lines.map((l) => l.product_id).filter((id) => !ya.has(id)));
+    const requisiciones = creadas.map((c) => {
+      const k = kepler.get(c.id);
+      return { id: c.id, folio: c.folio, surte: surtes[c.indice], renglones: c.renglones, total_cajas: r1(c.total_units), ...(k ? { kepler: k } : {}) };
+    });
+
+    // Lo que salió deja el borrador. Si esto fallara, la requisición ya existe y un segundo envío lo
+    // frena `crearRequisicionesDeSucursal` («ya lo pediste»): se dice en el log, no se duplica.
+    // ⛔ Sólo se borra el renglón que sigue COMO SE LEYÓ: entre leerlo y borrarlo pasan los escritos a
+    // Kepler (segundos). Si otra pestaña u otra persona lo cambió en ese hueco, lo nuevo no salió: se queda
+    // en el borrador y se dice (revisión del PR, 2026-11-27).
+    const leidas = new Map(filas.map((f) => [f.product_id, f]));
+    await this.tk.run(async (trx: Knex.Transaction) => {
+      let cambiaron = 0;
+      if (salieron.length) {
+        const borrados = (await trx('commercial.autoabasto_pedido_lineas')
+          .where({ tenant_id: tenantId, pedido_id: pedidoId, captura: 'mano' })
+          .where((q) => {
+            for (const id of salieron) {
+              const f = leidas.get(id);
+              if (!f) continue;
+              q.orWhere((w) => w.where('product_id', id).where('origen_tipo', f.origen_tipo)
+                .whereRaw('origen_clave IS NOT DISTINCT FROM ?', [f.origen_clave])
+                .whereRaw('cantidad_base = ?::numeric', [String(f.cantidad_base)]));
+            }
+          })
+          .returning('product_id').del()) as Array<{ product_id: string }>;
+        const fuera = new Set(borrados.map((b) => b.product_id));
+        const noBorrados = salieron.filter((id) => !fuera.has(id));
+        if (noBorrados.length) {
+          const siguen = (await trx('commercial.autoabasto_pedido_lineas')
+            .where({ tenant_id: tenantId, pedido_id: pedidoId, captura: 'mano' }).whereIn('product_id', noBorrados)
+            .select('product_id')) as Array<{ product_id: string }>;
+          for (const s of siguen) pendientes.push({ product_id: s.product_id, motivo: PEDIDO_A_MANO_CAMBIO_AL_ENVIAR_MSG });
+          cambiaron = siguen.length;
+        }
+      }
+      await this.huella(trx, {
+        tenant_id: tenantId, warehouse_id: almacen.id, pedido_id: pedidoId, evento: 'enviar',
+        datos: JSON.stringify({
+          captura: 'mano', productos: salieron.length, cambiaron, pendientes: pendientes.length,
+          requisiciones: requisiciones.map((r) => ({
+            folio: r.folio, surte: `${r.surte.tipo}:${r.surte.clave ?? ''}`, renglones: r.renglones,
+            kepler: r.kepler?.estado ?? null,
+            kepler_folio: r.kepler && 'folio' in r.kepler ? r.kepler.folio : null,
+            kepler_motivo: r.kepler && 'motivo' in r.kepler ? r.kepler.motivo : null,
+          })),
+        }),
+      });
+    }).catch((e: unknown) => {
+      this.logger.warn(`[AB.PM.3] Pedido a mano de ${almacen.code} enviado, pero no se limpió el borrador: ${(e as Error)?.message}`);
+    });
+
+    return { requisiciones, pendientes };
+  }
+}
+
+/** `[AB.PM.3]` La entrada del alcance de un producto (la cuenta de días de Pedido), sin lo pedido. */
+function entradaAlcance(m: MedidasProducto | undefined, almacenCode: string) {
+  return {
+    venta30Base: m?.venta30 ?? null,
+    existenciaBase: m?.existencia ?? 0,
+    vieneBase: m?.viene ?? 0,
+    noConfiable: m?.noConfiable ?? false,
+    almacenCode,
+  };
+}
+
+/** `[AB.PM.3]` Los números de un producto como viajan: unidades de captura, existencias, lo que viene y el alcance de hoy. */
+function medidasDe(m: MedidasProducto | undefined, origenId: string | null, almacenCode: string): AutoabastoManoMedidas {
+  return {
+    unidad_base: m?.escalera?.unit_base ?? null,
+    unidades: unidadesDeCaptura(m?.escalera ?? null),
+    existencia: m?.existencia ?? null,
+    existencia_origen: origenId ? m?.origen.get(origenId)?.existencia ?? null : null,
+    viene: m?.viene ?? null,
+    venta_30d: m?.venta30 ?? null,
+    alcance: alcanceDelRenglon({ ...entradaAlcance(m, almacenCode), pedidoBase: 0 }),
+  };
+}
+
+/** `[AB.PM.3]` Un renglón a mano con sus números de hoy, su alcance con lo pedido y lo que Kepler rechazaría. */
+function renglonMano(f: FilaMano, m: MedidasProducto | undefined, origenes: ReadonlyMap<string, OrigenMano>, almacenCode: string): AutoabastoManoRenglon {
+  const code = String(f.origen_clave ?? '').trim();
+  const destino: DestinoCaptura = f.origen_tipo === 'matriz' && code ? { tipo: 'sucursal', code } : { tipo: 'compras' };
+  const origen = destino.tipo === 'sucursal' ? origenes.get(code) ?? null : null;
+  const base = num(f.cantidad_base);
+  const sku = f.sku == null ? null : String(f.sku);
+  return {
+    product_id: f.product_id, sku, nombre: f.nombre ?? null, destino, origen_nombre: origen?.name ?? null,
+    cantidad: num(f.cantidad), unidad: f.unidad ?? null, cantidad_base: base,
+    ...medidasDe(m, origen?.id ?? null, almacenCode),
+    alcance_con_pedido: alcanceDelRenglon({ ...entradaAlcance(m, almacenCode), pedidoBase: base }),
+    // A Compras no se escribe un traspaso: no hay ficha de origen que revisar.
+    kepler: destino.tipo === 'sucursal'
+      ? rechazoDelTraspaso({ sku: sku ?? '', cantidadBase: base, piezasPorCaja: m?.bf, ficha: origen ? m?.origen.get(origen.id)?.ficha : null })
+      : null,
+    capturado_por: f.ajustado_por_username ?? null,
+    capturado_at: new Date(f.ajustado_at).toISOString(),
+  };
 }
 
 interface FilaLinea {
   product_id: string; cantidad: string | number; unidad: string | null; cantidad_base: string | number;
   motivo: string | null; ajustado_por_username: string | null; ajustado_at: string | Date;
+  /** `[AB.PM.1]` Cómo nació el renglón: ajuste del sugerido (`motor`) o pedido a mano (`mano`). */
+  captura?: string | null;
 }
 
 type Almacen = { id: string; code: string; name: string };
+
+/** `[PQ.139]` Un almacén que sirve de origen (ya validado por `origenElegido`), con su sucursal de Kepler. */
+type OrigenMano = { id: string; code: string; name: string; kepler_code: string };
+
+/**
+ * `[AB.PM.3]` Lo que el pedido a mano sabe de un producto, leído de las MISMAS fuentes que la mesa. En
+ * unidad base; `null` = no medido.
+ */
+interface MedidasProducto {
+  sku: string;
+  escalera: EscaleraUnidades | null;
+  existencia: number | null;
+  venta30: number | null;
+  /** La unidad de este almacén está contradicha (`rung_veredicto`, igual que `armarRenglon`). */
+  noConfiable: boolean;
+  viene: number | null;
+  /** Factor de caja del almacén que pide (`mv_warehouse_box_factor`, el de `pushToKepler`). */
+  bf: number | null;
+  /** Costo de la caja del plan: el que viaja a la requisición, como en `enviar`. */
+  cajaCost: number | null;
+  /** Por almacén origen (id): su existencia y la ficha de su Kepler. */
+  origen: Map<string, { existencia: number | null; ficha: { unidad_base: string | null; factor: number | null } | null }>;
+}
+
+/** `[AB.PM.3]` Un renglón a mano tal como está en el borrador. */
+interface FilaMano {
+  product_id: string; sku: string | null; nombre: string | null;
+  origen_tipo: string; origen_clave: string | null;
+  cantidad: string | number; unidad: string | null; cantidad_base: string | number;
+  ajustado_por_username: string | null; ajustado_at: string | Date;
+}
 
 /** `[AB.27]` Un renglón ya armado, con la fila del motor de la que salió y el factor de caja del almacén. */
 interface RenglonInterno extends RenglonArmado {
@@ -1058,6 +1601,8 @@ interface AlmacenArmado {
   borrador: string | null;
   guardable: boolean;
   posiciones: PosicionPedido[];
+  /** `[AB.PM.3]` Los productos pedidos a mano en el borrador: fuera de la cuenta del sugerido (R1). */
+  aMano: Set<string>;
 }
 
 /** Agrupa renglones de requisición por documento, contando renglones. */
