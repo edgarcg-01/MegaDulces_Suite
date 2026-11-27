@@ -1022,7 +1022,8 @@ export class SupplierPaymentProofsService {
         // `ref_norm` NO se escribe: es GENERATED de `ocr_referencia` con la misma regla que `normRef`.
         monto_match: true, cuenta_propia: true, lectura_verificada: true, auto_validado: true,
         status: 'validado', validated_by: AUTOR_PAGO_POR_COMPROBANTE, validated_at: trx.fn.now(), created_by: actor || null,
-        comentarios: `[PGP.130] Casó solo con el pago ${pagoId} del Calendario: misma cuenta de origen, importe (±$1) y fecha (±5 días).`,
+        comentarios: `[PGP.130] Casó solo con el pago ${pagoId} del Calendario: misma cuenta de origen, importe (±$1) y fecha (±5 días).`
+          + (d.sin_autorizar ? ' El pago no estaba autorizado en la Suite (D6, [PGP.232]): se registra igual y el banco lo confirma.' : ''),
       }).returning(['id']);
       await avisarComprobante(trx, row.id);
       return { estado: 'casa' as const, pago_id: pagoId, comprobante_id: row.id as string, motivo: null, lectura, ocr };

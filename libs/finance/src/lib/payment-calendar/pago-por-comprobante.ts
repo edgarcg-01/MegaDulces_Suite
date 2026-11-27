@@ -119,3 +119,50 @@ SELECT a.id::text AS id, to_char(coalesce(p.ocr_fecha, p.pago_date, l.lot_date),
   LEFT JOIN finance.supplier_payment_proofs p ON p.id = a.paid_proof_id
  WHERE a.tenant_id = ? AND a.status = 'executed' AND a.paid_proof_id IS NOT NULL AND a.paid_bank_movement_id IS NULL
    AND l.lot_date BETWEEN ?::date - 60 AND ?::date`;
+
+// ── [PGP.232] El banco re-afirma lo que escribió el comprobante ─────────────────────────────────────────────
+/**
+ * `[PGP.232]` Edgar, 2026-11-27: *«cuando se agregue el comprobante se escriba en Kepler y se re-afirme con el movimiento
+ * de banco»*. El comprobante dice que el banco ACEPTÓ la orden, no que la liquidó: una transferencia puede rebotar (13 SPEI
+ * devueltos desde septiembre, anexo CL R5). `confirmarPorElBanco` liga la salida cuando aparece; esto dice cuándo ya no va
+ * a aparecer: el estado de cuenta de ESA cuenta ya cubre la ventana del cruce (`DIAS_PARA_CONFIRMAR` después del
+ * comprobante, la misma de `[PGP.121]`) y la salida no está.
+ */
+export const EVENTO_SIN_SALIDA_EN_EL_BANCO = 'sin_salida_en_el_banco';
+export const DIAS_PARA_CONFIRMAR = 3;
+
+export type ConfirmacionDelBanco = 'espera' | 'sin_salida' | 'no_medido';
+
+const masDias = (dia: string, n: number): string => {
+  const d = new Date(`${dia}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * Pura. `dia` es la fecha del comprobante; `cobertura`, el último día que trae la descarga del banco de la cuenta del pago.
+ * ⛔ Sin descarga de esa cuenta (o sin cuenta) NO se afirma que no salió: `no_medido` (ADR-056), nunca `sin_salida`.
+ * Se llama DESPUÉS de `confirmarPorElBanco`: si la salida estaba, el pago ya no llega aquí.
+ */
+export function decidirSinSalidaEnElBanco(p: { dia: string | null; cobertura: string | null }): ConfirmacionDelBanco {
+  if (!p.dia || !/^\d{4}-\d{2}-\d{2}$/.test(p.dia) || !p.cobertura) return 'no_medido';
+  return p.cobertura >= masDias(p.dia, DIAS_PARA_CONFIRMAR) ? 'sin_salida' : 'espera';
+}
+
+/**
+ * `[PGP.232]` Los pagos que pagó su comprobante, sin salida ligada todavía y sin aviso previo, con lo que cubre la descarga
+ * de su cuenta y su documento de Kepler (si ya se escribió: es el que habría que cancelar). Parámetros: `[tenant, hoy, hoy]`.
+ */
+export const SQL_SIN_SALIDA_EN_EL_BANCO = `
+SELECT a.id::text AS id, to_char(coalesce(p.ocr_fecha, p.pago_date, l.lot_date), 'YYYY-MM-DD') AS dia,
+       a.amount_assigned::float8 AS importe, a.bank_account_id::text AS cuenta,
+       (SELECT to_char(max(s.movement_date), 'YYYY-MM-DD') FROM finance.bank_statement_lines s
+         WHERE s.tenant_id = a.tenant_id AND s.bank_account_id = a.bank_account_id) AS cobertura,
+       a.kepler_payment_sucursal AS sucursal, a.kepler_payment_doc_prefix AS doc_prefix, a.kepler_payment_folio AS folio
+  FROM finance.payment_allocations a
+  JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+  LEFT JOIN finance.supplier_payment_proofs p ON p.id = a.paid_proof_id
+ WHERE a.tenant_id = ? AND a.status = 'executed' AND a.paid_proof_id IS NOT NULL AND a.paid_bank_movement_id IS NULL
+   AND l.lot_date BETWEEN ?::date - 60 AND ?::date
+   AND NOT EXISTS (SELECT 1 FROM finance.payment_allocation_history h
+                    WHERE h.allocation_id = a.id AND h.event = '${EVENTO_SIN_SALIDA_EN_EL_BANCO}')`;

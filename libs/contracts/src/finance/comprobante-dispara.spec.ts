@@ -8,7 +8,7 @@ const casar = (cs: ComprobanteBanco[], ps: PagoPorComprobante[]) => casarComprob
 
 describe('[PGP.130] el comprobante dispara el pago (sin el banco)', () => {
   it('⭐ misma cuenta, mismo importe, mismo día: casa con su pago', () => {
-    expect(casar([comp()], [pago()]).get('C1')).toEqual({ estado: 'casa', pago_id: 'P1', motivo: null });
+    expect(casar([comp()], [pago()]).get('C1')).toEqual({ estado: 'casa', pago_id: 'P1', motivo: null, sin_autorizar: false });
   });
   it('tolera ±$1 y ±5 días, no más', () => {
     expect(casar([comp({ importe: 511360.2, fecha: '2026-11-14' })], [pago()]).get('C1')!.estado).toBe('casa');
@@ -38,8 +38,13 @@ describe('[PGP.130] el comprobante dispara el pago (sin el banco)', () => {
   it('⛔ un pago que ya tiene comprobante no recibe otro', () => {
     expect(casar([comp()], [pago({ con_comprobante: true })]).get('C1')).toMatchObject({ estado: 'ya_tiene', pago_id: 'P1' });
   });
-  it('⛔ un pago sin autorizar no lo paga un comprobante (lo marca el banco, D6)', () => {
-    expect(casar([comp()], [pago({ autorizado: false })]).get('C1')).toMatchObject({ estado: 'sin_autorizar', pago_id: 'P1' });
+  it('[PGP.232] un pago sin autorizar SÍ lo paga su comprobante, marcado «sin autorizar» (D6; el banco lo confirma después)', () => {
+    expect(casar([comp()], [pago({ autorizado: false })]).get('C1')).toEqual({ estado: 'casa', pago_id: 'P1', motivo: null, sin_autorizar: true });
+  });
+  it('⛔ [PGP.232] sin autorizar no afloja el cruce: otra cuenta, otro importe o dos pagos posibles siguen sin casar', () => {
+    expect(casar([comp({ cuenta_id: 'SANT2169' })], [pago({ autorizado: false })]).get('C1')!.estado).toBe('sin_pago');
+    expect(casar([comp({ importe: 511361 })], [pago({ autorizado: false })]).get('C1')!.estado).toBe('sin_pago');
+    expect(casar([comp()], [pago({ autorizado: false }), pago({ id: 'P2', autorizado: false })]).get('C1')!.estado).toBe('varios');
   });
   it('⛔ un pago con cheque o en efectivo no casa con un comprobante de transferencia', () => {
     expect(casar([comp()], [pago({ metodo: 'cheque' })]).get('C1')!.estado).toBe('sin_pago');
