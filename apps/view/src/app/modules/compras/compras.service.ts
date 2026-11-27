@@ -653,6 +653,9 @@ export interface RequisitionRow {
   total_lines: number;
   total_units: number;
   total_cost: number;
+  /** `[PQ.162]` Compra: lo que se va a pagar (con IVA e IEPS) y renglones sin tasa. `null`/ausente = traspaso o no medido. */
+  total_cost_ci?: number | null;
+  sin_tasa?: number | null;
   notes: string | null;
   created_at: string;
   approved_at: string | null;
@@ -803,6 +806,8 @@ export interface RequisitionBatchRow {
   proveedores: number;
   renglones: number;
   monto: number;
+  /** `[PQ.162]` Como se paga: compras con impuestos, traspasos al costo. `null`/ausente = no medido. */
+  monto_ci?: number | null;
   created_at: string;
   dias: number;
   /** `mixto` cuando los documentos del lote NO están todos en el mismo estado. */
@@ -847,6 +852,10 @@ export interface RequisitionResumen {
   n_kepler_apagado?: number;
   monto_sin_kepler?: number;
   dias_max_sin_kepler?: number;
+  /** `[PQ.162]` Los mismos montos como se pagan (compras con impuestos, traspasos al costo). `null`/ausente = no medido. */
+  monto_ci?: number | null;
+  monto_mas_30_ci?: number | null;
+  monto_sin_kepler_ci?: number | null;
 }
 /** `[KR.7]` Un documento de Kepler leído de la réplica. `cancelada` sólo en estado C (Kepler sobrescribe quién y cuándo). */
 export interface DocKepler {
@@ -858,9 +867,6 @@ export interface DocKepler {
 
 export interface RequisitionDetail extends RequisitionRow {
   lines: RequisitionLine[];
-  /** `[PQ.162]` Lo que se va a pagar (con IVA e IEPS) y cuántos renglones no tienen tasa. `null` = traspaso o no medido. */
-  total_cost_ci?: number | null;
-  sin_tasa?: number | null;
   purchase_order_id: string | null;   // RA.15 — OC generada desde esta requisición
   purchase_order_folio: string | null;
   /** `[PQ.16]`/RQ.15 — el documento de Kepler con el que se ordenó (sucursal + folio); null si se marcó sin él. */

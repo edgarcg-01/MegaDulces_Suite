@@ -468,6 +468,9 @@ export interface RequisitionListRowDto {
   total_lines: number;
   total_units: number | string;
   total_cost: number | string;
+  /** `[PQ.162]` Compra: lo que se va a pagar (con IVA e IEPS) y renglones sin tasa. Traspaso o no medido: ausente/null. */
+  total_cost_ci?: number | null;
+  sin_tasa?: number | null;
   notes: string | null;
   created_at: Date | string;
   approved_at: Date | string | null;
@@ -546,6 +549,13 @@ export interface RequisitionResumenDto {
   /** Monto y antigüedad de las que NO tienen documento en Kepler (error + sin empujar). */
   monto_sin_kepler: number;
   dias_max_sin_kepler: number;
+  /**
+   * `[PQ.162]` Los mismos montos como se PAGAN: compras con IVA e IEPS de la ficha de Kepler,
+   * traspasos al costo. `null` = sin la réplica de Kepler: no se midió, la pantalla lo dice.
+   */
+  monto_ci: number | null;
+  monto_mas_30_ci: number | null;
+  monto_sin_kepler_ci: number | null;
 }
 
 /** `[MT.6]` Pagina de requisiciones. */
@@ -5027,6 +5037,8 @@ export class CommercialReplenishmentService {
       if (q.estado) { conds.push('r.estado = :est'); binds.est = q.estado; }
       if (q.source_type === 'supplier' || q.source_type === 'branch') { conds.push('r.source_type = :st'); binds.st = q.source_type; }
       const where = conds.join(' AND ');
+      // [PQ.162] Lo que se va a pagar por el lote (compras con impuestos, traspasos al costo).
+      const conKdii = await this.kdiiLista(trx);
       const inner = `
         SELECT COALESCE(r.batch_id, r.id)                                   AS lote,
                max(r.batch_folio)                                           AS batch_folio,
@@ -5037,6 +5049,7 @@ export class CommercialReplenishmentService {
                count(DISTINCT r.supplier_id) FILTER (WHERE r.supplier_id IS NOT NULL)::int AS proveedores,
                COALESCE(sum(r.total_lines), 0)::int                         AS renglones,
                COALESCE(sum(r.total_cost), 0)                               AS monto,
+               ${conKdii ? `COALESCE(sum(${CommercialReplenishmentService.SQL_MONTO_CI}), 0)` : 'NULL::numeric'} AS monto_ci,
                min(r.created_at)                                            AS created_at,
                floor(extract(epoch FROM now() - min(r.created_at)) / 86400)::int AS dias,
                -- El estado del LOTE no se inventa: si todos coinciden es ése, y si no, se DICE
@@ -5050,9 +5063,12 @@ export class CommercialReplenishmentService {
           LEFT JOIN identity.users u      ON u.id = r.created_by
           LEFT JOIN catalog.suppliers sup ON sup.tenant_id = r.tenant_id AND sup.id = r.supplier_id
           LEFT JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
+          LEFT JOIN (${this.sqlRequisicionCI(conKdii, ':t')}) ci ON ci.requisition_id = r.id
          WHERE ${where}
          GROUP BY COALESCE(r.batch_id, r.id)`;
-      const tot = (await trx.raw(`SELECT count(*)::int c FROM (${inner}) z`, binds)).rows[0];
+      // [PQ.162] El conteo no necesita los impuestos: se cuenta sin la subconsulta (cuesta ~137 ms).
+      const tot = (await trx.raw(`SELECT count(DISTINCT COALESCE(r.batch_id, r.id))::int c
+          FROM commercial.purchase_requisitions r WHERE ${where}`, binds)).rows[0];
       const rows = (await trx.raw(
         `${inner} ORDER BY min(r.created_at) DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
       // `[RQ.11]` CUÁNTOS LOTES DE VERDAD HAY. Sin esto la pantalla no puede distinguir
@@ -5066,6 +5082,46 @@ export class CommercialReplenishmentService {
           WHERE r.tenant_id = :t AND r.batch_id IS NOT NULL`, { t: tenantId })).rows[0];
       return { total: Number(tot?.c || 0), page, pageSize, rows, disponible: true, con_lote: Number(real?.c || 0) };
     });
+  }
+
+  /**
+   * `[PQ.162]` **Lo que se va a pagar por cada requisición de compra**, derivado al leer (nunca
+   * guardado): Σ `line_cost` × (1 + IVA% + IEPS%) con la ficha de Kepler (`kdii`) del almacén que la
+   * ordena, o la de CEDIS si ese almacén no tiene ficha — la misma regla que la ficha de la
+   * requisición y que el sink. Medido el 2026-11-27 contra el `c16` de las 406 requisiciones que la
+   * Suite escribió en Kepler: 388 a menos de $1; de las 18 restantes, 10 son documentos de Kepler
+   * cuyo SUBTOTAL ya no es el de la requisición (folio cruzado en 03, o vacío) y 8 tienen en Kepler
+   * una tasa que la ficha de hoy ya no trae (cambió después; para una compra nueva manda la de hoy).
+   *
+   * Los traspasos no se pagan: no salen aquí. `sin_tasa` cuenta renglones sin ficha (van sin impuesto).
+   * Sin la réplica (base de pruebas) devuelve cero filas, los montos `_ci` van null y la pantalla lo DECLARA.
+   * Cuesta ~137 ms sobre todas las requisiciones del tenant: se une sólo donde se SUMA (resumen y
+   * lotes); la página se pide por sus ids con `extra`.
+   */
+  private sqlRequisicionCI(conKdii: boolean, tenant: string, extra = ''): string {
+    if (!conKdii) return 'SELECT NULL::uuid AS requisition_id, NULL::numeric AS total_ci, NULL::int AS sin_tasa WHERE false';
+    return `SELECT l.requisition_id,
+               round(sum(l.line_cost * (1 + COALESCE(abs(COALESCE(k.c18, k0.c18)) + abs(COALESCE(k.c19, k0.c19)), 0) / 100.0)), 2) AS total_ci,
+               count(*) FILTER (WHERE k.c1 IS NULL AND k0.c1 IS NULL AND l.final_qty > 0)::int AS sin_tasa
+          FROM commercial.purchase_requisitions r0
+          JOIN commercial.purchase_requisition_lines l ON l.tenant_id = r0.tenant_id AND l.requisition_id = r0.id
+          JOIN catalog.products pr0 ON pr0.tenant_id = l.tenant_id AND pr0.id = l.product_id
+          LEFT JOIN commercial.warehouses w0 ON w0.tenant_id = r0.tenant_id AND w0.id = r0.warehouse_id
+          LEFT JOIN kepler_ods.kdii k  ON k.sucursal = w0.code AND k.c1 = pr0.sku
+          LEFT JOIN kepler_ods.kdii k0 ON k0.sucursal = '00' AND k0.c1 = pr0.sku
+         WHERE r0.tenant_id = ${tenant} AND r0.source_type <> 'branch'${extra}
+         GROUP BY l.requisition_id`;
+  }
+  /** `[PQ.162]` El monto de una requisición tal como se paga: compra con impuestos, traspaso al costo. */
+  private static readonly SQL_MONTO_CI = `CASE WHEN r.source_type = 'branch' THEN r.total_cost ELSE COALESCE(ci.total_ci, r.total_cost) END`;
+  /** `[PQ.162]` ¿Está la réplica de la ficha de Kepler? Se pregunta una vez por proceso. */
+  private rqKdii: boolean | null = null;
+  private async kdiiLista(trx: Knex.Transaction): Promise<boolean> {
+    if (this.rqKdii != null) return this.rqKdii;
+    try { this.rqKdii = !!(await trx.raw(`SELECT to_regclass('kepler_ods.kdii') IS NOT NULL AS t`)).rows?.[0]?.t; }
+    catch { this.rqKdii = false; }
+    if (!this.rqKdii) this.logger.warn('[PQ.162] sin kepler_ods.kdii: los montos de requisiciones se publican sin impuestos y lo dicen.');
+    return this.rqKdii;
   }
 
   /** `[RQ.8]` ¿Llegó la migración del lote? Se pregunta, no se asume (igual que `[RQ.1]`). */
@@ -5189,17 +5245,38 @@ export class CommercialReplenishmentService {
       const vig = await this.vigenciaDeRequisiciones(trx, tenantId, rows.map((r: any) => r.id));
       for (const r of rows as any[]) r.vigencia = vig.get(r.id) ?? null;
 
+      // `[PQ.162]` Lo que se va a pagar por cada compra de la página (con impuestos). Sólo sus ids:
+      // la subconsulta entera cuesta ~137 ms y aquí se pintan 50. Traspaso o sin réplica = null.
+      const conKdii = await this.kdiiLista(trx);
+      const idsCompra = (rows as any[]).filter((r) => r.source_type !== 'branch').map((r) => r.id);
+      if (conKdii && idsCompra.length) {
+        const ci = new Map<string, { total_ci: string; sin_tasa: number }>(
+          ((await trx.raw(this.sqlRequisicionCI(true, '?', ' AND r0.id = ANY(?)'), [tenantId, idsCompra])).rows as any[])
+            .map((x) => [String(x.requisition_id), x]));
+        for (const r of rows as any[]) {
+          const x = ci.get(String(r.id));
+          r.total_cost_ci = x ? Number(x.total_ci) : null;
+          r.sin_tasa = x ? Number(x.sin_tasa) : null;
+        }
+      }
+
       // `[RQ.2]` EL RESUMEN POR ESTADO, SOBRE TODO EL UNIVERSO (no sobre la pagina, y desde
       // `[RQ.16]` tampoco sobre el estado filtrado — ver arriba).
       // Es lo que faltaba para que alguien pueda ver que hay 610 esperando: la lista devolvia
       // un `total` y nada mas, y con el filtro por defecto en "todos los estados" las pendientes
       // quedaban mezcladas con las canceladas y las recibidas, 50 por pagina, ordenadas por
       // fecha — o sea que las mas viejas, que son las que importan, caian en la pagina 12.
+      // `[PQ.162]` El resumen suma lo que se va a pagar: une la subconsulta de impuestos (sólo aquí).
+      const MCI = CommercialReplenishmentService.SQL_MONTO_CI;
       const resumenRows = await baseResumen.clone().clearSelect().clearOrder()
+        .leftJoin(trx.raw(`(${this.sqlRequisicionCI(conKdii, '?')}) AS ci`, [tenantId]), 'ci.requisition_id', 'r.id')
         .groupBy('r.estado')
         .select('r.estado',
           trx.raw('count(*)::int AS n'),
           trx.raw('COALESCE(sum(r.total_cost), 0) AS monto'),
+          trx.raw(`COALESCE(sum(${MCI}), 0) AS monto_ci`),
+          trx.raw(`COALESCE(sum(${MCI}) FILTER (WHERE r.created_at < now() - interval '30 days'), 0) AS monto_mas_30_ci`),
+          trx.raw(`COALESCE(sum(${MCI}) FILTER (WHERE ${opc('kepler_folio')} IS NULL), 0) AS monto_sin_kepler_ci`),
           trx.raw(`COALESCE(max(floor(extract(epoch FROM now() - r.created_at) / 86400)), 0)::int AS dias_max`),
           trx.raw(`COALESCE(round(avg(floor(extract(epoch FROM now() - r.created_at) / 86400))), 0)::int AS dias_prom`),
           // `[RQ.2]` El corte de 30 días no es de gusto: es el escalón donde la medición cambia de
@@ -5226,6 +5303,10 @@ export class CommercialReplenishmentService {
         n_kepler: Number(x.n_kepler) || 0, n_kepler_error: Number(x.n_kepler_error) || 0, n_sin_empujar: Number(x.n_sin_empujar) || 0,
         n_kepler_apagado: Number(x.n_kepler_apagado) || 0,
         monto_sin_kepler: Number(x.monto_sin_kepler) || 0, dias_max_sin_kepler: Number(x.dias_max_sin_kepler) || 0,
+        // `[PQ.162]` Lo mismo, como se paga. Sin la réplica de Kepler no se miden: van null y se dice.
+        monto_ci: conKdii ? Number(x.monto_ci) || 0 : null,
+        monto_mas_30_ci: conKdii ? Number(x.monto_mas_30_ci) || 0 : null,
+        monto_sin_kepler_ci: conKdii ? Number(x.monto_sin_kepler_ci) || 0 : null,
       }));
       return { total: Number(totalRow?.c || 0), page, pageSize, rows, resumen };
     });
