@@ -18,7 +18,7 @@
  * Decisiones del 2026-11-26: N1 es **candado** (D-NF1, Francisco; ratificado por Edgar) · **el IMSS es excepción
  * por regla** del régimen (D-NF3: timbra con 606 y no re-timbra; el resto, con autorización) · lo **sin verificar
  * no se paga** hasta que el SAT la verifique (D-NF5) · **basta una firma**, de Administración o de Contabilidad
- * (D-NF2) · **la S01 de las comisiones que el banco cobra solo no pide autorización** (D-NF4) · las rentas
+ * (D-NF2) · **la comisión S01 que el banco cobra solo no pide autorización, ni por S01 ni por régimen** (D-NF4) · las rentas
  * emitidas con 606 no son venta (D-NF8).
  *
  * ⛔ La fecha del CFDI es la de emisión (`Fecha`), leída como día de México (D-NF9): un `timestamptz` de las
@@ -42,12 +42,17 @@ export const EXCEPTUADOS_DEL_REGIMEN: ReadonlyMap<string, string> = new Map([['I
  * `[D-NF4]` Bancos que timbran sus comisiones con S01 y **las cobran solos** de la cuenta: nadie las paga ni las
  * puede detener, así que pedir autorización no tiene salida (Francisco, 2026-11-26: «el banco las cobra solo»).
  * Medido en 2026 (recibidas S01 no canceladas): BBVA 110 (PUE/03), Banorte 21 (I y E; confirmado por Francisco el
- * mismo día). Un banco nuevo que timbre
+ * mismo día). `[PGP.229]` Santander, 6 de ene–feb 2025 ($6,299; Francisco, 2026-11-27). Un banco nuevo que timbre
  * S01 pide autorización hasta que se agregue aquí: se ve, no se da por bueno.
+ *
+ * La comisión S01 tampoco pide decisión por **régimen** (Francisco, 2026-11-27): Banorte y Santander la timbran con
+ * receptor 605, y el 605 sólo aparece en esas S01 (sus G03 vienen con 612, medido desde 2025). La excepción es de la
+ * COMISIÓN, no del banco: una G03 del banco con otro régimen sigue pidiendo decisión.
  */
 export const COBRAN_SOLOS_SUS_COMISIONES: ReadonlyMap<string, string> = new Map([
   ['BBA830831LJ2', 'BBVA'],
   ['BMN930209927', 'Banorte'],
+  ['BSM970519DU8', 'Santander'],
 ]);
 
 export type UsoDelCfdi = 'pago' | 'compra' | 'gasto' | 'venta';
@@ -191,8 +196,10 @@ export function normaFiscalDelCfdi(e: EntradaNorma): NormaDelCfdi {
   // N2 · sin efectos fiscales. En venta, S01 es lo normal (la factura global a público en general); en un
   // traslado, también (el SAT lo exige). La comisión que el banco cobra solo no tiene a quién pedirle (D-NF4).
   const traslado = limpio(c.tipo_comprobante).toUpperCase() === 'T';
-  if (!venta && recibida && !traslado && limpio(c.receptor_uso_cfdi).toUpperCase() === 'S01') {
-    const banco = COBRAN_SOLOS_SUS_COMISIONES.get(limpio(c.emisor_rfc).toUpperCase());
+  const s01 = limpio(c.receptor_uso_cfdi).toUpperCase() === 'S01';
+  // La comisión que el banco cobra solo: ni su S01 ni su régimen tienen a quién pedirle la decisión (D-NF4).
+  const banco = recibida && !traslado && s01 ? COBRAN_SOLOS_SUS_COMISIONES.get(limpio(c.emisor_rfc).toUpperCase()) : undefined;
+  if (!venta && recibida && !traslado && s01) {
     m.push(banco
       ? { regla: 'sin_efectos_fiscales', veredicto: 'apta', texto: `Uso S01 de ${banco}: el banco la cobra solo, no pide autorización` }
       : conAutorizacion('sin_efectos_fiscales', 'Uso S01 (sin efectos fiscales)', pideAutorizacion));
@@ -207,6 +214,8 @@ export function normaFiscalDelCfdi(e: EntradaNorma): NormaDelCfdi {
       const exceptuado = recibida ? EXCEPTUADOS_DEL_REGIMEN.get(limpio(c.emisor_rfc).toUpperCase()) : undefined;
       if (exceptuado) {
         m.push({ regla: 'regimen', veredicto: 'apta', texto: `Régimen ${regimen}: el ${exceptuado} es excepción por regla` });
+      } else if (banco) {
+        m.push({ regla: 'regimen', veredicto: 'apta', texto: `Régimen ${regimen} en la comisión de ${banco}: el banco la cobra solo, no pide autorización` });
       } else if (emitida) {
         m.push({ regla: 'regimen', veredicto: 'solo_informativa', texto: `Emitida con régimen ${regimen}, no ${REGIMEN_DE_LA_EMPRESA}: no es venta de la distribuidora` });
       } else {

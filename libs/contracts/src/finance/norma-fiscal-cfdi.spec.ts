@@ -130,6 +130,23 @@ describe('[PGP.223] la norma fiscal del CFDI', () => {
       expect(bbva).toEqual({ veredicto: 'apta', motivos: [{ regla: 'sin_efectos_fiscales', veredicto: 'apta', texto: 'Uso S01 de BBVA: el banco la cobra solo, no pide autorización' }] });
       expect(v(cfdi({ receptor_uso_cfdi: 'S01', emisor_rfc: 'BMN930209927' }), { uso: 'gasto' })).toBe('apta');
     });
+    it('⭐ [PGP.229] Santander también cobra solo su comisión S01 (Francisco, 2026-11-27)', () => {
+      expect(v(cfdi({ receptor_uso_cfdi: 'S01', emisor_rfc: ' bsm970519du8 ' }))).toBe('apta');
+      expect(v(cfdi({ receptor_uso_cfdi: 'S01', emisor_rfc: 'BSM970519DU9' }))).toBe('requiere_autorizacion');   // control: otro RFC
+    });
+    it('⭐ [PGP.229] la comisión S01 del banco con receptor 605 tampoco pide decisión por régimen, y se dice', () => {
+      const banorte = normaFiscalDelCfdi(e(cfdi({ receptor_uso_cfdi: 'S01', receptor_regimen: '605', emisor_rfc: 'BMN930209927' })));
+      expect(banorte.veredicto).toBe('apta');
+      expect(banorte.motivos).toEqual([
+        { regla: 'sin_efectos_fiscales', veredicto: 'apta', texto: 'Uso S01 de Banorte: el banco la cobra solo, no pide autorización' },
+        { regla: 'regimen', veredicto: 'apta', texto: 'Régimen 605 en la comisión de Banorte: el banco la cobra solo, no pide autorización' },
+      ]);
+      expect(v(cfdi({ receptor_uso_cfdi: 'S01', receptor_regimen: '605', emisor_rfc: 'BSM970519DU8' }))).toBe('apta');
+    });
+    it('⛔ [PGP.229] la excepción del régimen es de la COMISIÓN, no del banco: una G03 del banco con 605 pide decisión', () => {
+      expect(v(cfdi({ receptor_uso_cfdi: 'G03', receptor_regimen: '605', emisor_rfc: 'BMN930209927' }))).toBe('requiere_autorizacion');
+      expect(v(cfdi({ receptor_uso_cfdi: 'S01', receptor_regimen: '605' }))).toBe('requiere_autorizacion');   // control: no es banco
+    });
     it('⛔ la excepción del banco es sólo de la S01: cancelada sigue sin servir', () => {
       expect(v(cfdi({ receptor_uso_cfdi: 'S01', emisor_rfc: 'BBA830831LJ2', estatus_sat: 'cancelado' }))).toBe('solo_informativa');
     });
