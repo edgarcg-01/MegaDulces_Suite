@@ -261,7 +261,8 @@ interface LiveCountEntry {
                  placeholder="Buscar en todo el folio: nombre, SKU, codigo de barras o ubicacion"
                  [ngModel]="busqueda()" (ngModelChange)="buscar($event)" />
           @if (busqueda()) {
-            <button pButton type="button" [text]="true" size="small" icon="pi pi-times" label="Limpiar" (click)="limpiarBusqueda()"></button>
+            <!-- El COMPONENTE p-button, no la directiva: en PrimeNG 22 la directiva ignora label y el boton sale vacio. -->
+            <p-button type="button" [text]="true" size="small" icon="pi pi-times" label="Limpiar" (onClick)="limpiarBusqueda()"></p-button>
           }
         </div>
         @if (busqueda()) {

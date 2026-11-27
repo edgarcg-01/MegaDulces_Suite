@@ -19,6 +19,41 @@ import { InventoryMonitorGateway } from './inventory-monitor.gateway';
 const VIVOS = ['open', 'counting', 'review', 'ready_to_reconcile'] as const;
 
 /**
+ * Un renglón de la lista del supervisor, tal como sale de `listItems`. Se declara acá y no en
+ * `libs/contracts` porque todavía no hay contrato de inventario físico: es **deuda con nombre**
+ * (ADR-056), no un tipo inventado para callar la compuerta. Cuando el contrato exista, esto se
+ * borra y se importa de ahí.
+ */
+export interface InventoryCountItemRow {
+  id: string;
+  product_id: string | null;
+  sku: string | null;
+  product_name: string | null;
+  brand_name: string | null;
+  /** `[IC.UB1]` Del catálogo de `/almacen/ubicaciones`, no de `public.products`. */
+  location: string | null;
+  expected_qty: string | number | null;
+  count_1: string | number | null;
+  count_2: string | number | null;
+  count_3: string | number | null;
+  final_qty: string | number | null;
+  variance: string | number | null;
+  status: string;
+  notes: string | null;
+  reason_code: string | null;
+  cost_base: string | number | null;
+}
+
+/**
+ * Lo mínimo que `ubicacionDe` necesita de la transacción. Se tipa estructuralmente en vez de
+ * `any` para que el compilador vea la forma de lo que devuelve `raw` — que es de dónde sale el
+ * `codigos` de más abajo.
+ */
+interface TrxConRaw {
+  raw(sql: string, bindings?: unknown[]): Promise<{ rows?: { codigos: string | null }[] }>;
+}
+
+/**
  * ⛔⛔ `[IC.UB1]` **La ubicación que se publica sale del catálogo de `/almacen/ubicaciones`,
  * no de `public.products.location`.**
  *
@@ -1313,7 +1348,7 @@ export class InventoryCountService {
    * casi siempre, y es justo lo que hay que poder ver.
    */
   private async ubicacionDe(
-    trx: any,
+    trx: TrxConRaw,
     warehouseId: string | null | undefined,
     productId: string | null | undefined,
   ): Promise<string | null> {
@@ -1340,7 +1375,7 @@ export class InventoryCountService {
    * typos. El filtro se aplica ANTES del `limit`, que es lo único que lo vuelve una salida
    * real y no un filtro sobre las 2,000 que ya habían pasado.
    */
-  async listItems(countId: string, status?: string, search?: string) {
+  async listItems(countId: string, status?: string, search?: string): Promise<InventoryCountItemRow[]> {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
     return this.tk.run(async (trx) => {
       const count = await this.getCountOrThrow(trx, countId);
