@@ -1,8 +1,8 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true` (con el import el spec no carga: compuerta spec-vivo).
 import {
-  actividadDeLaRegla, alcanceDeQuienVe, almacenesDelAlcance, armarCalendario, armarEmbudo, desdeEntradas, diaFijoDeActividad, diasFijosPorProveedor, nombreDelAlcance,
+  actividadDeLaRegla, actividadDeRequisiciones, alcanceDeQuienVe, almacenesDelAlcance, armarCalendario, armarEmbudo, avisoConRegla, avisoSinRegla, canalCubierto, desdeEntradas, diaFijoDeActividad, diasFijosPorProveedor, nombreDelAlcance,
   plazasDelAlcance, reglaEnAlcance, repartirPropuestas, revisaPorAlcance, zonasDeCompra,
-  type CompraDoceMeses, type FilaActividad, type FilaEmbudo, type ReglaLeida, type SucursalZona,
+  type CanalCiclo, type CompraDoceMeses, type FilaActividad, type FilaRequisicion, type FilaEmbudo, type ReglaLeida, type SucursalZona,
 } from './purchase-calendar.domain';
 
 /** `[PQ.3.3]` La actividad de Kepler por alcance y el armado del calendario. El SQL se prueba contra base real. */
@@ -340,5 +340,117 @@ describe('`[PQ.3.17]` el calendario dice quién cambió cada regla y trae su his
     expect('cambios' in cal.reglas[0]).toBe(false);
     expect(cal.historial).toEqual({ measured: false, note: 'no se leyó' });
     expect('historial' in armarCalendario(hoy, [tocada], [], [], SUC)).toBe(false);
+  });
+});
+
+describe('[PQ.3.24] el aviso «Hoy te toca» de Pedido (DC35: manda el Calendario)', () => {
+  const HOY = '2026-11-25';
+  type E = 'rezagada' | 'toca_hoy' | 'al_dia' | 'fuera_de_ciclo' | 'sin_ancla';
+  const conEstado = (supplier_code: string, estado: E) =>
+    ({ supplier_code, estado: { estado, pendiente_desde: null, dias_atraso: 0, proxima: null } });
+  const canal = (supplier_id: string, supplier_code: string | null, plaza: string | null, proxima: string): CanalCiclo =>
+    ({ supplier_id, supplier_code, plaza, proxima });
+
+  it('con regla: un proveedor cuenta UNA vez, rezagado si alguna regla lo está; al día, sin ancla y fuera de ciclo no son «te toca»', () => {
+    const r = avisoConRegla([
+      conEstado('A', 'rezagada'), conEstado('A', 'toca_hoy'), // A: rezagado (no también «hoy»)
+      conEstado('B', 'toca_hoy'), conEstado('B', 'al_dia'),
+      conEstado('C', 'al_dia'), conEstado('D', 'sin_ancla'), conEstado('E', 'fuera_de_ciclo'),
+    ]);
+    expect(r).toEqual({ rezagados: 1, hoy: 1, proveedores: 5 });
+    expect(avisoConRegla([])).toEqual({ rezagados: 0, hoy: 0, proveedores: 0 });
+  });
+
+  it('NEGATIVA del criterio: un proveedor con regla al día NO sale vencido aunque su canal lo esté', () => {
+    const reglas = [regla({ supplier_code: 'P1', scope: 'corporate' })];
+    const canales = [canal('id-p1', 'P1', '04', '2026-11-01'), canal('id-p1', 'P1', '06', '2026-11-25')];
+    expect(avisoSinRegla(canales, reglas, SUC, HOY)).toEqual({ vencidos: 0, hoy: 0 });
+    // Control: sin la regla, el mismo canal sí es «te toca» (sin confirmar).
+    expect(avisoSinRegla(canales, [], SUC, HOY)).toEqual({ vencidos: 1, hoy: 0 });
+  });
+
+  it('la regla de zona cubre SUS sucursales; el canal del mismo proveedor en otra zona sigue sin regla', () => {
+    const reglas = [regla({ supplier_code: 'P1', scope: 'zone', zone_code: 'ZAM' })];
+    expect(canalCubierto(canal('id-p1', 'P1', '05', HOY), reglas, SUC)).toBe(true);
+    expect(canalCubierto(canal('id-p1', 'P1', '04', HOY), reglas, SUC)).toBe(false);
+    expect(avisoSinRegla([canal('id-p1', 'P1', '05', '2026-11-01'), canal('id-p1', 'P1', '04', HOY)], reglas, SUC, HOY))
+      .toEqual({ vencidos: 0, hoy: 1 });
+  });
+
+  it('la regla de sucursal no cubre otra sucursal; un almacén que no es sucursal sólo lo cubre la corporativa', () => {
+    const suc = [regla({ supplier_code: 'P1', scope: 'branch', branch_code: '06' })];
+    expect(canalCubierto(canal('id-p1', 'P1', '06', HOY), suc, SUC)).toBe(true);
+    expect(canalCubierto(canal('id-p1', 'P1', '05', HOY), suc, SUC)).toBe(false);
+    expect(canalCubierto(canal('id-p1', 'P1', null, HOY), suc, SUC)).toBe(false);
+    expect(canalCubierto(canal('id-p1', 'P1', null, HOY), [regla({ supplier_code: 'P1' })], SUC)).toBe(true);
+  });
+
+  it('R5: la regla cubre también por la ficha de Pedido que resolvió, aunque la clave de la ficha sea otra o no exista', () => {
+    const reglas = [regla({ supplier_code: 'P9', pedido_supplier_id: 'id-ficha' })];
+    expect(canalCubierto(canal('id-ficha', 'OTRA', '04', HOY), reglas, SUC)).toBe(true);
+    expect(canalCubierto(canal('id-ficha', null, '04', HOY), reglas, SUC)).toBe(true);
+    expect(canalCubierto(canal('id-otra', null, '04', HOY), reglas, SUC)).toBe(false);
+  });
+
+  it('fuera de ciclo también cubre: la gerencia ya decidió sobre ese proveedor', () => {
+    const reglas = [regla({ supplier_code: 'P1', out_of_cycle_until: '2027-05-01', out_of_cycle_reason: 'Ocasional' })];
+    expect(avisoSinRegla([canal('id-p1', 'P1', '04', '2026-10-01')], reglas, SUC, HOY)).toEqual({ vencidos: 0, hoy: 0 });
+  });
+
+  it('sin regla: cada proveedor una vez, por su canal más atrasado; lo de mañana no cuenta', () => {
+    const canales = [
+      canal('id-a', 'A', '04', HOY), canal('id-a', 'A', '05', '2026-11-20'), // A: vencido (no también hoy)
+      canal('id-b', 'B', '04', HOY), canal('id-b', 'B', '06', HOY),          // B: hoy, una vez
+      canal('id-c', 'C', '04', '2026-11-26'),                               // C: mañana, no cuenta
+    ];
+    expect(avisoSinRegla(canales, [], SUC, HOY)).toEqual({ vencidos: 1, hoy: 1 });
+    expect(avisoSinRegla([], [], SUC, HOY)).toEqual({ vencidos: 0, hoy: 0 });
+  });
+});
+
+describe('[PQ.3.29] la requisición de compra de la Suite atiende la revisión en la sucursal DESTINO (DC40)', () => {
+  // Miércoles 25-nov-2026: el caso medido en prod. Las requisiciones salen de la 08 y van a 05 y 06; a 02 no va nada.
+  const HOY = '2026-11-25';
+  // Cada sucursal tuvo su OC el miércoles pasado: hoy sólo toca la fecha de hoy (sin eso, la regla nace rezagada).
+  const semanaPasada = ['05', '06', '02'].map((b) => fila('CV003', b, ['2026-11-18']));
+  const req = (supplier_id: string, supplier_code: string | null, plaza: string, fechas: string[]): FilaRequisicion =>
+    ({ supplier_id, supplier_code, plaza, fechas, ultima: [...fechas].sort().pop() as string });
+
+  it('cada fila es actividad con fuente «requisicion»; misma clave y sucursal se juntan', () => {
+    const a = actividadDeRequisiciones([req('f1', 'CV003', '05', ['2026-11-24']), req('f1', 'CV003', '05', ['2026-11-25'])], []);
+    expect(a).toEqual([{ supplier_code: 'CV003', plaza: '05', fechas: ['2026-11-24', '2026-11-25'], ultima: '2026-11-25', ultima_fuente: 'requisicion' }]);
+  });
+
+  it('R5: cuenta también para la clave de la regla que resolvió esa ficha de Pedido (y sin clave en la ficha, sólo para ésa)', () => {
+    const reglas = [{ supplier_code: 'K1', pedido_supplier_id: 'f1' }];
+    expect(actividadDeRequisiciones([req('f1', 'F1', '05', [HOY])], reglas).map((x) => x.supplier_code).sort()).toEqual(['F1', 'K1']);
+    expect(actividadDeRequisiciones([req('f1', null, '05', [HOY])], reglas).map((x) => x.supplier_code)).toEqual(['K1']);
+    expect(actividadDeRequisiciones([req('f9', null, '05', [HOY])], reglas)).toEqual([]);
+  });
+
+  it('el caso de CV003: 05 y 06 quedan al día por su requisición; 02 sigue «toca hoy» (no hubo requisición para ella)', () => {
+    const reglas = ['05', '06', '02'].map((b) => regla({ id: b, supplier_code: 'CV003', scope: 'branch', branch_code: b, weekdays: [3] }));
+    // Control: sin las requisiciones (como antes), las tres «tocan hoy» aunque la OC de Kepler salió de la 08.
+    const antes = armarCalendario(HOY, reglas, [...semanaPasada, fila('CV003', '08', [HOY])], [], SUC);
+    expect(antes.reglas.map((r) => [r.branch_code, r.estado.estado]).sort()).toEqual([['02', 'toca_hoy'], ['05', 'toca_hoy'], ['06', 'toca_hoy']]);
+    const act = [...semanaPasada, fila('CV003', '08', [HOY]), ...actividadDeRequisiciones([req('f', 'CV003', '05', [HOY]), req('f', 'CV003', '06', [HOY])], reglas)];
+    const cal = armarCalendario(HOY, reglas, act, [], SUC);
+    const por = Object.fromEntries(cal.reglas.map((r) => [r.branch_code, r]));
+    expect(por['05'].estado.estado).toBe('al_dia');
+    expect(por['06'].estado.estado).toBe('al_dia');
+    expect(por['05'].ultima_actividad).toEqual({ fecha: HOY, fuente: 'requisicion' });
+    expect(por['02'].estado.estado).toBe('toca_hoy');
+  });
+
+  it('NEGATIVA: la requisición que va a la 08 no atiende la regla de la 05', () => {
+    const reglas = [regla({ id: 'r05', supplier_code: 'CV003', scope: 'branch', branch_code: '05', weekdays: [3] })];
+    const cal = armarCalendario(HOY, reglas, [...semanaPasada, ...actividadDeRequisiciones([req('f', 'CV003', '08', [HOY])], reglas)], [], SUC);
+    expect(cal.reglas[0].estado.estado).toBe('toca_hoy');
+  });
+
+  it('el mismo día, la OC de Kepler gana como «última atención» (va primero)', () => {
+    const reglas = [regla({ id: 'r05', supplier_code: 'CV003', scope: 'branch', branch_code: '05', weekdays: [3] })];
+    const act = [fila('CV003', '05', [HOY]), ...actividadDeRequisiciones([req('f', 'CV003', '05', [HOY])], reglas)];
+    expect(armarCalendario(HOY, reglas, act, [], SUC).reglas[0].ultima_actividad).toEqual({ fecha: HOY, fuente: 'oc' });
   });
 });

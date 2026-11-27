@@ -1,3 +1,6 @@
+import { branchKeySql } from '@megadulces/platform-core';
+import { proveedorPedibleSql } from '../commercial-replenishment/proveedor-no-pedible';
+
 /**
  * `[PQ.3.3]` Calendario de compras — la ACTIVIDAD de Kepler por proveedor y plaza: el testigo de que a
  * un proveedor se le atendió en su fecha (anexo C §10.3).
@@ -86,3 +89,66 @@ SELECT o.proveedor_code AS supplier_code,
    AND o.proveedor_code = ANY(:codes::text[])
    AND o.doc_date > (:hoy::date - 365) AND o.doc_date <= :hoy::date
  GROUP BY 1`;
+
+/**
+ * `[PQ.3.24]` Los canales de COMPRA activos (proveedor × sucursal) con la fecha que propone el ciclo de Kepler, para
+ * los proveedores SIN regla del aviso de Pedido (anexo C §10.16, DC35). Las MISMAS condiciones que el KPI de
+ * `worklist` (`commercial-replenishment.service.ts`), que es lo que decía el aviso hasta hoy: vía compra, con
+ * cadencia, activo (entregó dentro de 2×cadencia o de 60 días) y proveedor pedible (`[PQ.145]`). La sucursal sale de
+ * `branchKeySql` (la misma llave del alcance). Bindings con nombre: `:hoy` y `:almacenes` (uuid[] o NULL = todos).
+ * Medido en prod el 2026-11-25: 233 proveedores con ciclo por canal; 121 vencidos y 22 de hoy contando TODOS.
+ */
+export const SQL_CANALES_CICLO = `
+SELECT rc.supplier_id::text AS supplier_id,
+       nullif(btrim(sup.code), '') AS supplier_code,
+       CASE WHEN (${branchKeySql('w')}) ~ '^[0-9]{2}$' THEN (${branchKeySql('w')}) END AS plaza,
+       to_char(rc.next_due_date, 'YYYY-MM-DD') AS proxima
+  FROM commercial.replenishment_channel rc
+  JOIN commercial.warehouses w ON w.tenant_id = rc.tenant_id AND w.id = rc.warehouse_id
+  LEFT JOIN catalog.suppliers sup ON sup.tenant_id = rc.tenant_id AND sup.id = rc.supplier_id
+ WHERE rc.tenant_id = current_tenant_id()
+   AND rc.via = 'purchase'
+   AND rc.cadence_days IS NOT NULL
+   AND rc.next_due_date IS NOT NULL
+   AND rc.last_delivery_date >= :hoy::date - GREATEST(rc.cadence_days * 2, 60)::int
+   AND ${proveedorPedibleSql('sup')}
+   AND (:almacenes::uuid[] IS NULL OR rc.warehouse_id = ANY(:almacenes::uuid[]))`;
+
+/**
+ * `[PQ.3.29]` La REQUISICIÓN DE COMPRA de la Suite como actividad del calendario (anexo C §10.18, DC40: cuenta desde que
+ * se crea). No es la requisición de Kepler (X-A-30, que «no suma nada» arriba): es la que arma Pedido, y lo que la hace
+ * útil es que dice A DÓNDE va cada renglón (`destination_warehouse_id`).
+ *
+ * Medido en prod el 2026-11-25: la compra se concentra —6 de cada 10 requisiciones (253 de 425 en 30 días) llevan
+ * renglones a otra sucursal que la que emite—, así que la OC de Kepler nace en la sucursal que emite y el calendario no
+ * la veía en la sucursal de la regla. Ese día Compras marcó a mano 4 sucursales de un proveedor «se pidió fuera de
+ * Kepler» («sí se pasó en la Suite pero no lo marcó»), y las 4 marcas de 30 días tenían su requisición.
+ *
+ * Cuenta: requisición de COMPRA (sin almacén origen), en cualquier estado menos `draft` y `cancelled`, el día en que se
+ * creó (hora de México), en la sucursal destino de cada renglón de compra (sin destino, la que emite). La clave del
+ * proveedor es la de su ficha; `supplier_id` viaja para casar con la ficha de Pedido que resolvió la regla (R5).
+ * Bindings con nombre: `:hoy`, `:desde`, `:codes` (claves de Kepler) y `:fichas` (ids de ficha de Pedido).
+ */
+export const SQL_REQUISICIONES_SUITE = `
+WITH req AS (
+  SELECT DISTINCT pr.supplier_id::text AS supplier_id,
+         nullif(btrim(s.code), '') AS supplier_code,
+         (${branchKeySql('dw')}) AS plaza,
+         (pr.created_at AT TIME ZONE 'America/Mexico_City')::date AS fecha
+    FROM commercial.purchase_requisitions pr
+    JOIN commercial.purchase_requisition_lines l ON l.tenant_id = pr.tenant_id AND l.requisition_id = pr.id
+    JOIN commercial.warehouses dw ON dw.tenant_id = pr.tenant_id AND dw.id = COALESCE(l.destination_warehouse_id, pr.warehouse_id)
+    LEFT JOIN catalog.suppliers s ON s.tenant_id = pr.tenant_id AND s.id = pr.supplier_id
+   WHERE pr.tenant_id = current_tenant_id()
+     AND pr.source_warehouse_id IS NULL
+     AND l.source_warehouse_id IS NULL
+     AND pr.estado NOT IN ('draft', 'cancelled')
+     AND (pr.created_at AT TIME ZONE 'America/Mexico_City')::date BETWEEN :desde::date AND :hoy::date
+     AND (s.code = ANY(:codes::text[]) OR pr.supplier_id::text = ANY(:fichas::text[]))
+)
+SELECT supplier_id, supplier_code, plaza,
+       array_agg(DISTINCT fecha::text) AS fechas,
+       max(fecha)::text AS ultima
+  FROM req
+ WHERE plaza ~ '^[0-9]{2}$'
+ GROUP BY supplier_id, supplier_code, plaza`;

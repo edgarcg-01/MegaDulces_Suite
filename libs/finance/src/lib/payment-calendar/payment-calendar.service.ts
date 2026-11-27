@@ -10,8 +10,9 @@ import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarAjusteAlSaldo, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarTransferenciaDe, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDeLosDias, leerValidacionDelDia } from './validacion-pago.sql';
-import { leerCfdiConCancelados, leerCfdiDeFacturas } from './cfdi-factura.sql';
+import { leerCfdiConCancelados, leerCfdiDeFacturas, leerNormaDeObligaciones } from './cfdi-factura.sql';
 import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
+import { detieneElPago, textoDelFreno, type FrenoDelPago, type MomentoDelPago } from '@megadulces/contracts/finance/norma-fiscal-cfdi';
 import { leerRepsDeFacturas } from './rep-de-factura.sql';
 import { leerCuentasGasto } from './cuenta-gasto.sql';
 import { polizaEgresoDelPago } from '@megadulces/contracts/finance/momento-poliza';
@@ -24,6 +25,7 @@ import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubier
 // `[PGP.120]` El anticipo aplicado desde el Calendario: lo apartado y la verificación de un renglón.
 import { SQL_ANTICIPOS_CON_APARTADO, SQL_ANTICIPO_PARA_FACTURA, type FilaAnticipoParaFactura } from './anticipo-calendario.sql';
 import { faltaCuentaParaTransferirAnticipo, faltaOrigenMismoBanco, tipoDeAcreedor, warehouseName } from '@megadulces/contracts';
+import { avisoDeTope, excesoDeTope } from '@megadulces/contracts';
 // `[PGP.157]` La caja del anticipo en efectivo (la de su base) y los estados de un día ya autorizado.
 import { cajaDeSalidaTexto, ESTADOS_DIA_AUTORIZADO } from '@megadulces/contracts';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
@@ -66,6 +68,8 @@ import { SQL_CUBIERTO, TABLE_BY_SOURCE, recalcularObligacion, type ObligationSou
 import { armarSuficiencia } from './suficiencia-de-cuentas';
 import { leerEntradaDeSuficiencia } from './suficiencia-de-cuentas.query';
 import type { PaymentCalendarSuficiencia } from '@megadulces/contracts';
+// `[PGP.231]` El tope de llaves de una consulta de evidencia (servidor y pantallas lo leen de aquí).
+import { EVIDENCIA_REFS_POR_CONSULTA } from '@megadulces/contracts';
 import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
 import { AUTOR_PAGO_EN_KEPLER, EVENTO_LIGADO_A_KEPLER, EVENTO_PAGADO_EN_KEPLER, SQL_POR_LIGAR_A_KEPLER, decidirPagoEnKepler } from './pago-en-kepler';
 
@@ -823,14 +827,16 @@ export class PaymentCalendarService {
    * ⛔ Esta es la forma correcta de pedirla, y la razon es medida: la vista tiene un piso de
    *    ~2.2-2.5 s que NO baja con ningun filtro (es armar el hash sobre los 169 mil CFDI). Una
    *    llamada por proveedor multiplicaria ese piso por la cantidad de acreedores en pantalla.
-   * ⚠️ Tope de 200 refs por llamada: arriba de eso la pantalla deberia paginar, no pedir mas.
+   * ⚠️ Tope de `EVIDENCIA_REFS_POR_CONSULTA` (200) refs por llamada: arriba de eso la pantalla pide otra tanda.
+   * `[PGP.231]` Las pantallas la llaman por `POST evidencia/consulta` (las llaves en el cuerpo): en la URL, con el
+   * token de un superadmin, daba 431.
    */
   async listEvidenceByRefs(refs: readonly string[]): Promise<PayableEvidenceRow[]> {
     const llaves = (refs ?? [])
       .map((r) => String(r ?? '').trim())
       .filter((r) => r.startsWith('oblig:'))
       .map((r) => r.slice('oblig:'.length))
-      .slice(0, 200);
+      .slice(0, EVIDENCIA_REFS_POR_CONSULTA);
     if (!llaves.length) return [];
     const tenantId = this.tenantCtx.requireTenantId();
     const COLS = `e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
@@ -2835,6 +2841,8 @@ export class PaymentCalendarService {
       if (classifications.size > 1) throw new BadRequestException('Un mismo pago no puede mezclar clasificaciones distintas (compromiso financiero / gasto / proveedor) — crea pagos separados.');
       if (payees.size > 1) throw new BadRequestException('Un mismo pago no puede juntar facturas de beneficiarios distintos: es una sola transferencia a una sola cuenta. Crea un pago por beneficiario.');
       if (branches.size > 1) throw new BadRequestException(`Un mismo pago no puede juntar facturas de sucursales distintas (${[...branches].join(', ')}): cada pago entra al centro de costo de su almacén. Crea un pago por sucursal.`);
+      // `[PGP.225]` La norma fiscal de sus CFDI, antes de escribir nada.
+      await this.assertNormaFiscal(trx, tenantId, items, dto.date, 'programar');
       const lot = await this.getOrCreateLot(trx, tenantId, dto.date);
       if (LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día ya fue autorizado/cerrado — no admite pagos nuevos (reprograma a otro día).');
       // `[PGP.91]` NETO: lo que sale del banco. El descuento no es dinero que salga.
@@ -2892,6 +2900,9 @@ export class PaymentCalendarService {
         if (a.payee !== b.payee) throw new BadRequestException('Esta factura es de otro beneficiario: un pago es una sola transferencia a una sola cuenta.');
         if (a.branch !== b.branch) throw new BadRequestException(`Esta factura es de la sucursal ${b.branch} y el pago es de la ${a.branch}: cada pago entra al centro de costo de su almacén.`);
       }
+      // `[PGP.225]` La norma fiscal de su CFDI, contra el día del pago, antes de escribir.
+      const { rows: [{ dia: diaDelPago }] } = await trx.raw(`SELECT to_char(lot_date, 'YYYY-MM-DD') AS dia FROM finance.payment_calendar_lots WHERE id = ?`, [allocation.lot_id]);
+      await this.assertNormaFiscal(trx, tenantId, [item], diaDelPago, 'programar');
       const conDescuento = norm.discount_amount > 0;
       await trx('finance.payment_allocation_items').insert({
         tenant_id: tenantId, allocation_id: allocationId, obligation_source: item.obligation_source,
@@ -3019,6 +3030,8 @@ export class PaymentCalendarService {
       // `[PGP.199]` Un pago fallido ya rebotó (su salida se devolvió y no cuenta): la guarda sólo encuentra dinero que sí salió.
       await this.assertNoSalio(trx, tenantId, allocation, 'reprogramar', username, aunqueSalio, hoy);
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });
+      // `[PGP.225]` Moverlo de día también es programarlo: una PUE no se pasa a un mes que ya no es el suyo.
+      await this.assertNormaFiscal(trx, tenantId, items as { obligation_source: string; obligation_id: string }[], newDate, 'programar', hoy);
       await trx('finance.payment_allocations').where({ id: allocationId }).update({
         status: 'cancelled', notes: `${allocation.notes ?? ''}\n[reprogramado a ${newDate}]`.trim(),
         reprogram_reason: reason, reprogram_reason_detail: reason === 'otro' ? reasonDetail!.trim() : null,
@@ -3136,12 +3149,14 @@ export class PaymentCalendarService {
     // el layout del banco pide los dos. Antes bastaba uno cualquiera: una transferencia quedaba
     // «preparada» con sólo la cuenta de origen y sin saber a dónde iba el dinero.
     const needsOrigin = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico' || dto.payment_method === 'cheque';
+    let bancoDeOrigen: string | null = null;
     if (needsOrigin) {
       if (!dto.bank_account_id) throw new BadRequestException('Elige la cuenta de origen (de cuál cuenta nuestra sale el pago).');
       // `[PGP.33]` La caja YA es un origen válido: medido, 2,771 pagos ($54,897,784) salieron de
       // CAJA GENERAL. Antes este `where` la rechazaba y el error culpaba a la cuenta.
       const origin = await trx('finance.bank_accounts').where({ id: dto.bank_account_id, active: true }).first();
       if (!origin) throw new BadRequestException('La cuenta de origen no existe o está inactiva.');
+      bancoDeOrigen = origin.bank ?? null;
       // `[PGP.155]` A una cuenta del catálogo SIN CLABE no hay SPEI: sólo sale de una cuenta nuestra del mismo
       // banco (VUMERSOFT: BBVA a BBVA). Qué cuenta de ese banco, la decide la Tesorería (`[PGP.75]`).
       // `[PGP.155.2]` Sólo en TRANSFERENCIA (revisión independiente): en un cargo automático el proveedor cobra
@@ -3158,6 +3173,7 @@ export class PaymentCalendarService {
      * migración `pgp127` todavía no llegó (sin `payee_clabe`, pide igual una cuenta aprobada). Va ANTES del
      * «Transferencia requiere la cuenta destino» genérico: en un anticipo, el aviso dice cuál cuenta.
      */
+    let esAnticipo = false;
     if (usesDestination) {
       const { rows: ants } = await trx.raw(
         `SELECT to_jsonb(o) ->> 'payee_clabe' AS clabe, to_jsonb(o) ->> 'payee_account_number' AS cuenta
@@ -3166,10 +3182,19 @@ export class PaymentCalendarService {
           WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo'`,
         [tenantId, allocationId]);
       const filas = ants as { clabe: string | null; cuenta: string | null }[];
+      esAnticipo = filas.length > 0;
       const falta = faltaCuentaParaTransferirAnticipo({
         clabesDeAnticipos: filas.map((r) => r.clabe ?? null), cuentasDeAnticipos: filas.map((r) => r.cuenta ?? null), cuentaElegida,
       });
       if (falta) throw new BadRequestException(falta);
+    }
+    // `[PGP.221]` El banco no deja pasar una transferencia de más de su tope por operación (BBVA: $1,000,000.00; Francisco,
+    // 2026-11-26). Prepararla entera es preparar algo que Tesorería va a tener que partir a mano en el banco: cada parte
+    // quedaría sin su pago en la Suite, sin su comprobante y sin su X-D-26 (el caso de Effem). Se parte en «Preparar pago».
+    // Las partes de `prepararEnTransferencias` pasan por aquí con SU importe (ya recalculado): una parte que cabe, pasa.
+    if (dto.payment_method === 'transferencia') {
+      const tope = avisoDeTope({ importe: Number(allocation.amount_assigned), banco: bancoDeOrigen, esAnticipo });
+      if (tope) throw new BadRequestException(tope);
     }
     if (dto.payment_method === 'transferencia' && !destinationText?.trim()) {
       throw new BadRequestException('Transferencia requiere la cuenta destino (elige una del catálogo del proveedor o captura la CLABE).');
@@ -3249,6 +3274,22 @@ export class PaymentCalendarService {
   }
 
   /**
+   * `[PGP.221]` El tope del banco para un pago YA preparado (al autorizarlo, él solo o con su día): sólo transferencias;
+   * `null` si cabe o si su banco no tiene tope medido. La regla y el texto, los de «Preparar pago» (`avisoDeTope`).
+   */
+  private async avisoDeTopeDelPago(trx: Knex.Transaction, a: AllocationRowLite): Promise<string | null> {
+    if (a.payment_method !== 'transferencia' || !a.bank_account_id) return null;
+    const origen = await trx('finance.bank_accounts').where({ id: a.bank_account_id }).first('bank') as { bank: string | null } | undefined;
+    const importe = Number(a.amount_assigned);
+    if (!excesoDeTope(importe, origen?.bank ?? null)) return null;
+    const { rows } = await trx.raw(
+      `SELECT 1 FROM finance.payment_allocation_items i
+         JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id AND o.tenant_id = i.tenant_id
+        WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo' LIMIT 1`, [a.id]);
+    return avisoDeTope({ importe, banco: origen?.bank ?? null, esAnticipo: rows.length > 0 });
+  }
+
+  /**
    * `[PGP.190]` **Preparar un pago que sale en varias transferencias** (Francisco, 2026-11-20: «hay pagos que se hacen con
    * varias transferencias»; eligió «Partir en pagos»). El pago se parte en un pago por transferencia, en el mismo día, y
    * cada uno queda preparado: la misma cuenta destino y su propia cuenta de origen. Así cada transferencia se casa sola
@@ -3304,6 +3345,16 @@ export class PaymentCalendarService {
       } catch (e: unknown) {
         if (e instanceof ErrorAlPartir) throw new BadRequestException(e.message);
         throw e;
+      }
+      // `[PGP.221]` Cada transferencia, dentro del tope de SU banco: se dice cuál pasa, antes de tocar nada. (Una cuenta que no
+      // existe no tiene banco aquí: la rechaza `prepareEn` con su motivo, y el reparto entero se deshace.)
+      const uuids = [...new Set(origenes)].filter((o) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(o));
+      const bancoDe = new Map(uuids.length
+        ? ((await trx('finance.bank_accounts').whereIn('id', uuids).select('id', 'bank')) as { id: string; bank: string | null }[]).map((r) => [String(r.id), r.bank])
+        : []);
+      for (let k = 0; k < partes.length; k++) {
+        const tope = avisoDeTope({ importe: partes[k].importe, banco: bancoDe.get(origenes[k]) ?? null, parte: k + 1 });
+        if (tope) throw new BadRequestException(tope);
       }
 
       // La 1ª transferencia se queda en el pago original; las demás nacen en el mismo día, en el orden escrito
@@ -3610,6 +3661,26 @@ export class PaymentCalendarService {
   }
 
   /**
+   * `[PGP.225]` **La norma fiscal del CFDI frena el pago** (anexo NF; Francisco, 2026-11-26, ratificado por Edgar: «cada
+   * mes se tienen detalles graves con contabilidad generando no deducciones»). Una PUE de un mes anterior por
+   * transferencia o cheque no se paga; una factura cancelada tampoco; lo que el SAT no ha verificado no se autoriza.
+   * Corre ANTES de escribir (lee las obligaciones, no los renglones): un rechazo no deja nada a medias. La regla vive
+   * en `norma-fiscal-cfdi.contract` (`detieneElPago`); aquí sólo se juntan sus datos.
+   */
+  private async assertNormaFiscal(
+    trx: Knex.Transaction, tenantId: string, obligaciones: readonly { obligation_source: string; obligation_id: string }[],
+    fechaPago: string, momento: MomentoDelPago, hoy: string = todayMx(),
+  ): Promise<void> {
+    const lista = obligaciones.map((o, i) => ({ ref: String(i), obligation_source: o.obligation_source, obligation_id: o.obligation_id }));
+    const frenos: FrenoDelPago[] = [];
+    for (const { cfdi, norma } of (await leerNormaDeObligaciones(trx, tenantId, lista, fechaPago, hoy)).values()) {
+      const motivo = detieneElPago(norma, momento);
+      if (motivo) frenos.push({ uuid: cfdi.uuid, total: Number(cfdi.total), motivo });
+    }
+    if (frenos.length) throw new ConflictException(textoDelFreno(frenos, momento));
+  }
+
+  /**
    * `[TP.15]` Kepler todavía debe cada factura del pago (se mide al autorizar y al marcar pagado).
    * `[PGP.113]` Era un ciclo dentro de `execute()`; salió aquí para que autorizar diga lo mismo ANTES
    * de que Dirección firme algo que el ERP ya no debe.
@@ -3653,7 +3724,7 @@ export class PaymentCalendarService {
    * NO MEDIDO / NO IMPUESTO: que quien autoriza no sea quien armó (igual que con el día; se dice en
    * pantalla, no se bloquea). Es decisión de Edgar.
    */
-  async authorize(allocationId: string, username: string): Promise<AllocationRowLite> {
+  async authorize(allocationId: string, username: string, hoy: string = todayMx()): Promise<AllocationRowLite> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).forUpdate().first();
@@ -3661,6 +3732,9 @@ export class PaymentCalendarService {
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se autoriza un pago pendiente');
       if (allocation.authorized_at) throw new BadRequestException(`Este pago ya lo autorizó ${allocation.authorized_by ?? 'Dirección'}.`);
       if (!isPrepared(allocation)) throw new BadRequestException('Falta prepararlo (método, cuenta de origen y destino) antes de autorizarlo.');
+      // `[PGP.221]` Lo que el banco no va a dejar pasar no se autoriza entero (se preparó antes de la regla, o le sumaron facturas).
+      const topeDelBanco = await this.avisoDeTopeDelPago(trx, allocation);
+      if (topeDelBanco) throw new BadRequestException(topeDelBanco);
       const { rows: [lot] } = await trx.raw(
         `SELECT id, status, folio, to_char(lot_date, 'YYYY-MM-DD') AS dia FROM finance.payment_calendar_lots WHERE id = ? FOR UPDATE`, [allocation.lot_id]);
       if (!lot) throw new NotFoundException('El día del pago no existe');
@@ -3676,6 +3750,10 @@ export class PaymentCalendarService {
         throw new BadRequestException(`No cabe en el tope del ${lot.dia}: ya hay ${PESOS_MX.format(Number(comprometido))} autorizados o pagados de ${PESOS_MX.format(tope)} y este pago es de ${PESOS_MX.format(monto)} (faltan ${PESOS_MX.format(Number(comprometido) + monto - tope)}).`);
       }
       await this.assertFacturasVigentes(trx, tenantId, allocationId);
+      // `[PGP.225]` La norma fiscal, otra vez: entre programar y autorizar pudo cambiar el mes, o el SAT cancelarla.
+      const itemsDelPago = (await trx('finance.payment_allocation_items').where({ allocation_id: allocationId })
+        .select('obligation_source', 'obligation_id')) as { obligation_source: string; obligation_id: string }[];
+      await this.assertNormaFiscal(trx, tenantId, itemsDelPago, lot.dia, 'autorizar', hoy);
       let folio: string | null = allocation.folio ?? null;
       if (!folio) {
         const prefijo = lot.folio || `${lot.dia.replace(/-/g, '').slice(2)}-01`;
@@ -3925,6 +4003,15 @@ export class PaymentCalendarService {
       // Caja una instrucción sin cuenta de origen ni destino.
       const unprepared = pending.filter((a: AllocationRowLite) => !isPrepared(a));
       if (unprepared.length) throw new BadRequestException(`${unprepared.length} pago(s) sin preparar (método, cuenta de origen y destino) — Tesorería debe prepararlos antes de autorizar`);
+      // `[PGP.225]` La misma norma fiscal que autorizar un pago solo: el día completo no la salta.
+      const itemsDelDia = (await trx('finance.payment_allocation_items').whereIn('allocation_id', (pending as AllocationRowLite[]).map((a) => a.id))
+        .select('obligation_source', 'obligation_id')) as { obligation_source: string; obligation_id: string }[];
+      await this.assertNormaFiscal(trx, tenantId, itemsDelDia, date, 'autorizar');
+      // `[PGP.221]` Ni un día con una transferencia que su banco no va a dejar pasar.
+      for (const a of pending as AllocationRowLite[]) {
+        const tope = await this.avisoDeTopeDelPago(trx, a);
+        if (tope) throw new BadRequestException(`Un pago del día pasa del tope de su banco: ${tope}`);
+      }
       const [{ consumo }] = await trx('finance.payment_allocations').where({ lot_id: lot.id }).whereIn('status', ['pending', 'executed'])
         .select(trx.raw('coalesce(sum(amount_assigned),0) AS consumo'));
       if (Number(consumo) > Number(capacity.authorized_amount) + 0.005) {

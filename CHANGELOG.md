@@ -15,6 +15,13 @@
 - La lista de «cargos sin contrato» dice cuánto falta por sustentar (del 1 al 25 de noviembre: 59 cargos, $781,570.77).
 - Permiso nuevo: «Gestionar contratos de cargos del banco», para Tesorería y Finanzas (tesoreria, finanzas_operativo y finanzas). Esas personas tienen que volver a entrar.
 - Internal: `finance/charge-contracts` (contrato en `@megadulces/contracts`), `CargosDelBancoService` en el worker (escucha `bancos_movimientos`, sin reloj; se apaga con `DISABLE_CARGOS_DEL_BANCO`), migración `20261126230517` que reparte la clave.
+### Fixed — Pagos › Calendario y Estado de cuenta de acreedores: la factura de cada documento ya carga en los días de muchas facturas (PGP.231 · 2026-11-26 · en código, sin soltar)
+- Para un superadmin, en un día con unas 200 facturas, la búsqueda de sus PDF fallaba entera: la lista viajaba en la dirección de la petición y, junto con su sesión (que lleva sus permisos), pasaba del tamaño que acepta el servidor. Ahora la lista va en el cuerpo de la petición.
+- Internal: `POST finance/payment-calendar/evidencia/consulta` (`PayableEvidenceQuery`) y el tope `EVIDENCIA_REFS_POR_CONSULTA` en `@megadulces/contracts`; el `GET …/evidencia?refs=` se queda para pestañas abiertas antes del despliegue.
+### Fixed — Compras › Revisión de facturas: no ofrece validar donde no puedes, y cuando algo falla dice por qué (RE.89 · 2026-11-26 · en código, sin soltar)
+- Quien ve todas las sucursales pero no escribe en ellas (Dirección) ya no ve «Dar por buena», «Devolver», «Descartar», «Reactivar» ni «Ligar» en las entradas donde el servidor se lo iba a rechazar. En el panel, donde iría «Dar por buena», dice «Sólo consulta: tu acceso no incluye validar en …». El estado «Validada» o «Devuelta» se sigue viendo, y el lote cuenta sólo lo que se puede aprobar.
+- «No se pudo validar» y «No se pudo devolver» traen el motivo del servidor; antes decía «Error al validar» a secas. Lo encontró Francisco en prod: dos intentos, dos 403 de alcance que no se explicaban.
+- Internal: `puedeEscribirEn()` en `DataScopeService`, el mismo criterio que `ScopeService.canWrite` del servidor; `ScopeDim` declara `valuesWrite`, que `me/scope` ya mandaba. Sin migración ni cambios de API.
 
 ### Added — Almacén › Ubicaciones: el croquis de la sucursal se acomoda arrastrando (UB.PL.8 · 2026-11-26 · en código, sin soltar)
 - El mapa deja de dibujar todo como pasillos: se toma cada mueble y se suelta en un renglón, hasta que la planta se parece a la tienda. Se puede con el mouse y también sin mouse, con el teclado.
@@ -28,6 +35,15 @@
 ### Fixed — Almacén › Ubicaciones: «Configurar el croquis» armaba las piezas y no lo decía (UB.PL.10 · 2026-11-26 · en código, sin soltar)
 - El botón funcionaba —armó 8 piezas de Padre Hidalgo, cabeceras incluidas— pero la pantalla quedaba idéntica, así que se tocaba de nuevo hasta que el sistema cortaba por exceso de peticiones.
 - Ahora dice cuántas piezas armó y cómo se llaman, se apaga mientras trabaja y el segundo clic no vuelve a pedir.
+### Fixed — Pagos › Calendario: un pago ya pagado no dice «Ya no se debe: quítalo del día» (PGP.220 · 2026-11-26 · en código, sin soltar)
+- El renglón de un pago ya pagado decía «Ya no se debe: quítalo del día» porque su factura ya no se debe… porque se pagó. Así pareció que el pago de Effem no había entrado a Kepler, cuando la Suite ya había escrito su documento. Ahora lo pagado dice cómo salió y si está cerrado («Pagado y cerrado» o «Marcado pagado · falta …»).
+- Medido: lo decían 289 de los 322 pagos pagados desde octubre.
+
+### Changed — Pagos › Preparar pago: BBVA no deja pasar de $1,000,000.00 por transferencia, y el pago se parte solo (PGP.221 · 2026-11-26 · en código, sin soltar)
+- Al preparar una transferencia de BBVA de más de un millón, «Preparar pago» ya viene partido: $1,000,000.00 en cada transferencia y el resto en la última, desde la misma cuenta (se puede cambiar). Así cada transferencia es su propio pago: casa con su salida del banco, recibe su PDF y lleva su documento en Kepler.
+- Una transferencia de BBVA de más de un millón ya no se prepara ni se autoriza entera; el aviso dice en cuántas sale. Un anticipo, que sale en una sola, pide una cuenta de otro banco. Santander y los demás bancos no cambian.
+- Internal: la regla vive en `@megadulces/contracts` (`tope-por-transferencia.contract.ts`); el servidor la aplica al preparar, al partir y al autorizar (el pago y el día).
+
 ### Fixed — Pagos › Preparar pago: la ✕ para quitar una transferencia se ve (PGP.190.2 · 2026-11-26 · en código, sin soltar)
 - Al partir un pago en tres o más transferencias, cada renglón tiene una ✕ para quitarlo. Desde la actualización de PrimeNG salía vacía: se podía tocar, pero no se veía. Ahora se ve, alineada con el importe y la cuenta, y con el dedo mide 44 px.
 - Internal: en PrimeNG 22 `pButton` ya no tiene `icon` ni `label`; el ícono va dentro del botón (`[iconOnly]`). Hay 28 botones más con el mismo defecto en otras pantallas (AUD-UI.5).
@@ -100,6 +116,15 @@
 - Una serie es el mismo cargo en la misma cuenta durante 3 meses o más: al mismo importe (arrendamiento, capital de crédito, cuotas) o con el mismo número de crédito (el interés que baja).
 - Medido en 12 meses: 47 series vigentes, ≈ $512 mil al mes, en 10 cuentas. De los 32 cargos de noviembre propone 19 (≈ $420 mil); lo que no ve se declara.
 - Migración `20261125224611`: la vista `finance.v_recurring_bank_charges` (sólo DDL, sin datos).
+### Changed — Compras › Proveedores › Calendario: la requisición de la Suite cuenta como revisado (PQ.3.29 · 2026-11-25 · en código, sin soltar)
+- Cuando sale una requisición de compra para un proveedor, el Calendario lo da por revisado en cada sucursal a la que va la mercancía, desde que se crea. Ya no hay que marcar a mano «se pidió fuera de Kepler» cuando la orden sale de otra sucursal.
+- Si la requisición se cancela, deja de contar. En «Última atención» se ve «Requisición de la Suite».
+- Internal: el calendario lee `commercial.purchase_requisitions` y sus renglones (destino), sin escribir marcas. Sin migración.
+### Changed — Compras › Pedido: el aviso «Hoy te toca» lo dice el Calendario (PQ.3.24 · 2026-11-25 · en código, sin soltar)
+- El aviso de Pedido cuenta primero los proveedores con regla de la gerencia, por cómo van hoy en el Calendario (rezagados y de hoy). Debajo, aparte y marcados «sin confirmar», los que no tienen regla y el ciclo de Kepler da por vencidos.
+- Antes contaba canales (proveedor por sucursal) del ciclo de Kepler, que no conoce las reglas, y un proveedor podía contar dos veces.
+- «Abrir el Calendario» aparece a quien puede verlo; «Ver el ciclo» sigue llevando a la pestaña Ciclo.
+- Internal: `GET /api/compras/calendario/aviso` (las llaves del Calendario o `COMPRAS_PEDIDO_VER`), con el alcance por sucursal de cada quien. Sin migración.
 ### Added — Compras › Calendario de compras: quién cambió cada regla y de qué a qué (PQ.3.17 · 2026-11-24 · en código, sin soltar)
 - El detalle de una regla dice, además de quién la definió, «Último cambio: quién, el día». Debajo, «Cambios» dice de qué a qué, el más nuevo primero: el patrón entero, el responsable, fuera de ciclo con su motivo, la nota y la baja.
 - De un cambio hecho antes de que se guardara el historial se dice quién y cuándo, no de qué a qué.
