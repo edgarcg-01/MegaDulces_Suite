@@ -72,6 +72,8 @@
       "@megadulces/contracts/finance/aviso-de-pago": ["libs/contracts/src/finance/aviso-de-pago.contract.ts"],
       // [PGP.108] La factura del pago con su CFDI (PUE/PPD): la leen la API y la pantalla de Pagos.
       "@megadulces/contracts/finance/cfdi-factura": ["libs/contracts/src/finance/cfdi-factura.contract.ts"],
+      // [PGP.223] La norma fiscal del CFDI (qué factura sirve para pagar, comprar, gastar o vender): API y pantallas.
+      "@megadulces/contracts/finance/norma-fiscal-cfdi": ["libs/contracts/src/finance/norma-fiscal-cfdi.contract.ts"],
       // [PGP.109] Cuándo se genera la póliza de egreso (PUE al pagar, PPD con el REP).
       "@megadulces/contracts/finance/momento-poliza": ["libs/contracts/src/finance/momento-poliza.contract.ts"],
       "@megadulces/finance": ["libs/finance/src/index.ts"],

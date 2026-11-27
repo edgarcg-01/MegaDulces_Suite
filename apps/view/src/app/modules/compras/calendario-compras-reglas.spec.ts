@@ -65,6 +65,8 @@ describe('el estado lleva palabra y el dato que lo explica', () => {
 describe('la última atención dice el documento o la marca', () => {
   it('OC cancelada se nombra como tal (la revisión se hizo)', () => {
     expect(atencionEnPalabras({ fecha: '2026-11-18', fuente: 'oc_cancelada' }, null)).toEqual({ que: 'Orden de compra cancelada', cuando: 'mié 18 nov' });
+    // [PQ.3.29] DC40: la requisición de la Suite, en la sucursal a la que va.
+    expect(atencionEnPalabras({ fecha: '2026-11-25', fuente: 'requisicion' }, null)).toEqual({ que: 'Requisición de la Suite', cuando: 'mié 25 nov' });
   });
   it('una marca «hoy no se pide» lleva su motivo', () => {
     const m = { review_date: '2026-11-19', outcome: 'skipped' as const, postponed_to: null, skip_reason: 'in_quotation' as const, note: null, marcada_por: 'Ana', marcada_el: '2026-11-19T15:00:00Z' };

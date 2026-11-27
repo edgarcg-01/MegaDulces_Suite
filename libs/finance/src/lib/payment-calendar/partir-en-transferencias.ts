@@ -9,6 +9,9 @@
  *  - en Kepler **cada transferencia es su propio X-D-26** con su cuenta de origen (`kdxe.c22`), y cuando una factura
  *    se paga en dos, cada X-D-26 le abona una parte: CE012 (31-ago y 24-sep) y CP007 (4-nov), un millón y el resto;
  *  - **no hay tope fijo**: desde junio hubo 16 X-D-26 de más de un millón. Por eso los importes los escribe la persona.
+ *    ⚠️ **Corregido el 2026-11-26 (`[PGP.221]`): BBVA SÍ tiene tope, $1,000,000.00 por operación** (Francisco; en la
+ *    descarga del banco desde junio ninguna transferencia de BBVA pasa del millón). Los X-D-26 de más de un millón son de
+ *    otros bancos. Una transferencia de BBVA que pasa del tope se prepara partida (`tope-por-transferencia.contract.ts`).
  *
  * Por eso cada transferencia es un PAGO (decisión de Francisco, 2026-11-20, «Partir en pagos»): su salida del banco
  * se casa sola por su importe, lleva su comprobante y su X-D-26 — igual que hoy lo hace Tesorería a mano —, y todo lo
@@ -19,8 +22,13 @@
  * la factura entera y `ck_pai_discount_consistency` lo ata a su renglón): se dice a cuánto dejar la transferencia.
  */
 
-/** Hasta cuántas transferencias se parte un pago. Medido desde agosto: una factura de proveedor llegó a 5 X-D-26 el mismo día. */
-export const MAX_TRANSFERENCIAS = 10;
+import { MAX_TRANSFERENCIAS_POR_PAGO } from '@megadulces/contracts';
+
+/**
+ * Hasta cuántas transferencias se parte un pago. Medido desde agosto: una factura de proveedor llegó a 5 X-D-26 el mismo día.
+ * `[PGP.221]` Vive en `@megadulces/contracts` (la pantalla lo usa al partir sola por el tope del banco).
+ */
+export const MAX_TRANSFERENCIAS = MAX_TRANSFERENCIAS_POR_PAGO;
 
 /** La bitácora del pago (`finance.payment_allocation_history.event`): en el original y en cada parte nueva. */
 export const EVENTO_PARTIDO_EN_TRANSFERENCIAS = 'partido_en_transferencias';

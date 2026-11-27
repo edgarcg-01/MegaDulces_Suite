@@ -1,12 +1,12 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
 import type {
-  CalendarioCompras, DefinirOcasionalesDto, DefinirOcasionalesRespuesta, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta,
+  AvisoCalendario, CalendarioCompras, DefinirOcasionalesDto, DefinirOcasionalesRespuesta, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta,
   MarcarRevisionDto, PropuestasCalendario, ResponsablesCalendario,
 } from '@megadulces/contracts';
 import { ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
-  CalendarioError, darDeBaja, definirOcasionales, fueraDeCiclo, guardarRegla, leerCalendario, leerPosiblesResponsables, leerPropuestas,
+  CalendarioError, darDeBaja, definirOcasionales, fueraDeCiclo, guardarRegla, leerAviso, leerCalendario, leerPosiblesResponsables, leerPropuestas,
   marcar, type Quien, type ResponsableResuelto,
 } from './purchase-calendar.repo';
 
@@ -59,6 +59,19 @@ export class PurchaseCalendarService {
     const tenant = this.tenantCtx.requireTenantId();
     const { lee } = await this.alcance();
     return this.tk.run((trx: Knex.Transaction) => leerCalendario(trx, tenant, lee));
+  }
+
+  /**
+   * `[PQ.3.24]` El aviso «Hoy te toca» de Pedido (DC35): el calendario de quien pregunta + los canales SIN regla de
+   * los almacenes de su alcance (los mismos que recorta `worklist`, área `compras`). Si los canales fallan, el aviso
+   * sale con `sin_regla.measured: false` y la causa queda aquí.
+   */
+  async aviso(): Promise<AvisoCalendario> {
+    const tenant = this.tenantCtx.requireTenantId();
+    const { lee } = await this.alcance();
+    const almacenes = await this.scope.warehouseIds(undefined, 'compras/calendario/aviso', AREA);
+    return this.tk.run((trx: Knex.Transaction) => leerAviso(trx, tenant, lee, almacenes, (e) =>
+      this.logger.warn(`[PQ.3.24] ciclo por canal (proveedores sin regla) NO MEDIDO: ${String((e as Error)?.message ?? e).split(' - ').pop()}`)));
   }
 
   propuestas(): Promise<PropuestasCalendario> {

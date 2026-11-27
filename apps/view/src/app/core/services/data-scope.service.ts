@@ -26,6 +26,11 @@ export interface ScopeDim {
   nota?: string | null;
   options: ScopeOption[];
   /**
+   * `[RE.89]` Dónde puede ESCRIBIR, ya resuelto por el servidor (`own` → su sucursal). Sólo cuenta
+   * con `modeWrite` `own`/`listed`: con `all` y `none` la respuesta es el modo mismo.
+   */
+  valuesWrite?: string[];
+  /**
    * `[ID.26]`/`[SN.3]` `false` = el modo es `own` pero la ficha no trae con qué resolverlo
    * (78 de 122 usuarios sin `warehouse_code`): el backend emite el mismo WHERE que `none` y lo
    * DECLARA. El front lo muestra como "sin determinar", nunca como "sin alcance".
@@ -37,6 +42,24 @@ export interface MyScope {
   user_id: string;
   role_name: string;
   dimensions: Record<string, ScopeDim>;
+}
+
+/**
+ * `[RE.89]` ¿Puede ESCRIBIR en este valor? Es `ScopeService.canWrite` del servidor, el que dice 403 con
+ * «Tu alcance no incluye … para escritura»: la pantalla pregunta lo mismo antes de ofrecer la acción.
+ *
+ * `null` = todavía no se sabe (no contestó `me/scope`, o falló). Quien lo use decide qué hace con eso;
+ * en una acción, ofrecerla como antes y dejar que el servidor decida —su respuesta ya trae el motivo—.
+ *
+ * El caso (2026-11-26): `direccion` ve las 9 sucursales y no escribe en ninguna (`[ID.17]`), y Revisión
+ * de facturas le ofrecía «Dar por buena» en cada fila. Cada clic era un 403 que la pantalla mostraba
+ * como «Error al validar», sin el motivo.
+ */
+export function puedeEscribirEn(d: ScopeDim | null | undefined, valor: string): boolean | null {
+  if (!d) return null;
+  if (d.modeWrite === 'all') return true;
+  if (d.modeWrite === 'none') return false;
+  return (d.valuesWrite ?? []).includes(String(valor));
 }
 
 @Injectable({ providedIn: 'root' })
@@ -105,10 +128,30 @@ export class DataScopeService {
     return this._warehouses.asReadonly();
   }
 
+  /**
+   * `[RE.89]` La dimensión `warehouse` entera, como signal, para preguntar dónde ESCRIBE (con
+   * `puedeEscribirEn`). `null` mientras no contesta o si falla: «no se sabe», nunca «en ninguna».
+   * Comparte la única petición de la sesión con `misSucursales()`.
+   */
+  private readonly _sucursalDim = signal<ScopeDim | null>(null);
+  private pedidaDim = false;
+  alcanceSucursal(): Signal<ScopeDim | null> {
+    if (!this.pedidaDim) {
+      this.pedidaDim = true;
+      this.dim('warehouse').subscribe({
+        next: (d) => this._sucursalDim.set(d),
+        error: () => this._sucursalDim.set(null),
+      });
+    }
+    return this._sucursalDim.asReadonly();
+  }
+
   /** Se llama tras un cambio de sesión: el alcance del próximo usuario es otro. */
   reset(): void {
     this.cache$ = undefined;
     this.pedidas = false;
     this._warehouses.set(null);
+    this.pedidaDim = false;
+    this._sucursalDim.set(null);
   }
 }
