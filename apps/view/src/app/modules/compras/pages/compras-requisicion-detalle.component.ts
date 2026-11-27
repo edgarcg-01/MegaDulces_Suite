@@ -181,7 +181,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               <th class="rd-r">Existencia</th><th class="rd-r">Reorden</th><th class="rd-r">Sugerido</th>
               <th class="rd-r">Pedir</th>
               @if (showRecibido()) { <th class="rd-r">Recibido</th> }
-              <th class="rd-r">Costo unit. sin IVA</th><th class="rd-r">Importe sin IVA</th>
+              <th class="rd-r" title="El costo que se escribe en el renglón de Kepler: sin impuestos.">Costo unit. sin IVA</th>
+              @if (r.total_cost_ci != null) { <th class="rd-r" title="Importe más el IVA y el IEPS de la ficha de Kepler: lo que se va a pagar, como arma la OC su total.">Importe con impuestos</th> }
+              @else { <th class="rd-r">Importe sin IVA</th> }
             </tr>
           </ng-template>
           <ng-template #body let-l>
@@ -214,7 +216,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 @if (l.costo_movido === true) { <span class="rd-hoy" title="Costo de hoy según el plan vigente">hoy {{ money(l.costo_hoy) }}</span> }
                 @else if (l.costo_movido === null) { <span class="rd-sinmedir" title="Este producto no tiene costo comparable hoy en este almacén">sin medir</span> }
               </td>
-              <td class="rd-r">{{ money(l.line_cost) }}</td>
+              <td class="rd-r">@if (r.total_cost_ci != null) { {{ money(l.line_cost_ci ?? l.line_cost) }}@if (l.imp == null) { <span class="rd-sinmedir" title="Sin tasa de impuestos en la ficha de Kepler: va sin IVA ni IEPS.">sin tasa</span> } } @else { {{ money(l.line_cost) }} }</td>
             </tr>
           </ng-template>
         </p-table>
@@ -268,7 +270,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               <p class="rd-muted rd-canc-hint">No se escribió nada en Kepler. El intento quedó registrado con tu motivo.</p>
             }
           } @else {
-            <p class="rd-muted rd-oc-sub">{{ r.supplier_name || 'sin proveedor' }} · {{ r.kepler_sucursal | sucursal }} · {{ money(r.total_cost) }}</p>
+            <p class="rd-muted rd-oc-sub">{{ r.supplier_name || 'sin proveedor' }} · {{ r.kepler_sucursal | sucursal }} · {{ montoTxt(r) }}</p>
             <p class="rd-canc-que">
               La requisición queda <strong>cancelada en Kepler</strong> y se borran sus renglones, igual que si la cancelaras allá.
               @if (r.estado === 'cancelled') { En la Suite ya está cancelada y conserva su motivo. }
@@ -301,7 +303,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       <p-dialog [visible]="ocVisible()" (visibleChange)="ocVisible.set($event)" [modal]="true" [style]="{ width: '28rem' }"
                 [header]="req()?.source_type === 'branch' ? '¿Con qué traspaso de Kepler salió?' : '¿Con qué orden de compra de Kepler se ordenó?'" [draggable]="false">
         @if (req(); as r) {
-          <p class="rd-muted rd-oc-sub">{{ r.folio }} · {{ money(r.total_cost) }} · {{ r.supplier_name || 'sin proveedor' }}</p>
+          <p class="rd-muted rd-oc-sub">{{ r.folio }} · {{ montoTxt(r) }} · {{ r.supplier_name || 'sin proveedor' }}</p>
           <div class="rd-oc-form">
             <label class="rd-oc-lbl" for="rdOcSuc">Sucursal donde se capturó en Kepler</label>
             <input id="rdOcSuc" pInputText type="text" [(ngModel)]="ocSucursal" class="rd-oc-in" placeholder="00" autocomplete="off" />
@@ -394,14 +396,25 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
     return [...o][0] !== (r.supplier_name || '');
   }
 
+  /** `[PQ.162]` El monto de la requisición con su base dicha: con impuestos si se midió, si no sin IVA. */
+  montoTxt(r: RequisitionDetail): string {
+    return r.total_cost_ci != null ? `${this.money(r.total_cost_ci)} con impuestos` : `${this.money(r.total_cost)} sin IVA`;
+  }
+
   kpiItems(r: RequisitionDetail): MetricStripItem[] {
     const fmtDate = (d: any) => d ? new Date(d).toLocaleString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
     const items: MetricStripItem[] = [
       { label: 'Unidades', value: r.total_units },
       // `[PQ.23]` Sin impuestos: Kepler suma IVA e IEPS al total del documento (RQ-2026-01601:
       // $787,585 aquí, $850,496.05 en Kepler). Sin decirlo, las dos cifras parecen no cuadrar.
-      { label: 'Costo estimado', value: r.total_cost, format: 'currency', tone: 'brand',
-        sub: r.source_type === 'branch' ? 'al costo, sin IVA' : 'sin IVA ni IEPS' },
+      // `[PQ.162]` Una compra se paga con impuestos (Edgar, 2026-11-27): eso es lo que se aprueba. El
+      // subtotal sin impuestos queda abajo porque es lo que Kepler escribe en los renglones.
+      r.total_cost_ci != null
+        ? { label: 'A pagar', value: r.total_cost_ci, format: 'currency', tone: 'brand',
+            sub: `con IVA e IEPS · ${this.money(r.total_cost)} sin impuestos`
+              + (r.sin_tasa ? ` · ${r.sin_tasa} renglón(es) sin tasa en Kepler` : '') }
+        : { label: 'Costo estimado', value: r.total_cost, format: 'currency', tone: 'brand',
+            sub: r.source_type === 'branch' ? 'al costo, sin IVA' : 'sin IVA ni IEPS · no se pudo medir el impuesto' },
       { label: 'Creada', value: fmtDate(r.created_at), format: 'text' },
     ];
     if (r.notes) items.push({ label: 'Nota', value: r.notes, format: 'text' });
@@ -594,7 +607,7 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
         this.toast.add({
           severity: r.renglones_actualizados ? 'success' : 'info',
           summary: r.renglones_actualizados ? `${r.renglones_actualizados} renglón(es) al costo de hoy` : 'Ya estaban al día',
-          detail: `Nuevo total: ${this.money(r.total_cost)}`, life: 8000,
+          detail: `Nuevo total: ${this.money(r.total_cost)} sin impuestos`, life: 8000,
         });
         this.load();
       },

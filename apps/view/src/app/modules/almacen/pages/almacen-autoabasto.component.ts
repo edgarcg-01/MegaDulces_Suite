@@ -24,6 +24,7 @@ import {
   type ClaseUnidad, type PosicionPedido, type EstadoRenglon, type SurteRenglon, type ResumenMesa,
   type MotivoAjuste, type AutoabastoPedidoGrupo, type AutoabastoPedidoLinea, type AutoabastoPedidoResponse,
   type AutoabastoVieneDoc, type AutoabastoEnviarResponse, type AutoabastoVieneRenglon, type MonthlySalesResponse,
+  type AutoabastoManoResponse,
 } from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
 
@@ -39,6 +40,7 @@ import { moverEntreCampos, pasoPorTecla } from '../../../shared/util/captura-tec
 import { VentaPorMesComponent } from '../../../shared/components/venta-por-mes/venta-por-mes.component';
 import { AutoabastoService, AutoabastoWarehouseOpt } from '../autoabasto.service';
 import { AutoabastoOrdenesComponent } from './autoabasto-ordenes.component';
+import { AutoabastoAManoComponent } from './autoabasto-a-mano.component';
 import { qty, cuandoTexto, cuandoPorQue, surtePorQue, faltaNetaPorQue, estadoPorQue } from '../porques.util';
 import { descargarPdfMiPedido, type MiPedidoPdfGrupo } from '../mi-pedido-pdf';
 
@@ -125,7 +127,7 @@ type DestinoEnvio = 'sucursal' | 'compras';
     CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, InputTextModule, TooltipModule, TagModule,
     CheckboxModule, DialogModule, TextareaModule, PopoverModule, MenuModule, VentaPorMesComponent,
     LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, ContextHelpComponent, SucursalPipe,
-    AutoabastoOrdenesComponent,
+    AutoabastoOrdenesComponent, AutoabastoAManoComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -146,7 +148,7 @@ type DestinoEnvio = 'sucursal' | 'compras';
             [AB.NI.5] La entrada al pedido abierto: el mismo pedido, partido en las órdenes en que
             se va a armar. No es un filtro más de la tabla — es la otra lectura de la misma mesa.
           -->
-          @if (!detalle() && aSucursal().renglones > 0) {
+          @if (!detalle() && !aManoAbierto() && aSucursal().renglones > 0) {
             <button pButton type="button" class="p-button-sm p-button-text"
                     (click)="verDetalle('sucursal')"
                     pTooltip="Ve el pedido ya partido en las órdenes en que se va a armar: por unidad, por línea y en alfabético."
@@ -166,7 +168,8 @@ type DestinoEnvio = 'sucursal' | 'compras';
             <span class="p-button-icon p-button-icon-right pi pi-chevron-down" aria-hidden="true"></span>
           </button>
           <p-menu #menuPdf [model]="opcionesPdf()" [popup]="true" appendTo="body" />
-          @if (data()?.puede_ajustar) {
+          <!-- [AB.PM.4] Mientras se pide a mano, los botones del sugerido no se ofrecen: son de la otra lectura. -->
+          @if (data()?.puede_ajustar && !aManoAbierto()) {
             <!--
               [PQ.143] DOS acciones, porque son dos actos que pasan en momentos distintos (Edgar,
               2026-11-22). El pedido a la sucursal que surte sale cuando la tienda lo necesita —44.9
@@ -239,6 +242,19 @@ type DestinoEnvio = 'sucursal' | 'compras';
       }
       </div>
 
+      <!--
+        [AB.PM.4] EL PEDIDO A MANO. Se abre EN LUGAR de la mesa, como el detalle de órdenes: es otra
+        lectura del mismo acto (pedir) y tenerlas a la vez obliga a elegir dónde mirar. Lo que ya va en el
+        sugerido viaja desde aquí para que el buscador lo diga (R1), sin recalcular la mesa.
+      -->
+      @if (aManoAbierto() && data(); as dm) {
+        <app-autoabasto-a-mano
+          [almacen]="dm.almacen"
+          [matriz]="matrizDefault()"
+          [enSugerido]="sugeridoPorProducto()"
+          [puedeAjustar]="dm.puede_ajustar"
+          (cerrar)="cerrarMano($event)" />
+      } @else {
       @if (data(); as d) {
         @if (!d.puede_ajustar) {
           <p class="ab-note" role="note">
@@ -305,6 +321,27 @@ type DestinoEnvio = 'sucursal' | 'compras';
         }
 
         <app-metric-strip [items]="kpis()" ariaLabel="Lo que le falta al almacén y lo que se pide"></app-metric-strip>
+
+        <!--
+          [AB.PM.4] PEDIR ALGO A MANO. Un bloque, sin rehacer la mesa: lo que la persona sabe y el motor no
+          (un pedido grande, algo nuevo, algo que se acabó hoy), a su matriz, a otra sucursal o a Compras.
+          Sale igual que el sugerido: a Kepler, ya autorizado. Dice lo que ya lleva el borrador a mano.
+        -->
+        <section class="ab-mano" aria-labelledby="ab-mano-h">
+          <div class="ab-mano-txt">
+            <strong id="ab-mano-h">Pedir algo a mano</strong>
+            <span class="ab-dim">Lo que sabes y el sistema no —un pedido grande, algo nuevo, algo que se acabó hoy—, a tu matriz, a otra sucursal o a Compras.</span>
+            @if (resumenMano(); as rm) {
+              @if (rm.renglones.length) {
+                <span>Tu pedido a mano: <strong>{{ rm.renglones.length }} {{ rm.renglones.length === 1 ? 'renglón' : 'renglones' }}</strong> · {{ textoResumenMano() }}</span>
+              }
+            }
+          </div>
+          <button pButton type="button" class="p-button-sm p-button-outlined" (click)="abrirMano()">
+            <span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span>
+            <span class="p-button-label">{{ resumenMano()?.renglones?.length ? 'Seguir con tu pedido a mano' : 'Pedir a mano' }}</span>
+          </button>
+        </section>
 
         <!-- [AB.23] Lo que te va a llegar: para no pedir dos veces lo que ya viene. Lo de la ventana ya
              se restó de «A pedir»; lo más viejo se muestra para reclamarlo, no se resta. -->
@@ -631,6 +668,7 @@ type DestinoEnvio = 'sucursal' | 'compras';
         }
       </app-load-state>
       }
+      }
 
       <!-- [PQ.143] Confirmar el envío. Un diálogo por destino: lo que sale, a quién, y qué pasa al confirmar. -->
       <p-dialog [visible]="!!envioAbierto()" (visibleChange)="$event || envioAbierto.set(null)" [modal]="true"
@@ -729,6 +767,11 @@ type DestinoEnvio = 'sucursal' | 'compras';
 
     /* [AB.23] Lo que te va a llegar */
     .ab-viene { border: 1px solid var(--border-color); border-radius: var(--r-lg); padding: var(--sp-2) var(--sp-3); background: var(--card-bg); }
+/* [AB.PM.4] El bloque «Pedir algo a mano»: una fila, el texto a la izquierda y el botón a la derecha. */
+.ab-mano { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); align-items: center; justify-content: space-between;
+  border: 1px solid var(--border-color); border-radius: var(--r-lg); padding: var(--sp-2) var(--sp-3); background: var(--card-bg); }
+.ab-mano-txt { flex: 1 1 28rem; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
+@media (pointer: coarse) { .ab-mano .p-button { min-height: var(--tap-min); } }
     .ab-viene-h { margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
     .ab-viene-res { margin: 0; font-size: var(--fs-sm); color: var(--text-main); display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); align-items: baseline; }
     .ab-viene-l { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: grid; gap: var(--sp-1); }
@@ -1121,6 +1164,8 @@ export class AlmacenAutoabastoComponent {
     this.warehouseId.set(id);
     this.enviado.set(null);
     this.data.set(null);
+    this.aManoAbierto.set(false);
+    this.resumenMano.set(null);
     if (id) this.cargar();
   }
 
@@ -1145,6 +1190,8 @@ export class AlmacenAutoabastoComponent {
         // Huella de apertura. Si falla (base de sólo lectura, red), el pedido igual se usa.
         const renglones = d.grupos.reduce((s, g) => s + g.lineas.length, 0);
         this.svc.abrirPedido({ warehouse_id: id, renglones }).subscribe({ error: () => undefined });
+        // [AB.PM.4] Lo que ya lleva el pedido a mano, para el bloque de la mesa.
+        this.cargarResumenMano();
       },
       error: (e) => {
         this.error.set(e?.error?.message ?? 'No se pudo armar el pedido.');
@@ -1519,6 +1566,61 @@ export class AlmacenAutoabastoComponent {
 
   verDetalle(destino: DestinoEnvio): void {
     this.detalle.set(destino);
+  }
+
+  // ── [AB.PM.4] El pedido a mano ─────────────────────────────────────────────────────────────
+
+  /** La captura a mano abierta, en lugar de la mesa. */
+  readonly aManoAbierto = signal(false);
+  /** Lo que ya lleva el borrador a mano, para el bloque de la mesa. `null` = no leído (o no se pudo). */
+  readonly resumenMano = signal<AutoabastoManoResponse | null>(null);
+
+  /** La sucursal que el motor propone a este almacén (la de más renglones del sugerido): el origen por default. */
+  readonly matrizDefault = computed<string | null>(() => {
+    const gs = (this.data()?.grupos ?? []).filter((g) => g.tipo === 'matriz' && !!g.clave);
+    gs.sort((a, b) => b.lineas.length - a.lineas.length);
+    return gs[0]?.clave ?? null;
+  });
+
+  /**
+   * R1: lo que ya va en el sugerido, con la cantidad y la unidad que se ven en la mesa. Viaja la cifra, no
+   * un texto: pasar un producto del sugerido al pedido a mano conserva su cantidad (prueba visual del
+   * 2026-11-26: el 88022 iba con 358 CJA en el sugerido y el botón proponía 257, sin temporada).
+   * La unidad va con su cantidad: un ajuste GUARDADO trae la suya (si el motor cambió de unidad después,
+   * 3 PAQ no se vuelven 3 CJA); lo que se está moviendo y el sugerido van en la del sugerido.
+   */
+  readonly sugeridoPorProducto = computed<Record<string, { cantidad: number; unidad: string | null }>>(() => {
+    const m: Record<string, { cantidad: number; unidad: string | null }> = {};
+    const ed = this.edicion();
+    for (const l of this.enPedido()) {
+      const unidad = !ed[l.product_id] && l.ajuste ? (l.ajuste.unidad ?? l.a_pedir.unidad) : l.a_pedir.unidad;
+      m[l.product_id] = { cantidad: this.cantidad(l), unidad: unidad ?? null };
+    }
+    return m;
+  });
+
+  /** «4 a Morelia Abastos, 1 a Compras»: a quién va lo que lleva el borrador a mano. */
+  textoResumenMano(): string {
+    return (this.resumenMano()?.grupos ?? [])
+      .map((g) => `${g.renglones.length} a ${g.destino.tipo === 'sucursal' ? warehouseName(g.destino.code) : 'Compras'}`)
+      .join(', ');
+  }
+
+  abrirMano(): void {
+    this.detalle.set(null);
+    this.aManoAbierto.set(true);
+  }
+
+  cerrarMano(cambio: boolean): void {
+    this.aManoAbierto.set(false);
+    // Lo pedido a mano sale del sugerido (R1) y lo mandado ya viene: si algo cambió, la mesa se rearma.
+    if (cambio) this.cargar(); else this.cargarResumenMano();
+  }
+
+  private cargarResumenMano(): void {
+    const id = this.warehouseId();
+    if (!id) { this.resumenMano.set(null); return; }
+    this.svc.mano(id).subscribe({ next: (m) => this.resumenMano.set(m), error: () => this.resumenMano.set(null) });
   }
 
   /**

@@ -52,7 +52,8 @@ describe('[PQ.139] el default no se teclea', () => {
   });
 
   it('un origen válido se devuelve con su nombre, para que la pantalla lo pueda decir', async () => {
-    expect(await elegir(svcCon(BUENO), '08')).toEqual({ id: 'w-08', code: '08', name: 'Morelia Abastos' });
+    // `[AB.PM.3]` Con su sucursal de Kepler: la ficha del origen es la que el pedido a mano revisa (R8 d).
+    expect(await elegir(svcCon(BUENO), '08')).toEqual({ id: 'w-08', code: '08', name: 'Morelia Abastos', kepler_code: '08' });
   });
 
   it('el código se usa tal cual, sin espacios de más', async () => {
@@ -112,7 +113,8 @@ describe('[PQ.139] el origen elegido manda sobre los renglones de SUCURSAL, y s�
     const svc = Object.create(AutoabastoPedidoService.prototype) as Record<string, unknown>;
     svc['logger'] = { warn: () => undefined };
     svc['tenantCtx'] = { requireTenantId: () => 't', get: () => ({ userId: null, username: null }) };
-    svc['armarAlmacen'] = async () => ({ renglones });
+    // `[AB.PM.3]` `aMano`: los productos pedidos a mano, que el sugerido deja fuera (aquí, ninguno).
+    svc['armarAlmacen'] = async () => ({ renglones, aMano: new Set<string>() });
     svc['borradorDe'] = async () => 'ped-1';
     svc['huella'] = async () => undefined;
     svc['origenElegido'] = async (_t: string, _a: unknown, code: string | null | undefined) =>
