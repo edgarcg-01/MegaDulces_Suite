@@ -19,6 +19,10 @@ function servicio(run: Record<string, unknown>, userId: string | null) {
   const qb: Record<string, (...a: unknown[]) => unknown> = {
     where: () => qb, whereNull: () => qb,
     first: async () => run,
+    // `[RD.C1.3]` El candado del neto consulta las líneas antes de firmar. Acá no hay ninguna
+    // sin configurar: este archivo prueba **quién** puede aprobar, no si el neto está medido
+    // (eso vive en `commission-firma-neto.spec.ts`, con su caso Q21).
+    distinct: async () => [],
     update: async (p: unknown) => { actualizados.push(p as Record<string, unknown>); return 1; },
   };
   const trx = Object.assign(() => qb, { fn: { now: () => 'now()' } });

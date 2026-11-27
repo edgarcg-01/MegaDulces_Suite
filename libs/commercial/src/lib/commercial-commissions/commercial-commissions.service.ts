@@ -1092,6 +1092,29 @@ export class CommercialCommissionsService {
           'Tú calculaste esta corrida: la aprueba otra persona. Calcula Comercial, aprueba '
           + 'Dirección, paga Finanzas.');
       }
+      // ⛔⛔ `[RD.C1.3]` **Una corrida sin NETO MEDIDO no se firma.**
+      //
+      // El candado va sobre las LINEAS, no sobre `total_neto IS NULL`. La diferencia no es
+      // estilo: la corrida del 8->21-oct publica `total_neto = 51,522.93` --identico al bruto--
+      // con sus 11 lineas de supervisor en `sin_configurar` y la compuerta guardada en verde
+      // (`[RD.C1.3b]`). Mirando el total, esa corrida se aprueba; mirando la linea, no. Es la
+      // misma leccion de `[RD.91]`: el total es un derivado, la linea es el hecho.
+      //
+      // ⚠️ `tope_piso` NO bloquea: ahi la deduccion SI se midio y lo que no cupo esta declarado.
+      if (status === 'aprobado') {
+        const sinMedir: { nombre: string | null }[] = await trx('commercial.commission_run_lines')
+          .where({ run_id: runId }).whereNull('deleted_at')
+          .where('deduccion_status', 'sin_configurar')
+          .distinct({ nombre: 'beneficiario_nombre' });
+        if (sinMedir.length) {
+          const quienes = sinMedir.map((x) => x.nombre).filter(Boolean) as string[];
+          throw new ConflictException(
+            `No se puede aprobar: el neto no está medido. Falta la deducción de `
+            + `${sinMedir.length} persona(s)`
+            + `${quienes.length ? `: ${quienes.join(' · ')}` : ''}. `
+            + 'Cárgala en «Quién cobra» y vuelve a calcular la corrida.');
+        }
+      }
       if (status === 'anulado' && run.status === 'aprobado' && !opts.puedeDesaprobar) {
         throw new ForbiddenException(
           'La corrida ya está aprobada: anularla deshace la aprobación y eso lo hace quien aprueba '
