@@ -1,4 +1,4 @@
-import { dialDeD3Cierra, escrituraDeComisionesEncendida, ESTADOS_RETOMABLES, fechaDelDial, motivoDeNoReclamar, TIPO_INTERRUPTOR_COMISIONES, type DialDeCuenta } from './comisiones-kepler.escritor.service';
+import { dialDeD3Cierra, diasARetomar, escrituraDeComisionesEncendida, ESTADOS_RETOMABLES, fechaDelDial, motivoDeNoReclamar, TIPO_INTERRUPTOR_COMISIONES, type DialDeCuenta } from './comisiones-kepler.escritor.service';
 
 /**
  * `[CB.62.4]` Los diales del escritor. El que importa es **D3**: el cambio de manos va cuenta por cuenta
@@ -124,5 +124,56 @@ describe('[CB.62.4] el reclamo del día', () => {
 
   it('un estado que no conocemos se dice tal cual, no se disfraza', () => {
     expect(motivoDeNoReclamar('loquesea')).toContain('loquesea');
+  });
+});
+
+/**
+ * `[CB.62.4]` **Terminar lo que la Suite dejó a medias.** Quinto hallazgo del canario del 2026-11-26.
+ *
+ * El gasto 0000116 de la 05 se escribió y el pago reventó por el `c11`. Al reintentar, el día ya NO
+ * era `lista` —el armador lo ve capturado, y es verdad— así que dejó de ser candidato y nadie iba a
+ * escribir sus pagos nunca: la CxP quedaba abierta esperando a una persona.
+ */
+const diaParcial = (over: Record<string, unknown> = {}): never => ({
+  sucursal: '05', dia_venta: '2026-11-15', acreedor: 'GB004', banco: 'BBVA', estado: 'parcial',
+  motivos: [], total: 21.3, iva: 2.94, plan: null, plantilla: {},
+  cargos: [
+    { id: 'c1', cuenta: '4885', concepto: '', fecha: '2026-11-17', importe: 18.36, tipo: 'comision', kepler_pago: null, kepler_sucursal: null, kepler_gasto: 'gasto 0000116', kepler_ajuste_centavos: null },
+    { id: 'c2', cuenta: '4885', concepto: '', fecha: '2026-11-17', importe: 2.94, tipo: 'iva', kepler_pago: null, kepler_sucursal: null, kepler_gasto: null, kepler_ajuste_centavos: null },
+  ],
+  ...over,
+} as never);
+const enBitacora = (over: Record<string, unknown> = {}): never =>
+  ({ sucursal: '05', dia_venta: '2026-11-15', acreedor: 'GB004', gasto_folio: '0000116', pagos: [], ...over } as never);
+
+describe('[CB.62.4] terminar lo que la Suite dejó a medias', () => {
+  it('⭐ un día cuyo gasto escribimos NOSOTROS se retoma, aunque ya no sea «lista»', () => {
+    const r = diasARetomar([diaParcial()], [enBitacora()]);
+    expect(r).toHaveLength(1);
+    expect(r[0].yaPagados.size).toBe(0);
+  });
+
+  it('⛔ si el gasto del día es OTRO, no se toca: sería escribir encima de Finanzas', () => {
+    const ajeno = diaParcial({ cargos: [{ id: 'c1', cuenta: '4885', fecha: '2026-11-17', importe: 18.36, tipo: 'comision', kepler_pago: null, kepler_gasto: 'gasto 0000999', kepler_ajuste_centavos: null, concepto: '', kepler_sucursal: null }] });
+    expect(diasARetomar([ajeno], [enBitacora()])).toHaveLength(0);
+  });
+
+  it('⛔ sin gasto escrito no hay nada a medias: vuelve por la vía normal', () => {
+    expect(diasARetomar([diaParcial()], [enBitacora({ gasto_folio: null })])).toHaveLength(0);
+  });
+
+  it('un día que YA volvió a «lista» no se retoma: entra como candidato normal', () => {
+    expect(diasARetomar([diaParcial({ estado: 'lista' })], [enBitacora()])).toHaveLength(0);
+  });
+
+  it('los pagos ya escritos se conservan y no se repiten', () => {
+    const r = diasARetomar([diaParcial()], [enBitacora({ pagos: [{ cargo: 'c1', folio: '0000500' }] })]);
+    expect(r).toHaveLength(1);
+    expect(r[0].yaPagados.get('c1')).toBe('0000500');
+  });
+
+  it('⛔ si TODOS los cargos ya tienen su pago, no queda nada que terminar', () => {
+    const r = diasARetomar([diaParcial()], [enBitacora({ pagos: [{ cargo: 'c1', folio: '1' }, { cargo: 'c2', folio: '2' }] })]);
+    expect(r).toHaveLength(0);
   });
 });
