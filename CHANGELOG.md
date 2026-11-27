@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Compras › Entradas pendientes: el botón «Ligar con motivo» salía vacío (RE.88 · 2026-11-27 · **en producción**)
+- El botón no tenía texto: se veía un recuadro con el ícono de la liga y nada más. Entró el 26 de noviembre con RE.88 y nadie lo vio, porque la única forma de notarlo es abrir esa pantalla con una entrada duplicada del mismo proveedor.
+- De paso destraba a todo el equipo: la compuerta que lo caza ponía «Lint & test» en rojo en **9 de los 10 PRs abiertos** —hasta en uno que sólo cambia dos archivos de documentación— por un defecto que no era de ellos.
+- Internal: la *directiva* `pButton` con `label=` no existe en PrimeNG 22 (falla muda: sin error, sin warning, build verde). Convertido a `<p-button>`, la convención del repo. `check:primeng-api` pasa de 20 a 19, su techo.
+
 ### Changed — Compras › Revisión de facturas: la conciliación reconoce al proveedor por el RFC de su factura y aprende de más facturas (PQ.150.2 · 2026-11-27 · en código, sin soltar)
 - Lo que la historia enseña del catálogo de cada proveedor ahora sale de la liga factura ↔ aplicación de PQ.150, sólo con el total igual: de 1,547 a 2,539 equivalencias y de 61 a 133 proveedores, con el mismo acierto (99.7 %, contra 0 % del placebo).
 - La conciliación por renglón busca lo aprendido con el RFC de la factura ligada además del de Kepler: 42 % de las entradas llegan sin RFC y para ellas no se buscaba nada. Renglones de factura con propuesta en 30 días: 39.4 % → 57.1 %.
