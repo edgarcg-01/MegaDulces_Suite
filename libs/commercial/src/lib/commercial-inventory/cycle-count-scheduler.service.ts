@@ -119,6 +119,14 @@ export class CycleCountSchedulerService {
               warehouse_id: wh.id,
               product_ids: productIds,
               max_items: maxItems,
+              // ⚠️ `[ICR.M7]` El umbral ahora es obligatorio al abrir, y acá **no hay nadie a
+              // quien preguntarle**. Se deja EXACTAMENTE el comportamiento que este camino ya
+              // tenía —0, la red apagada— pero ahora dicho en voz alta y con el `ack`, en vez
+              // de llegar por omisión. ⛔ Es **deuda con nombre**: el número de tolerancia del
+              // cíclico automático es del negocio y nadie lo firmó todavía. Sin el `ack` el
+              // scheduler se caería entero, que sería cambiar su alcance sin medirlo.
+              recount_threshold_pct: 0,
+              recount_threshold_ack: true,
               notes: 'Auto-cíclico (scheduler)',
             });
             foliosCreated++;

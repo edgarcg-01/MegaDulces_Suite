@@ -59,19 +59,30 @@ const SUBMIT = metodo(SERVICIO, 'submitCount');
 describe('[IC.F24] el conteo se guarda en la unidad del teórico', () => {
   it('CONTROL — el instrumento encuentra submitCount y el resolvedor, y no trae medio archivo', () => {
     expect(SUBMIT, 'no se encontró submitCount()').not.toBe('');
-    expect(SUBMIT).toContain('patch.count_1');
-    expect(SUBMIT.length, 'el ancla falló: el bloque es sospechosamente grande').toBeLessThan(20000);
+    expect(SUBMIT).toContain('patch.count_1_unit');
+    // `[ICR.M3]` El bloque creció al volverse la captura la unidad del conteo (la bitácora, el
+    // rack y la recomposición viven acá). El tope sigue siendo un ancla: si duplica esto, el
+    // `metodo()` se está trayendo medio archivo y las afirmaciones de abajo valdrían por azar.
+    expect(SUBMIT.length, 'el ancla falló: el bloque es sospechosamente grande').toBeLessThan(30000);
     expect(SERVICIO).toContain('async unidadesDeConteo(');
     expect(COLA, 'no se leyó la cola offline').toContain('queueScan');
   });
 
-  it('⛔ NINGÚN slot guarda la cantidad CRUDA: los tres guardan la normalizada', () => {
+  it('⛔ NINGÚN slot guarda la cantidad CRUDA: la que se escribe es la normalizada', () => {
     for (const slot of [1, 2, 3]) {
       expect(SUBMIT, `count_${slot} guarda dto.quantity sin normalizar`).not.toContain(
         `patch.count_${slot} = dto.quantity`,
       );
-      expect(SUBMIT).toContain(`patch.count_${slot} = cantidad;`);
     }
+    // `[ICR.M3]` El número del renglón ya no se teclea: es la SUMA de las capturas vivas de la
+    // vuelta, y cada captura guarda la cantidad YA normalizada (`quantity_native: cantidad`).
+    // Lo que protege esta prueba es lo mismo de siempre —que nadie escriba la cruda— sólo que
+    // ahora el lugar donde entra al sistema es la bitácora.
+    expect(SUBMIT).toContain('quantity_native: cantidad,');
+    expect(SUBMIT, 'la captura guarda la cruda como si fuera nativa').not.toContain(
+      'quantity_native: dto.quantity',
+    );
+    expect(SUBMIT).toContain('patch[slot] = this.sumaDeCapturas(vivasDespues);');
     expect(SUBMIT).toContain('dto.quantity * factorUsado');
   });
 
@@ -107,9 +118,12 @@ describe('[IC.F24] el conteo se guarda en la unidad del teórico', () => {
     expect(COLA).toContain('unit: s.unit ?? undefined');
   });
 
-  it('PRUEBA NEGATIVA — si alguien devuelve la cantidad cruda al slot, el candado se pone ROJO', () => {
-    const mutante = SUBMIT.split('patch.count_1 = cantidad;').join('patch.count_1 = dto.quantity;');
+  it('PRUEBA NEGATIVA — si alguien devuelve la cantidad cruda, el candado se pone ROJO', () => {
+    const mutante = SUBMIT.split('quantity_native: cantidad,').join(
+      'quantity_native: dto.quantity,',
+    );
     expect(mutante, 'la mutación no aplicó: el candado no probaría nada').not.toBe(SUBMIT);
-    expect(mutante).toContain('patch.count_1 = dto.quantity');
+    expect(mutante).toContain('quantity_native: dto.quantity');
+    expect(mutante).not.toContain('quantity_native: cantidad,');
   });
 });

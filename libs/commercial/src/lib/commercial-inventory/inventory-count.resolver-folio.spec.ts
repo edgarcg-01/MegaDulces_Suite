@@ -46,7 +46,13 @@ const FUENTE = readFileSync(
 );
 
 /**
- * El bloque de `registerCount` que resuelve el código cuando no viene `product_id`.
+ * ⚠️ **`[ICR.M10]` movió este bloque de sitio, no de garantía.** La resolución por niveles salió
+ * de `submitCount` y vive en `resolverProductoPorCodigo`, donde además se agregó un segundo
+ * intento con el código **normalizado** (un UPC-A que el escáner emite como EAN-13 llega con un
+ * cero adelante). El orden que este candado protege es el mismo y ahora es explícito: los
+ * niveles del **folio** se empujan antes que los del **catálogo**.
+ *
+ * El cuerpo del método que arma esos niveles.
  *
  * ⚠️ **Sin `expect()` acá dentro, a propósito.** Esta función se evalúa en el cuerpo del
  * `describe`, o sea **fuera de todo test**, y ahí `expect` no tiene contexto: bajo el runner del
@@ -55,6 +61,15 @@ const FUENTE = readFileSync(
  * y es el CONTROL el que lo declara en rojo, dentro de un test.
  */
 function bloqueDeResolucion(src: string): string {
+  const desde = src.indexOf('private async resolverProductoPorCodigo(');
+  if (desde < 0) return '';
+  const hasta = src.indexOf('\n  /** Push de monitoreo', desde);
+  if (hasta <= desde) return '';
+  return src.slice(desde, hasta);
+}
+
+/** La rama de `submitCount` que llama al resolvedor: acá vive el 404 del sobrante. */
+function bloqueDeSubmit(src: string): string {
   const desde = src.indexOf('if (!productId && dto.barcode)');
   if (desde < 0) return '';
   const hasta = src.indexOf('if (!UUID.test(productId!))', desde);
@@ -64,12 +79,14 @@ function bloqueDeResolucion(src: string): string {
 
 describe('[IC.F1] el escaneo resuelve contra los artículos del folio', () => {
   const bloque = bloqueDeResolucion(FUENTE);
+  const submit = bloqueDeSubmit(FUENTE);
 
   it('CONTROL — el bloque existe y no viene vacío', () => {
     // Si este control falla, los demás no significan nada: estarían midiendo un string vacío.
-    expect(bloque, 'no se encontró la rama que resuelve el barcode en registerCount').not.toBe('');
+    expect(bloque, 'no se encontró resolverProductoPorCodigo()').not.toBe('');
     expect(bloque.length).toBeGreaterThan(200);
-    expect(bloque).toContain('dto.barcode');
+    expect(submit, 'no se encontró la rama que resuelve el barcode en submitCount').not.toBe('');
+    expect(submit).toContain('dto.barcode');
   });
 
   it('busca primero en inventory_count_items del folio', () => {
@@ -84,32 +101,35 @@ describe('[IC.F1] el escaneo resuelve contra los artículos del folio', () => {
   });
 
   it('⛔ el folio se consulta ANTES que el catálogo global', () => {
-    const posFolio = bloque.indexOf('commercial.inventory_count_items');
-    const posCatalogo = bloque.indexOf("trx('public.products')");
-    expect(posFolio, 'falta la consulta al folio').toBeGreaterThan(-1);
+    const posFolio = bloque.indexOf("'folio-exacto'");
+    const posCatalogo = bloque.indexOf("'catalogo-exacto'");
+    expect(posFolio, 'falta el nivel del folio').toBeGreaterThan(-1);
     expect(posCatalogo, 'falta el fallback al catálogo').toBeGreaterThan(-1);
     // ⭐ Éste es el corazón del candado: invertir el orden reintroduce el defecto.
     expect(posFolio).toBeLessThan(posCatalogo);
   });
 
+  it('⭐ `[ICR.M10]` y dentro de cada nivel, la EXACTA va antes que la normalizada', () => {
+    expect(bloque.indexOf("'folio-exacto'")).toBeLessThan(bloque.indexOf("'folio-normalizado'"));
+    expect(bloque.indexOf("'catalogo-exacto'")).toBeLessThan(
+      bloque.indexOf("'catalogo-normalizado'"),
+    );
+  });
+
   it('conserva el fallback: un sobrante legítimo se sigue dando de alta', () => {
-    // Quitar el `else` convertiría todo código ausente del folio en un 404, y un producto que
-    // de verdad no estaba en el snapshot ES un sobrante válido que el conteo debe registrar.
-    expect(bloque).toContain("trx('public.products')");
-    expect(bloque).toContain('Sin producto para el código');
+    // Quitar los niveles del catálogo convertiría todo código ausente del folio en un 404, y un
+    // producto que de verdad no estaba en el snapshot ES un sobrante válido que debe registrarse.
+    expect(bloque).toContain("trx('public.products as p')");
+    expect(submit).toContain('Sin producto para el código');
   });
 
   it('PRUEBA NEGATIVA — con el orden invertido, el candado se pone ROJO', () => {
     // Se reconstruye el defecto: el catálogo global primero, el folio después.
-    const mutante = bloque
-      .replace(/const delFolio = await trx\('commercial\.inventory_count_items as i'\)/,
-               "const delFolio = await trx('public.products')");
+    const mutante = bloque.split("'folio-exacto'").join("'zzz-despues-del-catalogo'");
     expect(mutante, 'la mutación no aplicó: el candado no estaría probando nada').not.toBe(bloque);
 
-    const posFolio = mutante.indexOf('commercial.inventory_count_items');
-    const posCatalogo = mutante.indexOf("trx('public.products')");
-    // Con la mutación ya no queda consulta al folio → el candado de orden falla, que es lo
-    // que tiene que pasar.
+    const posFolio = mutante.indexOf("'folio-exacto'");
+    const posCatalogo = mutante.indexOf("'catalogo-exacto'");
     const sigueProtegido = posFolio > -1 && posFolio < posCatalogo;
     expect(sigueProtegido).toBe(false);
   });

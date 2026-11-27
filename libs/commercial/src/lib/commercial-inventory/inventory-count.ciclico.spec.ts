@@ -23,6 +23,13 @@ import { InventoryCountService } from './inventory-count.service';
 /** Marca que sólo puede aparecer si la ejecución LLEGÓ a `tk.run`, o sea si el freno dejó pasar. */
 const PASO_EL_FRENO = Symbol('paso-el-freno');
 
+/**
+ * `[ICR.M7]` Desde hoy abrir un folio **exige decidir el umbral de tolerancia**, así que todos
+ * los casos de este archivo —que son sobre OTRA cosa— lo mandan explícito. El freno propio del
+ * umbral se prueba en `inventory-count.umbral-decidido.spec.ts`.
+ */
+const UMBRAL = { recount_threshold_pct: 2 } as const;
+
 const WH = '11111111-2222-3333-4444-555555555555';
 const SKU_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 const SKU_B = 'aaaaaaaa-0000-0000-0000-000000000002';
@@ -46,7 +53,7 @@ describe('conteo cíclico · el subconjunto no es opcional', () => {
    */
   it('el doble se ejerce de verdad: un folio TOTAL llega hasta tk.run', async () => {
     const { svc, llamadasATkRun } = servicio();
-    await expect(svc.openCount({ warehouse_id: WH, type: 'full' })).resolves.toBe(PASO_EL_FRENO);
+    await expect(svc.openCount({ warehouse_id: WH, type: 'full', ...UMBRAL })).resolves.toBe(PASO_EL_FRENO);
     expect(llamadasATkRun).toHaveLength(1);
   });
 
@@ -82,7 +89,7 @@ describe('conteo cíclico · el subconjunto no es opcional', () => {
   it('cíclico CON product_ids pasa: es el camino de openCycleCount y del scheduler', async () => {
     const { svc, llamadasATkRun } = servicio();
     await expect(
-      svc.openCount({ warehouse_id: WH, type: 'cycle', product_ids: [SKU_A, SKU_B] }),
+      svc.openCount({ warehouse_id: WH, type: 'cycle', product_ids: [SKU_A, SKU_B], ...UMBRAL }),
     ).resolves.toBe(PASO_EL_FRENO);
     expect(llamadasATkRun).toHaveLength(1);
   });
@@ -90,15 +97,15 @@ describe('conteo cíclico · el subconjunto no es opcional', () => {
   it('openCycleCount con lista explícita sigue atravesando el freno', async () => {
     const { svc, llamadasATkRun } = servicio();
     await expect(
-      svc.openCycleCount({ warehouse_id: WH, product_ids: [SKU_A] }),
+      svc.openCycleCount({ warehouse_id: WH, product_ids: [SKU_A], ...UMBRAL }),
     ).resolves.toBe(PASO_EL_FRENO);
     expect(llamadasATkRun).toHaveLength(1);
   });
 
   it('un folio TOTAL no necesita subconjunto (el freno es sólo para cycle)', async () => {
     const { svc } = servicio();
-    await expect(svc.openCount({ warehouse_id: WH })).resolves.toBe(PASO_EL_FRENO);
-    await expect(svc.openCount({ warehouse_id: WH, type: 'full' })).resolves.toBe(PASO_EL_FRENO);
+    await expect(svc.openCount({ warehouse_id: WH, ...UMBRAL })).resolves.toBe(PASO_EL_FRENO);
+    await expect(svc.openCount({ warehouse_id: WH, type: 'full', ...UMBRAL })).resolves.toBe(PASO_EL_FRENO);
   });
 
   it('el warehouse_id inválido sigue decidiéndose primero', async () => {
@@ -122,10 +129,10 @@ describe('conteo cíclico · el default de congelar', () => {
     const original = svc.openCount.bind(svc);
     svc.openCount = async (dto: any) => { recibidos.push(dto); return original(dto); };
 
-    await svc.openCycleCount({ warehouse_id: WH, product_ids: [SKU_A] });
+    await svc.openCycleCount({ warehouse_id: WH, product_ids: [SKU_A], ...UMBRAL });
     expect(recibidos[0].freeze_movements).toBe(false);
 
-    await svc.openCycleCount({ warehouse_id: WH, product_ids: [SKU_A], freeze_movements: true });
+    await svc.openCycleCount({ warehouse_id: WH, product_ids: [SKU_A], freeze_movements: true, ...UMBRAL });
     expect(recibidos[1].freeze_movements).toBe(true);
   });
 
@@ -135,7 +142,7 @@ describe('conteo cíclico · el default de congelar', () => {
     const original = svc.openCount.bind(svc);
     svc.openCount = async (dto: any) => { recibidos.push(dto); return original(dto); };
 
-    await svc.openCycleCount({ warehouse_id: WH, product_ids: [SKU_A] });
+    await svc.openCycleCount({ warehouse_id: WH, product_ids: [SKU_A], ...UMBRAL });
     expect(recibidos[0].type).toBe('cycle');
     expect(recibidos[0].product_ids).toEqual([SKU_A]);
   });

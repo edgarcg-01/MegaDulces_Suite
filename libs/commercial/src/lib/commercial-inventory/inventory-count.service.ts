@@ -6,6 +6,7 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 import { InventoryMonitorGateway } from './inventory-monitor.gateway';
 
@@ -70,6 +71,34 @@ export interface InventoryCountItemRow {
 interface TrxConRaw {
   raw(sql: string, bindings?: unknown[]): Promise<{ rows?: { codigos: string | null }[] }>;
 }
+
+/**
+ * `[ICR.M10]` Lo mínimo que `resolverProductoPorCodigo` le pide a la transacción, tipado
+ * estructuralmente en vez de `any` para que el compilador vea la forma de lo que devuelve
+ * (igual que `TrxConRaw`, y por el mismo motivo: ADR-052 / el boundary gate).
+ */
+export interface FilaDeProducto {
+  id: string;
+  sku: string | null;
+  nombre: string | null;
+  barcode: string | null;
+}
+
+/** El sub-builder que arma el `WHERE` de un nivel de resolución. */
+export interface FiltroDeCodigoBuilder {
+  where(columna: string, valor: unknown): FiltroDeCodigoBuilder;
+  orWhere(columna: string, valor: unknown): FiltroDeCodigoBuilder;
+  whereRaw(sql: string, bindings: unknown[]): FiltroDeCodigoBuilder;
+}
+export type FiltroDeCodigo = (qb: FiltroDeCodigoBuilder) => unknown;
+
+interface ConsultaDeProductos {
+  join(tabla: string, a: string, b: string): ConsultaDeProductos;
+  where(columnaOFiltro: string | FiltroDeCodigo, valor?: unknown): ConsultaDeProductos;
+  andWhere(filtro: FiltroDeCodigo): ConsultaDeProductos;
+  distinct(...columnas: string[]): Promise<FilaDeProducto[]>;
+}
+export type TrxConsultable = (tabla: string) => ConsultaDeProductos;
 
 /**
  * ⛔⛔ `[IC.UB1]` **La ubicación que se publica sale del catálogo de `/almacen/ubicaciones`,
@@ -156,8 +185,16 @@ export interface OpenCountDto {
   ritmo?: RitmoConteo;
   freeze_movements?: boolean;
   blind_double_count?: boolean;
-  /** Umbral % de varianza que fuerza recuento (count-back). 0 = off. */
+  /**
+   * ⛔ `[ICR.M7]` Umbral % de varianza que fuerza recuento (count-back). **OBLIGATORIO**: sin
+   * él no se abre folio. `0` = red apagada, y entonces hace falta `recount_threshold_ack`.
+   */
   recount_threshold_pct?: number;
+  /**
+   * `[ICR.M7]` «Sí, quiero abrirlo con la red apagada y sé qué apaga.» Sólo se mira cuando el
+   * umbral es 0; es lo que distingue un cero **decidido** del cero por omisión de un formulario.
+   */
+  recount_threshold_ack?: boolean;
   notes?: string;
   /** ABC.2 — si se pasa, el folio cuenta SOLO estos productos (folio cíclico acotado). */
   product_ids?: string[];
@@ -175,7 +212,10 @@ export interface OpenCycleCountDto {
   max_items?: number;
   freeze_movements?: boolean;
   blind_double_count?: boolean;
+  /** ⛔ `[ICR.M7]` Obligatorio, igual que en `openCount`: el folio cíclico tampoco nace sin red. */
   recount_threshold_pct?: number;
+  /** `[ICR.M7]` Ver `OpenCountDto.recount_threshold_ack`. */
+  recount_threshold_ack?: boolean;
   notes?: string;
 }
 
@@ -197,6 +237,33 @@ export interface SubmitCountDto {
    * del teórico. Si viene otra, la cantidad se normaliza con su factor antes de guardarse.
    */
   unit?: string;
+  /**
+   * ⭐ `[ICR.M3]` **El rack DONDE SE ESTÁ PARADO**, no donde el catálogo dice que va el
+   * producto. Es la tercera pata de la identidad de la captura `(renglón, rack, persona,
+   * vuelta)`: el mismo producto en dos racks **suma** en vez de perderse (F35).
+   *
+   * Opcional a propósito: hoy casi ningún almacén tiene pasillos dados de alta (Yurécuaro
+   * tiene **0**), y sin rack todas las capturas caen en el montón «sin rack», que es un rack
+   * más. Si no viene y la persona está acotada a UN pasillo, se usa ése.
+   */
+  aisle_id?: string;
+}
+
+/**
+ * `[ICR.M3]` Una captura de la bitácora, tal como se lee para recomponer `count_N`.
+ *
+ * Su **identidad** es `(item_id, slot, aisle_id, applied_by)`. De cada identidad vive **la más
+ * reciente**: por eso una recaptura de la misma persona en el mismo rack **corrige** y una
+ * captura en otro rack (o de otra persona) **suma**.
+ */
+export interface CapturaDeConteo {
+  scan_uuid: string;
+  item_id: string;
+  slot: string;
+  aisle_id: string | null;
+  applied_by: string | null;
+  applied_at: string | Date;
+  quantity_native: string | number;
 }
 
 /** `[IC.F24]` Una unidad en que se puede contar un producto, con su factor contra la nativa. */
@@ -255,15 +322,163 @@ export class InventoryCountService {
   private async resolveInvByCode(trx: any, code: string): Promise<any | null> {
     const c = String(code || '').trim();
     if (!c) return null;
-    const cands = await trx('inventory.products')
+    let cands = await trx('inventory.products')
       .where((b: any) => b.where('codigo_barras', c).orWhere('sku', c))
       .distinct('sku', 'nombre', 'codigo_barras', 'unidad_venta', 'categoria');
+    // `[ICR.M10]` Segundo intento, SÓLO si el exacto no encontró nada: el escáner en modo
+    // EAN-13 agrega un cero adelante al UPC-A y la comparación de cadena falla. El SKU no
+    // entra acá a propósito (ver `normalizarCodigoDeBarras`).
+    const norm = InventoryCountService.normalizarCodigoDeBarras(c);
+    if (!cands.length && norm) {
+      cands = await trx('inventory.products')
+        .whereRaw(
+          `codigo_barras ~ '^[0-9]{8,14}$' AND COALESCE(NULLIF(ltrim(codigo_barras, '0'), ''), '0') = ?`,
+          [norm],
+        )
+        .distinct('sku', 'nombre', 'codigo_barras', 'unidad_venta', 'categoria');
+    }
     if (!cands.length) return null;
     const bySku = Array.from(new Map(cands.map((r: any) => [String(r.sku), r])).values());
     if (bySku.length === 1) return bySku[0];
     const exact = bySku.filter((r: any) => String(r.sku) === c);
     if (exact.length === 1) return exact[0];
     throw new ConflictException(`Código '${c}' ambiguo: coincide con ${bySku.length} productos. Escanea el código de barras específico.`);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // `[ICR.M10]` El código que el escáner EMITE no es, carácter por carácter, el que está guardado
+  // ─────────────────────────────────────────────────────────────────────────
+  /**
+   * ⛔⛔ **Un escáner en modo EAN-13 le pone un cero adelante a un UPC-A de 12 dígitos**, y la
+   * comparación exacta de cadena deja de machear: la pantalla dice «producto no encontrado»
+   * para un producto que sí está en el folio. Al revés también pasa.
+   *
+   * ── Lo medido (pg-prod, sólo lectura, 2026-11-27; universo = los 2,024 artículos con
+   *    existencia de Yurécuaro, `system_identifier` 7688376744939610156) ─────────────────────
+   *
+   *  · 2,313 códigos distintos: **1,468 de 13 dígitos** (EAN-13) y **786 de 12** (UPC-A), 36 de
+   *    8 y 20 de 14. Todos numéricos. O sea que **el 39 % del folio es UPC-A** y queda expuesto.
+   *  · **117 de los de 12 dígitos ya empiezan con cero**, y **21 códigos existen en las dos
+   *    formas a la vez** (el de 12 y el mismo con un cero adelante): no es un riesgo teórico,
+   *    está en los datos.
+   *
+   * ── El control negativo, que es lo que vuelve barato el arreglo ───────────────────────────
+   *
+   * Normalizar quitando ceros a la izquierda **crea ambigüedad nueva**, y hay que saber cuánta:
+   * en `public.products`, los códigos que apuntan a más de un producto pasan de **713 a 718**
+   * globales (+5) y de **8 a 10** dentro del universo de Yurécuaro (+2). Es barato —y por eso
+   * la normalización se acota a `^[0-9]{8,14}$`: sin ese recorte el salto global era de +12,
+   * porque arrastraba los 336 códigos internos de 5 dígitos, donde un cero adelante no
+   * significa nada.
+   *
+   * ⛔ **El SKU NO se normaliza**, sólo el código de barras. El cero de más lo pone el escáner
+   * leyendo un EAN/UPC; un SKU como `00182` lo teclea una persona y quitarle los ceros lo
+   * confundiría con el `182` de otro producto.
+   *
+   * Devuelve `null` cuando el código no tiene forma de EAN/UPC: ahí no hay nada que normalizar.
+   */
+  private static normalizarCodigoDeBarras(code: string): string | null {
+    const c = String(code ?? '').trim();
+    if (!/^[0-9]{8,14}$/.test(c)) return null;
+    return c.replace(/^0+/, '') || '0';
+  }
+
+  /**
+   * ⛔ `[ICR.M10]` Un código que apunta a más de un producto **no se resuelve solo**.
+   *
+   * Tomar la primera fila elige un producto al azar y el conteo sale mal **sin que nadie lo
+   * note**: la mercancía contada entra en el renglón equivocado y el verdadero sale como
+   * faltante. Se devuelve 409 con los candidatos para que la pantalla pregunte, y quien
+   * contesta reenvía con `product_id`.
+   */
+  private codigoAmbiguo(code: string, filas: FilaDeProducto[]): never {
+    throw new ConflictException({
+      statusCode: 409,
+      error: 'Conflict',
+      /** Llave estable para que la pantalla lo distinga de los demás 409. */
+      code: 'CODIGO_AMBIGUO',
+      message:
+        `El código '${code}' coincide con ${filas.length} productos distintos. `
+        + 'Elegí cuál contaste y reenvía con product_id.',
+      barcode: code,
+      candidates: filas.map((p) => ({
+        product_id: p.id,
+        sku: p.sku,
+        product_name: p.nombre,
+        barcode: p.barcode,
+      })),
+    });
+  }
+
+  /**
+   * `[ICR.M10]` Resuelve un código escaneado a **UN** `product_id`, por niveles.
+   *
+   * El orden importa y es el que ya tenía `[IC.F1]`: **primero el folio, después el catálogo**
+   * —el catálogo tiene el mismo producto más de una vez y buscar ahí primero devolvía la fila
+   * duplicada, creando un renglón nuevo con teórico 0 que impedía cerrar el folio para
+   * siempre—. Lo que se agrega es un segundo intento **normalizado** dentro de cada nivel:
+   *
+   *   1. folio · exacto (barcode o sku) · 2. folio · barcode normalizado
+   *   3. catálogo · exacto · 4. catálogo · barcode normalizado
+   *
+   * ⭐ **Exacta antes que normalizada, siempre**: si el código tal cual existe, ése gana, y la
+   * normalización nunca puede desviar un escaneo que hoy funciona.
+   *
+   * `conSkuGlobal` separa a los dos llamadores: `submitCount` nunca buscó por SKU fuera del
+   * folio (un SKU suelto que casa con otro producto sería un sobrante falso) y `resolveProduct`
+   * sí. Se mantiene cada uno como estaba.
+   */
+  private async resolverProductoPorCodigo(
+    trx: TrxConsultable,
+    countId: string | null,
+    code: string,
+    conSkuGlobal = false,
+  ): Promise<{ product_id: string; fuente: string } | null> {
+    const c = String(code ?? '').trim();
+    if (!c) return null;
+    const norm = InventoryCountService.normalizarCodigoDeBarras(c);
+    // `NULLIF(...,'0')` cubre el borde: un código de puros ceros deja la cadena vacía al
+    // quitarlos, y '' no es lo mismo que '0'.
+    const SQL_NORM = `p.barcode ~ '^[0-9]{8,14}$' AND COALESCE(NULLIF(ltrim(p.barcode, '0'), ''), '0') = ?`;
+
+    const enElFolio = (donde: FiltroDeCodigo) =>
+      trx('commercial.inventory_count_items as i')
+        .join('public.products as p', 'p.id', 'i.product_id')
+        .where('i.count_id', countId)
+        .andWhere(donde)
+        .distinct('p.id', 'p.sku', 'p.nombre', 'p.barcode');
+    const enElCatalogo = (donde: FiltroDeCodigo) =>
+      trx('public.products as p').where(donde).distinct('p.id', 'p.sku', 'p.nombre', 'p.barcode');
+
+    const niveles: [string, () => Promise<FilaDeProducto[]>][] = [];
+    if (countId) {
+      niveles.push([
+        'folio-exacto',
+        () => enElFolio((qb) => qb.where('p.barcode', c).orWhere('p.sku', c)),
+      ]);
+      if (norm)
+        niveles.push(['folio-normalizado', () => enElFolio((qb) => qb.whereRaw(SQL_NORM, [norm]))]);
+    }
+    niveles.push([
+      'catalogo-exacto',
+      () =>
+        enElCatalogo((qb) =>
+          conSkuGlobal ? qb.where('p.barcode', c).orWhere('p.sku', c) : qb.where('p.barcode', c),
+        ),
+    ]);
+    if (norm)
+      niveles.push([
+        'catalogo-normalizado',
+        () => enElCatalogo((qb) => qb.whereRaw(SQL_NORM, [norm])),
+      ]);
+
+    for (const [fuente, consulta] of niveles) {
+      const filas = await consulta();
+      const unicos = Array.from(new Map(filas.map((p) => [String(p.id), p])).values());
+      if (unicos.length === 1) return { product_id: unicos[0].id, fuente };
+      if (unicos.length > 1) this.codigoAmbiguo(c, unicos);
+    }
+    return null;
   }
 
   /** Push de monitoreo en vivo al supervisor que mira el folio (best-effort). */
@@ -284,13 +499,70 @@ export class InventoryCountService {
   // ─────────────────────────────────────────────────────────────────────────
   // Apertura: snapshot del teórico + folio. (SUPERVISAR)
   // ─────────────────────────────────────────────────────────────────────────
+  /**
+   * ⛔⛔ `[ICR.M7]` **El umbral de recuento se DECIDE al abrir el folio. No nace en cero por
+   * omisión.**
+   *
+   * ── El defecto, medido (prod, 2026-11-27, sólo lectura) ────────────────────────────────
+   *
+   * `recount_threshold_pct` es `notNullable().defaultTo(0)` (migración `20260618190000`) y los
+   * dos guards que lo usan son `if (umbral > 0)`. Resultado: **8 de 8 folios de toda la
+   * historia tienen umbral 0.00** — la red de seguridad nunca estuvo encendida. Con cero:
+   *
+   *   1. no corre el **count-back**: dos conteos que coinciden pero quedan lejísimos del
+   *      teórico se auto-resuelven en vez de ir a revisión (y dos personas que escanearon el
+   *      producto de al lado coinciden perfectamente);
+   *   2. no se exige **motivo**: una diferencia material cierra el folio **sin que nadie
+   *      escriba por qué**, y el ajuste se aplica igual.
+   *
+   * ── Lo que este freno hace, y lo que NO hace ──────────────────────────────────────────
+   *
+   * ⛔ **No inventa un número de tolerancia**: ése es del negocio y lo firma Edgar. Lo único
+   * que exige es que alguien lo **decida**, y que elegir 0 sea una decisión escrita
+   * (`recount_threshold_ack: true`) y no el default de un `signal(0)` en una pantalla.
+   *
+   * ⚠️ Esto **rompe a propósito** a cualquier cliente que abría folios sin mandar el campo:
+   * el 400 nombra lo que se apaga. Es el punto.
+   */
+  private umbralDeRecuento(dto: {
+    recount_threshold_pct?: number;
+    recount_threshold_ack?: boolean;
+  }): number {
+    const QUE_APAGA =
+      'Con umbral 0 se apagan DOS protecciones: (1) el recuento por tolerancia '
+      + '—dos conteos que coinciden pero quedan lejos del teórico se auto-resuelven en vez de ir '
+      + 'a revisión— y (2) la exigencia de motivo: una diferencia material cierra el folio sin '
+      + 'que nadie escriba por qué.';
+    const crudo = dto.recount_threshold_pct;
+    if (crudo === undefined || crudo === null || (crudo as unknown) === '')
+      throw new BadRequestException(
+        `Falta decidir el umbral de tolerancia (recount_threshold_pct, 0-100). ${QUE_APAGA} `
+        + 'Si querés abrirlo igual con la red apagada, mandá recount_threshold_pct: 0 y '
+        + 'recount_threshold_ack: true.',
+      );
+    const n = Number(crudo);
+    if (!Number.isFinite(n) || n < 0 || n > 100)
+      throw new BadRequestException(
+        'recount_threshold_pct debe ser un número entre 0 y 100 (por ciento de varianza contra el teórico).',
+      );
+    if (n === 0 && dto.recount_threshold_ack !== true)
+      throw new BadRequestException(
+        `Umbral 0 = sin red. ${QUE_APAGA} Si es lo que querés, mandá recount_threshold_ack: true.`,
+      );
+    if (n === 0)
+      this.logger.warn(
+        '[ICR.M7] Folio abierto con umbral de tolerancia 0 (declarado): sin count-back y sin '
+        + 'exigencia de motivo para una diferencia material.',
+      );
+    return n;
+  }
+
   async openCount(dto: OpenCountDto) {
     if (!UUID.test(dto.warehouse_id))
       throw new BadRequestException('warehouse_id inválido');
     const type = dto.type || 'full';
     const freeze = dto.freeze_movements !== false; // default true
     const blind = dto.blind_double_count !== false; // default true
-    const recountThreshold = Math.min(100, Math.max(0, Number(dto.recount_threshold_pct) || 0)); // 0 = off
 
     // ── [IC.13] Un folio `cycle` SIN subconjunto es un folio TOTAL con otra etiqueta ──────
     //
@@ -311,6 +583,11 @@ export class InventoryCountService {
         'Un conteo cíclico necesita el subconjunto a contar (clase ABC o product_ids). '
           + 'Usa POST /commercial/inventory/counts/open-cycle. Sin subconjunto el folio sería TOTAL.',
       );
+
+    // `[ICR.M7]` Va DESPUÉS de los frenos estructurales (un folio mal formado se rechaza por lo
+    // que tiene mal, no por el umbral) y ANTES de tocar la base: un folio abierto no se puede
+    // «volver a decidir».
+    const recountThreshold = this.umbralDeRecuento(dto);
 
     return this.tk.run(async (trx) => {
       const uid = this.userId();
@@ -470,7 +747,7 @@ export class InventoryCountService {
           `El almacén no tiene productos con stock para contar${subset ? ' en el subconjunto indicado' : ''}; no se abrió folio.`,
         );
       this.logger.log(
-        `Folio ${folio} abierto para almacén ${wh.code} con ${expectedItems} SKUs snapshot (freeze=${freeze}, blind=${blind}).`,
+        `Folio ${folio} abierto para almacén ${wh.code} con ${expectedItems} SKUs snapshot (freeze=${freeze}, blind=${blind}, umbral=${recountThreshold}%).`,
       );
 
       return {
@@ -482,6 +759,10 @@ export class InventoryCountService {
         type,
         freeze_movements: freeze,
         blind_double_count: blind,
+        /** `[ICR.M7]` Lo que se decidió, de vuelta: un folio no debería «enterarse después». */
+        recount_threshold_pct: recountThreshold,
+        /** `[ICR.M7]` `true` = se abrió a propósito sin count-back y sin exigencia de motivo. */
+        recount_threshold_off: recountThreshold === 0,
         expected_items: expectedItems,
       };
     });
@@ -525,6 +806,7 @@ export class InventoryCountService {
       freeze_movements: dto.freeze_movements ?? false, // cíclico NO congela el almacén por default
       blind_double_count: dto.blind_double_count,
       recount_threshold_pct: dto.recount_threshold_pct,
+      recount_threshold_ack: dto.recount_threshold_ack,
       notes: dto.notes || `Conteo cíclico${dto.abc_class ? ` clase ${String(dto.abc_class).toUpperCase()}` : ''}`,
       product_ids: productIds,
     });
@@ -553,6 +835,64 @@ export class InventoryCountService {
   private varianceBaseline(count: any, item: any): number {
     if (!count.freeze_movements && item.book_at_count != null) return Number(item.book_at_count);
     return Number(item.expected_qty);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // `[ICR.M3]` La CAPTURA es la unidad del conteo
+  // ─────────────────────────────────────────────────────────────────────────
+  /**
+   * La llave de IDENTIDAD de una captura dentro de una vuelta: **el rack y la persona**.
+   *
+   * `null` es un valor con significado en las dos: «sin rack» es el montón que alguien tiene
+   * que cerrar y es un rack más, no la ausencia de uno. Por eso se mapea a una cadena fija y
+   * no se descarta — si dos capturas sin rack de la misma persona cayeran en identidades
+   * distintas, una corrección se volvería una suma y el inventario se duplicaría.
+   */
+  private static llaveDeCaptura(c: { aisle_id: string | null; applied_by: string | null }): string {
+    return `${c.aisle_id ?? '@sin-rack'}|${c.applied_by ?? '@sin-persona'}`;
+  }
+
+  /**
+   * Las capturas **vivas** de una vuelta: una por identidad, **la más reciente**.
+   *
+   * ⚠️ `filas` tiene que venir ordenada ASC por `(applied_at, scan_uuid)`: el `set` posterior
+   * pisa al anterior, así que gana la última. Una captura sin `quantity_native` (las 11 filas
+   * de bitácora anteriores a `[ICR.M3]`) **no entra**: no se sabe cuánto fue, y un NULL no se
+   * rellena con cero.
+   */
+  private capturasVivas(filas: CapturaDeConteo[], slot: string): Map<string, CapturaDeConteo> {
+    const vivas = new Map<string, CapturaDeConteo>();
+    for (const f of filas) {
+      if (f.slot !== slot) continue;
+      if (f.quantity_native == null) continue;
+      vivas.set(InventoryCountService.llaveDeCaptura(f), f);
+    }
+    return vivas;
+  }
+
+  /**
+   * ⭐ `count_N` = la **SUMA** de las capturas vivas de esa vuelta. Sigue viviendo en la unidad
+   * del teórico (cada captura se guarda ya normalizada), así que todo lo que compara contra
+   * `expected_qty` —varianza, cobertura, cierre— no se entera. Lo que cambia es que ya no se
+   * teclea: se **deriva**.
+   */
+  private sumaDeCapturas(vivas: Map<string, CapturaDeConteo>): number {
+    let s = 0;
+    for (const c of vivas.values()) s += Number(c.quantity_native);
+    return +s.toFixed(3);
+  }
+
+  /**
+   * ¿Esta persona participó en esta vuelta de este renglón?
+   *
+   * ⛔ Mira **todas** las filas, no sólo las vivas: para la segregación de funciones lo que
+   * importa es haber sido testigo, y una captura corregida después igual se hizo. Es lo que
+   * impide que alguien sea su propio segundo conteo ahora que `counted_by_N` guarda sólo a
+   * quien capturó **último** y ya no a quien capturó **único**.
+   */
+  private contribuyo(filas: CapturaDeConteo[], slot: string, uid: string | null): boolean {
+    if (!uid) return false;
+    return filas.some((f) => f.slot === slot && f.applied_by === uid);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -658,21 +998,15 @@ export class InventoryCountService {
           // folio es un **sobrante legítimo** y debe seguir dándose de alta. Lo que se
           // corrige es el sobrante FALSO, el que nace de que un producto tenga dos
           // identidades en el catálogo.
-          const delFolio = await trx('commercial.inventory_count_items as i')
-            .join('public.products as p', 'p.id', 'i.product_id')
-            .where('i.count_id', countId)
-            .andWhere((qb) =>
-              qb.where('p.barcode', dto.barcode).orWhere('p.sku', dto.barcode),
-            )
-            .select('i.product_id')
-            .first();
-          if (delFolio) {
-            productId = delFolio.product_id;
-          } else {
-            const prod = await trx('public.products').where({ barcode: dto.barcode }).first();
-            if (!prod) throw new NotFoundException(`Sin producto para el código '${dto.barcode}'`);
-            productId = prod.id;
-          }
+          // ⭐ `[ICR.M10]` Los cuatro niveles (folio exacto → folio normalizado → catálogo
+          // exacto → catálogo normalizado) viven en `resolverProductoPorCodigo`, junto con la
+          // medición que los justifica. Lo que cambia acá respecto de antes: ya no hay un
+          // `.first()` que elija al azar entre varios candidatos —eso contaba la mercancía en
+          // el renglón equivocado y nadie lo notaba— y un UPC-A que el escáner emitió como
+          // EAN-13 (con un cero adelante) ya no sale como «producto no encontrado».
+          const hallado = await this.resolverProductoPorCodigo(trx, countId, dto.barcode);
+          if (!hallado) throw new NotFoundException(`Sin producto para el código '${dto.barcode}'`);
+          productId = hallado.product_id;
         }
         if (!UUID.test(productId!)) throw new BadRequestException('product_id inválido');
       }
@@ -725,6 +1059,53 @@ export class InventoryCountService {
         [item] = await trx('commercial.inventory_count_items').insert(insertRow).returning('*');
       }
 
+      // ── ⭐⭐ `[ICR.M3]` LA CAPTURA ES LA UNIDAD DEL CONTEO ────────────────────────────────
+      //
+      // Hasta acá el renglón guardaba **un número por producto**. Por eso el mismo producto en
+      // dos racks se perdía (**F35**): el segundo que lo encontraba recibía «ya tiene un primer
+      // conteo de otra persona» y esa mercancía salía como faltante. En una distribuidora de
+      // dulces, producto en anaquel **y** en bodega es lo normal.
+      //
+      // La identidad de una captura es **(renglón, rack, persona, vuelta)**:
+      //   · mismo rack, misma persona → **corrige** (gana la más reciente);
+      //   · otro rack, u otra persona → **suma**.
+      //
+      // Las filas vienen ASC por `(applied_at, scan_uuid)` porque `capturasVivas` se apoya en
+      // ese orden para quedarse con la última de cada identidad.
+      const capturas: CapturaDeConteo[] = await trx('commercial.inventory_count_scan_log')
+        .where({ count_id: countId, item_id: item.id })
+        .orderBy('applied_at', 'asc')
+        .orderBy('scan_uuid', 'asc')
+        .select(
+          'scan_uuid',
+          'item_id',
+          'slot',
+          'aisle_id',
+          'applied_by',
+          'applied_at',
+          'quantity_native',
+        );
+
+      // ⛔ El rack de la captura es **donde está parada la persona**, nunca `item.aisle_id`
+      // —que es a dónde el CATÁLOGO dice que va el producto—. Si el mapa está mal, manda el
+      // que está parado ahí (§5.2 del anexo): se cuenta igual y el mapa se corrige después.
+      // Sin rack declarado y sin pasillo único asignado, la captura cae en el montón «sin
+      // rack», que es un rack más y alguien tiene que cerrarlo.
+      let aisleDeLaCaptura: string | null = null;
+      const rackPedido = String(dto.aisle_id ?? '').trim();
+      if (rackPedido) {
+        if (!UUID.test(rackPedido)) throw new BadRequestException('aisle_id inválido');
+        const rack = await trx('commercial.warehouse_aisles')
+          .where({ id: rackPedido, warehouse_id: count.warehouse_id })
+          .first();
+        // Se valida contra el almacén del folio a propósito: un rack inventado crearía una
+        // identidad de captura fantasma, y una corrección se volvería una suma en silencio.
+        if (!rack) throw new NotFoundException('Ese rack no existe en este almacén.');
+        aisleDeLaCaptura = rack.id;
+      } else if (aisleScoped && myAisleSet.size === 1) {
+        aisleDeLaCaptura = Array.from(myAisleSet)[0];
+      }
+
       // Selección de slot. OFF.0: si el escaneo trae capture_pass (cola offline),
       // se coloca según la fase EN QUE SE CAPTURÓ, no la fase actual del folio →
       // un count_1 encolado no se desvía a count_2 si el folio avanzó (preserva el
@@ -759,53 +1140,78 @@ export class InventoryCountService {
       const livePass = Number(count.current_pass) || 1;
       const cp = dto.capture_pass === 1 || dto.capture_pass === 2 ? dto.capture_pass : null;
       const effectivePass = cp ?? livePass;
+      // ⛔⛔ `[ICR.M3]` **«No negarlo, sólo advertirlo»** (Edgar, 2026-11-27), con UNA excepción.
+      //
+      // Se RETIRAN los dos rechazos de «ya lo contó otro» (en `count_1` y en `count_2`): los dos
+      // eran el mismo defecto **F35** por dos puertas, y en la segunda vuelta además fabricaban
+      // una discrepancia por cada producto partido entre anaquel y bodega. Ahora esa captura
+      // **suma** y la respuesta lo **avisa** diciendo DÓNDE —nunca cuánto— (§4.3).
+      //
+      // ⭐ Se CONSERVA la negación de que una misma persona haga el 1.º y el 2.º conteo del
+      // mismo producto. Ésa no previene una confusión: previene que el doble conteo ciego sea
+      // teatro. Con una sola persona no hay dos testigos, hay uno escribiendo dos veces.
+      //
+      // ⚠️ El testigo de quién contó pasa a ser la BITÁCORA, no `counted_by_N`: con varias
+      // capturas por renglón, la columna guarda a quien capturó **último**. Si el guard siguiera
+      // mirando sólo la columna, el que contó primero y fue «desplazado» podría hacer el segundo
+      // conteo — justo el agujero que este guard existe para tapar.
       let slot: string;
       if (dto.recount || (count.status === 'review' && cp == null)) {
-        // Segregación del desempate: el 3er conteo no lo puede hacer quien ya
-        // contó este SKU en la 1ra o 2da pasada (si no, no rompe el empate de
-        // forma independiente). Que lo cuente otra persona, o que el supervisor
-        // lo resuelva manualmente (resolveItem).
-        if (uid && (item.counted_by_1 === uid || item.counted_by_2 === uid))
+        // Segregación del desempate: el 3er conteo no lo puede hacer quien ya contó este SKU en
+        // la 1ra o 2da pasada (si no, no rompe el empate de forma independiente). Que lo cuente
+        // otra persona, o que el supervisor lo resuelva manualmente (resolveItem).
+        if (
+          uid &&
+          (item.counted_by_1 === uid ||
+            item.counted_by_2 === uid ||
+            this.contribuyo(capturas, 'count_1', uid) ||
+            this.contribuyo(capturas, 'count_2', uid))
+        )
           throw new ConflictException(
             'No puedes hacer el tercer conteo (desempate) de un SKU que tú mismo contaste antes.',
           );
         slot = 'count_3';
-        patch.count_3 = cantidad;
         patch.count_3_unit = unidadUsada;
         patch.count_3_factor = factorUsado;
         patch.counted_by_3 = uid;
         patch.counted_at_3 = trx.fn.now();
       } else if (effectivePass >= 2) {
-        // Segundo conteo ciego: lo hace alguien DISTINTO al de la 1ra pasada, y
-        // nadie puede pisar el count_2 de otra persona (solo corregir el propio) —
-        // si no, el doble conteo ciego colapsa a un único observador que auto-resuelve.
-        if (uid && item.counted_by_1 === uid)
+        // Segundo conteo ciego: lo hace alguien DISTINTO al de la 1ra pasada.
+        if (uid && (item.counted_by_1 === uid || this.contribuyo(capturas, 'count_1', uid)))
           throw new ConflictException(
             'No puedes hacer el segundo conteo de un SKU que tú mismo contaste en la primera pasada.',
           );
-        if (uid && item.count_2 != null && item.counted_by_2 && item.counted_by_2 !== uid)
-          throw new ConflictException(
-            'Este SKU ya tiene un segundo conteo de otra persona; no se puede sobrescribir. Pide un reconteo de desempate.',
-          );
         slot = 'count_2';
-        patch.count_2 = cantidad;
         patch.count_2_unit = unidadUsada;
         patch.count_2_factor = factorUsado;
         patch.counted_by_2 = uid;
         patch.counted_at_2 = trx.fn.now();
       } else {
-        // Primer conteo: nadie pisa el count_1 de otra persona (solo corrige el propio).
-        if (uid && item.count_1 != null && item.counted_by_1 && item.counted_by_1 !== uid)
-          throw new ConflictException(
-            'Este SKU ya tiene un primer conteo de otra persona; no se puede sobrescribir.',
-          );
         slot = 'count_1';
-        patch.count_1 = cantidad;
         patch.count_1_unit = unidadUsada;
         patch.count_1_factor = factorUsado;
         patch.counted_by_1 = uid;
         patch.counted_at_1 = trx.fn.now();
       }
+
+      // ── La captura, y el aviso que la acompaña ────────────────────────────────────────────
+      //
+      // Se decide ANTES de escribir, contra las capturas que ya estaban: después de insertar la
+      // propia, «¿había algo acá?» ya no se puede contestar.
+      const vivasAntes = this.capturasVivas(capturas, slot);
+      const miLlave = InventoryCountService.llaveDeCaptura({
+        aisle_id: aisleDeLaCaptura,
+        applied_by: uid,
+      });
+      const miPrevia = vivasAntes.get(miLlave) ?? null;
+      const ajenas = [...vivasAntes.entries()]
+        .filter(([k]) => k !== miLlave)
+        .map(([, c]) => c);
+      const capturaModo: 'first' | 'correction' | 'added' = miPrevia
+        ? 'correction'
+        : ajenas.length
+          ? 'added'
+          : 'first';
 
       // Folio NO congelado (cíclico): fotografía el saldo en libros al PRIMER
       // conteo. reconcile usa este baseline (no el de apertura) para el delta, así
@@ -826,25 +1232,58 @@ export class InventoryCountService {
         patch.book_at_count = book;
       }
 
+      // ── ⭐ `[ICR.M3]` La captura se escribe SIEMPRE, y `count_N` se RECOMPONE ─────────────
+      //
+      // Antes la bitácora sólo se escribía si el cliente mandaba `scan_uuid` (o sea: sólo la
+      // cola sin conexión), y guardaba quién y cuándo pero **ni la cantidad ni el rack**
+      // (**F34**). Ahora toda captura deja fila, con su cantidad normalizada y su rack, y el
+      // número del renglón sale de sumarlas. Sin `scan_uuid` del cliente se genera uno acá: la
+      // bitácora no puede tener huecos sólo porque el escaneo vino por el camino con red.
+      //
+      // ⚠️ `applied_at` usa `clock_timestamp()` y no `now()`: `now()` es la hora de ARRANQUE de
+      // la transacción, así que dos capturas podrían empatar y «la más reciente gana» quedaría
+      // decidido por el desempate arbitrario del `scan_uuid`.
+      const capturaUuid = dto.scan_uuid ?? randomUUID();
+      await trx('commercial.inventory_count_scan_log')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          count_id: countId,
+          scan_uuid: capturaUuid,
+          item_id: item.id,
+          slot,
+          applied_by: uid,
+          applied_at: trx.raw('clock_timestamp()'),
+          quantity: dto.quantity,
+          quantity_native: cantidad,
+          unit: unidadUsada,
+          unit_factor: factorUsado,
+          aisle_id: aisleDeLaCaptura,
+        })
+        .onConflict(['tenant_id', 'count_id', 'scan_uuid'])
+        .ignore();
+
+      // La suma sale de releer la bitácora, no de sumarle a lo que había en memoria: así el
+      // número del renglón es **derivado de lo escrito** y no de lo que este proceso creía.
+      const capturasAhora: CapturaDeConteo[] = await trx('commercial.inventory_count_scan_log')
+        .where({ count_id: countId, item_id: item.id })
+        .orderBy('applied_at', 'asc')
+        .orderBy('scan_uuid', 'asc')
+        .select(
+          'scan_uuid',
+          'item_id',
+          'slot',
+          'aisle_id',
+          'applied_by',
+          'applied_at',
+          'quantity_native',
+        );
+      const vivasDespues = this.capturasVivas(capturasAhora, slot);
+      patch[slot] = this.sumaDeCapturas(vivasDespues);
+
       patch.status = 'counted';
       await trx('commercial.inventory_count_items')
         .where({ id: item.id })
         .update(patch);
-
-      // OFF.0 — registra el escaneo en el idempotency store (replay = no-op).
-      if (dto.scan_uuid) {
-        await trx('commercial.inventory_count_scan_log')
-          .insert({
-            tenant_id: trx.raw('public.current_tenant_id()'),
-            count_id: countId,
-            scan_uuid: dto.scan_uuid,
-            item_id: item.id,
-            slot,
-            applied_by: uid,
-          })
-          .onConflict(['tenant_id', 'count_id', 'scan_uuid'])
-          .ignore();
-      }
 
       // Identificación del producto para confirmar qué escaneó (no es dato ciego).
       let sku = productSku;
@@ -861,12 +1300,63 @@ export class InventoryCountService {
         loc = await this.codigosDeUbicacion(trx, count.warehouse_id, productId);
       }
 
+      // ── `[ICR.M3]` El aviso: DÓNDE sí, CUÁNTO no ─────────────────────────────────────────
+      //
+      // ⛔⛔ La cantidad AJENA no se devuelve nunca, a propósito: el conteo es ciego, y decirle
+      // «ya hay 24» le da un número al que anclarse. Saber que el producto ya se contó en otro
+      // lado —y quién— es lo que necesita para decidir si lo suyo se agrega (§4.3).
+      // ⭐ La propia sí: es el número que esa misma persona tecleó, y sin él una recaptura pisa
+      // en silencio (**F33**) — no distingue «me corrijo» de «le di sin querer».
+      const idsRacks = [...new Set([aisleDeLaCaptura, ...ajenas.map((c) => c.aisle_id)])].filter(
+        (x): x is string => !!x,
+      );
+      const idsPersonas = [...new Set(ajenas.map((c) => c.applied_by))].filter(
+        (x): x is string => !!x,
+      );
+      const racks = idsRacks.length
+        ? await trx('commercial.warehouse_aisles')
+            .whereIn('id', idsRacks)
+            .select('id', 'code', 'name')
+        : [];
+      const personas = idsPersonas.length
+        ? await trx('identity.users').whereIn('id', idsPersonas).select('id', 'username', 'nombre')
+        : [];
+      const rotuloRack = (id: string | null): string | null =>
+        (id && (racks as { id: string; code: string | null }[]).find((r) => r.id === id)?.code)
+        || null;
+      const nombrePersona = (id: string | null): string | null => {
+        const lista = personas as { id: string; username: string | null; nombre: string | null }[];
+        const u = id ? lista.find((p) => p.id === id) : null;
+        return u ? u.nombre || u.username || null : null;
+      };
+
       // Respuesta CIEGA: ni expected_qty ni varianza.
       return {
         ok: true,
         item_id: item.id,
         slot,
         scan_uuid: dto.scan_uuid ?? null,
+        /** `[ICR.M3]` El `scan_uuid` con el que quedó la captura (generado si el cliente no mandó). */
+        capture_uuid: capturaUuid,
+        /** `[ICR.M3]` El rack donde quedó ESTA captura. `null` = el montón «sin rack». */
+        aisle_id: aisleDeLaCaptura,
+        aisle_code: rotuloRack(aisleDeLaCaptura),
+        /**
+         * `[ICR.M3]` Qué fue esto: `first` nadie había contado este producto en esta vuelta ·
+         * `correction` reemplaza TU captura anterior en ESTE mismo rack · `added` se SUMA a lo
+         * que ya había en otro rack o de otra persona.
+         */
+        capture_mode: capturaModo,
+        /** `[ICR.M3]` Tu propio número anterior en este mismo rack, para confirmar antes de pisarlo. */
+        previous_own_qty: miPrevia ? Number(miPrevia.quantity_native) : null,
+        /** ⛔ `[ICR.M3]` Dónde y quién contó antes. **Sin la cantidad**: el conteo es ciego. */
+        other_captures: ajenas.map((c) => ({
+          aisle_id: c.aisle_id,
+          aisle_code: rotuloRack(c.aisle_id),
+          counted_by: c.applied_by,
+          counted_by_name: nombrePersona(c.applied_by),
+          counted_at: c.applied_at,
+        })),
         product_id: productId,
         sku,
         product_name: name,
@@ -1351,8 +1841,11 @@ export class InventoryCountService {
       if (productId && UUID.test(productId)) {
         prod = await trx('public.products').where({ id: productId }).first();
       } else if (code) {
-        prod = await trx('public.products').where({ barcode: code }).first();
-        if (!prod) prod = await trx('public.products').where({ sku: code }).first();
+        // `[ICR.M10]` Mismo resolvedor que `submitCount` (sin folio: este endpoint no sabe de
+        // cuál viene). Si identificar y contar usaran reglas distintas, la pantalla diría
+        // «no encontrado» para algo que después sí se cuenta — o peor, al revés.
+        const hallado = await this.resolverProductoPorCodigo(trx, null, code, true);
+        if (hallado) prod = await trx('public.products').where({ id: hallado.product_id }).first();
       }
       if (!prod) throw new NotFoundException('Sin producto para ese código');
       const brand = prod.brand_id
@@ -1973,12 +2466,25 @@ export class InventoryCountService {
       }
 
       // ── SEGREGACIÓN DE FUNCIONES: el reconciliador no puede ser quien contó ──
+      //
+      // ⛔ `[ICR.M3]` La bitácora entra acá **porque sin ella este candado se abriría**: con la
+      // captura como unidad, un renglón puede tener capturas de varias personas y
+      // `counted_by_N` guarda sólo a quien capturó ÚLTIMO. Quien contó y fue «desplazado» por
+      // una captura posterior desaparecería de la lista de participantes y podría autorizar su
+      // propio conteo. La bitácora es append-only: ahí están todos.
       const participants = new Set<string>();
       items.forEach((it) => {
         [it.counted_by_1, it.counted_by_2, it.counted_by_3, it.resolved_by].forEach(
           (c) => c && participants.add(c),
         );
       });
+      const capturadores = await trx('commercial.inventory_count_scan_log')
+        .where({ count_id: countId })
+        .whereNotNull('applied_by')
+        .distinct('applied_by');
+      (capturadores as { applied_by: string | null }[]).forEach(
+        (c) => c.applied_by && participants.add(c.applied_by),
+      );
       if (uid && participants.has(uid))
         throw new ForbiddenException(
           'Segregación de funciones: quien contó o resolvió ítems del folio no puede autorizar la reconciliación.',

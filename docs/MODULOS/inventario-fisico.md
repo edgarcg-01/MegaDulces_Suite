@@ -529,7 +529,7 @@ nadie había llegado a contar lo suficiente para verlo.**
 >
 > ⚠️ **No hay F21.** La numeración salta del **F20** al **F22**; se verificó en el historial del
 > repositorio y **nunca existió**: es un hueco al numerar, no un hallazgo perdido. Con **F23** y
-> **F24** (agregados el 2026-11-27) y **F25** a **F28** (medidos en pantalla viva ese mismo dia) y **F29**-**F30** (medidos al construir C0 de la fase ICR) y **F31**-**F37** (de disenar el conteo TRIMESTRAL con Edgar, §9f), son **36**.
+> **F24** (agregados el 2026-11-27) y **F25** a **F28** (medidos en pantalla viva ese mismo dia) y **F29**-**F30** (medidos al construir C0 de la fase ICR) y **F31**-**F37** (de disenar el conteo TRIMESTRAL con Edgar, §9f) y **F38**-**F40** (de construir la capa de datos de ese trimestral, §9f), son **39**.
 
 | # | Sev. | Defecto | Cómo se midió |
 |---|:---:|---|---|
@@ -787,6 +787,10 @@ llenó**. |
 > [`FASE_ICR_ANEXO_CONTEO_TRIMESTRAL_2026-11-27`](../IMPLEMENTACION/FASES/FASE_ICR_ANEXO_CONTEO_TRIMESTRAL_2026-11-27.md).
 > Acá sólo los defectos del módulo que aparecieron al recorrer el proceso con el PM y al leer el
 > fuente buscándolos a propósito.
+>
+> ⭐ **F38–F40 se agregaron el mismo día, al construir la capa de datos** (`[ICR.M3]`, `[ICR.M7]`,
+> `[ICR.M10]`): salieron de medir el universo real de Yurécuaro contra el código que lo va a
+> leer el martes, no de la conversación.
 
 ⭐ **El contexto que los ordena:** el módulo **nunca se usó**. Los siete folios previos son todos
 totales y el máximo que alguien contó fue **3 artículos de 3,666**; nunca hubo un segundo conteo ni
@@ -801,6 +805,9 @@ más de dos personas. Así que ninguno de estos defectos lo reportó un usuario:
 | **F35** | 🔴 | **El mismo producto en dos racks se pierde.** El renglón es uno por producto: el primero que lo encuentra lo cuenta, y el segundo recibe *«ya tiene un primer conteo de otra persona; no se puede sobrescribir»*. Esa mercancía **no se cuenta y sale como faltante**. ⛔ En una distribuidora de dulces, producto en anaquel **y** en bodega es lo normal. | Fuente, `submitCount`. Confirmado en el catálogo de ubicaciones: de 40 productos asignados, **8 están en dos o tres** lugares. |
 | **F36** | 🔴 | **El umbral de recuento nace en CERO, así que la red de seguridad está apagada por defecto.** Con umbral 0 no corre el *count-back* (dos conteos coincidentes pero muy lejos del teórico se auto-resuelven) **ni** la exigencia de motivo en una diferencia material: un folio puede cerrarse con una merma enorme **sin que nadie escriba por qué**. | Migración `20260618190000`: `recount_threshold_pct` `notNullable().defaultTo(0)`; los dos guards de `computeDiscrepancies` y `bloqueosParaReconciliar` son `if (umbral > 0)`. |
 | **F37** | 🟠 | **La captura que sube tarde se pierde callada.** La idempotencia por `scan_uuid` protege el **reenvío** de un escaneo ya aplicado, pero una captura **nueva** que sincroniza cuando el folio ya cambió de estado **se rechaza** — la persona la contó y nunca llegó, y la pantalla no dice cuántas quedan sin subir. | Fuente: el guard de estado corre **después** del de idempotencia. |
+| **F38** | 🔴 | **El cero que pone el escáner pierde el producto.** La resolución comparaba cadenas exactas. Un escáner en modo EAN-13 le agrega un cero adelante a un UPC-A de 12 dígitos y el código deja de machear: «producto no encontrado» para un artículo que SÍ está en el folio. ⛔ **El 39 % del folio de Yurécuaro es UPC-A.** Cerrado por `[ICR.M10]` (exacta primero, normalizada después). | Prod, 2026-11-27, sólo lectura. `catalog.product_barcodes` del universo de Yurécuaro: 2,313 códigos distintos, **1,468 de 13 dígitos y 786 de 12**, 117 de los de 12 ya empiezan con cero y **21 existen en las dos formas**. Sobre `public.products`: de 605 UPC-A, **603 fallan** si el escáner pone el cero y la normalización **recupera 601**; 4 quedan ambiguos. **Control negativo:** los códigos que apuntan a más de un producto pasan de **713 a 718** globales y de **8 a 10** en el folio. |
+| **F39** | 🔴 | ⛔ **670 de los 2,313 códigos que el escáner puede leer (29 %) NO resuelven contra `public.products`, ni exacta ni normalizada.** El resolvedor consulta `public.products.barcode`/`.sku`, pero los códigos que la gente escanea viven en `catalog.product_barcodes` —que tiene varios por producto, incluido el de la CAJA—. **359 de esos 670 son códigos no primarios**: cajas y paquetes que no están en `public.products` en ninguna forma. La normalización de F38 sólo rescata 19 de ellos. ⚠️ **Abierto**: el arreglo es resolver también contra `catalog.product_barcodes`, y cambia a qué producto apunta un escaneo, así que necesita su propia medición. | Prod, 2026-11-27, sólo lectura: 2,313 códigos distintos del universo de Yurécuaro, **1,643 resuelven hoy**, 670 no. |
+| **F40** | 🟡 | **Hay un octavo folio y está VIVO.** El acta del trimestral (§3.1) dice «los 7 folios viejos están cancelados»; medido el 2026-11-27 a las 17:12 hay **8**, y `INV-2026-00011` está en `counting` — cíclico, 6 renglones, 1 contado con 2,541, `blind_double_count` apagado. No cambia ninguna conclusión del acta (sigue siendo cierto que el módulo nunca se usó de verdad), pero **cualquier cuenta de folios hecha contra esa frase sale mal**. | Prod, `commercial.inventory_counts`: 8 filas, `status` 7 × `cancelled` + 1 × `counting`. Y **los 8 tienen `recount_threshold_pct = 0.00`**, que es la cifra de F36 llevada a su universo completo. |
 
 ### Cuatro riesgos que se midieron y NO están (control negativo)
 
