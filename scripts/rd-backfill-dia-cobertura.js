@@ -36,14 +36,54 @@
  *     node scripts/rd-backfill-dia-cobertura.js --escribir           # el año corriente
  *     node scripts/rd-backfill-dia-cobertura.js --escribir --desde 2026-11-01 --hasta 2026-11-18
  *
+ * ⚠️ Lee `DATABASE_URL_NEW` por `database/knexfile-newdb.js`, no el knexfile legacy. Ver abajo.
+ * ⛔ **A dónde apunta tu `.env` no se hereda: se mide.** Este script imprime el host antes de
+ * tocar nada — nunca la URL entera, que lleva credenciales.
+ *
  * ⚠️ En seco por defecto, a propósito. Y conviene correr el barrido ANCHO fuera de horario
  * hábil: lee la vista viva de ventas (regla 9).
  */
 
 const knex = require('knex');
-const config = require('../database/knexfile.js');
+
+/**
+ * ⛔⛔ **`database/knexfile.js` es el LEGACY** — corre las 89 migraciones de la DB vieja y su
+ * propio archivo **aborta** si `DATABASE_URL` apunta a la plataforma, para que su ledger no caiga
+ * en `identity.knex_migrations` (que está vacía) y las re-aplique sobre producción. Medido el
+ * 2026-11-27: este script lo requería por error y la compuerta lo frenó, que es justo su trabajo.
+ *
+ * El de la plataforma es **`knexfile-newdb.js`**, y lee `DATABASE_URL_NEW`.
+ *
+ * ⚠️ Y el entorno importa: `pg-prod` **no habla SSL**, así que `production` —que lo exige
+ * siempre— muere con *«The server does not support SSL connections»*. `development` del mismo
+ * archivo conecta por `DATABASE_URL_NEW` sin SSL, que es lo que ese servidor acepta. Por eso es
+ * el default acá; `NODE_ENV` lo puede pisar.
+ */
+const config = require('../database/knexfile-newdb.js');
 
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
+
+/**
+ * ⚠️ **`analytics.v_rd_dia_cobertura` NO acota por fecha, y conviene saberlo antes de usarla.**
+ * Su CTE interno agrupa *todo* el histórico de `v_rd_commission_sales` y recién después se
+ * filtra, así que un `WHERE business_date IN (...)` de dos días cuesta lo mismo que el barrido
+ * completo: medido el 2026-11-27, **se come el `statement_timeout` por defecto**.
+ *
+ * Para este script da igual —barre el año entero de todos modos— pero por eso sube el timeout.
+ * ⛔ **Deuda con nombre:** si algún día otro consumidor necesita un rango, la vista tiene que
+ * volverse una función con parámetros; hoy **no sirve para consultar un tramo barato**.
+ */
+function conexion() {
+  const env = process.env.NODE_ENV || 'development';
+  if (!config[env]) throw new Error(`knexfile-newdb.js no tiene el entorno "${env}"`);
+  return {
+    ...config[env],
+    pool: {
+      ...(config[env].pool || {}),
+      afterCreate: (conn, done) => conn.query("SET statement_timeout = '600000'", (err) => done(err, conn)),
+    },
+  };
+}
 
 const arg = (nombre, porDefecto) => {
   const i = process.argv.indexOf(nombre);
@@ -78,9 +118,16 @@ async function medir(db) {
 }
 
 (async () => {
-  const env = process.env.NODE_ENV || 'production';
-  const db = knex(config[env]);
+  const db = knex(conexion());
   try {
+    // ⛔ Primero: DÓNDE estoy. El host, nunca la URL entera (lleva credenciales), y el
+    // system_identifier, porque la prod vieja y la viva se llaman las dos "railway".
+    const { rows: donde } = await db.raw(
+      `SELECT inet_server_addr()::text AS host, inet_server_port() AS puerto,
+              current_database() AS base, (SELECT system_identifier FROM pg_control_system())::text AS id`);
+    const d = donde[0];
+    console.log(`base: ${d.host}:${d.puerto}/${d.base} · system_identifier ${d.id}`);
+
     // ── El CONTROL va primero: una pregunta cuya respuesta ya conocemos por otro camino. ──────
     // Medido el 2026-11-27 en prod, por fuera de este script: el 23-feb-2026 tiene 2 rutas y 2
     // tickets; el 24-feb, 13 rutas. Si el instrumento no acierta esto, se tira el instrumento.
@@ -96,7 +143,22 @@ async function medir(db) {
     const ok = f23 && f24 && f23.rutas === 2 && f23.tickets === 2
       && f23.carga_truncada === true && f24.carga_truncada === false;
     console.log('CONTROL  23-feb = 2 rutas / 2 tickets / truncado · 24-feb sano  →', ok ? 'OK' : 'FALLÓ');
-    if (!ok) {
+
+    // ⛔ CONTROL NEGATIVO, y existe por un defecto real: la primera versión de la vista marcaba
+    // como truncado EL DÍA EN CURSO, que a media mañana tiene dos rutas porque todavía no
+    // termina. Si vuelve a pasar, el backfill escribiría una causa falsa sobre la quincena viva.
+    const { rows: hoy } = await db.raw(
+      `SELECT count(*)::int AS marcados
+         FROM analytics.v_rd_dia_cobertura
+        WHERE tenant_id = ? AND business_date >= current_date - 2
+          AND (carga_truncada OR operacion_parcial)`,
+      [TENANT],
+    );
+    const sinHoy = hoy[0].marcados === 0;
+    console.log('CONTROL  ningún día de los últimos 2 marcado (no se juzga lo que no cerró)  →',
+      sinHoy ? 'OK' : `FALLÓ (${hoy[0].marcados} marcados)`);
+
+    if (!ok || !sinHoy) {
       console.error('\n⛔ El control no acertó. Lo que devolvió la vista:');
       console.table(ctl);
       console.error('   Se tira el instrumento, no la medición. No se escribe nada.');
@@ -137,14 +199,16 @@ async function medir(db) {
             tickets: r.tickets,
             med_local: r.med_local,
             tickets_por_ruta: r.tickets_por_ruta,
+            dias_habiles_despues: r.dias_habiles_despues ?? null,
+            evaluable: !!r.evaluable,
             carga_truncada: !!r.carga_truncada,
             operacion_parcial: !!r.operacion_parcial,
             observed_at: ahora,
             updated_at: ahora,
           })
           .onConflict(['tenant_id', 'business_date'])
-          .merge(['rutas', 'tickets', 'med_local', 'tickets_por_ruta',
-            'carga_truncada', 'operacion_parcial', 'observed_at', 'updated_at']);
+          .merge(['rutas', 'tickets', 'med_local', 'tickets_por_ruta', 'dias_habiles_despues',
+            'evaluable', 'carga_truncada', 'operacion_parcial', 'observed_at', 'updated_at']);
         escritas += 1;
       }
     });
