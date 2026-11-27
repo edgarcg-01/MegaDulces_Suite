@@ -6,7 +6,7 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 import { InventoryMonitorGateway } from './inventory-monitor.gateway';
 
 /**
@@ -17,6 +17,73 @@ import { InventoryMonitorGateway } from './inventory-monitor.gateway';
  * índice sin explicación en vez de como un mensaje que se entiende.
  */
 const VIVOS = ['open', 'counting', 'review', 'ready_to_reconcile'] as const;
+
+/**
+ * Un renglón de la lista del supervisor, tal como sale de `listItems`. Se declara acá y no en
+ * `libs/contracts` porque todavía no hay contrato de inventario físico: es **deuda con nombre**
+ * (ADR-056), no un tipo inventado para callar la compuerta. Cuando el contrato exista, esto se
+ * borra y se importa de ahí.
+ */
+export interface InventoryCountItemRow {
+  id: string;
+  product_id: string | null;
+  sku: string | null;
+  product_name: string | null;
+  brand_name: string | null;
+  /** `[IC.UB1]` Del catálogo de `/almacen/ubicaciones`, no de `public.products`. */
+  location: string | null;
+  expected_qty: string | number | null;
+  count_1: string | number | null;
+  count_2: string | number | null;
+  count_3: string | number | null;
+  final_qty: string | number | null;
+  variance: string | number | null;
+  status: string;
+  notes: string | null;
+  reason_code: string | null;
+  cost_base: string | number | null;
+}
+
+/**
+ * Lo mínimo que `ubicacionDe` necesita de la transacción. Se tipa estructuralmente en vez de
+ * `any` para que el compilador vea la forma de lo que devuelve `raw` — que es de dónde sale el
+ * `codigos` de más abajo.
+ */
+interface TrxConRaw {
+  raw(sql: string, bindings?: unknown[]): Promise<{ rows?: { codigos: string | null }[] }>;
+}
+
+/**
+ * ⛔⛔ `[IC.UB1]` **La ubicación que se publica sale del catálogo de `/almacen/ubicaciones`,
+ * no de `public.products.location`.**
+ *
+ * Medido en prod el 2026-11-27: `public.products.location` tiene **UN SOLO valor distinto**
+ * en los 11,816 productos que la traen — la cadena `Z000` — y el folio la copiaba al abrir:
+ * **3,005 de los 3,364 artículos de `INV-2026-00010` decían `Z000`**. O sea que la columna
+ * «Ubic.» del supervisor y el renglón que ve el contador no mostraban una ubicación: mostraban
+ * una constante con cara de dato. Es el defecto del rótulo que miente (Cruce 2), agravado
+ * porque la columna se veía **llena** y por eso nadie la cuestionaba.
+ *
+ * El catálogo real existe y es el de la fase UB (ADR-090): **476 ubicaciones** en
+ * `commercial.warehouse_bins` (471 de Padre Hidalgo) y **52 asignaciones** producto↔ubicación
+ * en `commercial.bin_assignments`. De las 51 vivas, **0 coincidían** con `p.location` y 50
+ * discrepaban (`Z000` contra `TA011`, por ejemplo): no eran dos versiones del mismo dato,
+ * eran un dato y un relleno.
+ *
+ * ⚠️ El cambio BAJA la cobertura aparente de 3,005 a 51, y así debe ser (regla 11): lo que
+ * no está asignado se declara vacío en vez de dibujarse. El trabajo de asignar las otras
+ * 3,313 es de `/almacen/ubicaciones/asignacion`, y ahora se ve cuánto falta.
+ *
+ * Un producto puede estar en varias ubicaciones (medido: 5 en dos y 3 en tres), así que se
+ * devuelven todas, en el orden en que se recorre el almacén (`pick_sequence`).
+ */
+const UBICACION_DEL_PRODUCTO = `
+  SELECT string_agg(b.code, ' · ' ORDER BY b.pick_sequence NULLS LAST, b.code) AS codigos
+    FROM commercial.bin_assignments a
+    JOIN commercial.warehouse_bins b ON b.id = a.bin_id
+   WHERE a.warehouse_id = ?::uuid
+     AND a.deleted_at IS NULL
+`;
 
 /**
  * Fase I — Inventario físico (conteo cíclico/total por almacén).
@@ -310,13 +377,12 @@ export class InventoryCountService {
           `INSERT INTO commercial.inventory_count_items
              (tenant_id, count_id, product_id, aisle_id, location, expected_qty, status,
               unit_label, unit_factor, unit_source)
-           SELECT e.tenant_id, ?, e.product_id, s.aisle_id, p.location, e.qty_stock_units, 'pending',
+           SELECT e.tenant_id, ?, e.product_id, s.aisle_id, NULL::text, e.qty_stock_units, 'pending',
                   NULL, NULLIF(e.display_box_factor, 0), e.unit_source
              FROM analytics.v_erp_stock_on_hand e
              LEFT JOIN commercial.stock s
                ON s.warehouse_id = e.warehouse_id AND s.product_id = e.product_id
               AND s.tenant_id = e.tenant_id
-             LEFT JOIN public.products p ON p.id = e.product_id
             WHERE e.warehouse_id = ? AND e.tenant_id = public.current_tenant_id()
               AND e.qty_stock_units > 0
             ${subset ? 'AND e.product_id = ANY(?::uuid[])' : ''}`,
@@ -339,9 +405,8 @@ export class InventoryCountService {
         snapInserted = await trx.raw(
           `INSERT INTO commercial.inventory_count_items
              (tenant_id, count_id, product_id, aisle_id, location, expected_qty, status)
-           SELECT s.tenant_id, ?, s.product_id, s.aisle_id, p.location, s.quantity, 'pending'
+           SELECT s.tenant_id, ?, s.product_id, s.aisle_id, NULL::text, s.quantity, 'pending'
              FROM commercial.stock s
-             LEFT JOIN public.products p ON p.id = s.product_id
             WHERE s.warehouse_id = ? AND s.tenant_id = public.current_tenant_id()
             ${subset ? 'AND s.product_id = ANY(?::uuid[])' : ''}`,
           subset ? [count.id, dto.warehouse_id, dto.product_ids] : [count.id, dto.warehouse_id],
@@ -501,7 +566,9 @@ export class InventoryCountService {
       const isInv = count.stock_source === 'inventory';
       let productId: string | null = dto.product_id || null;
       let productSku: string | null = null;
-      let location: string | null = null;
+      // `[IC.UB1]` Ya no hay una variable `location` arrastrada desde `public.products`: esa
+      // columna es la constante `Z000` en los 11,816 productos que la traen. La ubicación se
+      // resuelve contra el catálogo de `/almacen/ubicaciones`, más abajo y por almacén.
       let prodName: string | null = null;
 
       if (isInv) {
@@ -546,16 +613,14 @@ export class InventoryCountService {
             .andWhere((qb) =>
               qb.where('p.barcode', dto.barcode).orWhere('p.sku', dto.barcode),
             )
-            .select('i.product_id', 'p.location')
+            .select('i.product_id')
             .first();
           if (delFolio) {
             productId = delFolio.product_id;
-            location = delFolio.location || null;
           } else {
             const prod = await trx('public.products').where({ barcode: dto.barcode }).first();
             if (!prod) throw new NotFoundException(`Sin producto para el código '${dto.barcode}'`);
             productId = prod.id;
-            location = prod.location || null;
           }
         }
         if (!UUID.test(productId!)) throw new BadRequestException('product_id inválido');
@@ -602,7 +667,9 @@ export class InventoryCountService {
           const prod = await trx('public.products').where({ id: productId }).first();
           if (!prod) throw new NotFoundException('Producto no encontrado');
           insertRow.product_id = productId;
-          insertRow.location = location ?? prod.location ?? null;
+          // `[IC.UB1]` La columna guardada nace vacía: la ubicación se resuelve al leer,
+          // contra el catálogo de UB. Copiar `p.location` era copiar la constante `Z000`.
+          insertRow.location = null;
         }
         [item] = await trx('commercial.inventory_count_items').insert(insertRow).returning('*');
       }
@@ -699,15 +766,16 @@ export class InventoryCountService {
       // Identificación del producto para confirmar qué escaneó (no es dato ciego).
       let sku = productSku;
       let name = prodName;
-      let loc = location;
+      let loc: string | null = null;
       if (!isInv) {
         const prodInfo = await trx('public.products')
           .where({ id: productId })
-          .select('sku', 'nombre', 'location')
+          .select('sku', 'nombre')
           .first();
         sku = prodInfo?.sku ?? null;
         name = prodInfo?.nombre ?? null;
-        loc = prodInfo?.location ?? null;
+        // `[IC.UB1]` La ubicación del catálogo de UB para ESTE almacén, o nada.
+        loc = await this.ubicacionDe(trx, count.warehouse_id, productId);
       }
 
       // Respuesta CIEGA: ni expected_qty ni varianza.
@@ -1079,6 +1147,21 @@ export class InventoryCountService {
           ),
         );
 
+      /**
+       * `[IC.UB1]` **Cuántos artículos del folio tienen ubicación asignada.**
+       *
+       * Va en el tablero y no se calcula en la pantalla a propósito: la lista se topa en
+       * 2,000 de 3,364, así que contar ahí daría una cobertura sobre una muestra y la
+       * publicaría como si fuera del folio. El denominador tiene que ser el folio entero.
+       */
+      const [ubic] = await trx('commercial.inventory_count_items as i')
+        .joinRaw(
+          `LEFT JOIN LATERAL (${UBICACION_DEL_PRODUCTO} AND a.product_id = i.product_id) ub ON TRUE`,
+          [count.warehouse_id],
+        )
+        .where('i.count_id', countId)
+        .select(trx.raw('COUNT(ub.codigos)::int AS located'));
+
       // Productividad por contador (count_1).
       const byCounter = await trx('commercial.inventory_count_items')
         .where({ count_id: countId })
@@ -1111,6 +1194,8 @@ export class InventoryCountService {
         blind_double_count: count.blind_double_count,
         coverage_pct: total ? +((counted / total) * 100).toFixed(1) : 0,
         pass_coverage_pct: total ? +((countedPass / total) * 100).toFixed(1) : 0,
+        /** `[IC.UB1]` Artículos con ubicación en el catálogo de `/almacen/ubicaciones`. */
+        located: Number(ubic?.located) || 0,
         ...agg,
         /** Lo que impide cerrar, en el orden en que `reconcile()` los evalua. */
         bloqueos,
@@ -1188,7 +1273,10 @@ export class InventoryCountService {
         // Acá `brand_name` SÍ es la marca (`public.brands`). La categoría se manda en su
         // propio campo para que las dos ramas tengan la misma forma y nadie lea una por otra.
         category_name: null,
-        location: prod.location ?? null,
+        // `[IC.UB1]` NO se manda `prod.location`: es la constante `Z000`. Y acá tampoco se
+        // puede resolver la de verdad, porque este endpoint no sabe de qué folio viene y
+        // una ubicación depende del almacén. Vacío declarado antes que un relleno.
+        location: null,
         unit_sale: prod.unit_sale ?? null,
         source: 'catalog',
       };
@@ -1235,25 +1323,79 @@ export class InventoryCountService {
           )
           .limit(20000);
       }
+      // `[IC.UB1]` La ubicación del catálogo de UB, no la columna sembrada (constante `Z000`).
       return trx('commercial.inventory_count_items as i')
         .leftJoin('public.products as p', 'p.id', 'i.product_id')
+        .joinRaw(
+          `LEFT JOIN LATERAL (${UBICACION_DEL_PRODUCTO} AND a.product_id = i.product_id) ub ON TRUE`,
+          [count.warehouse_id],
+        )
         .where('i.count_id', countId)
-        .select('i.product_id', 'p.sku', 'p.barcode', 'p.nombre as product_name', 'i.location')
+        .select(
+          'i.product_id',
+          'p.sku',
+          'p.barcode',
+          'p.nombre as product_name',
+          trx.raw('ub.codigos AS location'),
+        )
         .limit(20000);
     });
   }
 
-  // Lista de items con teórico + varianza (NO la usa el contador). (SUPERVISAR/VER)
-  async listItems(countId: string, status?: string) {
+  /**
+   * `[IC.UB1]` La ubicación de UN producto en UN almacén, del catálogo de
+   * `/almacen/ubicaciones`. Devuelve `null` cuando no está asignado — que hoy es
+   * casi siempre, y es justo lo que hay que poder ver.
+   */
+  private async ubicacionDe(
+    trx: TrxConRaw,
+    warehouseId: string | null | undefined,
+    productId: string | null | undefined,
+  ): Promise<string | null> {
+    if (!warehouseId || !productId) return null;
+    const { rows } = await trx.raw(
+      `${UBICACION_DEL_PRODUCTO} AND a.product_id = ?::uuid`,
+      [warehouseId, productId],
+    );
+    return rows?.[0]?.codigos ?? null;
+  }
+
+  /**
+   * Lista de items con teórico + varianza (NO la usa el contador). (SUPERVISAR/VER)
+   *
+   * ⛔ `[IC.F5]` **La otra mitad del tope: poder ALCANZAR lo que no cabe.**
+   *
+   * El `LIMIT 2000` se queda —bajar 3,364 filas con su costo en cada carga no es gratis— y
+   * la pantalla ya lo declara. Lo que faltaba era la salida: con `search` el supervisor
+   * llega a CUALQUIER artículo del folio por nombre, SKU, código de barras o ubicación,
+   * aunque el orden alfabético lo haya dejado del otro lado del corte.
+   *
+   * Se usa `applySmartSearch` (ADR-056, fase BU: un solo buscador para toda la suite) en vez
+   * de un `ILIKE` propio: multi-token en cualquier orden, sin acentos y con tolerancia a
+   * typos. El filtro se aplica ANTES del `limit`, que es lo único que lo vuelve una salida
+   * real y no un filtro sobre las 2,000 que ya habían pasado.
+   */
+  async listItems(countId: string, status?: string, search?: string): Promise<InventoryCountItemRow[]> {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
     return this.tk.run(async (trx) => {
-      await this.getCountOrThrow(trx, countId);
+      const count = await this.getCountOrThrow(trx, countId);
       let q = trx('commercial.inventory_count_items as i')
         .leftJoin('public.products as p', 'p.id', 'i.product_id')
         .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
         .leftJoin('inventory.products as ip', 'ip.sku', 'i.product_sku')
+        // `[IC.UB1]` La ubicación REAL, del catálogo de `/almacen/ubicaciones`.
+        .joinRaw(
+          `LEFT JOIN LATERAL (${UBICACION_DEL_PRODUCTO} AND a.product_id = i.product_id) ub ON TRUE`,
+          [count.warehouse_id],
+        )
         .where('i.count_id', countId);
       if (status) q = q.where('i.status', status);
+      // Columnas simples a propósito: applySmartSearch valida cada una como identificador,
+      // así que un COALESCE(...) se descartaría en silencio. Se listan los dos lados del
+      // catálogo (public.products y inventory.products) porque la lista ya los mezcla.
+      applySmartSearch(q, search, {
+        columns: ['p.sku', 'i.product_sku', 'p.nombre', 'ip.nombre', 'p.barcode', 'ub.codigos'],
+      });
       return q
         .select(
           'i.id',
@@ -1261,7 +1403,7 @@ export class InventoryCountService {
           trx.raw('COALESCE(p.sku, i.product_sku) AS sku'),
           trx.raw('COALESCE(p.nombre, ip.nombre) AS product_name'),
           trx.raw('COALESCE(b.nombre, ip.categoria) AS brand_name'),
-          'i.location',
+          trx.raw('ub.codigos AS location'),
           'i.expected_qty',
           'i.count_1',
           'i.count_2',

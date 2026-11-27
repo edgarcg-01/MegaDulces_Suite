@@ -17,6 +17,9 @@
  * el documento saldría con otra cantidad —el error de 50× de `[KR.6]`— viéndose perfecto en
  * pantalla. El adapter contrasta y rechaza.
  */
+import type { RechazoKepler } from '@megadulces/contracts';
+import { piezasEnteras } from './fraccion-caja';
+
 export interface FilaFichaKepler {
   c11?: unknown; c80?: unknown; c81?: unknown; c83?: unknown; c84?: unknown;
   c77?: unknown; c78?: unknown; c79?: unknown;
@@ -63,6 +66,58 @@ export function factorFichaKepler(f: FilaFichaKepler): { unidad_base: string | n
     && repiteBase(u3, u1, numero(f.c84), numero(f.c79), c1)) factor = 1;
   else factor = null;
   return { unidad_base: u1, factor };
+}
+
+/** `[PQ.19]` D24 — cuánto puede diferir el factor de caja de la Suite del de la ficha del origen. */
+export const TOLERANCIA_FACTOR_FICHA = 0.001;
+
+/**
+ * `[PQ.19]` D24 — ¿el factor de caja de la Suite es el de la ficha de Kepler? `false` si la ficha no
+ * da factor. La usan el sink (al escribir el traspaso) y `[AB.PM.3]` (al capturarlo): una sola regla.
+ */
+export function factorCoincideConFicha(piezasPorCaja: unknown, ficha: { factor: number | null } | null | undefined): boolean {
+  const f = ficha?.factor;
+  return f != null && !(Math.abs(f - Number(piezasPorCaja)) > TOLERANCIA_FACTOR_FICHA);
+}
+
+/**
+ * `[AB.PM.3]` Las cajas que se guardan para `base` unidades base: lo que `enviar` pone en `final_qty`
+ * (3 decimales, como la columna) y lo que el sink vuelve a pasar a piezas. Una sola cuenta para los dos.
+ */
+export function cajasDeBase(base: number, piezasPorCaja: number): number {
+  return Math.round((Number(base) / Number(piezasPorCaja)) * 1000) / 1000;
+}
+
+/**
+ * `[AB.PM.3]` R8 (d) — **las tres revisiones del traspaso del sink, hechas AL CAPTURAR.**
+ *
+ * El sink (`kepler-requisition-sink.adapter.ts`, `[PQ.19]` D24) escribe el traspaso entero en unidad
+ * base y lo rechaza completo si UN renglón no cuadra: (1) las cajas no vuelven a piezas enteras —sin
+ * factor de la Suite, tampoco—, (2) la ficha del origen no tiene unidad base, (3) el factor de la Suite
+ * no es el de la ficha del origen. Aquí se revisa lo mismo con lo que la Suite ya sabe —el factor del
+ * almacén que pide (`mv_warehouse_box_factor`, el que usa `pushToKepler`) y la ficha del origen leída
+ * del ODS (`analytics.v_kepler_unit_ladder`, la gemela de `factorFichaKepler`)— para que el renglón
+ * diga «Kepler lo rechazaría» y no tumbe a los demás.
+ *
+ * Sin `cantidadBase` (el buscador, antes de capturar) se revisa sólo lo que no depende de la cantidad.
+ */
+export function rechazoDelTraspaso(r: {
+  sku: string;
+  cantidadBase?: number | null;
+  piezasPorCaja: number | null | undefined;
+  ficha: { unidad_base: string | null; factor: number | null } | null | undefined;
+}): RechazoKepler | null {
+  const bf = Number(r.piezasPorCaja);
+  if (!(bf > 0)) return 'sin_factor_suite';
+  if (r.cantidadBase != null) {
+    const base = Number(r.cantidadBase);
+    const pz = piezasEnteras({ sku: r.sku, final_qty: cajasDeBase(base, bf), piezas_por_caja: bf });
+    // Además de entero, tiene que ser LO PEDIDO: si no, Kepler escribiría otra cantidad.
+    if (pz === null || pz !== base) return 'sin_piezas_enteras';
+  }
+  if (!r.ficha?.unidad_base) return 'sin_ficha_origen';
+  if (!factorCoincideConFicha(bf, r.ficha)) return 'factor_distinto';
+  return null;
 }
 
 /**

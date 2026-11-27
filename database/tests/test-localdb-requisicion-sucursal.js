@@ -132,7 +132,8 @@ const salir = async () => {
     renglon(P[3], 'AB29T4', sinRuta, null),
     renglon(P[4], 'AB29T5', deMatriz, null),
   ];
-  svc.armarAlmacen = async () => ({ renglones: mesa });
+  // `[AB.PM.3]` `aMano`: los productos pedidos a mano, que el sugerido deja fuera (aquí, ninguno).
+  svc.armarAlmacen = async () => ({ renglones: mesa, aMano: new Set() });
   const alm = { id: suc.id, code: suc.code, name: suc.name };
   const anotar = (r) => { for (const q of r.requisiciones) sembrado.requisiciones.add(q.id); return r; };
 

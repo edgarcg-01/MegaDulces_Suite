@@ -130,6 +130,23 @@ describe('[PGP.223] la norma fiscal del CFDI', () => {
       expect(bbva).toEqual({ veredicto: 'apta', motivos: [{ regla: 'sin_efectos_fiscales', veredicto: 'apta', texto: 'Uso S01 de BBVA: el banco la cobra solo, no pide autorización' }] });
       expect(v(cfdi({ receptor_uso_cfdi: 'S01', emisor_rfc: 'BMN930209927' }), { uso: 'gasto' })).toBe('apta');
     });
+    it('⭐ [PGP.229] Santander también cobra solo su comisión S01 (Francisco, 2026-11-27)', () => {
+      expect(v(cfdi({ receptor_uso_cfdi: 'S01', emisor_rfc: ' bsm970519du8 ' }))).toBe('apta');
+      expect(v(cfdi({ receptor_uso_cfdi: 'S01', emisor_rfc: 'BSM970519DU9' }))).toBe('requiere_autorizacion');   // control: otro RFC
+    });
+    it('⭐ [PGP.229] la comisión S01 del banco con receptor 605 tampoco pide decisión por régimen, y se dice', () => {
+      const banorte = normaFiscalDelCfdi(e(cfdi({ receptor_uso_cfdi: 'S01', receptor_regimen: '605', emisor_rfc: 'BMN930209927' })));
+      expect(banorte.veredicto).toBe('apta');
+      expect(banorte.motivos).toEqual([
+        { regla: 'sin_efectos_fiscales', veredicto: 'apta', texto: 'Uso S01 de Banorte: el banco la cobra solo, no pide autorización' },
+        { regla: 'regimen', veredicto: 'apta', texto: 'Régimen 605 en la comisión de Banorte: el banco la cobra solo, no pide autorización' },
+      ]);
+      expect(v(cfdi({ receptor_uso_cfdi: 'S01', receptor_regimen: '605', emisor_rfc: 'BSM970519DU8' }))).toBe('apta');
+    });
+    it('⛔ [PGP.229] la excepción del régimen es de la COMISIÓN, no del banco: una G03 del banco con 605 pide decisión', () => {
+      expect(v(cfdi({ receptor_uso_cfdi: 'G03', receptor_regimen: '605', emisor_rfc: 'BMN930209927' }))).toBe('requiere_autorizacion');
+      expect(v(cfdi({ receptor_uso_cfdi: 'S01', receptor_regimen: '605' }))).toBe('requiere_autorizacion');   // control: no es banco
+    });
     it('⛔ la excepción del banco es sólo de la S01: cancelada sigue sin servir', () => {
       expect(v(cfdi({ receptor_uso_cfdi: 'S01', emisor_rfc: 'BBA830831LJ2', estatus_sat: 'cancelado' }))).toBe('solo_informativa');
     });
@@ -217,10 +234,25 @@ describe('[PGP.225] el freno en Pagos', () => {
   it('⛔ si la consulta no trajo el estatus, no se da por verificada', () => {
     expect(detiene(rec({ estatus_sat: undefined, metodo_pago: 'PPD', forma_pago: '99' }), 'autorizar')).toBe('sin_verificar');
   });
-  it('S01 y otro régimen todavía NO detienen: la pantalla para decidir llega con PGP.229 (se ven como aviso)', () => {
-    const c = rec({ metodo_pago: 'PPD', forma_pago: '99', receptor_uso_cfdi: 'S01', receptor_regimen: '606' });
-    expect(normaDelPago(c, '2026-10-30', '2026-10-29').veredicto).toBe('requiere_autorizacion');
-    expect(detiene(c, 'autorizar')).toBeNull();
+  it('⭐ [PGP.229] S01 u otro régimen sin decisión: se programa, pero no se autoriza', () => {
+    const s01 = rec({ metodo_pago: 'PPD', forma_pago: '99', receptor_uso_cfdi: 'S01' });
+    expect(detiene(s01, 'programar')).toBeNull();
+    expect(detiene(s01, 'autorizar')).toBe('sin_efectos_fiscales');
+    const regimen = rec({ metodo_pago: 'PPD', forma_pago: '99', receptor_regimen: '606' });
+    expect(detiene(regimen, 'programar')).toBeNull();
+    expect(detiene(regimen, 'autorizar')).toBe('regimen');
+    // Control: el IMSS (excepción por regla) y la comisión del banco no piden nada.
+    expect(detiene(rec({ metodo_pago: 'PPD', forma_pago: '99', receptor_regimen: '606', emisor_rfc: 'IMS421231I45' }), 'autorizar')).toBeNull();
+    expect(detiene(rec({ metodo_pago: 'PPD', forma_pago: '99', receptor_uso_cfdi: 'S01', emisor_rfc: 'BBA830831LJ2' }), 'autorizar')).toBeNull();
+  });
+  it('⭐ [PGP.229] el 409 de lo que pide decisión dice dónde se decide; el de lo que no tiene salida, no', () => {
+    const motivo = detieneElPago(normaDelPago(rec({ metodo_pago: 'PPD', forma_pago: '99', receptor_uso_cfdi: 'S01' }), '2026-10-30', '2026-10-29'), 'autorizar');
+    if (!motivo) throw new Error('la S01 sin decisión debía detener al autorizar');
+    expect(textoDelFreno([{ uuid: 'a1b2c3d4-0000', total: 11600, motivo }], 'autorizar')).toBe(
+      'No se puede autorizar este pago — la factura de $11,600.00 (CFDI A1B2C3D4): Uso S01 (sin efectos fiscales): necesita la autorización de Administración o Contabilidad (decídela en Finanzas › Facturas fuera de norma)');
+    const cancelada = detieneElPago(normaDelPago(rec({ estatus_sat: 'cancelado', metodo_pago: 'PPD', forma_pago: '99' }), '2026-10-30', '2026-10-29'), 'programar');
+    if (!cancelada) throw new Error('la cancelada debía detener');
+    expect(textoDelFreno([{ uuid: 'a1b2c3d4-0000', total: 1, motivo: cancelada }], 'programar')).not.toContain('decídela');
   });
   it('⛔ negada por Administración o Contabilidad, sí detiene; autorizada, ya ni avisa', () => {
     const c = rec({ metodo_pago: 'PPD', forma_pago: '99', receptor_uso_cfdi: 'S01' });

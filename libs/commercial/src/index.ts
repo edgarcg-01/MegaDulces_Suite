@@ -53,6 +53,8 @@ export * from './lib/purchase-calendar/purchase-calendar.module';
 export * from './lib/supplier-meetings/supplier-meetings.module';
 // [PQ.157] Compras › validar el costo al aplicar: cada renglón contra su OC y la decisión de Compras.
 export * from './lib/application-cost/application-cost.module';
+// [PQ.3.10] Compras › Proveedores › Acuerdos: lo que se decide en una reunión, con dueño y fecha.
+export * from './lib/supplier-agreements/supplier-agreements.module';
 export * from './lib/commercial-picking/picking.service';
 export * from './lib/warehouse-orders/warehouse-orders.module';
 export * from './lib/warehouse-locations/warehouse-locations.module';

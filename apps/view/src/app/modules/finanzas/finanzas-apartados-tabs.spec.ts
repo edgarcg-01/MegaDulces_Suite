@@ -68,9 +68,11 @@ describe('[NAV.7] apartados del sidebar de Finanzas', () => {
     // y quedó asentado en Kepler). Es del ciclo, no de la deuda: la guarda de abajo sigue igual.
     // `[PGP.144]` (2026-11-17) sumó «Anticipos solicitados»: el embudo de lo que pide Compras, de la
     // solicitud al anticipo aplicado. Trazabilidad del ciclo, no deuda (el saldo sigue en Deuda › Anticipos).
+    // `[PGP.229]` (2026-11-26) sumó «Fuera de norma»: la decisión que el Calendario exige antes de autorizar. Paso del ciclo.
     expect(PAGOS_TABS.map((t) => t.route)).toEqual([
       '/finanzas/calendario-pagos',
       '/finanzas/cuentas-pago',
+      '/finanzas/facturas-fuera-de-norma',
       '/finanzas/salidas-banco',
       '/finanzas/pagos-comprobantes',
       '/finanzas/anticipos-solicitados',

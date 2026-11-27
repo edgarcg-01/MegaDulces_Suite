@@ -73,7 +73,8 @@ describe('[PQ.3.23] el apartado Proveedores de Compras', () => {
   });
 
   it('[PQ.3.8] Citas es la segunda pestaña y quien sólo tiene sus llaves (Mercadotecnia, Tesorería, Dirección) entra por ahí', () => {
-    expect(PROVEEDORES_TABS.map((t) => t.route)).toEqual(['/compras/calendario', '/compras/citas']);
+    // `[PQ.3.10]` Acuerdos entra DESPUÉS de Citas, con sus mismas llaves: quien sólo tiene ésas sigue entrando por Citas.
+    expect(PROVEEDORES_TABS.map((t) => t.route)).toEqual(['/compras/calendario', '/compras/citas', '/compras/acuerdos']);
     for (const llave of [Permission.COMPRAS_CITAS_VER, Permission.COMPRAS_CITAS_AGENDAR]) {
       expect(primeraPestanaVisible(PROVEEDORES_TABS, (p) => p === llave)?.route).toBe('/compras/citas');
     }
@@ -92,6 +93,19 @@ describe('[PQ.3.23] el apartado Proveedores de Compras', () => {
     const guardia = /anyPermissionGuard\(([^)]*)\)/.exec(tramo as string)?.[1] ?? '';
     const llaves = guardia.split(',').map((x) => x.trim().replace('Permission.', '')).filter(Boolean).sort();
     expect(llaves).toEqual([...(PROVEEDORES_TABS[1].anyOf ?? [])].map(String).sort());
+  });
+
+  it('[PQ.3.10] Acuerdos: con las MISMAS llaves que Citas (DC44, sin llaves nuevas) y su ruta pide las mismas (sin rebote)', () => {
+    const tab = PROVEEDORES_TABS.find((x) => x.route === '/compras/acuerdos');
+    expect(tab?.label).toBe('Acuerdos');
+    expect([...(tab?.anyOf ?? [])].map(String).sort()).toEqual([...(PROVEEDORES_TABS[1].anyOf ?? [])].map(String).sort());
+    // Hay otra ruta «acuerdos» (Mercadotecnia, /comercial/acuerdos): se toma la que carga la pantalla de Compras.
+    const tramo = RUTAS.split(/(?=path: ')/).find((x) => x.startsWith("path: 'acuerdos'") && x.includes('compras-acuerdos.component'));
+    expect(tramo, 'no hay ruta «acuerdos» en app.routes.ts').toBeTruthy();
+    expect(tramo).toContain('compras-acuerdos.component');
+    const guardia = /anyPermissionGuard\(([^)]*)\)/.exec(tramo as string)?.[1] ?? '';
+    const llaves = guardia.split(',').map((x) => x.trim().replace('Permission.', '')).filter(Boolean).sort();
+    expect(llaves).toEqual([...(tab?.anyOf ?? [])].map(String).sort());
   });
 
   it('el Calendario vive en UN solo apartado y la pestaña de Parámetros conserva su ruta', () => {

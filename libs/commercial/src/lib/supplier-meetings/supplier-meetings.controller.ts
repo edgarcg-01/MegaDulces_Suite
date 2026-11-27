@@ -4,14 +4,15 @@ import type {
   AgendaCitas, AgendarReunionDto, CancelarReunionDto, DetalleReunion, MinutaReunionDto, OpcionesCitas, ProveedoresCitas, ReunionGuardada,
 } from '@megadulces/contracts';
 import { Permission, RequireAnyPermission, RequirePermissions } from '@megadulces/platform-core';
+import type { Quien } from './supplier-meetings.repo';
 import { SupplierMeetingsService } from './supplier-meetings.service';
 
-interface Sesion {
+export interface Sesion {
   user?: { sub?: string; username?: string };
 }
 
-/** Quién escribe, del JWT. Sin usuario no se adivina: se rechaza antes de tocar la base. */
-const quien = (req: Sesion) => {
+/** Quién escribe, del JWT. Sin usuario no se adivina: se rechaza antes de tocar la base. `[PQ.3.10]` Acuerdos la usa también. */
+export const quien = (req: Sesion): Quien => {
   const userId = String(req?.user?.sub ?? '');
   if (!userId) throw new BadRequestException('No sabemos quién eres: vuelve a entrar.');
   return { userId, username: req?.user?.username ?? null };

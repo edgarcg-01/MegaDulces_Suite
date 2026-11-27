@@ -31,6 +31,9 @@ describe('FichasClientesComponent — [CC.20]', () => {
       rechazar: vi.fn(() => of({ id: 'f1', status: 'rechazado' })),
       // `[CC.31]` Por omision ninguna cuadra: una prueba que quiera la propuesta la pone.
       facturasQueCuadran: vi.fn(() => of({ modo: 'parcial', monto: 100, facturas: [] })),
+      // `[CC.33]` Por omision la sucursal esta APAGADA: el boton de registrar no se ofrece salvo que la prueba lo encienda.
+      cobroHabilitado: vi.fn(() => of({ habilitado: false, motivo: 'apagado en la prueba' })),
+      escribirCobro: vi.fn(() => of({ estado: 'escrito', kepler: { sucursal: '06', folio: '0000900', caja: '30004', poliza: 1, tablaPoliza: 'kdc22611', facturas: 1, total: 100, saldos: [], timbrado: false } })),
     };
   });
   function crear() {
@@ -219,5 +222,60 @@ describe('FichasClientesComponent — [CC.20]', () => {
     const f = crear();
     expect(txt(f)).toContain('Falta capturar el cobro en Kepler');
     expect(txt(f)).not.toContain('Cuadra con');
+  });
+
+  // -- [CC.33] Registrar el cobro en Kepler DESDE LA PANTALLA ----------------------------------
+  const esperaCobro = () => ficha({ cliente_code: 'C1', cuenta_sucursal: '06', banco: banco({ estado: 'sin_aplicar', cobro: null, abonos: [{ id: 'a1', monto: 100, declarado: 'C1', cobros: [] }] }) });
+
+  it('17 . [CC.33] si la sucursal esta APAGADA no se ofrece el boton', () => {
+    svc['cobroHabilitado'] = vi.fn(() => of({ habilitado: false, motivo: 'apagado' }));
+    conFichas([esperaCobro()]);
+    const f = crear();
+    expect(txt(f)).not.toContain('Registrar el cobro en Kepler');
+  });
+
+  it('18 . [CC.33] encendida, el boton aparece (el control de la anterior)', () => {
+    svc['cobroHabilitado'] = vi.fn(() => of({ habilitado: true }));
+    conFichas([esperaCobro()]);
+    const f = crear();
+    expect(txt(f)).toContain('Registrar el cobro en Kepler');
+  });
+
+  it('19 . [CC.33] al registrar manda la factura que cuadra al centavo', () => {
+    svc['cobroHabilitado'] = vi.fn(() => of({ habilitado: true }));
+    svc['facturasQueCuadran'] = vi.fn(() => of({ modo: 'exacta', monto: 15539.63, facturas: [{ doc_code: 'UD0801', folio: '0001446', importe: 15539.63, saldo: 15539.63, fecha: '2026-11-18', vencimiento: null }] }));
+    conFichas([esperaCobro()]);
+    const f = crear();
+    f.componentInstance.registrarCobro(f.componentInstance.datos()!.fichas[0]);
+    expect(svc['escribirCobro']).toHaveBeenCalledWith('f1', [{ doc_code: 'UD0801', folio: '0001446', monto: 15539.63 }]);
+  });
+
+  it('20 . [CC.33] si NO cuadra una sola, no elige: manda undefined y decide el servidor', () => {
+    svc['cobroHabilitado'] = vi.fn(() => of({ habilitado: true }));
+    svc['facturasQueCuadran'] = vi.fn(() => of({ modo: 'una_de_varias', monto: 500, facturas: [] }));
+    conFichas([esperaCobro()]);
+    const f = crear();
+    f.componentInstance.registrarCobro(f.componentInstance.datos()!.fichas[0]);
+    expect(svc['escribirCobro']).toHaveBeenCalledWith('f1', undefined);
+  });
+
+  it('21 . [CC.33] el aviso NUNCA dice listo: dice que falta el timbre', () => {
+    svc['cobroHabilitado'] = vi.fn(() => of({ habilitado: true }));
+    conFichas([esperaCobro()]);
+    const f = crear();
+    f.componentInstance.registrarCobro(f.componentInstance.datos()!.fichas[0]);
+    f.detectChanges();
+    const aviso = f.componentInstance.avisoCobro('f1') || '';
+    expect(aviso).toContain('0000900');
+    expect(aviso).toContain('Falta timbrarlo');
+  });
+
+  it('22 . [CC.33] si Kepler lo rechaza, el motivo queda en la fila', () => {
+    svc['cobroHabilitado'] = vi.fn(() => of({ habilitado: true }));
+    svc['escribirCobro'] = vi.fn(() => of({ estado: 'rechazado', motivo: 'El cliente no tiene un cobro anterior', reintentable: false }));
+    conFichas([esperaCobro()]);
+    const f = crear();
+    f.componentInstance.registrarCobro(f.componentInstance.datos()!.fichas[0]);
+    expect(f.componentInstance.avisoCobro('f1')).toContain('no tiene un cobro anterior');
   });
 });

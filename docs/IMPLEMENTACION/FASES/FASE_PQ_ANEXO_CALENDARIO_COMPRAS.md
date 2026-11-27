@@ -3,7 +3,7 @@
 > Anexo de [`FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md`](FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md), frente **F2** (agenda de
 > proveedores). Reemplaza el alcance de **PQ.3** y lo parte en **PQ.3.1–PQ.3.14**; absorbe la pestaña Ciclo
 > de **PQ.4** y la fuente del aviso de **PQ.5**. Método: [`METODO_DE_TRABAJO.md`](../../METODO_DE_TRABAJO.md).
-> Las decisiones de este anexo se numeran **DC1–DC40** para no confundirlas con las D del plan base.
+> Las decisiones de este anexo se numeran **DC1–DC46** para no confundirlas con las D del plan base.
 > ⭐ **Cómo se revisa (reglas por alcance: corporativo, zona o sucursal) y las visitas por WhatsApp: §10.**
 > ⭐ **El apartado se llama «Proveedores» (DC32, 2026-11-24): Calendario · Citas · Revisión · Acuerdos · Listas de
 > precios. Cómo quedó en el menú y qué apartado es cada item: §10.14.**
@@ -161,6 +161,10 @@ Ciclo de Pedido: una sola agenda.
 | DC41 | **Quién entra a Citas** (PQ.3.8, §10.19): agendan **Compras** (gerencia, compras, Compras Morelia y auxiliares: 10 personas), **Mercadotecnia** (4) y **Tesorería** (1); **Dirección** (3) consulta. Encargados de tienda y almacenistas **no**: su trato con el proveedor es la entrega y el pedido del Calendario. Una sola agenda para todos (DC9). Llaves `COMPRAS_CITAS_VER` y `COMPRAS_CITAS_AGENDAR` | ✅ Francisco, 2026-11-26 («sin tiendas») |
 | DC42 | **La invitación por correo (PQ.3.12) espera al final del módulo Proveedores**, y la conexión con Gmail la afina Edgar. Mientras, Citas agenda sin mandar invitación. Medido ese día (§9.5): el correo de la Suite nunca ha salido (Google rechaza los 79 intentos por falta de contraseña de aplicación) y sólo 1 de las 18 personas de Citas tiene correo registrado | ✅ Francisco, 2026-11-26 («lo dejamos pendiente») |
 | DC40 | **La requisición de compra de la Suite atiende la revisión, en la sucursal a la que va** (PQ.3.29, §10.18): cuenta desde que se crea —cualquier estado menos borrador y cancelada—, el día en que se creó, en la sucursal DESTINO de cada renglón (sin destino, la que emite), sin esperar la OC de Kepler. No escribe marcas: el calendario la lee; si se cancela, deja de contar sola. Feedback de Compras del 2026-11-25: «cuando revisen el proveedor y salga requisición, que lo marque como revisado» | ✅ Francisco, 2026-11-25 («desde que se crea») |
+| DC43 | **El acuerdo que le toca al proveedor lo sigue quien organizó la cita** (PQ.3.10, §10.20): se guarda el nombre de la persona del proveedor y el pendiente le aparece en «Mi trabajo» al organizador de la reunión. Ningún acuerdo queda sin dueño en la Suite | ✅ Francisco, 2026-11-26 |
+| DC44 | **Los acuerdos los manejan los que agendan Citas** (PQ.3.10): crean, cambian y cierran los 7 roles con `COMPRAS_CITAS_AGENDAR`; Dirección (sólo `COMPRAS_CITAS_VER`) los ve. Sin llaves nuevas: nadie vuelve a entrar. Cada responsable cierra el suyo con una nota | ✅ Francisco, 2026-11-26 |
+| DC45 | **Un acuerdo siempre sale de una reunión** (PQ.3.10, DC34): la reunión es la raíz. Para un acuerdo de una llamada rápida se agenda la cita y se marca realizada | ✅ Francisco, 2026-11-26 |
+| DC46 | **Las ligas por área van en un segundo tramo** (PQ.3.10): primero el acuerdo con su área, responsable, fecha, estado y cierre con nota, en «Mi trabajo»; las ligas (Mercadotecnia → MKTN001, Finanzas → condición de pago, Compras → ciclo, mínimo o precio) después, una por una y medidas | ✅ Francisco, 2026-11-26 |
 | DC39 | **Se retira `import-supplier-params.js`**: el ciclo del motor y el pedido típico salen de una vista derivada de Kepler (regla 1, cero importers). Los valores que nadie sabe quién puso (172 ciclos y 255 mínimos «desconocido») no se promueven a «mínimo pactado»: se declaran y se le muestran a Compras para que capture los reales (PQ.3.25) | 🟡 Claude, 2026-11-25 (técnica, por regla 1) |
 
 ### 4.1 Quién entra (DC6), medido contra los roles de prod
@@ -281,6 +285,7 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | 2026-11-24 | **PQ.3.17 🧪** (§10.13): quién definió, quién cambió y de qué a qué, sin tabla propia: las reglas se suman a `analytics.master_data_history` con un disparador (mig `20261124231747`), cada escritura declara quién, y sin disparador el historial se declara no medido. 13 ✓ contra Postgres real, 8 mutantes en rojo. Falta la prueba visual y su PR (después del de (c)) | sesión Claude |
 | 2026-11-25 | **PQ.3.17 · prueba visual ✔** (§10.13): dos gerencias escriben por pantalla sobre la misma regla y el detalle dice las dos, con el de qué a qué; escritorio, Fold 7, celular y oscuro; sin el disparador, la pantalla lo declara. 40/40; con (c) en la misma corrida, lo de un alta en bloque ya no sale como «Cambios». Va en el mismo PR que (c) | sesión Claude |
 | 2026-11-25 | **DC40 ✅ · PQ.3.29 🧪** (§10.18): feedback de Compras —que la requisición marque al proveedor como revisado—. Medido: la compra sale de una sucursal y va a otras (253 de 425 requisiciones en 30 días), así que la OC de Kepler no caía en la sucursal de la regla; las 4 marcas «se pidió fuera de Kepler» de 30 días tenían su requisición. La requisición cuenta desde que se crea, en la sucursal destino. Antes/después en prod: «toca hoy» 1 → 0 y «sin ancla» 1 → 0 | Francisco (feedback de Compras) + sesión Claude |
+| 2026-11-26 | **DC43–DC46 ✅ · PQ.3.10 🔨** (§10.20): Francisco decidió los acuerdos —el del proveedor lo sigue el organizador de la cita, los manejan los que agendan Citas, siempre salen de una reunión y las ligas por área van después—. El acuerdo es la novena fuente del contrato único de tareas (ADR-128). Medido antes de construir: 0 citas en prod (Citas salió el 2026-11-26) |
 
 ---
 
@@ -1756,3 +1761,43 @@ de antes de la migración.
   - `[PQ.3.18.c3]` La fecha del diálogo sale de la carga de la pantalla: abierta pasada la medianoche promete un día
     antes; el aviso final dice la fecha real del servidor.
 - **Falta:** el merge (va en el mismo PR que (c)), la migración `20261124231747` antes de soltar y verlo en prod.
+
+### 10.20 Acuerdos: lo que se decide en una reunión, con dueño y fecha (PQ.3.10 · DC43–DC46 · ADR-128 · 2026-11-26)
+
+**Para qué.** Una reunión con el proveedor termina en compromisos: «el proveedor manda su lista el viernes», «Finanzas
+revisa el plazo de pago», «Mercadotecnia arma la exhibición de diciembre». Hoy se pierden en un correo o en la libreta.
+Un acuerdo es **un compromiso con dueño, fecha y cierre**, que le aparece a su responsable en «Mi trabajo» y con el que
+abre la reunión siguiente.
+
+**Medido antes de construir** (pg-prod 7688376744939610156, sólo lectura, 2026-11-26): Citas salió el 2026-11-26 y tiene
+**0 reuniones** guardadas; sus llaves llegaron a 18 personas, que tienen que volver a entrar. Acuerdos se construye sobre
+una pantalla que todavía nadie usó: la primera medición de uso real es de Citas, no de Acuerdos.
+
+**El dato (C0) — `commercial.supplier_agreements`, dato propio** (las reuniones no dejan rastro en Kepler):
+- `meeting_id` **obligatorio** (DC45), con llave compuesta `(tenant_id, meeting_id)` a `supplier_meetings`. El
+  proveedor **no se copia**: se deriva de la reunión (ADR-056).
+- `area`: `compras` · `marketing` · `finanzas` · `direccion` (las de los participantes de Citas) · `supplier` (el
+  proveedor). `description`: qué se acordó, en una línea larga (no vacía).
+- `assigned_to` (uuid, **siempre** una persona de la Suite): el responsable. Si el área es `supplier`, es quien organizó
+  la cita (DC43) y `supplier_contact` guarda el nombre de la persona del proveedor (obligatorio en ese caso, prohibido en
+  los demás: CHECK).
+- `assigned_by` (uuid) y `assigned_at`; `due_date` (fecha compromiso, obligatoria).
+- `status` en el canónico del contrato: `pending` · `in_progress` · `done` · `cancelled`. **Cerrar exige nota**:
+  `done`/`cancelled` ⇔ `closed_at`, `closed_by` y `closing_note` no vacía (CHECK).
+- `tenant_id` + RLS por tenant; `app_runtime` lee, inserta y actualiza, **no borra** (un acuerdo se cancela).
+
+**La regla (C1).** Sólo una reunión **realizada** (con minuta) recibe acuerdos: lo acordado sale de lo que pasó, y la
+minuta ya la exige Citas para marcarla realizada. Una cancelada no recibe. El responsable interno se elige entre las
+personas que AGENDAN Citas (DC44: cada responsable cierra el suyo; quien sólo ve no podría); el del proveedor lo pone el servidor (el organizador), no la pantalla. Cambiar responsable o
+fecha deja quién y cuándo.
+
+**Mi trabajo (ADR-128).** `commercial.supplier_agreements` es la **novena** fuente de `FUENTES_TAREA` (`[OR.4]`), con
+su adaptador (sin dialecto: ya guarda el canónico) y su entrada en «Mi trabajo» que lleva a Proveedores › Acuerdos. Sin
+quinta tabla de tareas: el acuerdo ES la tarea de su responsable, como el ticket de la Mesa (ADR-081) y el vale (MDT).
+
+**Lo que NO hace este tramo** (DC46): las ligas por área; el plan de trabajo anual (`[PQ.3.11]`); avisos por correo o
+WhatsApp; acuerdos sin reunión.
+
+**El orden:** C0 (tabla, prueba contra Postgres real con negativas y mutantes) → C1 (dominio) → C2 (API con las llaves de
+Citas, DC44) → C3 (la pestaña «Acuerdos»: vencidos y de la semana primero, por área, con la reunión de origen; y en el
+detalle de cada cita, sus acuerdos). Antes de C3, las preguntas de la skill `diseno` §0a por escrito.

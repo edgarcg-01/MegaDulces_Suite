@@ -98,6 +98,23 @@ export class FichasClientesService {
     return this.http.get<FacturasQueCuadran>(`${this.base}/${encodeURIComponent(id)}/facturas-que-cuadran`);
   }
 
+  /**
+   * `[CC.33]` Si en esta sucursal se puede registrar el cobro desde la Suite. Se pregunta ANTES de ofrecer el
+   * boton: un boton que falla ensena a desconfiar de todos.
+   */
+  cobroHabilitado(sucursal: string): Observable<{ habilitado: boolean; motivo?: string }> {
+    return this.http.get<{ habilitado: boolean; motivo?: string }>(`${this.base}/cobro/habilitado/${encodeURIComponent(sucursal)}`);
+  }
+
+  /**
+   * `[CC.33]` ⭐⭐ **Registra el cobro en Kepler.** Escribe el documento con su renglon de cartera, sus
+   * aplicaciones y su poliza. ⛔ **No timbra**: el complemento de pago lo emite el programa de Kepler, y el
+   * resultado lo dice (`timbrado: false`).
+   */
+  escribirCobro(id: string, facturas?: { doc_code: string; folio: string; monto: number }[]): Observable<ResultadoCobro> {
+    return this.http.post<ResultadoCobro>(`${this.base}/${encodeURIComponent(id)}/escribir-cobro`, { facturas });
+  }
+
   candidatos(id: string): Observable<{ cobros: CobroCandidato[] }> {
     return this.http.get<{ cobros: CobroCandidato[] }>(`${this.base}/${encodeURIComponent(id)}/candidatos`);
   }
@@ -128,3 +145,24 @@ export interface FacturasQueCuadran {
   monto: number;
   facturas: FacturaQueCuadra[];
 }
+
+/**
+ * `[CC.33]` Lo que contesta registrar el cobro en Kepler. ⛔ `timbrado` siempre llega en `false`: escribir las
+ * tablas no emite el complemento de pago — eso lo hace el programa de Kepler. El tipo lo lleva encima para que
+ * ninguna pantalla pueda decir «listo» sin decir tambien que falta el timbre.
+ */
+export interface CobroEscritoEnKepler {
+  sucursal: string;
+  folio: string;
+  caja: string;
+  poliza: number;
+  tablaPoliza: string;
+  facturas: number;
+  total: number;
+  saldos: { factura: string; antes: number; aplicado: number; despues: number }[];
+  timbrado: false;
+}
+export type ResultadoCobro =
+  | { estado: 'escrito'; ya_estaba?: boolean; kepler: CobroEscritoEnKepler }
+  | { estado: 'apagado'; motivo: string }
+  | { estado: 'rechazado'; motivo: string; reintentable: boolean };

@@ -31,11 +31,13 @@ import {
   type WarehouseFixture,
 } from '@megadulces/contracts';
 import { almacenDeUbicaciones, contextoDeAlcance } from './warehouse-locations-scope';
+import { ARBITRO_CARA_POR_SLOT } from './warehouse-fixtures.arbitros';
 
 // Los tipos del contrato HTTP viven en `contracts`, no acá: la pantalla los necesita y una app de
 // Angular no puede importar del backend.
 
 const COLUMNAS = ['id', 'warehouse_id', 'zona', 'tipo', 'pasillo', 'racks', 'niveles', 'fila', 'columna', 'orden', 'label'] as const;
+
 
 /**
  * `[UB.PL]` El croquis de una sucursal: las **piezas** (muebles) de un almacén y su lugar.
@@ -314,7 +316,13 @@ export class WarehouseFixturesService {
       racks_modo: modo,
     }));
     if (!filas.length) return;
-    await trx('commercial.warehouse_fixture_faces').insert(filas).onConflict(['tenant_id', 'fixture_id', 'slot']).ignore();
+    // ⛔ [UB.PL.14] El predicado va DENTRO del ON CONFLICT, y no es un adorno: `commercial_faces_
+    // slot_unico` es un indice PARCIAL (`WHERE deleted_at IS NULL`), y Postgres solo lo acepta como
+    // arbitro si la clausula repite el MISMO predicado. Sin el, cada alta de pieza moria con
+    // «there is no unique or exclusion constraint matching the ON CONFLICT specification» -- un 500
+    // que estuvo vivo en prod desde [UB.PL.12] y que nadie vio porque el boton que lo dispara
+    // estaba escondido. Lo destapo [UB.PL.13], que volvio a hacerlo apretable.
+    await trx('commercial.warehouse_fixture_faces').insert(filas).onConflict(trx.raw(ARBITRO_CARA_POR_SLOT)).ignore();
   }
 
   /**

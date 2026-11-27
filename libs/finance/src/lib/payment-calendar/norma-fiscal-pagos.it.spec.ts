@@ -15,6 +15,7 @@ import { createRequire } from 'node:module';
 import { resolve as resolvePath } from 'node:path';
 import knexFactory, { type Knex } from 'knex';
 import { PaymentCalendarService, keplerPayableId } from './payment-calendar.service';
+import { FacturasFueraDeNormaService } from './facturas-fuera-de-norma.service';
 
 const URL = process.env.TP_IT_DB ?? '';
 const PROD_SYSTEM_ID = '7688376744939610156';
@@ -54,6 +55,7 @@ suite('[PGP.225] el freno fiscal del Calendario contra Postgres real (transacci�
   let knex: Knex;
   let trx: Knex.Transaction;
   let cal: PaymentCalendarService;
+  let bandeja: FacturasFueraDeNormaService;
   let origen = '';
 
   const kid = (folio: string) => keplerPayableId('08', 20, 1, folio);
@@ -100,6 +102,7 @@ suite('[PGP.225] el freno fiscal del Calendario contra Postgres real (transacci�
 
     const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
     cal = new PaymentCalendarService(tk as never, { requireTenantId: () => M } as never);
+    bandeja = new FacturasFueraDeNormaService(tk as never, { requireTenantId: () => M } as never);
 
     await trx('kepler_ods.kdxd').insert({ sucursal: '00', c2: PROV, c3: 'NFIT PROVEEDOR DE PRUEBA', c13: '001' });
     await trx('catalog.suppliers').insert({ tenant_id: M, code: PROV, name: 'NFIT PROVEEDOR DE PRUEBA', activo: true });
@@ -126,6 +129,19 @@ suite('[PGP.225] el freno fiscal del Calendario contra Postgres real (transacci�
       source: 'contpaqi_add', guardada: '2030-05-01 03:00:00+00' });      // timbrada el 1-may a las 03:00 de México
     await factura('NFIT-PUE-SAT', 17400, '2030-04-30', { uuid: 'aaaa000c-0000-4000-8000-00000000000c', metodo: 'PUE', forma: '03', estatus: 'vigente',
       source: 'descarga_masiva', guardada: '2030-05-01 02:00:00+00' });   // instante real: el 30-abr a las 20:00 de México
+    // `[PGP.229]` La bandeja: una con otro régimen (en MAYÚSCULAS, como prod) y una del IMSS (excepción por regla).
+    await factura('NFIT-REG', 18560, '2030-04-19', { uuid: 'AAAA000D-0000-4000-8000-00000000000D', metodo: 'PPD', forma: '99', estatus: 'vigente', regimen: '606' });
+    await trx('fiscal.cfdis').insert({
+      tenant_id: M, uuid: 'AAAA000E-0000-4000-8000-00000000000E', rol: 'recibidas', tipo_comprobante: 'I', source: 'contpaqi_add', estatus_sat: 'vigente',
+      emisor_rfc: 'IMS421231I45', total: 19720, fecha: '2030-04-21 12:00:00+00', metodo_pago: 'PPD', forma_pago: '99',
+      receptor_uso_cfdi: 'G03', receptor_regimen: '606', emisor_regimen: '606',
+    });
+    // Una S01 sin pago ni decisión (sin documento en Kepler: nadie la programa).
+    await trx('fiscal.cfdis').insert({
+      tenant_id: M, uuid: 'AAAA000F-0000-4000-8000-00000000000F', rol: 'recibidas', tipo_comprobante: 'I', source: 'contpaqi_add', estatus_sat: 'vigente',
+      emisor_rfc: RFC, total: 20880, fecha: '2030-04-22 12:00:00+00', metodo_pago: 'PPD', forma_pago: '99',
+      receptor_uso_cfdi: 'S01', receptor_regimen: '612', emisor_regimen: '601',
+    });
   }, 120_000);
 
   afterAll(async () => {
@@ -174,13 +190,20 @@ suite('[PGP.225] el freno fiscal del Calendario contra Postgres real (transacci�
     expect((await cal.authorize(id, DIR, '2030-04-29')).authorized_by).toBe(DIR);
   });
 
-  it('S01 sin decisión todavía pasa (la pantalla para decidir llega con PGP.229): programar y autorizar', async () => {
-    // ⛔ La decisión de OTRO tenant no cuenta.
+  it('⭐ [PGP.229] S01 sin decisión: se programa, no se autoriza y el 409 dice dónde decidir; con «se usa», sale', async () => {
+    // ⛔ La decisión de OTRO tenant no cuenta (ni para detener ni para soltar).
     await trx('finance.cfdi_norm_authorizations').insert({
       tenant_id: '00000000-0000-0000-0000-0000000000ff', cfdi_uuid: 'aaaa0005-0000-4000-8000-000000000005', norm_rule: 'sin_efectos_fiscales',
-      decision: 'no_se_usa', reason: 'De otro tenant', created_by: 'nf_it_otro',
+      decision: 'se_usa', reason: 'De otro tenant', created_by: 'nf_it_otro',
     });
     const id = await preparado('2030-04-30', 'NFIT-S01', 8120);
+    await expect(cal.authorize(id, DIR, '2030-04-29'))
+      .rejects.toThrow('Uso S01 (sin efectos fiscales): necesita la autorización de Administración o Contabilidad (decídela en Finanzas › Facturas fuera de norma)');
+    expect((await trx('finance.payment_allocations').where({ id }).first()).authorized_at).toBeNull();
+    await trx('finance.cfdi_norm_authorizations').insert({
+      tenant_id: M, cfdi_uuid: 'aaaa0005-0000-4000-8000-000000000005', norm_rule: 'sin_efectos_fiscales',
+      decision: 'se_usa', reason: 'Gasto de la empresa, se acepta', created_by: 'nf_it_contabilidad',
+    });
     expect((await cal.authorize(id, DIR, '2030-04-29')).authorized_by).toBe(DIR);
   });
 
@@ -258,5 +281,78 @@ suite('[PGP.225] el freno fiscal del Calendario contra Postgres real (transacci�
     await decidir({ cfdi_uuid: 'aaaa0008-0000-4000-8000-000000000008', decision: 'se_usa', reason: 'Para la prueba del down' });
     await migracion(MIG_AUTORIZACIONES).down(trx);              // hay decisiones: se conserva
     expect((await trx.raw(`SELECT to_regclass('finance.cfdi_norm_authorizations') AS r`)).rows[0].r).not.toBeNull();
+  });
+
+  // ─── [PGP.229] La bandeja «Facturas fuera de norma»: leer, decidir y revocar con el payload de la pantalla ──────
+  const REG = 'AAAA000D-0000-4000-8000-00000000000D';
+  const IMSS = 'AAAA000E-0000-4000-8000-00000000000E';
+  const SUELTA = 'AAAA000F-0000-4000-8000-00000000000F';
+  const enLaBandeja = async (uuid: string) => {
+    const b = await bandeja.bandeja('2030-04-26');
+    const u = uuid.toLowerCase();
+    return { por: b.por_decidir.find((f) => f.uuid.toLowerCase() === u), hecha: b.decididas.find((f) => f.uuid.toLowerCase() === u), b };
+  };
+
+  it('⭐ [PGP.229] la factura con otro régimen en un pago: por decidir, con su pago; la del IMSS no aparece', async () => {
+    const id = await preparado('2030-04-30', 'NFIT-REG', 18560);
+    const { por, hecha, b } = await enLaBandeja(REG);
+    expect(hecha).toBeUndefined();
+    expect(por?.por_decidir).toEqual(['regimen']);
+    expect(por?.uuid).toBe(REG);                                         // como está en fiscal.cfdis
+    expect(por?.pagos).toEqual([{ allocation_id: id, fecha: '2030-04-30', folio: null, autorizado: false }]);
+    expect(b.desde).toBe('2029-01-01');
+    expect(b.por_decidir.some((f) => f.uuid === IMSS) || b.decididas.some((f) => f.uuid === IMSS)).toBe(false);
+    // ⛔ Aunque sea vieja (antes de `desde`), si está en un pago aparece: nada de lo que el freno detiene queda sin salida.
+    expect(b.por_decidir.find((f) => f.uuid === SUELTA)?.pagos).toEqual([]);   // control: S01 sin pago, dentro de la ventana
+    const despues = await bandeja.bandeja('2032-06-01');
+    expect(despues.desde).toBe('2031-01-01');
+    expect(despues.por_decidir.some((f) => f.uuid === REG)).toBe(true);
+    expect(despues.por_decidir.some((f) => f.uuid === SUELTA)).toBe(false);    // sin pago ni decisión, fuera de la ventana: ya no
+    // Sin decisión, el pago no se autoriza y el 409 dice dónde decidir.
+    await expect(cal.authorize(id, DIR, '2030-04-29')).rejects.toThrow(/con régimen 606, no 612: necesita la autorización de Administración o Contabilidad, o que el emisor la vuelva a timbrar \(decídela en Finanzas › Facturas fuera de norma\)/);
+  });
+
+  it('⛔ [PGP.229] decidir rechaza lo que no se puede decidir, y no escribe nada', async () => {
+    const n0 = Number((await trx('finance.cfdi_norm_authorizations').where({ tenant_id: M }).count('* as n'))[0].n);
+    await expect(bandeja.decidir(REG, { regla: 'sin_efectos_fiscales', decision: 'se_usa', motivo: 'No aplica' }, 'nf_it_conta'))
+      .rejects.toThrow('Esta factura no pide decisión por uso S01 (sin efectos fiscales)');
+    await expect(bandeja.decidir(IMSS, { regla: 'regimen', decision: 'se_usa', motivo: 'Es el IMSS' }, 'nf_it_conta'))
+      .rejects.toThrow('Esta factura no pide decisión por régimen distinto de 612');
+    await expect(bandeja.decidir(REG, { regla: 'cancelada' as never, decision: 'se_usa', motivo: 'Intento' }, 'nf_it_conta')).rejects.toThrow('Di qué se decide');
+    await expect(bandeja.decidir(REG, { regla: 'regimen', decision: 'tal_vez' as never, motivo: 'Intento' }, 'nf_it_conta')).rejects.toThrow('Di si la factura se usa');
+    await expect(bandeja.decidir(REG, { regla: 'regimen', decision: 'se_usa', motivo: ' . ' }, 'nf_it_conta')).rejects.toThrow('Escribe el motivo');
+    await expect(bandeja.decidir(REG, { regla: 'regimen', decision: 'se_usa', motivo: 'Válido' }, '  ')).rejects.toThrow('No se sabe quién decide');
+    await expect(bandeja.decidir('no-es-uuid', { regla: 'regimen', decision: 'se_usa', motivo: 'Válido' }, 'nf_it_conta')).rejects.toThrow('El UUID no es válido');
+    await expect(bandeja.decidir('aaaaffff-0000-4000-8000-000000000000', { regla: 'regimen', decision: 'se_usa', motivo: 'Válido' }, 'nf_it_conta'))
+      .rejects.toThrow('No encuentro esa factura recibida');
+    expect(Number((await trx('finance.cfdi_norm_authorizations').where({ tenant_id: M }).count('* as n'))[0].n)).toBe(n0);
+  });
+
+  it('⭐ [PGP.229] «se usa» con el payload de la pantalla: pasa a decididas y el pago ya se autoriza; dos veces no', async () => {
+    // El UUID llega como lo muestra la pantalla (en mayúsculas); se guarda en minúsculas.
+    const d = await bandeja.decidir(REG, { regla: 'regimen', decision: 'se_usa', motivo: 'CFE timbra con 606: se acepta' }, 'nf_it_conta');
+    expect(d).toMatchObject({ regla: 'regimen', decision: 'se_usa', motivo: 'CFE timbra con 606: se acepta', por: 'nf_it_conta' });
+    expect((await trx('finance.cfdi_norm_authorizations').where({ id: d.id }).first()).cfdi_uuid).toBe(REG.toLowerCase());
+    const { por, hecha } = await enLaBandeja(REG);
+    expect(por).toBeUndefined();
+    expect(hecha?.decisiones.map((x) => `${x.regla}:${x.decision}:${x.por}`)).toEqual(['regimen:se_usa:nf_it_conta']);
+    await expect(bandeja.decidir(REG, { regla: 'regimen', decision: 'no_se_usa', motivo: 'Otra firma' }, 'nf_it_direccion'))
+      .rejects.toThrow(/Ya la decidió nf_it_conta el .* \(se usa\): revócala para cambiarla/);
+    const pago = await trx('finance.payment_allocations as a').join('finance.payment_allocation_items as i', 'i.allocation_id', 'a.id')
+      .where({ 'i.obligation_id': kid('NFIT-REG'), 'a.status': 'pending' }).first('a.id');
+    expect((await cal.authorize(pago.id, DIR, '2030-04-29')).authorized_by).toBe(DIR);
+    expect((await enLaBandeja(REG)).hecha?.pagos[0].autorizado).toBe(true);
+  });
+
+  it('⭐ [PGP.229] revocar: vuelve a pedir decisión, queda quién y por qué, y otra vez no', async () => {
+    const viva = await trx('finance.cfdi_norm_authorizations').where({ tenant_id: M, cfdi_uuid: REG.toLowerCase() }).whereNull('revoked_at').first();
+    await expect(bandeja.revocar(viva.id, { motivo: '' }, 'nf_it_direccion')).rejects.toThrow('Escribe el motivo');
+    expect(await bandeja.revocar(viva.id, { motivo: 'Contabilidad pide que la re-timbren' }, 'nf_it_direccion')).toEqual({ id: viva.id, revocada: true });
+    const fila = await trx('finance.cfdi_norm_authorizations').where({ id: viva.id }).first();
+    expect([fila.revoked_by, fila.revoke_reason]).toEqual(['nf_it_direccion', 'Contabilidad pide que la re-timbren']);
+    expect((await enLaBandeja(REG)).por?.por_decidir).toEqual(['regimen']);
+    await expect(bandeja.revocar(viva.id, { motivo: 'Otra vez' }, 'nf_it_direccion')).rejects.toThrow('Esa decisión no existe o ya se revocó');
+    // Y se puede decidir de nuevo.
+    expect((await bandeja.decidir(REG, { regla: 'regimen', decision: 'no_se_usa', motivo: 'No se acepta sin re-timbrar' }, 'nf_it_direccion')).decision).toBe('no_se_usa');
   });
 });
