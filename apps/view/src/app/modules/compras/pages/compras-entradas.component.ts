@@ -57,7 +57,7 @@ import { DocViewerComponent, DocViewerFile } from '../../../shared/components/do
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { branchName } from '../../../core/constants/store-branches';
-import { DataScopeService } from '../../../core/services/data-scope.service';
+import { DataScopeService, puedeEscribirEn } from '../../../core/services/data-scope.service';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 
@@ -423,7 +423,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
               </td>
               <td>
                 @if (verDescartadas()) {
-                  @if (canValidate()) {
+                  @if (puedeDecidirEn(c.sucursal)) {
                     <button pButton type="button" size="small" text severity="secondary"
                             [loading]="descartando() === clave(c)" [disabled]="!!descartando()"
                             (click)="reactivar(c)" title="Vuelve al proceso: apareció la factura">
@@ -450,7 +450,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                       } @else if (c.deposit_status === 'rechazado') {
                         <span class="cb-valida-hecho"><i class="pi pi-times-circle" aria-hidden="true"></i> Devuelta</span>
                       }
-                      @if (c.deposit_status !== 'validado') {
+                      @if (c.deposit_status !== 'validado' && puedeDecidirEn(c.sucursal)) {
                         <button pButton type="button" size="small" text severity="success"
                                 [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()"
                                 (click)="confirmarValidar(c)"
@@ -458,7 +458,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                           <span class="p-button-icon pi pi-check" aria-hidden="true"></span>
                         </button>
                       }
-                      @if (c.deposit_status !== 'rechazado') {
+                      @if (c.deposit_status !== 'rechazado' && puedeDecidirEn(c.sucursal)) {
                         <button pButton type="button" size="small" text severity="danger" (click)="openReject(c)"
                                 [attr.aria-label]="'Devolver la remisión de la entrada ' + c.folio" title="Devolver">
                           <span class="p-button-icon pi pi-times" aria-hidden="true"></span>
@@ -468,7 +468,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                   }
                   <!-- RE.20.3 — sólo sin evidencia: si la factura ya está subida la respuesta es
                        validarla o devolverla. El server lo vuelve a comprobar. -->
-                  @if (!c.deposits && canValidate()) {
+                  @if (!c.deposits && puedeDecidirEn(c.sucursal)) {
                     <button pButton type="button" size="small" text severity="secondary"
                             (click)="openDescartar(c)" title="Nunca va a tener factura (traspaso, $0, cancelada)">
                       <span class="p-button-icon pi pi-ban" aria-hidden="true"></span>
@@ -1233,7 +1233,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
         <!-- [RE.85] La misma factura citada por otras entradas: la cadena, con el motivo de cada movimiento.
              [RE.86] Y la acción: ligar esta entrada a esa factura (o deshacer la liga), sólo con motivo. -->
         <app-compras-entrada-misma-factura class="cb-expediente" [data]="d.misma_factura" [ligada]="d.factura_compartida ?? null"
-          [puedeLigar]="canValidate() && !d.deposits.length" [puedeDesligar]="canValidate()" [enviando]="ligando()"
+          [puedeLigar]="puedeDecidirEn(d.entrada.sucursal) && !d.deposits.length" [puedeDesligar]="puedeDecidirEn(d.entrada.sucursal)" [enviando]="ligando()"
           (ligar)="ligarFactura(d, $event)" (desligar)="desligarFactura(d, $event)" />
 
         <!-- RE.2 — ajustes que EXPLICAN el descuadre (devoluciones / notas de crédito / descuentos del proveedor) -->
@@ -1367,7 +1367,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
           <div class="cb-review-acts">
             <div class="cb-acts-izq">
               <button pButton type="button" text severity="secondary" (click)="cerrarDetalleSeguro()"><span class="p-button-label">Cerrar</span></button>
-              @if (c.deposit_id && canValidate() && c.deposit_status !== 'rechazado') {
+              @if (c.deposit_id && puedeDecidirEn(c.sucursal) && c.deposit_status !== 'rechazado') {
                 <button pButton type="button" text severity="danger" (click)="openReject(c)"
                         [attr.aria-label]="'Devolver la remisión de la entrada ' + c.folio">
                   <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Devolver</span>
@@ -1388,11 +1388,15 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                 <!-- [RE.75] Última de la página: hay más, pero en la siguiente página de la lista. -->
                 <span class="muted xs">Última de esta página; hay más en la página siguiente.</span>
               }
-              @if (c.deposit_id && canValidate() && c.deposit_status !== 'validado') {
+              @if (c.deposit_id && puedeDecidirEn(c.sucursal) && c.deposit_status !== 'validado') {
                 <button pButton type="button" [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()" (click)="confirmarValidar(c)"
                         [attr.aria-label]="'Dar por buena la remisión de la entrada ' + c.folio">
                   <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Dar por buena</span>
                 </button>
+              } @else if (c.deposit_id && soloConsultaEn(c.sucursal) && c.deposit_status !== 'validado') {
+                <!-- [RE.89] Tiene el permiso, pero en esta sucursal su acceso es de consulta: se dice dónde
+                     estaría el botón, en vez de ofrecer uno que el servidor va a rechazar. -->
+                <span class="muted xs cb-solo-consulta">Sólo consulta: tu acceso no incluye validar en {{ branchName(c.sucursal) || c.sucursal }}.</span>
               } @else if (!(c.deposits > 0)) {
                 <button pButton type="button" (click)="fromDetailToAttach()"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">Adjuntar remisión</span></button>
               }
@@ -1972,9 +1976,14 @@ export class ComprasEntradasComponent {
   // aparece con los dos filtros que lo hacen seguro. Una columna de checkboxes en una tabla
   // paginada de 875 filas además miente: seleccionar "todo" selecciona la página.
 
-  /** Elegibles = lo filtrado que tiene evidencia esperando decisión. */
-  readonly loteObjetivo = computed<EntradaRow[]>(() =>
-    this.rows().filter((c) => !!c.deposit_id && c.deposit_status === 'recibido'));
+  /**
+   * Elegibles = lo filtrado que tiene evidencia esperando decisión. `[RE.89]` Y en una sucursal donde
+   * puede escribir: el servidor omite las demás una por una, y el botón prometía aprobar N.
+   */
+  readonly loteObjetivo = computed<EntradaRow[]>(() => this.rows().filter((c) => this.elegibleParaLote(c)));
+  elegibleParaLote(c: EntradaRow): boolean {
+    return !!c.deposit_id && c.deposit_status === 'recibido' && this.puedeDecidirEn(c.sucursal);
+  }
   readonly loteMonto = computed(() => this.loteObjetivo().reduce((t, c) => t + (Number(c.monto) || 0), 0));
   /**
    * El botón aparece sólo con `estado=por_validar` **y** `cuadre=cuadra`. No es cosmético: sin
@@ -2028,6 +2037,22 @@ export class ComprasEntradasComponent {
   // Validación restringida: permiso especial COMPRAS_ENTRADAS_VALIDAR (o god-mode admin).
   // GESTIONAR NO alcanza — que no todos puedan validar la evidencia.
   readonly canValidate = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
+
+  /**
+   * `[RE.89]` El permiso dice QUÉ; el alcance dice DÓNDE. Validar, devolver, descartar, reactivar,
+   * ligar la factura y el lote pasan por `exigirAlcance` en el servidor (escritura en la sucursal), y
+   * la pantalla los ofrecía con sólo el permiso: a `direccion` («ve toda la red, no escribe»,
+   * `[ID.17]`) le ponía «Dar por buena» en cada fila y cada clic era un 403. Mientras el alcance no
+   * contesta (`null`) se ofrece como antes: decide el servidor y su aviso ya trae el motivo.
+   */
+  private readonly alcanceSucursal = this.scope.alcanceSucursal();
+  puedeDecidirEn(sucursal: string | null | undefined): boolean {
+    return this.canValidate() && puedeEscribirEn(this.alcanceSucursal(), String(sucursal ?? '')) !== false;
+  }
+  /** `[RE.89]` Tiene el permiso, pero en esta sucursal sólo consulta: se DICE en el panel, no se calla. */
+  soloConsultaEn(sucursal: string | null | undefined): boolean {
+    return this.canValidate() && !this.puedeDecidirEn(sucursal);
+  }
 
   /**
    * `[RE.20.1]` — **el lente.** Las MISMAS filas contestando dos preguntas distintas:
@@ -3358,7 +3383,9 @@ export class ComprasEntradasComponent {
     this.svc.validate(c.deposit_id).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => { this.actingId.set(null); this.toast.add({ severity: 'success', summary: 'Validada', detail: `Entrada ${c.folio}` }); this.seguirTrasDecidir(c, sig); this.load(); },
-        error: () => { this.actingId.set(null); this.toast.add({ severity: 'error', summary: 'Error al validar' }); },
+        // [RE.89] El motivo del servidor va en el aviso, como en descartar, reactivar, ligar y el lote:
+        // «Error al validar» a secas no distinguía un 403 de alcance de «otra persona ya decidió».
+        error: (e) => { this.actingId.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo validar', detail: e?.error?.message || 'Intenta de nuevo.' }); },
       });
   }
 
@@ -3380,7 +3407,7 @@ export class ComprasEntradasComponent {
     this.saving.set(true);
     const sig = this.siguienteDe(c);
     this.svc.reject(c.deposit_id, this.rejectMotivo.trim() || undefined, code).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (res) => { this.saving.set(false); this.rejectMotivo = ''; this.rejectCodigo.set(null); this.showReject.set(false); this.avisoDevuelta(c, res?.aviso?.destinatarios); this.seguirTrasDecidir(c, sig); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+      .subscribe({ next: (res) => { this.saving.set(false); this.rejectMotivo = ''; this.rejectCodigo.set(null); this.showReject.set(false); this.avisoDevuelta(c, res?.aviso?.destinatarios); this.seguirTrasDecidir(c, sig); this.load(); }, error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo devolver', detail: e?.error?.message || 'Intenta de nuevo.' }); } });
   }
 
   /** `[RE.83]` Al devolver se dice a quién le llegó, o que a nadie: un aviso no se da por enviado. */

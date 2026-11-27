@@ -1167,6 +1167,23 @@ reportaban «al escanear, la Suite captura otro producto».
 
 ---
 
+## Addendum — `AUD-UI.6`: avisos de error que tiran el motivo del servidor y acciones ofrecidas sin mirar el alcance de escritura (2026-11-26)
+
+**Estado: ABIERTO (cada dueño de pantalla).** Lo encontró `[RE.89]` al seguir un «Error al validar» en prod.
+
+- **Qué pasa:** (1) un `error: () => toast.add({ summary: 'Error al …' })` sin `detail` tira el motivo que manda el
+  servidor; un 403 de alcance, un «ya está validada» y «otra persona ya decidió» se ven iguales. (2) Una acción se
+  ofrece con sólo el PERMISO, aunque el servidor también exige escribir en la sucursal (`exigirAlcance` /
+  `assertCanWrite`): a quien ve y no escribe (`direccion`, `[ID.17]`) se le ofrece un botón que siempre falla.
+- **Cuánto:** `finanzas-cobranza.component.ts` tiene el mismo par mudo de validar y rechazar (líneas ~1117 y ~1127),
+  copiado de Revisión de facturas. El barrido de (2) en las demás pantallas **NO se hizo**: NO MEDIDO.
+- **Arreglado:** Revisión de facturas (`[RE.89]`), con `puedeEscribirEn()` en `DataScopeService` como primitivo
+  compartido (el mismo criterio que `ScopeService.canWrite`).
+- **Arreglo, sin hacer:** en cada pantalla, `detail: e?.error?.message || 'Intenta de nuevo.'` y el botón condicionado
+  a `puedeEscribirEn(alcance, sucursal) !== false`.
+
+---
+
 ## Addendum — `AUD-UI.5`: en PrimeNG 22, `<button pButton label="…" icon="…">` sale vacío: 29 botones en 18 pantallas (2026-11-26)
 
 **Estado: ABIERTO (cada dueño de pantalla).** Lo encontró la prueba visual de Citas (`[PQ.3.8]`, anexo C §10.19).
