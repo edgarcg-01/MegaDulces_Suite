@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 3487 KB, 16088 líneas, 78 secciones.
+> **Índice navegable** — 3488 KB, 16089 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -72,19 +72,19 @@
 | 14717 | 14884 | 85 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 14885 | 14916 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
 | 14917 | 15219 | 83 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 15220 | 15290 | 100 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 15291 | 15299 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 15300 | 15372 | 48 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 15379 | 15388 | 1 | 📝 Convenciones |
-| 15389 | 15426 | 16 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 15427 | 15445 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 15446 | 15498 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 15499 | 15916 | 133 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15917 | 15947 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15948 | 15969 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15970 | 16003 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 16004 | 16055 | 58 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 16056 | 16178 | 129 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 15220 | 15291 | 101 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 15292 | 15300 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 15301 | 15373 | 48 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 15380 | 15389 | 1 | 📝 Convenciones |
+| 15390 | 15427 | 16 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 15428 | 15446 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 15447 | 15499 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 15500 | 15917 | 133 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15918 | 15948 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15949 | 15970 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15971 | 16004 | 9 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 16005 | 16056 | 58 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 16057 | 16179 | 129 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -15288,6 +15288,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[MCP.33]** 🧪 **Lector pedido-entrega: leer la etiqueta abre o busca el pedido** (2026-11-24, D19: app del vendedor y Suite). Revisión y Surtir: escanear la etiqueta abre el pedido (o dice por qué no: de otra persona, por cancelar, ya surtido, no está, no es etiqueta). App del vendedor: botón de cámara junto al buscador de Mis pedidos (QR o barras → folio → buscador de MCP.28); el lector compartido lee QR sólo si se le pide (`conQr`). Pruebas: Mis pedidos +2 (negativa: un EAN no busca), lector +1. NO MEDIDO: cámara real sobre etiqueta impresa.
 - [ ] **[MCP.34]** 🧪 **Pasar a venta: la cotización del vendedor se vuelve pedido en un toque** (2026-11-24, pedido de David: «que las cotizaciones se puedan hacer pedido… con un botón de pasar a venta»; D20 sólo las de la app, D21 precio de hoy). `POST /api/commercial/orders/from-quote/:quoteId` en una transacción: bloquea la cotización, arma, confirma con el día elegido y la deja `accepted` + `order_id` (columnas que ya existían y nadie llenaba). Idempotente; `dry_run` enseña el total de hoy contra lo cotizado sin guardar. Sin migración. `cotizacion-a-pedido.engine.spec` 4; **`pasar-a-venta.it.spec` 4/4 contra Postgres real local** (vista previa sin escritura, venta ligada, segundo toque = mismo pedido, 3 negativas sin escritura) y sabotaje del doble toque → rojo; app del vendedor 682/682. Se retira «Convertir en pedido» (`paraPedido`): la regla vive en el servidor. NO MEDIDO: renglones en caja/paquete con factores reales de Kepler.
 - [ ] **[MCP.35]** 🧪 **Existencia en el catálogo de cotizar** (2026-11-24, pedido de David; D22). Cada producto dice «Existencias: 2 CJA» en la unidad cotizada, «Sin existencias», «No se maneja» o «Sin dato» (nunca 0), con la misma lectura y tolerancia (6 h) que «Tomar pedido» (`existenciaParaCotizar`). `cotizacion.spec` 8, pantalla de cotizar 20/20. NO MEDIDO: validación visual en el teléfono.
+- [ ] **[MCP.36]** 🧪 **El QR de la etiqueta abre el pedido en la cámara de cualquier celular** (2026-11-25, pedido de David; D23, aprobado por Edgar: «para todos sin excepciones», con montos). El QR lleva una liga firmada que arma el servidor con el dominio público y que vence a los 30 días (`/pedido/PD-…?k=…`); la página pública muestra cliente, paso, productos y montos; Surtir y Revisión la piden al imprimir y, si no llega, la etiqueta sale con el folio solo y lo dice. Los lectores de la Suite y del vendedor leen la liga y las etiquetas viejas. Pruebas: contracts 14, servicio 6 (firma alterada, de otro pedido, de sesión y vencida → 403), almacén 980/980, vendedor 11/11; tres sabotajes en rojo; `check:pantalla -- almacen` 39 → 39. NO MEDIDO: impresión real y lectura del QR impreso con un celular; arranque de la API. Las barras no se abren con la cámara del celular (siguen para la pistola).
 ## 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David la pide)
 
 > Pedido de David (2026-11-05): «monitorear a los vendedores, preventas, surtidores y a quienes revisan los pedidos, muy detallado». Decisiones: lo ven `supervisor_ventas`, `direccion`, `encargado_tienda` (+ superadmin); con ubicación (David declara validado con RH/Edgar); periodos de varios días con total **y** promedio por día; del vendedor se muestran **las dos** ventas: lo LEVANTADO en la app y lo COBRADO en Kepler (la meta, contra lo cobrado, como el tablero `[MCP.3.9]`). ⭐ Reusa el tablero del supervisor y el monitoreo de visitas `[MCP.3.7]` que ya están en prod (dentro de Vendedores › Cartera, **1 visita en 30 días**): no reimplementa «quién visitó a quién» ni «la venta de la ruta».

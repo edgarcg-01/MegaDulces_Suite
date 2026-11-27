@@ -78,7 +78,8 @@ export const CSS_TICKET_PEDIDO = [
   '.pt-cli{font-size:5mm;font-weight:700;line-height:1.2;margin:1.5mm 0}',
   '.pt-dato{font-size:3.6mm;line-height:1.35}',
   '.pt-qr{display:flex;justify-content:center;margin-top:3mm}',
-  '.pt-qr svg{display:block;width:38mm;height:38mm}',
+  // [MCP.36] 48 mm: el QR lleva la liga firmada (más densa que el folio solo) y sale en papel térmico.
+  '.pt-qr svg{display:block;width:48mm;height:48mm}',
   '.pt-bar{display:block;height:12mm;margin:3mm auto 0}',
   '.pt-num{font-size:3mm;line-height:1.2}',
 ].join('');
@@ -87,28 +88,35 @@ export const CSS_TICKET_PEDIDO = [
  * El QR del folio como SVG en texto, que escala sin pixelarse. El codificador lo pone con ancho y alto en px:
  * se le da su `viewBox` para que el CSS lo lleve a milímetros sin recortarlo. `null` si no se pudo.
  */
-async function qrTexto(folio: string, clase: string): Promise<string | null> {
-  const svg = await qrSvg(folio, 160);
+async function qrTexto(folio: string, clase: string, contenido: string = folio): Promise<string | null> {
+  const svg = await qrSvg(contenido, 160);
   if (!svg) return null;
   const w = parseFloat(svg.getAttribute('width') || '');
   const h = parseFloat(svg.getAttribute('height') || '');
   if (w > 0 && h > 0 && !svg.getAttribute('viewBox')) svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
   svg.setAttribute('aria-label', `Código QR del pedido ${folio}`);
   svg.setAttribute('class', clase);
+  // [MCP.36] Bordes nítidos: cada módulo es un rectángulo aparte y, con el suavizado, entre dos negros queda una costura
+  // blanca. Medido el 2026-11-25 a 48 mm y 203 ppp: el QR se lee igual con y sin costuras; se quitan porque no aportan
+  // nada y el papel térmico no perdona. En la impresora real: NO MEDIDO.
+  svg.setAttribute('shape-rendering', 'crispEdges');
   return svg.outerHTML;
 }
 
-/** Dibuja los dos códigos para el ticket. Las barras, a 1.5× su ancho mínimo: más fáciles de leer con la pistola. */
-export async function dibujarCodigos(folio: string): Promise<CodigosEtiqueta> {
+/**
+ * Dibuja los dos códigos para el ticket. Las barras, a 1.5× su ancho mínimo: más fáciles de leer con la pistola.
+ * `[MCP.36]` `liga`: lo que lleva el QR (la liga firmada que abre el pedido en cualquier celular); sin ella, el folio.
+ */
+export async function dibujarCodigos(folio: string, liga?: string | null): Promise<CodigosEtiqueta> {
   const codigo = codigoDeBarrasDePedido(folio);
   const ancho = codigo ? anchoBarrasMm(codigo) : null;
   const barras = codigo ? barrasSvg(codigo, 'pt-bar', ancho == null ? null : Math.round(ancho * 1.5 * 100) / 100) || null : null;
-  return { qr: await qrTexto(folio, 'pt-qrsvg'), barras };
+  return { qr: await qrTexto(folio, 'pt-qrsvg', liga || folio), barras };
 }
 
 /** El ticket de 80 mm: lo imprimen el surtidor (Surtir) y la cajera (Revisión). */
-export async function imprimirTicketPedido(d: DatosEtiquetaPedido, onDone?: () => void): Promise<void> {
-  const c = await dibujarCodigos(d.folio);
+export async function imprimirTicketPedido(d: DatosEtiquetaPedido, onDone?: () => void, liga?: string | null): Promise<void> {
+  const c = await dibujarCodigos(d.folio, liga);
   printIsolated({
     html: ticketPedidoHtml(d, c),
     page: PAGINA_TICKET_80,

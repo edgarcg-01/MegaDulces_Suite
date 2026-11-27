@@ -26,7 +26,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   if (req.url.includes('/auth/login') || req.url.includes('/auth-mt/login')
       || req.url.includes('/finance/captura') || req.url.includes('/hr/talent/public')
       // `[CC.20]` El cliente que sube su ficha de depósito tampoco tiene cuenta.
-      || req.url.includes('/finance/deposito')) {
+      || req.url.includes('/finance/deposito')
+      // `[MCP.36]` Quien escanea la etiqueta de un pedido (chofer, cliente) tampoco tiene cuenta.
+      || req.url.includes('/commercial/pedido-publico')) {
     return next(req);
   }
 

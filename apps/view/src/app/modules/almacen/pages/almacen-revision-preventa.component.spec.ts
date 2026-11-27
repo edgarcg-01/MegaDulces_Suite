@@ -5,6 +5,8 @@ import type { PresaleReviewDetail, PresaleReviewInboxResponse, PresaleReviewInbo
 import { AlmacenRevisionPreventaComponent } from './almacen-revision-preventa.component';
 import { PresaleReviewService } from '../presale-review.service';
 import { UsoService } from '../../../core/services/uso.service';
+import { MessageService } from 'primeng/api';
+import { EtiquetaPedidoService } from '../etiqueta-pedido.service';
 
 /**
  * `[MCP.10]` La revisión en caja, montada de verdad (plantilla + signals) con el servidor simulado.
@@ -40,6 +42,8 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
   let fix: ComponentFixture<AlmacenRevisionPreventaComponent>;
   let api: Record<'inbox' | 'detail' | 'finish' | 'search', ReturnType<typeof vi.fn>>;
   let uso: { reportarIncidente: ReturnType<typeof vi.fn> };
+  /** `[MCP.36]` La impresión pasa por el servicio que pone la liga en el QR. */
+  let etq: { imprimir: ReturnType<typeof vi.fn> };
 
   const el = (): HTMLElement => fix.nativeElement as HTMLElement;
   const texto = (): string => el().textContent?.replace(/\s+/g, ' ') ?? '';
@@ -61,9 +65,10 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
       search: vi.fn((q: string) => of({ q, data: [], truncated: false })),
     };
     uso = { reportarIncidente: vi.fn() };
+    etq = { imprimir: vi.fn(() => Promise.resolve('con_liga')) };
     await TestBed.configureTestingModule({
       imports: [AlmacenRevisionPreventaComponent],
-      providers: [provideRouter([]), { provide: PresaleReviewService, useValue: api }, { provide: UsoService, useValue: uso }],
+      providers: [provideRouter([]), { provide: PresaleReviewService, useValue: api }, { provide: UsoService, useValue: uso }, { provide: EtiquetaPedidoService, useValue: etq }],
     }).compileComponents();
     fix = TestBed.createComponent(AlmacenRevisionPreventaComponent);
     fix.detectChanges();
@@ -77,6 +82,20 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
   }
 
   afterEach(() => TestBed.resetTestingModule());
+
+  it('[MCP.36] la etiqueta se imprime con la liga; si la liga no llega, sale igual y se DICE', async () => {
+    await montar();
+    await abrir();
+    const add = vi.spyOn(fix.debugElement.injector.get(MessageService), 'add');
+    etq.imprimir.mockResolvedValueOnce('sin_liga');
+    clic('Etiqueta');
+    expect(etq.imprimir).toHaveBeenCalledWith(
+      expect.objectContaining({ folio: 'PD-2026-00138', cliente: 'ABARROTES CARMELITA' }), expect.any(Function));
+    await Promise.resolve();
+    await Promise.resolve();
+    const avisos = (add.mock.calls as unknown as [{ summary?: string }][]).map((x) => x[0].summary ?? '');
+    expect(avisos.some((t) => t.includes('salió sin la liga'))).toBe(true);
+  });
 
   it('la lista muestra lo que falta por revisar y, aparte, lo ya revisado', async () => {
     await montar();

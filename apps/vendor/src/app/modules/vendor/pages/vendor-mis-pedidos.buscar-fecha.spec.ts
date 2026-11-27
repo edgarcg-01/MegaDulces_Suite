@@ -111,6 +111,14 @@ describe('[MCP.28] [MCP.29] buscar un pedido y cambiar su día de entrega', () =
     expect(api['search']).toHaveBeenLastCalledWith('PD-2026-00010');
   });
 
+  it('MCP.36 la cámara lee la LIGA del QR nuevo (con su firma) y busca ese folio', async () => {
+    await montar();
+    fix.componentInstance.alLeerEtiqueta('https://megadulcessuite.com/pedido/PD-2026-00039?k=eyJhbGciOiJIUzI1NiJ9.x.y');
+    fix.detectChanges();
+    await esperar();
+    expect(api['search']).toHaveBeenCalledWith('PD-2026-00039');
+  });
+
   it('MCP.33 NEGATIVA: un código de producto no es etiqueta de pedido: lo dice y no busca', async () => {
     await montar();
     fix.componentInstance.alLeerEtiqueta('7501000111206');

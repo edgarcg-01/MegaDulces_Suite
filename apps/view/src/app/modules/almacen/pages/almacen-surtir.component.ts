@@ -20,7 +20,8 @@ import type {
   PresaleSubstituteCandidate, PresaleSubstituteResponse,
 } from '@megadulces/contracts';
 import { folioDeLectura, topeEnUnidad } from '@megadulces/contracts';
-import { type DatosEtiquetaPedido, esFolioDeSuite, imprimirTicketPedido } from '../pedido-etiqueta-impresion';
+import { type DatosEtiquetaPedido, esFolioDeSuite } from '../pedido-etiqueta-impresion';
+import { EtiquetaPedidoService } from '../etiqueta-pedido.service';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
@@ -1062,6 +1063,8 @@ export class AlmacenSurtirComponent implements OnInit {
   private readonly perms = inject(PermissionsService);
   private readonly ruta = inject(ActivatedRoute);
   private readonly preventa = inject(PresalePickingService);
+  /** `[MCP.36]` Imprime la etiqueta con la liga del pedido en el QR (o con el folio solo, si la liga no llegó). */
+  private readonly etiquetas = inject(EtiquetaPedidoService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -1336,7 +1339,9 @@ export class AlmacenSurtirComponent implements OnInit {
   imprimirEtiqueta(d: DatosEtiquetaPedido): void {
     if (this.imprimiendoEtq()) return;
     this.imprimiendoEtq.set(true);
-    imprimirTicketPedido(d, () => this.imprimiendoEtq.set(false)).catch(() => {
+    this.etiquetas.imprimir(d, () => this.imprimiendoEtq.set(false)).then((r) => {
+      if (r === 'sin_liga') this.avisar('info', 'La etiqueta salió sin la liga: la cámara del celular no abrirá el pedido (la pistola sí). Reimprímela cuando vuelva la red.');
+    }).catch(() => {
       this.imprimiendoEtq.set(false);
       this.avisar('error', 'No se pudo armar la etiqueta. Inténtalo otra vez.');
     });
