@@ -529,7 +529,7 @@ nadie había llegado a contar lo suficiente para verlo.**
 >
 > ⚠️ **No hay F21.** La numeración salta del **F20** al **F22**; se verificó en el historial del
 > repositorio y **nunca existió**: es un hueco al numerar, no un hallazgo perdido. Con **F23** y
-> **F24** (agregados el 2026-11-27), son **23**.
+> **F24** (agregados el 2026-11-27) y **F25** a **F28** (medidos en pantalla viva ese mismo dia), son **27**.
 
 | # | Sev. | Defecto | Cómo se midió |
 |---|:---:|---|---|
@@ -666,6 +666,87 @@ son NULLABLE y trae `down`, pero **eso es razonamiento, no una prueba**.
 
 ⚠️ Dos cosas sueltas que aparecieron al medir, sin dueño todavía: hay **3,658 códigos sin
 `product_id`** (no se pueden atribuir a nada) y `wincaja` no se sincroniza desde el **2026-11-10**.
+
+---
+
+## 9e. ⭐⭐ Lo medido EN PANTALLA VIVA el 2026-11-27 (nivel A, por fin)
+
+> Hasta hoy **toda** la auditoría fue nivel B y C: consultas a prod y lectura de fuente. Esto
+> es lo primero que se midió **abriendo la pantalla**, con el frontend local apuntando a la API
+> de producción tras un proxy de sólo lectura (ejercido: un POST real devuelve 405 antes de
+> salir de la máquina). Edgar pidió recorrer el proceso completo, así que se abrió el folio
+> **`INV-2026-00011`** — cíclico, Padre Hidalgo, 6 SKUs, sin congelar la operación.
+
+### ✅ Tres arreglos que se habían mandado A CIEGAS, verificados funcionando
+
+| Qué | Cómo se comprobó |
+|---|---|
+| **F7** · el foco vuelve al código | Tras registrar, `document.activeElement` **es** el campo de código y queda vacío; el avance pasó a «1 de 6» |
+| **F8** · corregir ya no concatena | Al enfocar la cantidad, la selección va de 0 a 2 sobre «25»; teclear «2541» dejó **2,541**, no «252541» |
+| **F24** · la unidad se nombra | La ficha del producto dice **«Se cuenta en PAQ.»** |
+
+También se confirmó lo que el módulo promete: **el teórico no aparece en ninguna parte** de la
+pantalla del contador, y el modo conteo **quita el menú inferior** y fija la app en la pantalla.
+
+### ⛔ F25 — el mismo defecto de concatenación, vivo en la pantalla del SUPERVISOR
+
+| # | Sev. | Defecto | Cómo se midió |
+|---|:---:|---|---|
+| **F25** | 🟠 | **«Tope de SKUs en el folio» concatena en vez de reemplazar.** Es `F8` otra vez, en el diálogo de abrir folio: ese campo no usa la directiva `appCantidadFisica`, que vive sólo en la pantalla del contador. Un supervisor que quiera **6** SKUs abre un folio de miles sin enterarse. | En vivo, 2026-11-27: el campo tenía `100`, se tecleó `6` y quedó **`6,100`**. El tope del campo es 2,000, así que el folio habría salido recortado a 2,000 y no a 6. |
+
+**El arreglo es mover la pieza, no copiarla** (ADR-056): la directiva ya existe y resuelve esto;
+el defecto es que vive en una sola pantalla. Hay que recorrer **todos** los campos de cantidad
+del módulo.
+
+### ⛔ F26 — el selector de unidad llega al 17 % cuando podría llegar al 93 %
+
+> Lo encontró Edgar usando la pantalla: *«menciona PAQ pero no nos da la opción de cambiarlo a
+> cajas o piezas»*.
+
+| # | Sev. | Defecto | Cómo se midió |
+|---|:---:|---|---|
+| **F26** | 🟠 | **Las unidades que se ofrecen salen de QUÉ CÓDIGOS DE BARRAS existen, y el catálogo de códigos está incompleto.** Como la mayoría de los productos tiene un solo código, la pantalla sólo nombra su unidad y **no deja elegir caja** — aunque la caja exista y su factor esté en el renglón del folio. | Prod, 2026-11-27. En `INV-2026-00011`, **5 de 6** productos tienen un solo código y por eso no ofrecen selector, pero **los 6 traen factor de caja** (20, 24, 12, 24, 20, 1). En `INV-2026-00010`: **3,146 de 3,364 (93 %)** tienen factor de caja y sólo **556 (17 %)** muestran selector hoy. |
+
+⭐ **Y el arreglo corrige un error de diseño mío, no sólo una cobertura.** Para convertir cajas,
+el factor correcto es el del **ERP** (`unit_factor` del renglón, que es `display_box_factor`),
+no el del código de barras: el teórico está en unidades nativas y ese factor dice cuántas
+nativas hay por caja, así que es consistente **por construcción** con el número contra el que
+se compara. El del código de barras es el que discrepa **96 %** (ver F24). El código de barras
+sirve para **nombrar** la unidad nativa; el ERP, para **convertir**.
+
+⚠️ **Lo que sigue sin poderse ofrecer: la pieza suelta** cuando la unidad nativa es el paquete.
+No hay en el folio un factor paquete→pieza, y el del código de barras no es confiable. Se
+declara, no se inventa.
+
+### ⛔⛔ F27 — el trabajo no se puede repartir entre personas: no hay dato de pasillo
+
+> Lo preguntó Edgar: *«¿se le asigna un rack a cada persona? ¿depende de la cantidad de gente?»*.
+
+| # | Sev. | Defecto | Cómo se midió |
+|---|:---:|---|---|
+| **F27** | 🔴 | **El mecanismo para repartir el conteo por pasillo existe entero y no tiene datos.** `inventory_count_assignments.aisle_id`, `inventory_count_items.aisle_id`, contadores acotados a pasillo en `submitCount` y una vista de avance por pasillo: todo construido. Pero **de los 22,211 artículos de los ocho folios, CERO traen pasillo**, porque se copia de `commercial.stock.aisle_id` y ahí hay **0 de 5,547** filas con pasillo en Padre Hidalgo. ⭐ Y hay **dos catálogos de pasillo que no se hablan**: `commercial.warehouse_aisles` tiene **4** («Pasillo 1»…«Pasillo 4») y es el que usa el conteo; `warehouse_bins.pasillo` tiene **11** (A–K) con 471 ubicaciones y es el real. | Prod, 2026-11-27, sólo lectura. |
+
+⛔ **Por eso no se puede contestar «cuánta gente hace falta».** El trabajo de un inventario se
+mide en **tramos de recorrido**, no en artículos sueltos, y hoy ningún artículo sabe en qué
+tramo está. Los 11 pasillos reales son muy desiguales (A tiene 110 ubicaciones; D–H, 12 cada
+uno), así que repartir sin ese dato repartiría mal.
+
+### ⛔ F28 — tres fuentes del teórico, y las dos ramas de sembrado filtran distinto
+
+| # | Sev. | Defecto | Cómo se midió |
+|---|:---:|---|---|
+| **F28** | 🟠 | **Un folio puede sembrarse desde tres orígenes distintos** (`erp`, `commercial`, `inventory`), lo que contradice la regla principal del proyecto. Peor: la rama del ERP filtra `qty > 0` y la de `commercial.stock` **no filtra nada**. | Prod, 2026-11-27: los 8 folios se repartieron `inventory` 4, `erp` 2, `commercial` 2. `inventory.warehouse_stock` tiene **0 filas** para Padre Hidalgo. Y hoy, en PH, un folio `erp` daría **3,363** artículos y uno `commercial` **5,547** — de los cuales **2,171 con existencia cero** que alguien tendría que ir a contar igual. |
+
+⚠️ **Lo que NO es:** el salto de 2,094 a 3,364 del mismo almacén (F12) **no fue** un cambio de
+fuente. Re-verificado hoy: contando sólo lo que tiene existencia, las dos fuentes coinciden
+(**3,376** contra **3,363**). La conclusión de F12 sigue en pie.
+
+### Lo que sigue SIN ver, aun con la pantalla abierta
+
+- El **teclado de un teléfono real** tapando el campo: el navegador de escritorio no lo simula.
+- Un **escáner de pistola** de verdad, que es lo único que prueba que no se pierde un disparo.
+- El resto del proceso: segundo conteo, calcular diferencias, resolver y **cerrar** — el camino
+  que el módulo **nunca** recorrió.
 
 ---
 
