@@ -438,6 +438,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // `calendario-pagos` a propósito: la "casa" de una clave es el ÚLTIMO módulo que la usa
           // (`indiceDeClaves`), y la de FINANCE_PAYMENTS_VER debe seguir siendo el Calendario.
           { id: 'estado-cuenta-acreedores', label: 'Estado de cuenta de acreedores', route: '/finanzas/estado-cuenta-acreedores', view: [Permission.FINANCE_PAYMENTS_VER], manage: [] },
+          // `[PGP.229]` Las facturas recibidas fuera de norma fiscal (S01, régimen ≠ 612) que esperan decisión. Se VE con
+          // FINANCE_PAYMENTS_VER (el 409 del Calendario manda aquí) y se DECIDE con su clave propia. Va ANTES de
+          // `calendario-pagos` por la misma razón que el estado de cuenta: la casa de FINANCE_PAYMENTS_VER es el Calendario.
+          { id: 'facturas-fuera-de-norma', label: 'Facturas fuera de norma', route: '/finanzas/facturas-fuera-de-norma', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_CFDI_NORMA_DECIDIR] },
           // Fase TP (ADR-064) — el calendario prospectivo (asigna obligaciones ya
           // autorizadas a un día, dentro de la capacidad de Presupuestos). Reusa
           // FINANCE_PAYMENTS_* (misma familia que Programa de Pagos/Pagos a proveedor).

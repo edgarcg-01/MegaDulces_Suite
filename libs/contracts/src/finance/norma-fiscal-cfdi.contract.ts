@@ -18,7 +18,7 @@
  * Decisiones del 2026-11-26: N1 es **candado** (D-NF1, Francisco; ratificado por Edgar) · **el IMSS es excepción
  * por regla** del régimen (D-NF3: timbra con 606 y no re-timbra; el resto, con autorización) · lo **sin verificar
  * no se paga** hasta que el SAT la verifique (D-NF5) · **basta una firma**, de Administración o de Contabilidad
- * (D-NF2) · **la S01 de las comisiones que el banco cobra solo no pide autorización** (D-NF4) · las rentas
+ * (D-NF2) · **la comisión S01 que el banco cobra solo no pide autorización, ni por S01 ni por régimen** (D-NF4) · las rentas
  * emitidas con 606 no son venta (D-NF8).
  *
  * ⛔ La fecha del CFDI es la de emisión (`Fecha`), leída como día de México (D-NF9): un `timestamptz` de las
@@ -42,12 +42,17 @@ export const EXCEPTUADOS_DEL_REGIMEN: ReadonlyMap<string, string> = new Map([['I
  * `[D-NF4]` Bancos que timbran sus comisiones con S01 y **las cobran solos** de la cuenta: nadie las paga ni las
  * puede detener, así que pedir autorización no tiene salida (Francisco, 2026-11-26: «el banco las cobra solo»).
  * Medido en 2026 (recibidas S01 no canceladas): BBVA 110 (PUE/03), Banorte 21 (I y E; confirmado por Francisco el
- * mismo día). Un banco nuevo que timbre
+ * mismo día). `[PGP.229]` Santander, 6 de ene–feb 2025 ($6,299; Francisco, 2026-11-27). Un banco nuevo que timbre
  * S01 pide autorización hasta que se agregue aquí: se ve, no se da por bueno.
+ *
+ * La comisión S01 tampoco pide decisión por **régimen** (Francisco, 2026-11-27): Banorte y Santander la timbran con
+ * receptor 605, y el 605 sólo aparece en esas S01 (sus G03 vienen con 612, medido desde 2025). La excepción es de la
+ * COMISIÓN, no del banco: una G03 del banco con otro régimen sigue pidiendo decisión.
  */
 export const COBRAN_SOLOS_SUS_COMISIONES: ReadonlyMap<string, string> = new Map([
   ['BBA830831LJ2', 'BBVA'],
   ['BMN930209927', 'Banorte'],
+  ['BSM970519DU8', 'Santander'],
 ]);
 
 export type UsoDelCfdi = 'pago' | 'compra' | 'gasto' | 'venta';
@@ -191,8 +196,10 @@ export function normaFiscalDelCfdi(e: EntradaNorma): NormaDelCfdi {
   // N2 · sin efectos fiscales. En venta, S01 es lo normal (la factura global a público en general); en un
   // traslado, también (el SAT lo exige). La comisión que el banco cobra solo no tiene a quién pedirle (D-NF4).
   const traslado = limpio(c.tipo_comprobante).toUpperCase() === 'T';
-  if (!venta && recibida && !traslado && limpio(c.receptor_uso_cfdi).toUpperCase() === 'S01') {
-    const banco = COBRAN_SOLOS_SUS_COMISIONES.get(limpio(c.emisor_rfc).toUpperCase());
+  const s01 = limpio(c.receptor_uso_cfdi).toUpperCase() === 'S01';
+  // La comisión que el banco cobra solo: ni su S01 ni su régimen tienen a quién pedirle la decisión (D-NF4).
+  const banco = recibida && !traslado && s01 ? COBRAN_SOLOS_SUS_COMISIONES.get(limpio(c.emisor_rfc).toUpperCase()) : undefined;
+  if (!venta && recibida && !traslado && s01) {
     m.push(banco
       ? { regla: 'sin_efectos_fiscales', veredicto: 'apta', texto: `Uso S01 de ${banco}: el banco la cobra solo, no pide autorización` }
       : conAutorizacion('sin_efectos_fiscales', 'Uso S01 (sin efectos fiscales)', pideAutorizacion));
@@ -207,6 +214,8 @@ export function normaFiscalDelCfdi(e: EntradaNorma): NormaDelCfdi {
       const exceptuado = recibida ? EXCEPTUADOS_DEL_REGIMEN.get(limpio(c.emisor_rfc).toUpperCase()) : undefined;
       if (exceptuado) {
         m.push({ regla: 'regimen', veredicto: 'apta', texto: `Régimen ${regimen}: el ${exceptuado} es excepción por regla` });
+      } else if (banco) {
+        m.push({ regla: 'regimen', veredicto: 'apta', texto: `Régimen ${regimen} en la comisión de ${banco}: el banco la cobra solo, no pide autorización` });
       } else if (emitida) {
         m.push({ regla: 'regimen', veredicto: 'solo_informativa', texto: `Emitida con régimen ${regimen}, no ${REGIMEN_DE_LA_EMPRESA}: no es venta de la distribuidora` });
       } else {
@@ -251,14 +260,18 @@ export type MomentoDelPago = 'programar' | 'autorizar';
  * - `sin_medir`: al autorizar (D-NF5: no se paga hasta que el SAT la verifique), salvo el régimen que la
  *   factura no trae (los CFDI 3.3 no lo tenían; 0 sin régimen en 2026, medido): se dice, no detiene.
  *   Programarla para otro día sí se puede: el escáner la verifica en la noche.
- * - `requiere_autorizacion` (S01, régimen): TODAVÍA NO detiene. La tabla de la decisión existe desde
- *   `[PGP.224]`, pero la pantalla para tomarla llega con `[PGP.229]`; detenerla antes la dejaría sin salida.
- *   Mientras, se ve como aviso. Una decisión «no se usa» ya tomada sí detiene (es `solo_informativa`).
+ * - `requiere_autorizacion` (S01, régimen sin decisión): al autorizar (`[PGP.229]`). Se programa para que
+ *   el pago se vea y quien decide lo encuentre en la bandeja «Facturas fuera de norma», pero no sale sin que
+ *   Administración o Contabilidad diga «se usa». Una decisión «no se usa» detiene siempre (es `solo_informativa`).
  */
 export function detieneElPago(n: NormaDelCfdi, momento: MomentoDelPago): MotivoNorma | null {
   return n.motivos.find((m) => m.veredicto === 'solo_informativa'
-    || (momento === 'autorizar' && m.veredicto === 'sin_medir' && m.regla !== 'regimen')) ?? null;
+    || (momento === 'autorizar' && m.veredicto === 'sin_medir' && m.regla !== 'regimen')
+    || (momento === 'autorizar' && m.veredicto === 'requiere_autorizacion')) ?? null;
 }
+
+/** `[PGP.229]` Dónde se decide lo que pide decisión (lo dice el 409, para que tenga salida). */
+export const DONDE_SE_DECIDE = 'decídela en Finanzas › Facturas fuera de norma';
 
 /**
  * La norma de una factura del Calendario al pagarla, con el CFDI recibido que se le ligó (vigente o el cancelado
@@ -288,6 +301,7 @@ const PESOS = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN
 
 /** El mensaje del rechazo (409): qué factura y por qué, una por una. */
 export function textoDelFreno(frenos: readonly FrenoDelPago[], momento: MomentoDelPago): string {
-  const una = (f: FrenoDelPago) => `la factura de ${PESOS.format(f.total)} (CFDI ${f.uuid.slice(0, 8).toUpperCase()}): ${f.motivo.texto}`;
+  const una = (f: FrenoDelPago) => `la factura de ${PESOS.format(f.total)} (CFDI ${f.uuid.slice(0, 8).toUpperCase()}): ${f.motivo.texto}`
+    + (f.motivo.veredicto === 'requiere_autorizacion' ? ` (${DONDE_SE_DECIDE})` : '');
   return `No se puede ${momento} este pago — ${frenos.map(una).join(' · ')}`;
 }
