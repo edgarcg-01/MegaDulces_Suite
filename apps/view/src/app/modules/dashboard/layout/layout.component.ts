@@ -1079,6 +1079,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // [CAT.1] Vino de Ventas. [NAV.1] El catálogo entero en UNA entrada (eran DIEZ renglones). [PF.12.1] Aterriza
         // en «Productos»: conDestino() abre la PRIMERA pestaña visible, y las vacías salieron de CATALOGO_TABS.
         { label: 'Catálogo', icon: 'pi pi-shopping-bag', route: '/compras/catalogo', tabs: CATALOGO_TABS },
+        // `[NP.7.L.26]` Levantamiento de fotos: abre a pantalla completa (sin este marco, pensado para el celular).
+        // La entrada vive AQUÍ y no en el árbol de permisos: ahí va sin ruta a propósito, porque la clave se reparte
+        // a todo rol y una ruta cambiaría el aterrizaje de cajeras y almacenistas (ver authz-tree, compras-levantamiento).
+        { label: 'Levantamiento de fotos', icon: 'pi pi-camera', route: '/levantamiento', permission: Permission.CATALOGO_LEVANTAR },
         // `[NAV.5]` Proveedores, Categorías y Red de abasto: configuran el motor del pedido.
         { label: PARAMETROS_COMPRA_LABEL, icon: 'pi pi-sliders-h', route: '/compras/proveedores', tabs: PARAMETROS_COMPRA_TABS },
         // RE.20.5 — el MISMO dinero cortado distinto. `[NAV.6]` Costo por proveedor, Costo estándar y

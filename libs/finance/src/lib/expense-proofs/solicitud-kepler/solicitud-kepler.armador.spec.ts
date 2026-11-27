@@ -81,3 +81,36 @@ describe('[PGP.122.7] marcaDeLaSolicitud', () => {
     expect(marcaDeLaSolicitud('abc')).toBe('');
   });
 });
+
+/**
+ * `[CB.62.4]` El gasto SIN papel que lo ampare — lo declara quien llama, nunca se deduce.
+ *
+ * Nace del canario del 2026-11-26: las comisiones de la terminal las cobra el banco en el estado de
+ * cuenta, no hay ticket ni CFDI que fechar, y el armador rechazaba el día entero con «Falta la fecha
+ * del documento que ampara el gasto (DS15)». Medido ese día en el ODS (acreedor GB%, desde
+ * septiembre): de 690 X-A-15 y 653 X-A-10 de comisiones, CERO llevan renglón AMPARA.
+ */
+describe('[CB.62.4] una solicitud sin documento que la ampare', () => {
+  it('con la bandera, se arma y c25 queda VACÍO', () => {
+    const r = armarSolicitudKepler({ ...base(), comprobante: { tipo: 'ticket', folio: 'REF-1', fecha: null }, sinDocumentoQueAmpare: true });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.plan.kdm1['c25']).toBe('');
+    // c11 NO se pierde: la referencia de la sucursal va aunque no haya documento.
+    expect(r.plan.kdm1['c11']).toBe('REF-1');
+  });
+
+  it('⛔ SIN la bandera sigue siendo un error: a un ticket sin fecha no se le perdona', () => {
+    const r = armarSolicitudKepler({ ...base(), comprobante: { tipo: 'ticket', folio: 'REF-1', fecha: null } });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.motivos.join(' ')).toMatch(/AMPARA/);
+  });
+
+  it('y con documento Y bandera, gana el documento: si hay papel, se escribe su AMPARA', () => {
+    const r = armarSolicitudKepler({ ...base(), comprobante: { tipo: 'ticket', folio: '1198', fecha: '2026-11-12' }, sinDocumentoQueAmpare: true });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(String(r.plan.kdm1['c25'])).toMatch(/^AMPARA TICKET 1198 DEL 12\/11\/2026$/);
+  });
+});

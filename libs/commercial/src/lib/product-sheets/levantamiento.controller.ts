@@ -20,8 +20,7 @@ const quien = (req: Sesion | undefined): Quien => ({ userId: String(req?.user?.s
  * `CATALOGO_LEVANTAR`, repartido a todo rol con personas (NP.7.L.7b: es universal). Responde
  * lista blanca: nada de costo, precio, margen ni lectura de la IA (§10b.2).
  *
- * `branch` es opcional: sin él, la sucursal del perfil; quien no tiene una en el perfil la elige (D25);
- * con sucursal en el perfil, pedir otra exige alcance de escritura.
+ * `[NP.7.L.20]` Sin `branch`: la sucursal sale del perfil o del alcance (antes la elegía quien no tenía perfil, D25).
  */
 @ApiTags('catalog-levantamiento')
 @Controller('catalog/levantamiento')
@@ -31,39 +30,33 @@ export class LevantamientoController {
   @Get('context')
   @RequirePermissions(Permission.CATALOGO_LEVANTAR)
   @ApiOperation({ summary: 'NP.7: sucursal, quién captura, cuántos productos faltan y su semana' })
-  contexto(@Query('branch') branch: string | undefined, @Req() req: Sesion): Promise<LevantamientoContexto> {
-    return this.service.contexto(quien(req), branch);
-  }
-
-  @Get('branches')
-  @RequirePermissions(Permission.CATALOGO_LEVANTAR)
-  @ApiOperation({ summary: 'NP.7: sucursales para elegir (quien no tiene sucursal en su perfil)' })
-  sucursales(): Promise<Array<{ code: string; name: string }>> {
-    return this.service.sucursales();
+  // `[NP.7.L.20]` Ningún endpoint recibe `branch`: la sucursal la decide el servidor con el perfil y el
+  // alcance de la persona. Antes, quien no tenía sucursal en su perfil podía mandar cualquiera.
+  contexto(@Req() req: Sesion): Promise<LevantamientoContexto> {
+    return this.service.contexto(quien(req));
   }
 
   @Get('suggested')
   @RequirePermissions(Permission.CATALOGO_LEVANTAR)
   @ApiOperation({ summary: 'NP.7: lo que hay en el anaquel sin ficha, los que más venden primero (paginado, con total)' })
   sugeridos(
-    @Query('branch') branch: string | undefined, @Query('limit') limit: string | undefined, @Query('offset') offset: string | undefined,
-    @Req() req: Sesion,
+    @Query('limit') limit: string | undefined, @Query('offset') offset: string | undefined, @Req() req: Sesion,
   ): Promise<LevantamientoSugeridosRespuesta> {
-    return this.service.sugeridos(quien(req), branch, Number(limit) || 30, Number(offset) || 0);
+    return this.service.sugeridos(quien(req), Number(limit) || 30, Number(offset) || 0);
   }
 
   @Get('search')
   @RequirePermissions(Permission.CATALOGO_LEVANTAR)
   @ApiOperation({ summary: 'NP.7: buscador de respaldo por código, SKU o nombre (lista blanca: sin precio ni venta)' })
-  buscar(@Query('q') q: string | undefined, @Query('branch') branch: string | undefined, @Req() req: Sesion): Promise<LevantamientoBusquedaFila[]> {
-    return this.service.buscar(quien(req), q, branch);
+  buscar(@Query('q') q: string | undefined, @Req() req: Sesion): Promise<LevantamientoBusquedaFila[]> {
+    return this.service.buscar(quien(req), q);
   }
 
   @Post('scan')
   @RequirePermissions(Permission.CATALOGO_LEVANTAR)
   @ApiOperation({ summary: 'NP.7: resuelve el código (o el SKU elegido en el buscador) y aparta la unidad principal 30 min' })
-  escanear(@Body() dto: LevantamientoEscaneoDto, @Query('branch') branch: string | undefined, @Req() req: Sesion): Promise<LevantamientoEscaneoRespuesta> {
-    return this.service.escanear(quien(req), dto, branch);
+  escanear(@Body() dto: LevantamientoEscaneoDto, @Req() req: Sesion): Promise<LevantamientoEscaneoRespuesta> {
+    return this.service.escanear(quien(req), dto);
   }
 
   @Post('sheets/:id/photos')

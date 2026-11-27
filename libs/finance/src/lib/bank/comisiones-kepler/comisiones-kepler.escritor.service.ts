@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantContextService, TenantKnexService, todayMx } from '@megadulces/platform-core';
+import { TenantContextService, TenantKnexService, toMxDateKey, todayMx } from '@megadulces/platform-core';
 
 import { KeplerGastoSinkAdapter } from '../../expense-proofs/comprobacion-kepler/kepler-gasto-sink.adapter';
 import { KeplerSolicitudGastoSinkAdapter } from '../../expense-proofs/solicitud-kepler/kepler-solicitud-gasto-sink.adapter';
@@ -51,6 +51,20 @@ import type { DiaPropuesta, PropuestaComisiones } from './comisiones-kepler.quer
 /** El tipo del renglón de `commercial.kepler_push_switch`. */
 export const TIPO_INTERRUPTOR_COMISIONES = 'comisiones_terminal';
 
+/** Los estados desde los que un día SE PUEDE retomar. `escrito` y `en_duda` no están, a propósito. */
+export const ESTADOS_RETOMABLES = ['pendiente', 'reintento', 'rechazado'] as const;
+
+/** Por qué no se pudo reclamar el día, con su estado real. Puro, para probarlo solo. */
+export function motivoDeNoReclamar(estado: string | undefined): string {
+  switch (estado) {
+    case 'escrito': return 'Este día ya se escribió en Kepler';
+    case 'escribiendo': return 'Otro proceso está escribiendo este día ahora mismo';
+    case 'en_duda': return '⛔ Este día quedó EN DUDA: la respuesta de Kepler no volvió. Búscalo en Kepler antes de reintentar';
+    case undefined: return 'No se pudo reclamar el día y su renglón desapareció: no se intentó escribir';
+    default: return `No se pudo reclamar el día (quedó en «${estado}»)`;
+  }
+}
+
 /** El freno global de este proceso. Nace apagado: sin él no se intenta nada. */
 export function escrituraDeComisionesEncendida(env: Readonly<Record<string, string | undefined>>): boolean {
   return (env['KEPLER_COMISIONES_TERMINAL'] ?? '').trim() === 'encendida';
@@ -76,6 +90,24 @@ export interface ResultadoGeneracion {
 
 /** El dial de D3 de una cuenta: desde cuándo la escribe la Suite. */
 export interface DialDeCuenta { account_label: string; comisiones_kepler_desde: string | null }
+
+/**
+ * ⛔⛔ **La fecha de D3 tal como la devuelve la base, convertida a `YYYY-MM-DD`.**
+ *
+ * `pg` entrega una columna `date` como **objeto `Date`**, no como texto. Esto estaba escrito
+ * `String(valor).slice(0, 10)`, que sobre un `Date` da **`'Tue Nov 1'`** — y entonces
+ * `'2026-11-17' < 'Tue Nov 1'` es **true** (`'2' < 'T'` en ASCII), así que TODO cargo quedaba como
+ * «atraso de Finanzas» y **ninguna cuenta podía escribir jamás**, con un motivo que suena legítimo.
+ *
+ * Lo encontró el canario del 2026-11-26, no una prueba: las 9 de `dialDeD3Cierra` son puras y le
+ * pasan strings, así que nunca cruzan la frontera base→código, que es donde estaba el defecto.
+ *
+ * `toMxDateKey` es el primitivo del repo para esto (ADR-056) y no desplaza el día por zona horaria.
+ */
+export function fechaDelDial(valor: Date | string | null | undefined): string | null {
+  const k = toMxDateKey(valor);
+  return k || null;
+}
 
 /**
  * ⭐ **D3, el dial que de verdad importa.** ¿Esta cuenta ya pasó a la Suite, y este cargo es posterior al cambio
@@ -156,7 +188,7 @@ export class ComisionesKeplerEscritorService {
     const filas = await this.tk.run((trx: Trx) => trx('finance.bank_accounts')
       .where({ tenant_id: tenantId })
       .select<DialDeCuenta[]>('account_label', 'comisiones_kepler_desde'));
-    return new Map(filas.map((f) => [String(f.account_label).trim(), { ...f, comisiones_kepler_desde: f.comisiones_kepler_desde ? String(f.comisiones_kepler_desde).slice(0, 10) : null }]));
+    return new Map(filas.map((f) => [String(f.account_label).trim(), { ...f, comisiones_kepler_desde: fechaDelDial(f.comisiones_kepler_desde) }]));
   }
 
   private async interruptores(tenantId: string): Promise<Map<string, { encendida: boolean; tope_dia: number | null }>> {
@@ -191,9 +223,8 @@ export class ComisionesKeplerEscritorService {
     }
 
     // ⛔ El reclamo atómico ANTES de hablar con Kepler: dos pestañas o el cron a la vez no escriben dos veces.
-    if (!(await this.reclamar(tenantId, e))) {
-      return this.apagado(d, 'Otro proceso está escribiendo este día (o ya lo escribió)');
-    }
+    const noReclamado = await this.reclamar(tenantId, e);
+    if (noReclamado) return this.apagado(d, noReclamado);
 
     try {
       return await this.escribir(tenantId, d, e, sw.tope_dia);
@@ -243,7 +274,15 @@ export class ComisionesKeplerEscritorService {
     for (const p of e.pagos) {
       const rp = await this.pagos.entregar({
         sucursal: d.sucursal, fecha: p.fecha, hora: e.solicitud.capturadaEn.hora,
-        referencia: `${p.referencia} ${e.llave}`, acreedor: e.solicitud.acreedor, importe: p.importe,
+        // ⛔ La referencia va SOLA. Antes se le concatenaba la llave del día y el resultado medía 30
+        //    caracteres («COMISIONES 05|2026-11-15|GB004») contra un `c11` de varchar(20): el pago
+        //    reventaba DESPUÉS de que la solicitud y el gasto ya estaban escritos en Kepler, dejando
+        //    una CxP abierta. Lo encontró el canario del 2026-11-26 (gasto 0000116 de la 05).
+        //    Medido ese día, pagos X-D-26 a acreedor GB% desde septiembre: 1,761 dicen «IVA» y 1,713
+        //    «COMISIONES», que es justo lo que devuelve `referenciaDelCargo`; el c11 más largo de los
+        //    3,658 mide 20. La trazabilidad del día no vive aquí: vive en la bitácora (cargo → folio)
+        //    y en la CxP del gasto contra la que se aplica cada pago.
+        referencia: p.referencia, acreedor: e.solicitud.acreedor, importe: p.importe,
         origen: { bank: p.banco, account_label: p.cuenta }, destino: null,
         facturas: [{ tipo: 10, subtipo: 1, folio: gasto, aplicado: p.importe }],
       });
@@ -263,7 +302,20 @@ export class ComisionesKeplerEscritorService {
   // ── La bitácora ──────────────────────────────────────────────────────────────────────────────────────────
 
   /** `true` si este proceso se quedó con el día. Falla cerrada: si ya está `escribiendo` o `escrito`, no. */
-  private async reclamar(tenantId: string, e: EntregasDelDia): Promise<boolean> {
+  /**
+   * El reclamo atómico del día. Devuelve `null` si quedó reclamado, o **el motivo real** si no.
+   *
+   * ⭐ `rechazado` SE PUEDE RETOMAR, y antes no: un rechazo es «no se escribió nada» (la escritura va en
+   * una transacción y el catch anota el motivo), así que reintentarlo es seguro. Sin esto, el primer
+   * fallo dejaba el día **bloqueado para siempre** — y encima el aviso culpaba a «otro proceso», que no
+   * existía. Lo encontró el canario del 2026-11-26: el día de la 05 falló por el renglón AMPARA, y al
+   * reintentar con el arreglo ya puesto la pantalla seguía diciendo «Otro proceso está escribiendo este
+   * día (o ya lo escribió)».
+   *
+   * ⛔ `en_duda` NO se retoma: ahí el COMMIT pudo salir y la respuesta no volvió, así que hay que buscar
+   * los documentos en Kepler antes de tocar nada. `escrito` tampoco, obviamente.
+   */
+  private async reclamar(tenantId: string, e: EntregasDelDia): Promise<string | null> {
     return this.tk.run(async (trx: Trx) => {
       const llave = { tenant_id: tenantId, sucursal: e.sucursal, dia_venta: e.solicitud.fechaSolicitud, acreedor: e.solicitud.acreedor };
       await trx('finance.bank_commission_kepler_days').insert({
@@ -271,9 +323,13 @@ export class ComisionesKeplerEscritorService {
         total: e.total, iva: e.iva, cargos: e.pagos.length,
       }).onConflict(['tenant_id', 'sucursal', 'dia_venta', 'acreedor']).ignore();
       const n = await trx('finance.bank_commission_kepler_days').where(llave)
-        .whereIn('estado', ['pendiente', 'reintento'])
+        .whereIn('estado', ESTADOS_RETOMABLES)
         .update({ estado: 'escribiendo', intentos: trx.raw('intentos + 1'), updated_at: trx.fn.now() });
-      return n === 1;
+      if (n === 1) return null;
+      // No se pudo reclamar: se dice POR QUÉ, con el estado real. Un aviso que inventa la causa manda
+      // a buscar el problema donde no está.
+      const [fila] = await trx('finance.bank_commission_kepler_days').where(llave).select('estado');
+      return motivoDeNoReclamar(fila?.['estado'] as string | undefined);
     });
   }
 

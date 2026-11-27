@@ -252,6 +252,59 @@ export async function generarCargosDelMes(
   return out;
 }
 
+/** `[PGP.213]` El evento de la bitácora cuando un cargo programado se retira porque su contrato terminó antes. */
+export const EVENTO_RETIRADO_POR_FIN = 'retirado_por_fin_de_contrato';
+
+export interface ResultadoRetiro {
+  /** Los pagos pendientes cuyo día cae DESPUÉS del fin del contrato: ya no están en el Calendario. */
+  retirados: { allocation_id: string; fecha: string; periodo: string; importe: number }[];
+  /** Los que se quedan aunque caen después del fin: su día ya está autorizado. Los quita una persona si el banco no los cobra. */
+  se_quedan: { allocation_id: string; fecha: string; motivo: string }[];
+}
+
+/**
+ * `[PGP.213]` **Al terminar un contrato, sus cargos programados después del fin salen del Calendario.** Sin esto, un
+ * arrendamiento vencido seguía con su cargo de diciembre como pago pendiente «esperando al banco» (lo vio la prueba con
+ * base real). Lo de antes del fin se queda: el banco pudo cobrarlo tarde (hasta 9 días, medido) y lo cierra
+ * `cerrarCargosCobrados`. Un día ya autorizado no se toca: se dice (`se_quedan`).
+ */
+export async function retirarCargosTrasElFin(trx: Knex.Transaction, tenantId: string, contratoId: string, actor: string): Promise<ResultadoRetiro> {
+  const out: ResultadoRetiro = { retirados: [], se_quedan: [] };
+  const c = await trx('finance.charge_contracts').where({ tenant_id: tenantId, id: contratoId })
+    .first(trx.raw(`to_char(ends_on, 'YYYY-MM-DD') AS fin`)) as { fin: string | null } | undefined;
+  if (!c?.fin) return out;
+  const pendientes = (await trx.raw(`
+    SELECT a.id::text AS allocation_id, a.notes, l.status AS dia, fc.id::text AS commitment_id, fc.period AS periodo,
+           to_char(fc.original_due_date, 'YYYY-MM-DD') AS fecha, a.amount_assigned::float8 AS importe
+      FROM finance.financial_commitments fc
+      JOIN finance.payment_allocation_items i ON i.obligation_source = 'financial_commitment' AND i.obligation_id = fc.id
+      JOIN finance.payment_allocations a ON a.id = i.allocation_id
+      JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+     WHERE fc.tenant_id = ? AND fc.contract_id = ? AND fc.original_due_date > ?::date AND a.status = 'pending'
+     ORDER BY fc.original_due_date, a.id`, [tenantId, contratoId, c.fin])).rows as
+    { allocation_id: string; notes: string | null; dia: string; commitment_id: string; periodo: string; fecha: string; importe: number }[];
+  for (const p of pendientes) {
+    if (ESTADOS_DIA_AUTORIZADO.includes(p.dia)) {
+      out.se_quedan.push({ allocation_id: p.allocation_id, fecha: p.fecha, motivo: `El ${p.fecha} ya está autorizado: si el banco no lo cobra, quítalo del día a mano.` });
+      continue;
+    }
+    const nota = `[contrato terminado el ${c.fin}] Su cargo del ${p.fecha} ya no se cobra: sale del Calendario.`;
+    // Guarda de carrera: sólo si sigue pendiente en este instante (el banco pudo cerrarlo).
+    const n = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: p.allocation_id, status: 'pending' })
+      .update({ status: 'cancelled', notes: `${p.notes ?? ''}\n${nota}`.trim(), updated_by: actor, updated_at: trx.fn.now() });
+    if (!n) continue;
+    await trx('finance.payment_allocation_history').insert({
+      tenant_id: tenantId, allocation_id: p.allocation_id, event: EVENTO_RETIRADO_POR_FIN, status_from: 'pending', status_to: 'cancelled', created_by: actor,
+      detail: JSON.stringify({ regla: 'PGP.213', contrato: contratoId, fin: c.fin, fecha: p.fecha, periodo: p.periodo, importe: Number(p.importe) }),
+    });
+    await trx('finance.financial_commitments').where({ tenant_id: tenantId, id: p.commitment_id })
+      .update({ status: 'cancelled', notes: nota, updated_by: actor, updated_at: trx.fn.now() });
+    await recalcularObligacion(trx, 'financial_commitment', p.commitment_id);
+    out.retirados.push({ allocation_id: p.allocation_id, fecha: p.fecha, periodo: p.periodo, importe: Number(p.importe) });
+  }
+  return out;
+}
+
 export interface CargoCerrado { allocation_id: string; renglon_id: string; periodo: string; importe: number; movimientos: string[]; base: ReglaImporteCargo }
 export interface CargoEsperando { allocation_id: string; renglon_id: string; periodo: string; motivo: string }
 export interface ResultadoCierre { revisados: number; cerrados: CargoCerrado[]; esperando: CargoEsperando[] }

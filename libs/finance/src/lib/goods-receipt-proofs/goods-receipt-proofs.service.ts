@@ -28,7 +28,7 @@ import {
 import { llaveDelFolio, ordenarCandidatas, sqlNucleoReferencia, sqlSufijoReferencia } from './emparejar-papel';
 import { aprendibles, conciliarRenglones, normCodigo, normStr, type RenglonKepler } from './conciliar-renglones';
 // `[RE.55]` De dónde salen los renglones: XML del CFDI, u OCR sólo si su lectura es confiable.
-import { conceptosDelCfdi, lecturaConfiable, type FuenteRenglones } from './fuente-renglones';
+import { conceptosDelCfdi, lecturaConfiable, porPrecedencia, rfcsDelProveedor, type FuenteRenglones, type RfcsDelProveedor } from './fuente-renglones';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -2670,12 +2670,17 @@ export class GoodsReceiptProofsService {
         .where({ tenant_id: tenantId, sucursal: suc, folio: fol })
         .first('proveedor_rfc', 'proveedor_nombre');
       if (!entrada) throw new BadRequestException(`entrada ${suc}/${fol} no existe en el espejo de Kepler`);
-      const rfc = (entrada.proveedor_rfc || '').trim().toUpperCase();
 
       // `[RE.55]` La fuente de los renglones: los conceptos del CFDI ligado (el mismo que muestra el
       // expediente) y, sin CFDI, el OCR sólo si su lectura pasa las pruebas de `lecturaConfiable`.
       const fuente = await this.fuenteRenglones(trx, tenantId, suc, fol, leidas);
       const remLines = fuente.usar;
+
+      // `[PQ.150]` El código es de quien FACTURA: alias e historia se buscan con el RFC de la factura ligada
+      // primero y el del acreedor en Kepler después (falta en 42 % de las entradas, o es otro), y se aprende
+      // bajo el de la factura. Sin factura ligada, como antes: el de Kepler.
+      const quien = rfcsDelProveedor(entrada.proveedor_rfc, fuente.rfcFactura);
+      const rfc = quien.aprender ?? '';
 
       // Líneas Kepler de ESTA entrada (candidatos del match).
       const kepRaw = await trx('analytics.erp_goods_receipt_lines')
@@ -2704,35 +2709,8 @@ export class GoodsReceiptProofsService {
         for (const r of bf.rows || []) if (Number(r.box_factor) > 0) bfMap.set(String(r.sku), Number(r.box_factor));
       }
 
-      // Aliases aprendidos para este proveedor: por descripción (`[RE.53]`) y por su código (`[PQ.148]`).
-      const aliasMap = new Map<string, { sku: string; nombre_interno: string | null; box_factor: number | null }>();
-      const aliasPorCodigo = new Map<string, { sku: string; nombre_interno: string | null; box_factor: number | null }>();
-      if (rfc) {
-        const al = await trx('commercial.supplier_item_aliases')
-          .where({ tenant_id: tenantId, proveedor_rfc: rfc }).whereNull('deleted_at')
-          .select('descripcion_norm', 'codigo_proveedor', 'sku', 'nombre_interno', trx.raw('box_factor::numeric AS box_factor'));
-        for (const a of al) {
-          const v = { sku: a.sku, nombre_interno: a.nombre_interno, box_factor: a.box_factor != null ? Number(a.box_factor) : null };
-          aliasMap.set(a.descripcion_norm, v);
-          if (a.codigo_proveedor) aliasPorCodigo.set(a.codigo_proveedor, v);
-        }
-      }
-
-      // `[PQ.148]` Lo que enseña la historia de SUS facturas ya aplicadas en Kepler (vista derivada,
-      // sólo los códigos que cayeron siempre en el mismo SKU). Va en su propio savepoint: si la vista
-      // no se puede leer, la conciliación sigue sin ella —esos renglones caen a la descripción, como
-      // antes— y queda en el log; no se inventa nada.
-      const historiaPorCodigo = new Map<string, { sku: string; nombre_interno: string | null; box_factor: number | null }>();
-      if (rfc) {
-        try {
-          const hs = await trx.transaction((sp) => sp('commercial.v_supplier_item_code_history')
-            .where({ tenant_id: tenantId, proveedor_rfc: rfc, estable: true })
-            .select('codigo_proveedor', 'sku', 'nombre_kepler'));
-          for (const h of hs) historiaPorCodigo.set(h.codigo_proveedor, { sku: h.sku, nombre_interno: h.nombre_kepler, box_factor: null });
-        } catch (err) {
-          this.logger.warn(`[PQ.148] la historia de códigos de ${rfc} no se pudo leer; se concilia sin ella: ${(err as Error).message}`);
-        }
-      }
+      // Lo aprendido de este proveedor: alias (`[RE.53]`, `[PQ.148]`) e historia (`[PQ.148]`), con los RFC de `quien`.
+      const { aliasMap, aliasPorCodigo, historiaPorCodigo } = await this.equivalenciasDe(trx, tenantId, quien);
 
       // Barcodes → sku (solo los que aparecen en la remisión).
       const barcodes = remLines.map((l) => (l.codigo_barras || '').trim()).filter((b) => b.length >= 8);
@@ -2764,10 +2742,48 @@ export class GoodsReceiptProofsService {
 
       return {
         sucursal: suc, folio: fol, proveedor_rfc: rfc || null, proveedor_nombre: entrada.proveedor_nombre || null,
+        // `[PQ.150]` De dónde salió el RFC con que se buscó y se aprende: se dice, no se supone.
+        proveedor_rfc_fuente: quien.fuente,
         lines: results, kepler_orphans: c.kepler_orphans, base_precio: c.base_precio, no_producto: c.no_producto, totals,
         lectura: fuente.lectura,
       };
     });
+  }
+
+  /**
+   * `[PQ.150]` Lo aprendido de un proveedor, buscado con TODOS sus RFC (`quien.buscar`): el de la factura y el
+   * del acreedor en Kepler. Si los dos traen el mismo código o la misma descripción, gana el que va primero
+   * (el de la factura: es quien escribe el código).
+   *  · Alias confirmados (`commercial.supplier_item_aliases`): por descripción (`[RE.53]`) y por código (`[PQ.148]`).
+   *  · Historia (`commercial.v_supplier_item_code_history`, sólo los códigos que cayeron siempre en el mismo
+   *    SKU). Va en su propio savepoint: si la vista no se puede leer, la conciliación sigue sin ella —esos
+   *    renglones caen a la descripción, como antes— y queda en el log; no se inventa nada.
+   */
+  private async equivalenciasDe(trx: Knex.Transaction, tenantId: string, quien: RfcsDelProveedor) {
+    type Equivalencia = { sku: string; nombre_interno: string | null; box_factor: number | null };
+    const aliasMap = new Map<string, Equivalencia>();
+    const aliasPorCodigo = new Map<string, Equivalencia>();
+    const historiaPorCodigo = new Map<string, Equivalencia>();
+    if (!quien.buscar.length) return { aliasMap, aliasPorCodigo, historiaPorCodigo };
+
+    const al = await trx('commercial.supplier_item_aliases')
+      .where({ tenant_id: tenantId }).whereIn('proveedor_rfc', quien.buscar).whereNull('deleted_at')
+      .select('proveedor_rfc', 'descripcion_norm', 'codigo_proveedor', 'sku', 'nombre_interno', trx.raw('box_factor::numeric AS box_factor'));
+    for (const a of porPrecedencia(al, quien.buscar)) {
+      const v = { sku: a.sku, nombre_interno: a.nombre_interno, box_factor: a.box_factor != null ? Number(a.box_factor) : null };
+      aliasMap.set(a.descripcion_norm, v);
+      if (a.codigo_proveedor) aliasPorCodigo.set(a.codigo_proveedor, v);
+    }
+
+    try {
+      const hs = await trx.transaction((sp) => sp('commercial.v_supplier_item_code_history')
+        .where({ tenant_id: tenantId, estable: true }).whereIn('proveedor_rfc', quien.buscar)
+        .select('proveedor_rfc', 'codigo_proveedor', 'sku', 'nombre_kepler'));
+      for (const h of porPrecedencia(hs, quien.buscar)) historiaPorCodigo.set(h.codigo_proveedor, { sku: h.sku, nombre_interno: h.nombre_kepler, box_factor: null });
+    } catch (err) {
+      this.logger.warn(`[PQ.148] la historia de códigos de ${quien.buscar.join('/')} no se pudo leer; se concilia sin ella: ${(err as Error).message}`);
+    }
+    return { aliasMap, aliasPorCodigo, historiaPorCodigo };
   }
 
   /**
@@ -2777,11 +2793,15 @@ export class GoodsReceiptProofsService {
    */
   private async fuenteRenglones(trx: Knex.Transaction, tenantId: string, suc: string, fol: string, leidas: RemisionLine[]) {
     const x = (await this.expediente.calcularLote(trx, tenantId, [{ sucursal: suc, folio: fol }])).get(`${suc}/${fol}`);
+    // `[PQ.150]` El RFC de quien factura, aunque el XML no esté: con él se buscan las equivalencias.
+    let rfcFactura: string | null = null;
     if (x?.cfdi) {
-      const row = await trx('fiscal.cfdis').where({ tenant_id: tenantId, id: x.cfdi.id }).first('xml');
+      const row = await trx('fiscal.cfdis').where({ tenant_id: tenantId, id: x.cfdi.id }).first('xml', 'emisor_rfc');
+      rfcFactura = row?.emisor_rfc ?? null;
       const conceptos = conceptosDelCfdi(row?.xml);
       if (conceptos.length) {
         return {
+          rfcFactura,
           usar: conceptos,
           // `[RE.59]` Si la liga es sólo SUGERENCIA (nombre + importe, RFC + importe…), la conciliación lo dice:
           // sirve para confirmarla, no la da por buena.
@@ -2805,6 +2825,7 @@ export class GoodsReceiptProofsService {
     const l = lecturaConfiable(leidas, doc);
     const sinCfdi = x?.cfdi ? ['el CFDI ligado todavía no tiene su XML'] : [];
     return {
+      rfcFactura,
       usar: l.confiable ? leidas : [],
       lectura: { fuente: 'ocr' as FuenteRenglones, confiable: l.confiable, motivos: [...l.motivos, ...sinCfdi], uuid: null as string | null, renglones_leidos: leidas.length, liga_sugerida: false },
     };

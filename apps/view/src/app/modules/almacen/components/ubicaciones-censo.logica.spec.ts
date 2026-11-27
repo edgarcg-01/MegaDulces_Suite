@@ -19,8 +19,17 @@ describe('[UB.3b] clasificarLectura', () => {
     expect(clasificarLectura('C07302')).toEqual({ tipo: 'producto', texto: 'C07302' });
     expect(clasificarLectura('mazapan')).toEqual({ tipo: 'producto', texto: 'mazapan' });
   });
-  it('NEGATIVA: algo que parece ubicación pero no lo es (nivel 7) no cambia la ubicación: se busca como producto', () => {
-    expect(clasificarLectura('BA057').tipo).toBe('producto');
+  // [UB.NV.1] El nivel llega al 9 desde el 2026-11-26, asi que BA057 YA ES una ubicacion valida.
+  // El caso negativo pasa al 0, que sigue sin existir: el nivel empieza en 1.
+  it('NEGATIVA: algo que parece ubicación pero no lo es (nivel 0) no cambia la ubicación: se busca como producto', () => {
+    expect(clasificarLectura('BA050').tipo).toBe('producto');
+  });
+
+  // ⭐ Y el control del cambio de tope: el 7, el 8 y el 9 AHORA sí mandan a la ubicación.
+  it('[UB.NV.1] los niveles 7, 8 y 9 ya son ubicaciones, no códigos de producto', () => {
+    for (const code of ['BA057', 'BA058', 'BA059']) {
+      expect(clasificarLectura(code).tipo).toBe('ubicacion');
+    }
   });
   it('vacío no hace nada', () => {
     expect(clasificarLectura('   ').tipo).toBe('vacia');

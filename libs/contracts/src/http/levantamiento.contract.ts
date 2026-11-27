@@ -20,6 +20,21 @@ export const LEVANTAMIENTO_CARAS = [
 ] as const;
 export type LevantamientoCara = (typeof LEVANTAMIENTO_CARAS)[number];
 
+/**
+ * `[NP.7.L.21]` Lo que se PIDE en cada captura (2026-11-26): 4 fotos guiadas en vez de 8. Medido ese día en prod:
+ * 16 de 23 capturas quedaron a medias y 7 de 8 personas no subieron ni una foto. El frente identifica, el reverso
+ * trae lo demás, y los dos acercamientos son lo que en el reverso entero no se alcanza a leer. Los lados y la base
+ * ya no se piden: si traen algo impreso, se agregan como detalle (`lados`). Siguen en `LEVANTAMIENTO_CARAS` porque
+ * hay fichas que ya los tienen y la subida los sigue aceptando.
+ */
+export const LEVANTAMIENTO_CARAS_REQUERIDAS: readonly LevantamientoCara[] = ['frente', 'reverso', 'tabla_nutricional', 'informacion'];
+
+/**
+ * El código de barras sólo se pide cuando el producto se eligió en el BUSCADOR: si se escaneó, el código ya se
+ * leyó y una foto no agrega nada.
+ */
+export const LEVANTAMIENTO_CARA_SOLO_BUSQUEDA: LevantamientoCara = 'codigo_barras';
+
 /** Los acercamientos: no son caras del empaque sino una parte de él (su salto se pregunta distinto). */
 export const LEVANTAMIENTO_ACERCAMIENTOS: readonly LevantamientoCara[] = ['tabla_nutricional', 'informacion', 'codigo_barras'];
 
@@ -33,7 +48,8 @@ export type LevantamientoDetalle = (typeof LEVANTAMIENTO_DETALLES)[number];
 export type LevantamientoFotoCara = LevantamientoCara | LevantamientoDetalle;
 
 /** Qué muestra el detalle: se elige con un toque (sin teclear en el camino normal); `otro` admite una nota. */
-export const LEVANTAMIENTO_DETALLE_TIPOS = ['caducidad', 'sellos', 'promocion', 'otro'] as const;
+/** `lados` (`[NP.7.L.21]`): los lados o la base, cuando traen algo impreso; ya no son caras obligatorias. */
+export const LEVANTAMIENTO_DETALLE_TIPOS = ['lados', 'caducidad', 'sellos', 'promocion', 'otro'] as const;
 export type LevantamientoDetalleTipo = (typeof LEVANTAMIENTO_DETALLE_TIPOS)[number];
 export const LEVANTAMIENTO_DETALLE_NOTA_MAX = 60;
 /** Ventana para agregar detalles después de terminar (la misma que dura un apartado). */
@@ -54,8 +70,8 @@ export interface LevantamientoContexto {
   branch_code: string;
   /** Siempre por nombre en pantalla; null si la sucursal no está en el catálogo de almacenes. */
   branch_name: string | null;
-  /** De dónde salió: su perfil, su alcance, o la eligió porque su perfil no tiene sucursal (D25). */
-  branch_source: 'perfil' | 'alcance' | 'elegida';
+  /** De dónde salió: su perfil o su alcance. Nadie la elige desde `[NP.7.L.20]` (antes: `'elegida'`, D25). */
+  branch_source: 'perfil' | 'alcance';
   user: { id: string; username: string | null; name: string | null };
   /** Productos de la sucursal (venta 90 d o existencia, sin promociones) cuya unidad principal no tiene ficha. */
   missing: number;
@@ -94,6 +110,11 @@ export interface LevantamientoEscaneoDto {
   code?: string;
   /** Si entró por el buscador: el SKU elegido (no hay código que confirme el peldaño). */
   sku?: string;
+  /**
+   * `[NP.7.L.23]` La presentación que la persona ELIGIÓ fotografiar (una sola). Sin ella, el servidor propone:
+   * la del código si es de un paquete o caja, y si no la que más se vende. Una que el producto no tiene → 400.
+   */
+  rung?: LevantamientoPeldano;
 }
 
 export type LevantamientoAccion =
@@ -116,8 +137,13 @@ export interface LevantamientoEscaneoRespuesta {
   name: string | null;
   /** Peldaño del código escaneado y su rótulo/factor de Kepler TAL CUAL (B0). */
   scanned: { rung: LevantamientoPeldano; label: string | null; factor: number | null } | null;
-  /** La unidad que se fotografía (la principal) y su rótulo/factor de Kepler. */
+  /** La presentación que se fotografía (la elegida o la propuesta) y su rótulo/factor de Kepler. */
   principal: { rung: LevantamientoPeldano; label: string | null; factor: number | null } | null;
+  /**
+   * `[NP.7.L.23]` Las presentaciones que el producto tiene en Kepler, para elegir a cuál se le toman fotos.
+   * Se fotografía UNA: no se obliga a todas. Vacío si no se llegó a resolver el producto.
+   */
+  rungs: Array<{ rung: LevantamientoPeldano; label: string | null; factor: number | null }>;
   /** Ficha apartada para esta persona (sólo con `capturar`). */
   sheet_id: string | null;
   faces: LevantamientoCara[];
@@ -159,13 +185,23 @@ export interface LevantamientoSaltoDto {
 }
 
 /** Fila del buscador de respaldo (NP.7.L.10): lista blanca, sin precio ni venta. */
+/**
+ * `[NP.7.L.22]` El estado de las fotos de un producto, tal como lo lee quien captura:
+ *  · `tiene_foto` — publicada, o ya levantada y en revisión de Catálogo: no hace falta tomarla otra vez;
+ *  · `en_curso`  — OTRA persona la está tomando ahora (apartado vivo). Si el apartado es propio, es `falta`:
+ *                   la persona puede retomarla;
+ *  · `falta`     — nadie la ha tomado (o la captura se soltó o venció).
+ */
+export const LEVANTAMIENTO_ESTADOS_FOTO = ['tiene_foto', 'en_curso', 'falta'] as const;
+export type LevantamientoEstadoFoto = (typeof LEVANTAMIENTO_ESTADOS_FOTO)[number];
+
 export interface LevantamientoBusquedaFila {
   sku: string;
   name: string;
   content: string | null;
   barcode: string | null;
-  /** Ya tiene ficha publicada: no hace falta levantarlo. */
-  has_sheet: boolean;
+  /** `[NP.7.L.22]` Reemplaza a `has_sheet` (que sólo distinguía «publicada»). */
+  photo_status: LevantamientoEstadoFoto;
 }
 
 // ── `[NP.7.L.3b]` Bandeja «Por revisar» de Catálogo ──────────────────────────────────────────────

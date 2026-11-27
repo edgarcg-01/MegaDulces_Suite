@@ -20,7 +20,10 @@ import type {
   WarehouseLocationRow,
   WarehouseLocationsResponse,
   WarehouseFixture,
-  AcomodoBody,
+  AcomodoCarasBody,
+  CaraBody,
+  PiezaBody,
+  FixtureFace,
   CroquisResponse,
   CrearPiezaBody,
   MoverPiezaBody,
@@ -63,7 +66,7 @@ export class WarehouseLocationsController {
 
   @Post()
   @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
-  @ApiOperation({ summary: 'Dar de alta UNA ubicación con el código [T|B][pasillo][rack 01-99][nivel 1-6].' })
+  @ApiOperation({ summary: 'Dar de alta UNA ubicación con el código [T|B][pasillo][rack 01-99][nivel 1-9].' })
   create(@Body() body: CreateWarehouseLocationBody): Promise<WarehouseLocationRow> {
     return this.svc.create(body);
   }
@@ -111,13 +114,46 @@ export class WarehouseLocationsController {
     return this.fixtures.derivar(body?.warehouse_id);
   }
 
-  // [UB.PL.8] Dibujar la planta es CONFIGURAR la sucursal, así que pide GESTIONAR (4 roles) y no
+  // [UB.PL.11] Dibujar la planta es CONFIGURAR la sucursal, así que pide GESTIONAR (4 roles) y no
   // ACOMODAR (7): acomodar es poner mercancía en su lugar, no redibujar dónde están los muebles.
+  // ⭐ Lo que se mueve es una CARA, no la pieza entera: así un anaquel ENTRE dos pasillos se puede
+  // decir (sus dos caras son de letras distintas y comparten celda). Reemplaza al de [UB.PL.8].
   @Put('fixtures/acomodo')
   @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
-  @ApiOperation({ summary: '[UB.PL.8] Acomoda el croquis: un arrastre, una petición. Sólo viajan las piezas que se movieron. NO toca ninguna ubicación.' })
-  acomodarCroquis(@Body() body: AcomodoBody): Promise<{ movidas: number; piezas: WarehouseFixture[] }> {
-    return this.fixtures.acomodo(body);
+  @ApiOperation({ summary: '[UB.PL.11] Suelta una CARA en una celda de la planta: un gesto, una petición. NO toca ninguna ubicación ni ningún código.' })
+  acomodarCroquis(@Body() body: AcomodoCarasBody): Promise<{ movidas: number; caras: FixtureFace[] }> {
+    return this.fixtures.acomodoDeCaras(body);
+  }
+
+  // [UB.PL.12] Todo lo que antes decidía el código se contesta desde la pantalla: cuántas caras
+  // tiene un mueble, qué racks lleva cada una, cómo se llama y qué es. Mismo permiso que el resto
+  // de la configuración de ubicaciones (GESTIONAR, 4 roles ya repartidos): sin clave nueva.
+  @Post('fixtures/caras')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: '[UB.PL.12] Agrega una cara a un mueble (hasta 4) diciendo qué racks lleva. NO crea ubicaciones.' })
+  agregarCara(@Body() body: CaraBody): Promise<FixtureFace[]> {
+    return this.fixtures.agregarCara(body);
+  }
+
+  @Patch('fixtures/caras/:id')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: '[UB.PL.12] Cambia qué racks lleva una cara (nones, pares, todos, un tramo, ninguno) o cómo se llama.' })
+  cambiarCara(@Param('id') id: string, @Body() body: CaraBody): Promise<FixtureFace[]> {
+    return this.fixtures.cambiarCara(id, body);
+  }
+
+  @Delete('fixtures/caras/:id')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: '[UB.PL.12] Quita una cara del mueble. Se retira, no se borra; el mueble conserva al menos una.' })
+  quitarCara(@Param('id') id: string): Promise<FixtureFace[]> {
+    return this.fixtures.quitarCara(id);
+  }
+
+  @Put('fixtures/:id')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: '[UB.PL.12] Renombra un mueble o le cambia el tipo, los racks o los niveles. NO crea ni borra ubicaciones.' })
+  editarPieza(@Param('id') id: string, @Body() body: PiezaBody): Promise<WarehouseFixture> {
+    return this.fixtures.editarPieza(id, body);
   }
 
   @Patch('fixtures/:id')

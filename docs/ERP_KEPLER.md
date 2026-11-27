@@ -1342,7 +1342,7 @@ abierto, está en [`FASE_PGP_PAGO_A_PROVEEDOR.md`](IMPLEMENTACION/FASES/FASE_PGP
 **Lo que NO toca:** `kdcn26` (acumulados por centro de costo, que viven en `kdm6`; ningún pago a compra
 trae `kdm6`), `kdm2` y la entrada `kdm1` de la factura (su `c42` sigue igual al total).
 
-**El cheque (`X-D-25`)** escribe lo mismo, con `c31='Che'` y `c11 = CH-<folio del cheque>`. **La
+**El cheque (`X-D-25`)** escribe lo mismo, con `c31='Che'` y `c11 = CHEQUE <número del cheque>` (medido 2026-11-26 en los `X-D-25` de Tesorería: `CHEQUE 5377`, `CHEQUE 17228`; a veces con dos espacios. No es `CH-<folio>`, como decía esta línea), en su propio contador `KFXD2501`. Lo escribe la Suite al cobro desde `[PGP.171]`. **La
 «transferencia a no proveedor» (`N-A-26`)** es otra cosa: sólo escribe `kdm1`, sin cuentas por pagar.
 
 **⭐ El motor de documentos de Kepler.** `kdmx_26` (y `kdmx_25`) guarda el XML con el que el programa

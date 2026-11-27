@@ -232,6 +232,18 @@ El detector lee el banco en sólo lectura y propone un contrato cuando ve:
 Tesorería confirma una vez, adjunta el contrato y corrige lo que haga falta. **Nada entra al Calendario sin
 confirmar.**
 
+**La API (`[PGP.213]`, 2026-11-26), `finance/charge-contracts`.** Ver con `FINANCE_PAYMENTS_VER`. Todo lo que escribe
+—proponer, dar de alta, corregir una propuesta, confirmar, terminar, rechazar y subir el PDF— pide una clave propia,
+`FINANCE_CHARGE_CONTRACTS_GESTIONAR`. Se reparte a **tesoreria, finanzas_operativo y finanzas** (Francisco, 2026-11-26).
+La clave de Pagos no sirve: la tienen 10 roles, entre ellos Marketing, Compras, Crédito y Contabilidad.
+
+- **Qué se corrige:** sólo una propuesta. Un contrato confirmado ya programa sus cargos con la firma de Tesorería; si
+  cambió el contrato real, se termina y se da de alta el nuevo.
+- **Cómo se rechaza un cuerpo mal formado:** con un 400 que dice qué corregir, con las mismas reglas que los CHECK de la
+  base (`problemasDeEncabezado`, `problemasDeRenglon`).
+- **Medido en prod (2026-11-26):** 0 contratos (nadie ha propuesto todavía). Sin contrato del 1 al 25 de noviembre: 59
+  cargos, $781,570.77. Es M1.
+
 **Cómo clasifica la propuesta (`[PGP.210]`, reglas explícitas, no adivinadas):** «pago de capital», «pago de
 intereses», «intereses no reales» y «pago de IVA» son crédito, y los del mismo número de crédito en la misma cuenta
 van en UN contrato. Las comisiones y su IVA (por la categoría de Bancos o por la cabeza del concepto) son cuotas de
@@ -281,6 +293,22 @@ al documento de Kepler** y el Calendario muestra uno, no dos.
 
 Quién llama a generar y cerrar cada día es `[PGP.213]` (C2). El interés variable un día antes es `[PGP.219]`: hasta
 entonces el interés va «estimado».
+
+**En código (`[PGP.213]`, 2026-11-26): quién lo llama, sin reloj.** Edgar no quiere cron en el Calendario (`[PGP.117]`,
+`[PGP.121]`), así que lo dispara la carga del banco: `CargosDelBancoService` escucha `bancos_movimientos` en el worker y,
+por tenant, corre **proponer → recalcular el interés → programar el cargo del mes → cerrar lo cobrado**. Cada paso falla
+solo y se dice; todo es idempotente. Se apaga con `DISABLE_CARGOS_DEL_BANCO=true`. Además:
+
+- **Al confirmar**, el cargo del mes se programa en ese momento, no hasta la siguiente carga.
+- **Al terminar**, lo programado **después del fin** sale del Calendario (`retirarCargosTrasElFin`, con su bitácora). Lo
+  de antes se queda, porque el banco cobra hasta 9 días tarde y `cerrarCargosCobrados` lo cierra. Un día ya autorizado no
+  se toca: se dice. Lo encontró la prueba con base real: un arrendamiento terminado seguía con su cargo de diciembre
+  «esperando al banco».
+- **Junto a `[PGP.121]`**, que escucha el mismo canal y cierra por importe (±$1, ±3 días): no se pisan. Lo que él cierra
+  ya no está pendiente; lo que deja (cobro tarde, dos cargos iguales el mismo día) lo cierra el contrato. El orden entre
+  los dos oyentes no está fijo.
+- **`[PGP.117]` no libera los cargos de un contrato:** no son facturas de Kepler, su cierre queda «sin medir» y la regla
+  los conserva.
 
 **En código (`[PGP.219]`, 2026-11-26):** el interés de un crédito ya no es «lo último que cobró el banco» sino **saldo ×
 tasa implícita del último cargo × días** (`interesDelPeriodo`, `@megadulces/contracts`), y sigue rotulado «estimado»

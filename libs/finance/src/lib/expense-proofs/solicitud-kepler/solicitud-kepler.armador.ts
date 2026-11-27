@@ -60,6 +60,21 @@ export interface DatosSolicitudKepler {
   iva: number;
   /** El documento que ampara el gasto → `c11` (folio) y `c25` (`AMPARA …`). */
   comprobante: ComprobanteDeLaSolicitud;
+  /**
+   * ⭐ **El gasto NO tiene papel que lo ampare, y quien llama lo DECLARA.** Entonces `c25` queda vacío
+   * y no se exige la fecha del documento (DS15). `c11` sigue saliendo del comprobante: suele traer la
+   * referencia de la sucursal aunque no haya documento.
+   *
+   * Nace para las comisiones de la terminal (`[CB.62.4]`), que el banco cobra en el estado de cuenta:
+   * no hay ticket ni CFDI que fechar. **Medido en el ODS el 2026-11-26**, acreedor `GB%` desde
+   * septiembre: de **690** solicitudes `X-A-15` y **653** gastos `X-A-10` de comisiones, **CERO**
+   * llevan renglón AMPARA, y `c25` está vacío en 658 y 621. La regla DS15 es del flujo con ticket o
+   * CFDI (496 de 496 lo traen) y ahí **sigue exigiéndose**: esta bandera no la afloja, la acota.
+   *
+   * ⛔ Por eso es explícita y no se deduce de «no vino fecha»: un ticket al que se le olvidó la fecha
+   * es un defecto, y tiene que seguir saliendo rojo.
+   */
+  sinDocumentoQueAmpare?: boolean;
   /** `c24`: el comentario (lo arma `comentarioDeLaSolicitud`). */
   comentario: string;
   /** `c48`: quién solicita, el usuario de la Suite (≤ 50). */
@@ -140,7 +155,9 @@ export function armarSolicitudKepler(d: DatosSolicitudKepler): ResultadoSolicitu
   if (!(Number(d.iva) >= 0) || cent(d.iva) / 100 !== Number(d.iva)) no.push(`IVA inválido «${d.iva}»`);
 
   const ampara = lineaAmpara(d.comprobante);
-  if (!ampara) no.push('Falta la fecha del documento que ampara el gasto: sin ella no hay renglón AMPARA (DS15)');
+  // ⛔ Sólo se exige el AMPARA cuando el gasto SÍ tiene papel. Si quien llama declara que no lo hay
+  // (`sinDocumentoQueAmpare`), `c25` queda vacío, que es como están los 658 de 690 reales de comisiones.
+  if (!ampara && !d.sinDocumentoQueAmpare) no.push('Falta la fecha del documento que ampara el gasto: sin ella no hay renglón AMPARA (DS15)');
   const solicita = textoKeplerCabe(d.solicita, 50);
   if (!solicita) no.push('Falta quién solicita (c48)');
   const fp = d.formaPago ? formaPago(d.formaPago) : undefined;
@@ -159,7 +176,7 @@ export function armarSolicitudKepler(d: DatosSolicitudKepler): ResultadoSolicitu
     c17: String(plazo),
     c18: fechaPago,
     c24: textoKeplerCabe(d.comentario, 60),
-    c25: textoKeplerCabe(ampara, 60),
+    c25: ampara ? textoKeplerCabe(ampara, 60) : '',
     c26: d.marca,
     c30: AUTORIZA_KEPLER,
     // En A el saldo es el total (191 de 194 N lo traen así); en F, 0 (5,015 de 5,140).

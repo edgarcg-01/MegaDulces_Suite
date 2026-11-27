@@ -15,7 +15,7 @@
 | 147 | 180 | 9 | 4. Decisiones a firmar |
 | 181 | 193 | 1 | 5. Qué NO incluye |
 | 194 | 215 | 3 | 6. El orden |
-| 216 | 308 | 7 | 7. Las capas |
+| 216 | 308 | 8 | 7. Las capas |
 | 309 | 322 | 1 | 8. Riesgos y bloqueos |
 | 323 | 347 | 2 | 9. NO MEDIDO — preguntas para Tesorería |
 | 348 | 357 | 1 | 10. DoD |
@@ -278,7 +278,7 @@ esperar al papel ni a ninguna firma.
 - Liberado · entregado · anulado · devuelto.
 - **Cobro:** dentro de la pasada que ya lee la descarga (`[PGP.121]`/`[PGP.146]`), **no un cron nuevo**: por número
   de cheque y cuenta → «cobrado»; si el importe del banco no es el emitido, hallazgo en rojo con los dos importes.
-- `X-D-25`: el armador de `[PGP.130]` con `c4 = 25`, `c31 = 'Che'`, `c11 = 'CH-<folio>'` (ERP_KEPLER §3.z.5), la
+- `X-D-25`: el armador de `[PGP.130]` con `c4 = 25`, `c31 = 'Che'`, `c11 = 'CHEQUE <número>'` (ERP_KEPLER §3.z.5; medido 2026-11-26, no es `CH-<folio>`), la
   misma compuerta (lee Kepler en vivo antes de escribir) y el ensayo con ROLLBACK.
 - Permisos propios (ADR-054), uno por acto, **repartidos** en prod antes de dar el frente por entregado (regla 20):
   emitir e imprimir (`tesoreria`), marcar firmado (`direccion`), liberar (Caja General). ⛔ Liberar **no** se da por

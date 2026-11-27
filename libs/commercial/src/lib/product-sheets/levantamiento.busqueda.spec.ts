@@ -19,14 +19,14 @@ function clavesProhibidas(v: unknown, ruta = ''): string[] {
 // Una fila como la que devuelve la consulta interna de cotizaciones, con todo lo que trae.
 const FILA_CRUDA = {
   sku: '02020', name: 'TRIDENT XTRA CARE MENTA /12', content: '12 pz', barcode: '7622210571403', unit_base: 'PZA',
-  piece_price: '8.50', pack_size: '12', box_size: '384', box_price: '2661.94', sold_by_kg: false, revenue: '45210.00', has_sheet: true,
+  piece_price: '8.50', pack_size: '12', box_size: '384', box_price: '2661.94', sold_by_kg: false, revenue: '45210.00', photo_status: 'tiene_foto',
 };
 
 describe('buscador del levantamiento · lista blanca', () => {
   it('sólo sku, nombre, contenido, código y si ya tiene ficha', () => {
     const r = filaBusqueda(FILA_CRUDA);
-    expect(Object.keys(r).sort()).toEqual(['barcode', 'content', 'has_sheet', 'name', 'sku']);
-    expect(r).toEqual({ sku: '02020', name: 'TRIDENT XTRA CARE MENTA /12', content: '12 pz', barcode: '7622210571403', has_sheet: true });
+    expect(Object.keys(r).sort()).toEqual(['barcode', 'content', 'name', 'photo_status', 'sku']);
+    expect(r).toEqual({ sku: '02020', name: 'TRIDENT XTRA CARE MENTA /12', content: '12 pz', barcode: '7622210571403', photo_status: 'tiene_foto' });
   });
 
   it('⭐ ni precio ni venta en ningún nivel del JSON', () => {
@@ -38,7 +38,9 @@ describe('buscador del levantamiento · lista blanca', () => {
     expect(clavesProhibidas(FILA_CRUDA)).toEqual(expect.arrayContaining(['piece_price', 'box_price', 'revenue']));
   });
 
-  it('has_sheet sólo es true si la base dijo true (nunca por un texto)', () => {
-    expect(filaBusqueda({ ...FILA_CRUDA, has_sheet: 't' }).has_sheet).toBe(false);
+  it('[NP.7.L.22] photo_status pasa sólo con uno de los tres valores; otro valor no se inventa como «tiene foto»', () => {
+    for (const v of ['tiene_foto', 'en_curso', 'falta']) expect(filaBusqueda({ ...FILA_CRUDA, photo_status: v }).photo_status).toBe(v);
+    expect(filaBusqueda({ ...FILA_CRUDA, photo_status: 't' }).photo_status).toBe('falta');
+    expect(filaBusqueda({ ...FILA_CRUDA, photo_status: null }).photo_status).toBe('falta');
   });
 });

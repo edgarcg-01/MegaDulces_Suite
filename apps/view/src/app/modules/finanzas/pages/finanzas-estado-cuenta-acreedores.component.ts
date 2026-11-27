@@ -12,10 +12,10 @@ import { InputTextModule } from 'primeng/inputtext';
 import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TagModule } from 'primeng/tag';
-import { warehouseName } from '@megadulces/contracts';
+import { EVIDENCIA_REFS_POR_CONSULTA, warehouseName } from '@megadulces/contracts';
 import type {
   AcreedorDocEstado, AcreedorDocumento, AcreedorEstadoCuentaResponse, AcreedorPagoSinAplicar, AcreedorResumen, AcreedorTipo, AcreedorTipoTotal,
-  AcreedoresResponse, PayableEvidenceFile, PayableEvidenceRow,
+  AcreedoresResponse, PayableEvidenceFile, PayableEvidenceQuery, PayableEvidenceRow,
 } from '@megadulces/contracts';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import { environment } from '../../../../environments/environment';
@@ -728,9 +728,11 @@ export class FinanzasEstadoCuentaAcreedoresComponent implements OnInit {
     if (!faltan.length) { this.evidEstado.set(this.evidRespondidas.size ? 'listo' : 'nada'); return; }
     this.evidEstado.set('buscando');
     try {
-      for (let i = 0; i < faltan.length; i += 200) {
-        const tanda = faltan.slice(i, i + 200);
-        const rows = await firstValueFrom(this.http.get<PayableEvidenceRow[]>(`${this.pagosBase}/evidencia`, { params: { refs: tanda.join(',') } }));
+      for (let i = 0; i < faltan.length; i += EVIDENCIA_REFS_POR_CONSULTA) {
+        const tanda = faltan.slice(i, i + EVIDENCIA_REFS_POR_CONSULTA);
+        // `[PGP.231]` Las llaves van en el CUERPO: en la URL, 200 llaves + el token de un superadmin daban 431.
+        const consulta: PayableEvidenceQuery = { refs: tanda };
+        const rows = await firstValueFrom(this.http.post<PayableEvidenceRow[]>(`${this.pagosBase}/evidencia/consulta`, consulta));
         if (seq !== this.evidSeq) return; // otro acreedor u otra lectura: esta respuesta ya no es de lo que se ve
         const m = new Map(this.evid());
         for (const r of rows ?? []) if (r?.entity_ref) m.set(r.entity_ref, r);

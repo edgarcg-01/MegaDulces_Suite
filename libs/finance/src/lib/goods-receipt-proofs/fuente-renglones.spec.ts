@@ -1,5 +1,5 @@
 import type { RemisionLine } from '@megadulces/platform-core';
-import { conceptosDelCfdi, eanValido, lecturaConfiable } from './fuente-renglones';
+import { conceptosDelCfdi, eanValido, lecturaConfiable, porPrecedencia, rfcsDelProveedor } from './fuente-renglones';
 
 const rem = (descripcion: string, importe: number | null, codigo_barras: string | null = null): RemisionLine =>
   ({ descripcion, cantidad: 1, unidad: 'PZA', importe, precio_unitario: null, sku_proveedor: null, codigo_barras });
@@ -74,5 +74,41 @@ describe('[RE.55] conceptos del CFDI', () => {
   it('XML vacío o roto: sin renglones', () => {
     expect(conceptosDelCfdi(null)).toEqual([]);
     expect(conceptosDelCfdi('<no-es-cfdi')).toEqual([]);
+  });
+});
+
+describe('[PQ.150] de quién es el código: con qué RFC se buscan y se aprenden las equivalencias', () => {
+  it('el acreedor sin RFC en Kepler (42 % de las entradas): se busca y se aprende con el de la factura', () => {
+    expect(rfcsDelProveedor('', 'qwe141008ab4 ')).toEqual({ aprender: 'QWE141008AB4', fuente: 'factura', buscar: ['QWE141008AB4'] });
+    expect(rfcsDelProveedor(null, 'AAA010101AAA')).toEqual({ aprender: 'AAA010101AAA', fuente: 'factura', buscar: ['AAA010101AAA'] });
+  });
+
+  it('Kepler trae OTRO RFC (814 pares): se busca con los dos, la factura primero, y se aprende con el de la factura', () => {
+    expect(rfcsDelProveedor('QWE14108AB4', 'QWE141008AB4')).toEqual({ aprender: 'QWE141008AB4', fuente: 'factura', buscar: ['QWE141008AB4', 'QWE14108AB4'] });
+  });
+
+  it('el mismo RFC en los dos lados no se busca dos veces', () => {
+    expect(rfcsDelProveedor(' aaa010101aaa', 'AAA010101AAA').buscar).toEqual(['AAA010101AAA']);
+  });
+
+  it('CONTROL: sin factura ligada todo queda como antes (el de Kepler)', () => {
+    expect(rfcsDelProveedor('BBB010101BBB', null)).toEqual({ aprender: 'BBB010101BBB', fuente: 'kepler', buscar: ['BBB010101BBB'] });
+  });
+
+  it('sin ninguno no se busca ni se aprende, y lo dice', () => {
+    expect(rfcsDelProveedor('  ', undefined)).toEqual({ aprender: null, fuente: null, buscar: [] });
+  });
+
+  it('al volcar en un mapa gana el primero de la lista (se escribe al último)', () => {
+    const filas = [
+      { proveedor_rfc: 'FAC010101FAC', sku: 'de-factura' }, { proveedor_rfc: 'KEP010101KEP', sku: 'de-kepler' },
+      { proveedor_rfc: 'OTR010101OTR', sku: 'de-otro' },
+    ];
+    const m = new Map<string, string>();
+    for (const f of porPrecedencia(filas, ['FAC010101FAC', 'KEP010101KEP'])) m.set('CODX', f.sku);
+    expect(m.get('CODX')).toBe('de-factura');
+    const m2 = new Map<string, string>();
+    for (const f of porPrecedencia([...filas].reverse(), ['KEP010101KEP', 'FAC010101FAC'])) m2.set('CODX', f.sku);
+    expect(m2.get('CODX')).toBe('de-kepler');
   });
 });

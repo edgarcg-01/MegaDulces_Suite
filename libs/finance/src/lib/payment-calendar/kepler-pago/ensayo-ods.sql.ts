@@ -1,7 +1,7 @@
 import type { Knex } from 'knex';
-import type { PaymentCalendarEnsayoKepler } from '@megadulces/contracts';
+import { folioDelCheque, type PaymentCalendarEnsayoKepler } from '@megadulces/contracts';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
-import { armarPagosKepler, conceptoDeFactura, CONCEPTO_GASTOS_GENERALES, motivosParaNoEscribir, type FacturaAPagar, type PlanPorConcepto, type ProveedorKepler } from './pago-kepler.armador';
+import { armarPagosKepler, conceptoDeFactura, CONCEPTO_GASTOS_GENERALES, motivosParaNoEscribir, referenciaDeCheque, type FacturaAPagar, type PlanPorConcepto, type ProveedorKepler } from './pago-kepler.armador';
 import { compararConCaptura, NO_CUBIERTO_POR_EL_ENSAYO, type CapturaKepler } from './ensayo-pago-kepler';
 import { SQL_CIERRE_KEPLER, armarCierres, type FilaCierreKepler } from '../cierre-kepler.sql';
 import { leerValidacionDelDia } from '../validacion-pago.sql';
@@ -86,7 +86,7 @@ export async function leerEnsayoPagoKepler(
   const a = (await trx.raw(`
     SELECT a.id::text AS id, a.status, a.payment_method, a.bank_account_id::text AS bank_account_id, a.kepler_payment_folio,
            a.paid_bank_movement_id::text AS paid_bank_movement_id,
-           a.destination_account_text, a.amount_assigned::float8 AS importe, coalesce(a.folio, left(a.id::text, 8)) AS referencia,
+           a.destination_account_text, a.amount_assigned::float8 AS importe, coalesce(a.folio, left(a.id::text, 8)) AS referencia, a.reference_text,
            to_char(a.paid_bank_date, 'YYYY-MM-DD') AS paid_bank_date, a.paid_proof_id::text AS paid_proof_id,
            (SELECT to_char(coalesce(p.ocr_fecha, p.pago_date), 'YYYY-MM-DD') FROM finance.supplier_payment_proofs p WHERE p.id = a.paid_proof_id) AS paid_proof_date, to_char(a.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS alta,
            l.status AS lot_status, to_char(l.lot_date, 'YYYY-MM-DD') AS dia,
@@ -134,25 +134,27 @@ export async function leerEnsayoPagoKepler(
     items.map((i) => ({ allocation_id: allocationId, obligation_source: i.obligation_source, obligation_id: i.obligation_id })), filas).get(allocationId);
   // `[PGP.111]` P7: Tesorería puede haber capturado UNA transferencia como varios X-D-26 (uno por concepto): se leen todos.
   const capturas: CapturaKepler[] = [];
-  for (const xd of cierre?.pagos.filter((p) => p.tipo === 'transferencia' && p.sucursal === servidor) ?? []) {
+  for (const xd of cierre?.pagos.filter((p) => (p.tipo === 'transferencia' || p.tipo === 'cheque') && p.sucursal === servidor) ?? []) {
+    // [PGP.171] El cheque capturado a mano es un X-D-25: su folio vive en otro contador que el del X-D-26.
+    const tipoXd = xd.tipo === 'cheque' ? '25' : '26';
     const h = (await trx.raw(`
       SELECT to_char(c9, 'YYYY-MM-DD') AS fecha, btrim(c10) AS acreedor, c16::float8 AS importe, btrim(coalesce(c45, '')) AS cuenta, btrim(coalesce(c12, '')) AS concepto,
              coalesce(c81::numeric, 0)::float8 AS iva, coalesce(c84::numeric, 0)::float8 AS ieps
         FROM kepler_ods.kdm1
-       WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'D' AND btrim(c4::text) = '26' AND btrim(c5::text) = '1' AND btrim(c6) = ?
-       LIMIT 1`, [servidor, servidor, xd.folio])).rows[0];
+       WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'D' AND btrim(c4::text) = ? AND btrim(c5::text) = '1' AND btrim(c6) = ?
+       LIMIT 1`, [servidor, servidor, tipoXd, xd.folio])).rows[0];
     const ap = (await trx.raw(`
       SELECT btrim(c7::text) || '-' || btrim(c8::text) || '-' || btrim(c9) AS factura, sum(c10::numeric)::float8 AS aplicado
         FROM kepler_ods.kdxf
-       WHERE sucursal = ? AND btrim(c1) = ? AND btrim(c4::text) = '26' AND btrim(c5::text) = '1' AND btrim(c6) = ?
-       GROUP BY 1`, [servidor, servidor, xd.folio])).rows as { factura: string; aplicado: number }[];
+       WHERE sucursal = ? AND btrim(c1) = ? AND btrim(c4::text) = ? AND btrim(c5::text) = '1' AND btrim(c6) = ?
+       GROUP BY 1`, [servidor, servidor, tipoXd, xd.folio])).rows as { factura: string; aplicado: number }[];
     if (h) {
       // `[PGP.106]` La póliza que Kepler le asentó, para compararla con la que armaría la Suite.
       const tabla = tablaPolizaDelMes(String(h.fecha));
       const hay = tabla ? (await trx.raw('SELECT to_regclass(?) IS NOT NULL AS ok', [`kepler_ods.${tabla}`])).rows[0].ok : false;
       const renglones = hay ? (await trx.raw(`
         SELECT btrim(c3) AS c3, btrim(c4) AS c4, c5::float8 AS c5 FROM kepler_ods.${tabla}
-         WHERE sucursal = ? AND c8 = 'E' AND btrim(c15) = 'X' AND btrim(c16) = 'D' AND btrim(c17::text) = '26' AND btrim(c19) = ?`, [servidor, xd.folio])).rows : [];
+         WHERE sucursal = ? AND c8 = 'E' AND btrim(c15) = 'X' AND btrim(c16) = 'D' AND btrim(c17::text) = ? AND btrim(c19) = ?`, [servidor, tipoXd, xd.folio])).rows : [];
       capturas.push({ folio: xd.folio, acreedor: h.acreedor, importe: h.importe, cuenta: h.cuenta, concepto: h.concepto, iva: h.iva, ieps: h.ieps, aplicaciones: Object.fromEntries(ap.map((x) => [x.factura, Number(x.aplicado)])),
         poliza: renglones.length ? movimientosDePoliza({ tipo: 'E', fecha: String(h.fecha), renglones }) : null });
     }
@@ -164,7 +166,7 @@ export async function leerEnsayoPagoKepler(
   if (!d) return vacio([`Kepler (${servidor}) no tiene al acreedor ${acreedor} en su catálogo (kdxd)`]);
   const prev = (await trx.raw(`SELECT coalesce(c22, '') c22, coalesce(c32, '') c32, coalesce(c33, '') c33, coalesce(c34, '') c34, coalesce(c35, '') c35,
              btrim(coalesce(c12, '')) c12
-      FROM kepler_ods.kdm1 WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'D' AND btrim(c4::text) = '26' AND btrim(c10) = ? AND c43 <> 'C'
+      FROM kepler_ods.kdm1 WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'D' AND btrim(c4::text) IN ('25', '26') AND btrim(c10) = ? AND c43 <> 'C'
       ORDER BY c6 DESC LIMIT 1`, [servidor, servidor, acreedor])).rows[0];
   const dias = Number(d.dias);
   const proveedor: ProveedorKepler = prev
@@ -188,6 +190,9 @@ export async function leerEnsayoPagoKepler(
     return { almacen: k.almacen, tipo: k.tipo, subtipo: k.subtipo, folio: k.folio, concepto: k.concepto, referencia: k.referencia, saldo, aplicado: Number(i.aplicado), iva: k.iva, ieps: k.ieps, total: k.total };
   });
 
+  // [PGP.171] El cheque: su número (la misma regla que `[PGP.173]`) y la referencia como la escribe Tesorería.
+  const cheque = a.payment_method === 'cheque' ? folioDelCheque(a.reference_text) : null;
+  const referencia = cheque ? referenciaDeCheque(cheque) : String(a.referencia);
   const motivos: string[] = [];
   if (cuentas.length !== 1) motivos.push(a.bank_account_id
     ? `La cuenta ${a.bank ?? ''} ${a.account_label ?? ''} corresponde a ${cuentas.length} cuentas de tesorería en Kepler (kdb1): se necesita exactamente una`
@@ -196,17 +201,17 @@ export async function leerEnsayoPagoKepler(
   motivos.push(...motivosParaNoEscribir({
     status: a.status, payment_method: a.payment_method, origen_kind: a.kind ?? null, kepler_payment_folio: a.kepler_payment_folio,
     lot_status: a.lot_status, validacion_estado: validacion?.estado ?? null, probado_por_el_banco: !!a.paid_bank_movement_id, probado_por_comprobante: !!a.paid_proof_id,
-    autorizado: a.autorizado === true,
+    autorizado: a.autorizado === true, cheque_numero: cheque,
     items: items.map(() => ({ obligation_source: 'kepler_payable', branch_code: servidor, kepler_saldada: false })),
   }));
-  if (capturas.length) motivos.push(`Tesorería ya lo capturó en Kepler (X-D-26 ${capturas.map((c) => c.folio).join(', ')}): escribirlo otra vez lo duplicaría`);
+  if (capturas.length) motivos.push(`Tesorería ya lo capturó en Kepler (${cheque ? 'X-D-25' : 'X-D-26'} ${capturas.map((c) => c.folio).join(', ')}): escribirlo otra vez lo duplicaría`);
 
   // Sin cuenta propia, en modo comparación se arma con la de Tesorería para poder comparar lo demás;
   // que la Suite no la sabía queda como diferencia (no se esconde).
   const cuentaSuite = cuentas.length === 1 ? cuentas[0].code : '';
   const armado = armarPagosKepler({
-    sucursal: servidor, fecha: a.paid_bank_date ?? a.paid_proof_date ?? a.dia, hora: '00:00', referencia: String(a.referencia), importe: Number(a.importe),
-    cuentaTesoreria: cuentaSuite || capturas[0]?.cuenta || '', destino: a.destination_account_text ?? null, proveedor, facturas,
+    sucursal: servidor, fecha: a.paid_bank_date ?? a.paid_proof_date ?? a.dia, hora: '00:00', referencia, importe: Number(a.importe),
+    cuentaTesoreria: cuentaSuite || capturas[0]?.cuenta || '', destino: a.destination_account_text ?? null, proveedor, facturas, cheque,
   });
   if (!armado.ok) motivos.push(...armado.motivos.filter((m) => !motivos.includes(m)));
   const planes = armado.ok ? armado.planes : [];
@@ -217,7 +222,7 @@ export async function leerEnsayoPagoKepler(
   const facturaDe = new Map(facturas.map((f) => [`${f.tipo}-${f.subtipo}-${f.folio}`, f]));
   if (!motivos.length && planes.length && alListo) {
     alListo({
-      sucursal: servidor, fecha: a.paid_bank_date ?? a.paid_proof_date ?? a.dia, hora: '00:00', referencia: String(a.referencia), acreedor,
+      sucursal: servidor, fecha: a.paid_bank_date ?? a.paid_proof_date ?? a.dia, hora: '00:00', referencia, acreedor, cheque,
       importe: Number(a.importe), origen: { bank: String(a.bank ?? ''), account_label: String(a.account_label ?? '') },
       destino: a.destination_account_text ?? null,
       facturas: facturas.map((f) => ({ tipo: f.tipo, subtipo: f.subtipo, folio: f.folio, aplicado: f.aplicado })),

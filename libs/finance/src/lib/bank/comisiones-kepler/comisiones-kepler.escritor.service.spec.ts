@@ -1,4 +1,4 @@
-import { dialDeD3Cierra, escrituraDeComisionesEncendida, TIPO_INTERRUPTOR_COMISIONES, type DialDeCuenta } from './comisiones-kepler.escritor.service';
+import { dialDeD3Cierra, escrituraDeComisionesEncendida, ESTADOS_RETOMABLES, fechaDelDial, motivoDeNoReclamar, TIPO_INTERRUPTOR_COMISIONES, type DialDeCuenta } from './comisiones-kepler.escritor.service';
 
 /**
  * `[CB.62.4]` Los diales del escritor. El que importa es **D3**: el cambio de manos va cuenta por cuenta
@@ -56,5 +56,73 @@ describe('[CB.62.4] el freno global', () => {
 
   it('el tipo del interruptor por sucursal es el que siembra la migración', () => {
     expect(TIPO_INTERRUPTOR_COMISIONES).toBe('comisiones_terminal');
+  });
+});
+
+/**
+ * ⛔⛔ La FRONTERA base→código, que es donde estuvo el defecto y donde ninguna prueba pura miraba.
+ *
+ * El 2026-11-26, con los cinco diales abiertos, el canario NO escribió: «2 cargo(s) de la cuenta 4885
+ * son anteriores al cambio de manos (Tue Nov 17)». Los cargos eran del 17/11 y D3 era el 17/11. La
+ * causa: `pg` entrega un `date` como objeto `Date`, y el código hacía `String(valor).slice(0, 10)`,
+ * que da `'Tue Nov 1'`. Como `'2' < 'T'` en ASCII, TODO cargo quedaba como atraso de Finanzas y
+ * ninguna cuenta podía escribir nunca.
+ */
+describe('[CB.62.4] la fecha de D3 tal como la devuelve la base', () => {
+  it('un Date de pg se vuelve YYYY-MM-DD, no «Tue Nov 1»', () => {
+    // Medianoche LOCAL, que es como pg construye un `date`.
+    expect(fechaDelDial(new Date(2026, 10, 17))).toBe('2026-11-17');
+  });
+
+  it('un string ya en YYYY-MM-DD no se toca', () => {
+    expect(fechaDelDial('2026-11-17')).toBe('2026-11-17');
+  });
+
+  it('sin fecha, la cuenta la sigue capturando Finanzas', () => {
+    expect(fechaDelDial(null)).toBeNull();
+    expect(fechaDelDial(undefined)).toBeNull();
+  });
+
+  it('⭐ el caso del canario: un cargo DEL MISMO día del cambio de manos SÍ se escribe', () => {
+    const desde = fechaDelDial(new Date(2026, 10, 17));
+    expect(dialDeD3Cierra([cargo('4885', '2026-11-17')], diales({ '4885': desde }))).toBeNull();
+  });
+
+  it('y el del día ANTERIOR sigue siendo atraso de Finanzas', () => {
+    const desde = fechaDelDial(new Date(2026, 10, 17));
+    expect(dialDeD3Cierra([cargo('4885', '2026-11-16')], diales({ '4885': desde }))).toContain('atraso de Finanzas');
+  });
+});
+
+/**
+ * `[CB.62.4]` El reclamo del día: qué se puede retomar y qué se DICE cuando no.
+ *
+ * Tercer defecto del canario del 2026-11-26: el día de la 05 quedó en `rechazado` por el renglón
+ * AMPARA, y al reintentar —ya con ese arreglo puesto— la pantalla decía «Otro proceso está
+ * escribiendo este día (o ya lo escribió)». No había otro proceso: era su propio renglón de la
+ * bitácora, y el día quedaba bloqueado PARA SIEMPRE con un aviso que mandaba a buscar donde no era.
+ */
+describe('[CB.62.4] el reclamo del día', () => {
+  it('un día RECHAZADO se puede retomar: el rechazo no escribió nada', () => {
+    expect(ESTADOS_RETOMABLES).toContain('rechazado');
+  });
+
+  it('⛔ pero «escrito» y «en_duda» NO se retoman', () => {
+    expect(ESTADOS_RETOMABLES).not.toContain('escrito');
+    expect(ESTADOS_RETOMABLES).not.toContain('en_duda');
+  });
+
+  it('el aviso dice el estado REAL, no una causa inventada', () => {
+    expect(motivoDeNoReclamar('escrito')).toMatch(/ya se escribió/);
+    expect(motivoDeNoReclamar('escribiendo')).toMatch(/Otro proceso/);
+    expect(motivoDeNoReclamar('en_duda')).toMatch(/EN DUDA/);
+  });
+
+  it('⭐ «en duda» manda a BUSCARLO en Kepler antes de reintentar, no a reintentar', () => {
+    expect(motivoDeNoReclamar('en_duda')).toMatch(/Búscalo en Kepler antes de reintentar/);
+  });
+
+  it('un estado que no conocemos se dice tal cual, no se disfraza', () => {
+    expect(motivoDeNoReclamar('loquesea')).toContain('loquesea');
   });
 });

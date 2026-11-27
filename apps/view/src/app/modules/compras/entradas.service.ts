@@ -504,6 +504,8 @@ export interface ReconcileResult {
   sucursal: string;
   folio: string;
   proveedor_rfc: string | null;
+  /** `[PQ.150]` De dónde salió `proveedor_rfc`: el de la factura ligada (gana) o el del acreedor en Kepler. */
+  proveedor_rfc_fuente?: 'factura' | 'kepler' | null;
   proveedor_nombre: string | null;
   lines: ReconciledLine[];
   kepler_orphans: { linea: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: number; costo_unitario: number; importe: number }[];

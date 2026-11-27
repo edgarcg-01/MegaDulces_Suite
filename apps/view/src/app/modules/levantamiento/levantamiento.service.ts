@@ -9,39 +9,29 @@ import { environment } from '../../../environments/environment';
 
 /**
  * `[NP.7]` Levantamiento del Catálogo digital: `/api/catalog/levantamiento`.
- * `branch` sólo viaja si la persona la ELIGIÓ (su perfil no tiene sucursal, D25); si no, el servidor
- * usa la de su perfil. El servidor valida siempre: el cliente no decide la sucursal por su cuenta.
+ * `[NP.7.L.20]` Ninguna llamada manda sucursal: el servidor la decide con el perfil y el alcance de la
+ * persona (antes, quien no tenía sucursal en su perfil la elegía, D25).
  */
 @Injectable({ providedIn: 'root' })
 export class LevantamientoService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/catalog/levantamiento`;
 
-  private conSucursal(branch: string | null, extra: Record<string, string | number> = {}): HttpParams {
-    let p = new HttpParams();
-    for (const [k, v] of Object.entries(extra)) p = p.set(k, String(v));
-    return branch ? p.set('branch', branch) : p;
+  contexto(): Observable<LevantamientoContexto> {
+    return this.http.get<LevantamientoContexto>(`${this.base}/context`);
   }
 
-  sucursales(): Observable<Array<{ code: string; name: string }>> {
-    return this.http.get<Array<{ code: string; name: string }>>(`${this.base}/branches`);
-  }
-
-  contexto(branch: string | null): Observable<LevantamientoContexto> {
-    return this.http.get<LevantamientoContexto>(`${this.base}/context`, { params: this.conSucursal(branch) });
-  }
-
-  sugeridos(branch: string | null, limit = 3, offset = 0): Observable<LevantamientoSugeridosRespuesta> {
-    return this.http.get<LevantamientoSugeridosRespuesta>(`${this.base}/suggested`, { params: this.conSucursal(branch, { limit, offset }) });
+  sugeridos(limit = 3, offset = 0): Observable<LevantamientoSugeridosRespuesta> {
+    return this.http.get<LevantamientoSugeridosRespuesta>(`${this.base}/suggested`, { params: new HttpParams().set('limit', limit).set('offset', offset) });
   }
 
   /** `[NP.7.L.10]` Buscador de respaldo: código, SKU o nombre. Sin precio (lista blanca del servidor). */
-  buscar(branch: string | null, q: string): Observable<LevantamientoBusquedaFila[]> {
-    return this.http.get<LevantamientoBusquedaFila[]>(`${this.base}/search`, { params: this.conSucursal(branch, { q }) });
+  buscar(q: string): Observable<LevantamientoBusquedaFila[]> {
+    return this.http.get<LevantamientoBusquedaFila[]>(`${this.base}/search`, { params: new HttpParams().set('q', q) });
   }
 
-  escanear(branch: string | null, dto: LevantamientoEscaneoDto): Observable<LevantamientoEscaneoRespuesta> {
-    return this.http.post<LevantamientoEscaneoRespuesta>(`${this.base}/scan`, dto, { params: this.conSucursal(branch) });
+  escanear(dto: LevantamientoEscaneoDto): Observable<LevantamientoEscaneoRespuesta> {
+    return this.http.post<LevantamientoEscaneoRespuesta>(`${this.base}/scan`, dto);
   }
 
   /** Multipart: el controlador usa `FileInterceptor('file')`. */
