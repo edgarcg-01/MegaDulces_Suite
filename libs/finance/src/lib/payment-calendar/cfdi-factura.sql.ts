@@ -3,6 +3,7 @@ import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable
 import { VENTANA_CFDI_DIAS, cfdisDeFacturas, type CfdiDeLaFactura, type CfdiDelRenglon, type CfdiRecibido, type FacturaPagadaCancelada, type FacturaParaCfdi } from '@megadulces/contracts/finance/cfdi-factura';
 import { normaDelPago, type NormaDelCfdi } from '@megadulces/contracts/finance/norma-fiscal-cfdi';
 import { leerAutorizacionesNorma } from '../shared/norma-fiscal-autorizaciones.sql';
+import { sqlDiaDelCfdi } from '../shared/dia-del-cfdi.sql';
 
 /**
  * `[PGP.108]` **La lectura del CFDI de cada factura de los pagos de un día.** La regla vive en el
@@ -70,7 +71,7 @@ SELECT sucursal, proveedor_code, proveedor_nombre, rfc FROM analytics.v_supplier
  */
 export const SQL_CFDIS_CANDIDATOS = `
 SELECT c.uuid::text AS uuid, upper(btrim(c.emisor_rfc)) AS emisor_rfc, c.total::float8 AS total,
-       to_char(c.fecha AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS fecha,
+       ${sqlDiaDelCfdi('c')} AS fecha,
        c.metodo_pago, c.forma_pago,
        c.estatus_sat, c.receptor_uso_cfdi, c.receptor_regimen, c.emisor_regimen,
        nullif(c.impuestos ->> 'iva_trasladado', '')::float8 AS iva,

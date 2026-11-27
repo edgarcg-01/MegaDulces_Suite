@@ -113,7 +113,11 @@ Tres cuidados que deciden el diseño:
    que el banco ya muestre la salida; negarse ahí dejaría como pendiente un pago que ya salió. Lo que salió fuera de su
    mes lo dice el aviso `pue_pagada_fuera` de `[PGP.158]`. Sólo forma 02/03, como el aviso de hoy (`FORMAS_PUE_POR_PAGAR`): con tarjeta o efectivo la PUE ya se pagó.
    La fecha del CFDI es la de emisión (`Fecha`, la misma del aviso `[PGP.158]`); con la de timbrado cambian de mes 35 de
-   5,764 PUE de 2026 (D-NF9).
+   5,764 PUE de 2026 (D-NF9). ⛔ **Y se lee según su descarga** (`shared/dia-del-cfdi.sql.ts`, corregido el 2026-11-26
+   antes del merge): ContPAQi guarda la hora LOCAL del XML como si fuera UTC (2,232 de 2,232 medidas), la descarga
+   masiva guarda el instante real. El Calendario leía todo en hora de México y pasaba al mes anterior **21 PUE 02/03 de
+   2026** timbradas el día 1 de madrugada: el freno las habría detenido por error, y el aviso de `[PGP.158]` las marcaba
+   igual. Deuda con nombre: las ventanas de `[PGP.178]` (pagadas canceladas) todavía leen en hora de México.
 2. **La autorización es dato propio, no una copia del CFDI:** tabla HITL `finance.cfdi_norm_authorizations` (tenant,
    UUID, regla, decisión, motivo, quién y cuándo; revocar en vez de borrar), **construida en `[PGP.224]`**. Sin columna
    de área: con una sola firma (D-NF2), el área la dice el puesto de quien decidió. Su clave de permiso se **reparte en

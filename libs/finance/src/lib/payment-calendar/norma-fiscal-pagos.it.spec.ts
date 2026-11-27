@@ -63,11 +63,15 @@ suite('[PGP.225] el freno fiscal del Calendario contra Postgres real (transacci�
     Number((await trx('finance.payment_allocation_items').where({ tenant_id: M, obligation_id: kid(folio) }).count('* as n'))[0].n);
 
   /** Una factura de Kepler (sucursal 08) y su CFDI recibido, con la misma fecha e importe. */
-  const factura = async (folio: string, monto: number, fecha: string, cfdi: { uuid: string; metodo: string; forma: string; estatus: string; uso?: string; regimen?: string }) => {
+  const factura = async (folio: string, monto: number, fecha: string, cfdi: {
+    uuid: string; metodo: string; forma: string; estatus: string; uso?: string; regimen?: string;
+    /** Lo que guarda `fiscal.cfdis.fecha` tal cual, y de qué descarga vino (cada una con su convención). */
+    guardada?: string; source?: 'contpaqi_add' | 'descarga_masiva';
+  }) => {
     await trx('kepler_ods.kdxe').insert({ sucursal: '08', c1: '08', c2: PROV, c3: 'A', c4: 20, c5: 1, c6: folio, c7: `${fecha} 00:00:00`, c10: `${fecha} 00:00:00`, c11: monto });
     await trx('fiscal.cfdis').insert({
-      tenant_id: M, uuid: cfdi.uuid, rol: 'recibidas', tipo_comprobante: 'I', source: 'contpaqi_add', estatus_sat: cfdi.estatus,
-      emisor_rfc: RFC, total: monto, fecha: `${fecha} 12:00:00-06`, metodo_pago: cfdi.metodo, forma_pago: cfdi.forma,
+      tenant_id: M, uuid: cfdi.uuid, rol: 'recibidas', tipo_comprobante: 'I', source: cfdi.source ?? 'contpaqi_add', estatus_sat: cfdi.estatus,
+      emisor_rfc: RFC, total: monto, fecha: cfdi.guardada ?? `${fecha} 12:00:00-06`, metodo_pago: cfdi.metodo, forma_pago: cfdi.forma,
       receptor_uso_cfdi: cfdi.uso ?? 'G01', receptor_regimen: cfdi.regimen ?? '612', emisor_regimen: '601',
     });
   };
@@ -116,6 +120,12 @@ suite('[PGP.225] el freno fiscal del Calendario contra Postgres real (transacci�
     await factura('NFIT-DIA', 13920, '2030-05-20', { uuid: 'aaaa0009-0000-4000-8000-000000000009', metodo: 'PPD', forma: '99', estatus: 'desconocido' });
     // En MAYÚSCULAS, como los 174,384 recibidos de prod (medido 2026-11-26); la decisión se guarda en minúsculas.
     await factura('NFIT-S01-NO', 15080, '2030-04-17', { uuid: 'AAAA000A-0000-4000-8000-00000000000A', metodo: 'PPD', forma: '99', estatus: 'vigente', uso: 'S01' });
+    // El día del CFDI depende de su descarga (medido en prod el 2026-11-26): ContPAQi guarda la hora LOCAL del XML como
+    // si fuera UTC; la descarga masiva, el instante real.
+    await factura('NFIT-PUE-MAD', 16240, '2030-05-01', { uuid: 'aaaa000b-0000-4000-8000-00000000000b', metodo: 'PUE', forma: '03', estatus: 'vigente',
+      source: 'contpaqi_add', guardada: '2030-05-01 03:00:00+00' });      // timbrada el 1-may a las 03:00 de México
+    await factura('NFIT-PUE-SAT', 17400, '2030-04-30', { uuid: 'aaaa000c-0000-4000-8000-00000000000c', metodo: 'PUE', forma: '03', estatus: 'vigente',
+      source: 'descarga_masiva', guardada: '2030-05-01 02:00:00+00' });   // instante real: el 30-abr a las 20:00 de México
   }, 120_000);
 
   afterAll(async () => {
@@ -135,6 +145,16 @@ suite('[PGP.225] el freno fiscal del Calendario contra Postgres real (transacci�
     expect((await trx('finance.payment_allocations').where({ id }).first()).authorized_at).toBeNull();
     const r = await cal.authorize(id, DIR, '2030-04-29');
     expect(r.authorized_by).toBe(DIR);
+  });
+
+  it('⭐ el día del CFDI según su descarga: la de ContPAQi del 1-may de madrugada es de mayo y se paga en mayo', async () => {
+    const a = await cal.createAllocation({ date: '2030-05-02', items: [kp('NFIT-PUE-MAD', 16240)] }, USER);
+    expect(Number(a.amount_assigned)).toBeCloseTo(16240, 2);
+  });
+
+  it('⛔ la de la descarga masiva se lee en hora de México: su instante cae el 30-abr y en mayo no se paga', async () => {
+    await expect(cal.createAllocation({ date: '2030-05-02', items: [kp('NFIT-PUE-SAT', 17400)] }, USER))
+      .rejects.toThrow(/PUE del 30-abr: su mes cerró el 30-abr y el pago sale el 2-may/);
   });
 
   it('⛔ control: la PUE pagada con tarjeta (04) ya se pagó al momento y se programa en otro mes', async () => {
