@@ -637,6 +637,16 @@ independientes, una por producto y otra por ubicación, dan **~1 %**.
 número es que **alguien capture asignaciones** en `/almacen/ubicaciones/asignacion`. Con el
 croquis perfecto, la cobertura sigue en 1 %.
 
+⭐ **Y eso dejó de ser una hipótesis el mismo día.** Horas después, `UB.PL.13` arregló el
+croquis de Padre Hidalgo: las **110 ubicaciones huérfanas** de los pasillos I, J y K pasaron a
+**0** y se corrigieron los racks de B (17 → 22) y C (17 → 18). ⚠️ Eso **no** quiere decir que el
+croquis esté completo: cada una de las 471 ubicaciones ya cuelga de una pieza, pero sólo **6 de las**
+**11 caras están dibujadas** (A, B y C); las cinco cabeceras D–H y las piezas I, J y K siguen sin
+lugar, porque dónde va cada una no lo dice ningún dato y no se inventa.
+
+**Y las ubicaciones con producto siguen siendo 5.** El croquis dejó de ser el cuello; las
+asignaciones no se movieron ni un renglón.
+
 ### Lo que este frente NO resolvió
 
 - ⛔ **El conteo sigue sin capturar DÓNDE se contó.** El contador está físicamente en el lugar,
