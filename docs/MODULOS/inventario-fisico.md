@@ -602,6 +602,46 @@ enfrente. Una vez decidido es media hora; decidirlo mal cuesta un inventario ent
 **la unidad contra otra tabla** (que es justo lo que ADR-057 existe para evitar). Lo que falta es
 la mitad de arriba: decir cuál es.
 
+#### La vía que indicó Edgar, medida: el código de barras SÍ trae la unidad, su factor NO sirve
+
+> *«La unidad que el contador diga, pero considerando siempre la que tiene por defecto cada
+> código de barras: se supone que cada unidad tiene su propio CB.»* — Edgar, 2026-11-27.
+
+**La premisa es cierta y la tabla existe.** `catalog.product_barcodes` tiene una fila por código
+con su `unit`, su `factor`, `is_primary` y —lo más útil— un `source` que nombra el **peldaño de**
+**la escalera de Kepler**:
+
+| `source` | códigos | qué es |
+|---|---:|---|
+| `kepler_base` | 7,109 | la unidad base del producto |
+| `wincaja` | 1,545 | el código del POS |
+| `kepler_u2` | 405 | el **segundo** peldaño |
+| `kepler_u3` | 7 | el tercero |
+
+Unidades declaradas: **PAQ** 5,981 · **CJA** 1,473 · **PZA** 1,429 · KG 143 · KGS 20. Sobre
+`INV-2026-00010`: **2,951 de 3,364** artículos (88 %) tienen al menos un código, y **556 tienen**
+**más de una unidad** — ésos son exactamente los que hoy se pueden contar mal sin que nadie lo note.
+
+⛔⛔ **Pero su `factor` NO es conmensurable con el del ERP, y eso se midió.** Para los 511
+artículos del folio que tienen un código `CJA` y además factor del ERP, el factor del código y
+`display_box_factor` **coinciden en 21 — el 4.1 %**. Ejemplo: `44174 GALL EXH PAKETIN SURTIDO`,
+el código dice 1 por caja y el ERP dice 2.
+
+⭐ **Entonces el diseño no puede ser «el código dice la unidad y el sistema convierte solo».** La
+primera mitad sí; la segunda convertiría con un número que discrepa 96 veces de cada 100. Lo que
+sí se puede hacer, y es lo correcto de todos modos (ADR-056):
+
+1. El escaneo **propone** la unidad de su código, y el contador puede cambiarla.
+2. Se guarda **qué se contó y en qué unidad**, textual, sin convertir.
+3. Si la unidad contada no es la del teórico, **la varianza no se calcula**: se declara que falta
+   convertir, en vez de publicar un número que finge que sabemos el factor.
+
+Resolver el peldaño contra la escalera del ODS —y no contra esta tabla derivada— es el trabajo
+de fondo, y es una decisión de dato, no de pantalla.
+
+⚠️ Dos cosas sueltas que aparecieron al medir, sin dueño todavía: hay **3,658 códigos sin
+`product_id`** (no se pueden atribuir a nada) y `wincaja` no se sincroniza desde el **2026-11-10**.
+
 ---
 
 ### ✅ Lo que está BIEN, y hay que decirlo
