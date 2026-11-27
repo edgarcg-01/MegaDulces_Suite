@@ -2,8 +2,8 @@
 
 > **Para quien lo va a arreglar.** Los hallazgos están en
 > [`inventario-fisico.md` §9d](inventario-fisico.md) con su evidencia y cómo se midió cada uno.
-> **Acá no se repiten: se agrupan por ARREGLO**, porque veintidós defectos son en realidad
-> **siete frentes**, y dos de ellos explican todo lo demás.
+> **Acá no se repiten: se agrupan por ARREGLO**, porque los defectos son en realidad
+> **ocho frentes**, y dos de ellos explican todo lo demás.
 >
 > Todo se midió **ejerciendo el módulo en producción** los días 2026-11-25 y 26, con el folio
 > `INV-2026-00010` (Padre Hidalgo, 3,363 artículos, **sin congelar**), entrando con cuentas reales
@@ -24,9 +24,15 @@
 ⛔ **El tablero dice que IC está 🚀 en prod.** No lo está: en nueve meses no produjo un inventario.
 Eso es una decisión de PM, no técnica.
 
-⭐ **Dónde está esto hoy (2026-11-26).** De los **21** hallazgos, **15 están arreglados** y
-commiteados; quedan F5/F6 a medias (falta paginar), F10 sin mecanismo, F19 sin confirmar, F15 en
-manos de otra sesión y F16 retirado por estar mal. **§1b los recorre uno por uno.**
+⭐ **Dónde está esto hoy (2026-11-27).** De los **22** hallazgos, **18 están arreglados** y
+commiteados; quedan F10 sin mecanismo, F19 sin confirmar, F15 en manos de otra sesión y F16
+retirado por estar mal. **§1b los recorre uno por uno.**
+
+⭐⭐ **F23, el que apareció al enganchar con `/almacen/ubicaciones`** (2026-11-27, pedido de
+Edgar): la columna «Ubic.» mostraba `Z000` en **3,005 de 3,364** artículos porque
+`public.products.location` **tiene un solo valor distinto en los 11,816 productos que la**
+**traen**. Con el catálogo real de la fase UB son **39**. Una columna llena no se audita como
+se audita una vacía: por eso sobrevivió a toda la auditoría de noviembre.
 
 ⛔⛔ **Nada de eso se desplegó ni se vio en pantalla viva**, y **la causa de fondo —el catálogo
 duplicado, frente B— no se tocó**: mientras siga, el arreglo de A la esquiva pero no la quita.
@@ -34,28 +40,30 @@ Lo que falta está en §3.
 
 ---
 
-## 1. Los siete frentes, por orden de lo que destraba
+## 1. Los ocho frentes, por orden de lo que destraba
 
 | # | Frente | Qué arregla | Estado |
 |---|---|---|---|
 | **A** | **Identidad del producto al escanear** | **F1, F2** — los dos rojos de la causa raíz | ✅ **Arreglado 2026-11-26**, sin desplegar |
 | **B** | **Catálogo duplicado** | la causa de fondo de A | 🔴 otro dueño (Catálogo) |
 | **C** | **La pantalla ante un 403** | F11, F17, F18 (F19 no) | ✅ **Arreglado 2026-11-26**, sin ver la pantalla |
-| **D** | **El tope de la lista del supervisor** | F5 (y F6, que era el mismo) | 🟡 **Declarado 2026-11-26**; falta paginar |
+| **D** | **El tope de la lista del supervisor** | F5 (y F6, que era el mismo) | ✅ **Cerrado 2026-11-27**: lo declara y se busca en todo el folio |
 | **E** | **Captura del contador** | F7, F8, F9, F14 (F10 no) | 🟡 **Arreglado 2026-11-26**; F10 sin mecanismo |
 | **F** | **Rótulos y estados que no dicen la verdad** | F3, F12, F13, F22 · F16 estaba mal | ✅ **Arreglado 2026-11-26** |
 | **G** | **`reconcile` con defensa de capa única** | F20 | ✅ **Arreglado 2026-11-26** |
+| **H** | **La costura con `/almacen/ubicaciones`** | F23 — la «Ubic.» era una constante | ✅ **Arreglado 2026-11-27**, sin desplegar |
 
 ---
 
-## 1b. Los 21 hallazgos, uno por uno — ¿cuál quedó y cuál no?
+## 1b. Los 22 hallazgos, uno por uno — ¿cuál quedó y cuál no?
 
 > ⭐ **Esta tabla es la respuesta a «¿ya quedó completo?».** La de arriba ordena el TRABAJO por
 > frentes; ésta recorre los HALLAZGOS, que es lo que se auditó. Si las dos se contradicen, gana
 > ésta y se corrige la otra.
 >
 > ⚠️ **No hay F21.** La numeración salta del F20 al F22 — se verificó en el historial del
-> repositorio: **nunca existió**, es un hueco al numerar, no un hallazgo perdido. Son **21**, no 22.
+> repositorio: **nunca existió**, es un hueco al numerar, no un hallazgo perdido. Con **F23**,
+> agregado el 2026-11-27, son **22**.
 
 | # | Sev. | En una línea | Estado | Dónde |
 |---|:---:|---|---|---|
@@ -63,8 +71,8 @@ Lo que falta está en §3.
 | **F2** | 🔴 | El total del folio crecía con cada escaneo (consecuencia de F1) | ✅ cae con F1 | `66433ecc4` |
 | **F3** | 🔴 | «Resolver item» fijaba la cantidad final sin ninguna condición | ✅ acotado, 4 frenos | `9ebe6a01e` |
 | **F4** | 🔴 | …y estaba disponible desde el minuto cero, mostrando el teórico | ✅ mismo arreglo | `9ebe6a01e` |
-| **F5** | 🟠 | La lista del supervisor se topa en 2,000 y no lo decía | 🟡 **lo declara; falta paginar** | `33e464c38` |
-| **F6** | 🟠 | El artículo resuelto «desaparecía» de la lista | 🟡 **era el mismo defecto que F5** | `33e464c38` |
+| **F5** | 🟠 | La lista del supervisor se topa en 2,000 y no lo decía | ✅ lo declara **y** se busca en todo el folio | `33e464c38` · `2c8f336e3` |
+| **F6** | 🟠 | El artículo resuelto «desaparecía» de la lista | ✅ filtros «Resueltos» y «Contados» | `2c8f336e3` |
 | **F7** | 🟠 | Tras un código no reconocido el foco saltaba a Cantidad | ✅ arreglado | `621b82055` |
 | **F8** | 🟠 | Corregir la cantidad **concatenaba** (3 sobre 75 → 753) | ✅ arreglado | `621b82055` |
 | **F9** | 🟠 | Las flechas cambiaban la cantidad contada | ✅ arreglado | `621b82055` |
@@ -80,14 +88,15 @@ Lo que falta está en §3.
 | **F19** | ⚠️ | «Las acciones rechazadas fallan en silencio» | ⚠️ **NO CONFIRMADO** (degradado) | — |
 | **F20** | 🟠 | `reconcile` trataba el no-contado como cero donde escribe | ✅ defensa en profundidad | `3e6320733` |
 | **F22** | 🟡 | Al contador sin asignar: «pedile a tu supervisor que abra uno» | ✅ el texto ya no miente | `df6eb36e8` |
+| **F23** | 🔴 | La columna «Ubic.» mostraba la constante `Z000`, no una ubicación | ✅ sale del catálogo de UB | `2c8f336e3` |
 
-**Cuentas:** **15 arreglados** · **2 parciales** (F5 y F6, que son el mismo) · **1 de otro dueño**
-(F15) · **1 sin arreglar** (F10) · **1 sin confirmar** (F19) · **1 retirado por estar mal** (F16).
+**Cuentas:** **18 arreglados** · **1 de otro dueño** (F15) · **1 sin arreglar** (F10) · **1 sin**
+**confirmar** (F19) · **1 retirado por estar mal** (F16).
 
 ### F15 no estaba en ningún frente de este plan — y hay que decirlo
 
 ⛔ **Hueco de esta documentación, encontrado el 2026-11-26 al revisar si estaba completa.** Los
-siete frentes cubren 20 de los 21 hallazgos; **F15 no figuraba en ninguno**. No fue una decisión:
+siete frentes de entonces cubrían 20 de los 21 hallazgos; **F15 no figuraba en ninguno**. No fue
 se cayó al armar el plan.
 
 Lo está arreglando **otra sesión**, fuera de esta auditoría, bajo `[IC.27]`: `assignableUsers`
@@ -95,8 +104,16 @@ Lo está arreglando **otra sesión**, fuera de esta auditoría, bajo `[IC.27]`: 
 corrigió algo más grande, que el filtro miraba sólo `u.role_name` y **dejaba fuera a 7 de 31**
 personas que sí pueden contar—. La parte de pantalla estaba **sin commitear** al cerrar esto.
 
-⚠️ Por eso `comercial.service.ts` no se tocó en los commits de arriba: tenía ese trabajo vivo
-encima, y commitearlo entero se lo habría llevado puesto.
+⚠️ Por eso `comercial.service.ts` no se tocó en los commits de arriba **hasta el 2026-11-27**:
+tenía ese trabajo vivo encima, y commitearlo entero se lo habría llevado puesto. Ese día sí hubo
+que tocarlo (el parámetro `search` de F5 y el campo `located` de F23), y el commit `2c8f336e3`
+se armó **fuera del árbol** —`git show HEAD:<ruta>` + sólo mi cambio + `commit-tree`— para que
+lleve lo mío y nada de lo ajeno. Se verificó línea por línea: **ninguna línea borrada del lote**
+**es de otra sesión**.
+
+⛔ **Y ese trabajo no tiene dueño identificado** (2026-11-27): `trade-marketing-70` confirmó que
+no es suyo. Mientras no aparezca quién lo escribe, **cualquiera puede arrastrarlo en un pathspec**
+**sin el título que lo explica**.
 
 ---
 
@@ -249,16 +266,39 @@ llegó llena al tope **y** el folio declara más); sin `progress` no se inventa 
 
 ⛔ **El texto dice la verdad completa, no un consejo que no funciona.** La primera versión decía
 «acota con los filtros para alcanzar el resto» y **es falso**: con 3,362 pendientes, filtrar por
-Pendientes vuelve a topar en 2,000. Ahora dice cuántos faltan, que **no se pueden alcanzar desde
-ahí**, y en qué caso concreto sí ayuda filtrar.
+Pendientes vuelve a topar en 2,000. La segunda decía «no se pueden alcanzar desde ahí», que era
+cierto ese día y **dejó de serlo el 27** — ver abajo.
 
 **Lo que deliberadamente NO se hizo, y por qué:** subir el `limit` del backend. Es un paliativo —el
 almacén más grande tiene 3,666 artículos— y **no se midió el costo**: la respuesta de 2,000 ya pesa
-**197 KB**. El arreglo de fondo es **paginar**, y eso es una decisión con su propia medición.
+**197 KB**.
 
-> **Pendiente de este frente:** paginar `GET :id/items`, o darle un buscador por SKU/nombre a la
-> tabla. Hasta entonces, **el supervisor sigue sin poder alcanzar 1,363 artículos** — la diferencia
-> es que ahora **lo sabe**.
+### ✅ Cerrado el 2026-11-27 — con buscador, no con paginador
+
+**Se eligió buscar, no paginar.** Las dos alcanzan los 1,364 que no caben; la diferencia es que
+una lista de 3,364 renglones no es una cola de trabajo, es una **superficie de consulta**, y en
+una superficie de consulta la pregunta real es *«¿qué pasó con el 00135?»*, no *«mostrame la
+página 24 de 34»*. Paginar alcanza por fuerza bruta lo que buscar alcanza por intención, y
+cuesta cuatro veces más código (tabla `lazy`, `totalRecords`, `onLazyLoad`).
+
+La búsqueda pega contra el **servidor** y corre **antes** del corte de 2,000 — un filtro sobre
+las filas ya bajadas no alcanzaría nada, y es el error que se parece a esto. Usa
+`applySmartSearch` (ADR-056, fase BU: **un solo buscador para toda la suite**) en vez de un
+`ILIKE` propio: multi-token en cualquier orden, sin acentos, tolerante a typos. Busca por
+nombre, SKU, código de barras y ubicación.
+
+⛔ **Y el aviso de tope dejó de mentir.** Decía «no se pueden alcanzar desde aquí», que con el
+buscador ya es falso. Ahora dice cuántos no caben y que se llega a ellos buscando.
+
+**F6 cerrado aparte, y resultó más grave de lo escrito.** Medido en prod el 2026-11-27: los
+únicos estados vivos son `pending` (22,197), `counted` (9) y `resolved` (3) — **`discrepancy` es
+CERO**, porque nadie llegó nunca a calcular. El filtro ofrecía «Discrepancias» y «Pendientes»:
+una que no existe y la más grande, **y ninguna de las dos formas de ver trabajo YA HECHO**. Como
+la consulta ordena `discrepancy → pending → el resto`, lo contado y lo resuelto caían siempre
+después del corte. Con los filtros **«Resueltos»** y **«Contados»** el servidor devuelve 3 filas.
+
+⭐ Eso es lo que vuelve alcanzable el botón **«Corregir»** de F3: resolver un artículo lo mandaba
+a un lugar al que nadie podía ir.
 
 Compuertas: `templates` · `tokens` · `estilos` ✅ · `check:pantalla -- comercial` **0 NUEVAS**,
 componente con **0 errores semánticos**.
@@ -510,6 +550,77 @@ if (it.final_qty == null) continue;   // defensa en profundidad: el no-contado N
 
 ---
 
+## H · La costura con `/almacen/ubicaciones` — ✅ ARREGLADO 2026-11-27
+
+> ⭐ **Este frente no salió de la auditoría: salió de cruzar los dos módulos**, a pedido de
+> Edgar («complementémoslo con `/almacen/ubicaciones`»). Y el hallazgo que apareció es más
+> grande que varios de los auditados.
+
+- **F23** 🔴 — la columna «Ubic.» del supervisor, el renglón que confirma el contador y el
+  catálogo que se lleva offline mostraban `public.products.location`. **No es una ubicación:**
+  **es una constante.**
+
+### La medición (prod, 2026-11-27, sólo lectura)
+
+| Qué | Cuánto |
+|---|---:|
+| Productos con `location` | **11,816** de 14,986 |
+| Valores **distintos** de `location` | **1** — la cadena `Z000` |
+| Artículos de `INV-2026-00010` que la traían | **3,005** de 3,364 |
+| Ubicaciones reales en `commercial.warehouse_bins` | **476** (471 de Padre Hidalgo) |
+| Asignaciones producto↔ubicación vivas | **51**, todas de PH |
+| De ésas, cuántas coincidían con `p.location` | **0** (50 discrepaban, 1 sin valor) |
+| Artículos del folio con ubicación **real** | **39** de 3,364 |
+
+⭐⭐ **Por qué sobrevivió a toda la auditoría de noviembre: la columna se veía LLENA.** Un hueco
+se cuestiona; un relleno uniforme se lee como dato y nadie lo audita. Es la misma familia que
+el cero redondo, con el disfraz al revés.
+
+### Lo hecho
+
+Los **tres** caminos que publican ubicación la resuelven contra `bin_assignments` +
+`warehouse_bins`, **por almacén** —una ubicación de Padre Hidalgo no vale para La Piedad— y
+devuelven **todas** las del producto en orden de recorrido (`TA011 · TA012 · TA013`; medido: 5
+productos en dos ubicaciones y 3 en tres). El folio deja de sembrar la constante al abrirse y
+`GET /counts/resolve` manda vacío, porque **sin folio no hay almacén y sin almacén no hay**
+**ubicación** — un relleno declarado antes que uno inventado.
+
+⭐ **Que la cobertura BAJE de 3,005 a 39 es el resultado correcto** (regla 11). Lo que parecía
+un almacén ubicado al 89 % es, medido, un almacén ubicado al **1.2 %**. La pantalla lo dice —
+«39 de 3,364 artículos tienen ubicación asignada»— y liga a `/almacen/ubicaciones/asignacion`,
+que es donde se arregla (Q.4: el número que denuncia, navega). El conteo va en el **servidor**
+sobre el folio entero: contarlo en la pantalla daría una cobertura sobre las 2,000 filas
+cargadas y la publicaría como si fuera del folio.
+
+### ⭐ El mismo 1 %, medido por el otro lado
+
+Lo cruzó `trade-marketing-a3` desde la fase UB y se verificó acá por separado: de las **471**
+ubicaciones de Padre Hidalgo, **5 tienen producto asignado** (1.1 %), y las **51** asignaciones
+vivas están **todas en el pasillo A** — diez de los once pasillos están vacíos. Dos mediciones
+independientes, una por producto y otra por ubicación, dan **~1 %**.
+
+⛔ **Y esa cifra no sube sola.** Dibujar mejor el croquis no asigna un producto: lo que mueve el
+número es que **alguien capture asignaciones** en `/almacen/ubicaciones/asignacion`. Con el
+croquis perfecto, la cobertura sigue en 1 %.
+
+### Lo que este frente NO resolvió
+
+- ⛔ **El conteo sigue sin capturar DÓNDE se contó.** El contador está físicamente en el lugar,
+  con el escáner en la mano: es el mejor momento del proceso para levantar o verificar una
+  ubicación, y hoy ese dato se tira. Con 3,325 artículos sin asignar, el inventario físico es el
+  único evento que recorre el almacén entero. **Es una fase, no un parche** — necesita decisión
+  de PM antes de abrirse.
+- ⚠️ `GET /counts/resolve` no puede resolver ubicación porque no sabe de qué folio viene. Queda
+  como deuda con nombre: pasarle el folio, o aceptar que ahí no hay ubicación.
+- ⚠️ **NO MEDIDO:** nada de esto se vio en pantalla viva, y el `LATERAL` se ejerció contra prod
+  en sólo lectura, no a través del endpoint.
+
+Candado: `inventory-count.ubicacion-del-catalogo.spec.ts` — 7 pruebas, con **control** (el
+instrumento encuentra los métodos y no se trae medio archivo) y **prueba negativa** (si alguien
+reinstala `location: prod.location`, el candado se pone rojo).
+
+---
+
 ## 2. Lo que SÍ funciona, y no hay que tocar
 
 Vale escribirlo para que nadie lo «arregle»:
@@ -535,7 +646,7 @@ Vale escribirlo para que nadie lo «arregle»:
 
 ⛔ No se declara como funcionando:
 
-- ⛔⛔ **NADA de los siete frentes se vio en pantalla viva ni se desplegó.** Todo lo de arriba está
+- ⛔⛔ **NADA de los ocho frentes se vio en pantalla viva ni se desplegó.** Todo lo de arriba está
   probado por candados que leen el fuente y por pruebas de unidad; ninguno afirma «la pantalla hace
   esto». El guion de verificación de cada frente está en su sección, y el de **E** es el más largo
   porque es el único que necesita **Chrome de verdad** (`ArrowDown` sobre un `input` con 34 deja
@@ -551,9 +662,12 @@ Vale escribirlo para que nadie lo «arregle»:
   proyecto y acá está sin cumplir.
 - Los perfiles **`supervisor`** y **`marketing`** en vivo.
 - **Doble envío** (doble clic en los botones que escriben) y **equipos por pasillo**.
-- **El costo de paginar** `GET :id/items` (frente **D**): la respuesta de 2,000 ya pesa 197 KB y no
-  se midió qué cuesta el resto. Hasta que eso se haga, el supervisor **sigue sin alcanzar 1,363
-  artículos** — la diferencia es que ahora lo sabe.
+- **El costo de bajar el folio entero** (frente **D**): la respuesta de 2,000 ya pesa 197 KB y no
+  se midió qué cuesta el resto. El tope sigue en pie **a propósito**; lo que se cerró el 27 es que
+  ya no encierra, porque la búsqueda recorre el folio completo del lado del servidor.
+- **Si alguien va a CAPTURAR las 3,325 ubicaciones que faltan** (frente **H**): el conteo físico es
+  el único evento que recorre el almacén entero con un escáner en la mano, y hoy **no registra**
+  **dónde se contó**. Juntar las dos cosas es una fase, no un parche, y la decide el PM.
 - **Si el salto de 2,094 a 3,376 SKUs es rotación normal** (**F12**): se descartó que fuera la
   fuente y se descartó que al folio le falten artículos, pero probar la rotación pide un **testigo
   del movimiento**, no un conteo de SKUs.

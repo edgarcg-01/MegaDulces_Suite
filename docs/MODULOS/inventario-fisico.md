@@ -528,7 +528,8 @@ nadie había llegado a contar lo suficiente para verlo.**
 > cuando el defecto se arregla: si una fila y el plan se contradicen, gana la fecha más nueva.
 >
 > ⚠️ **No hay F21.** La numeración salta del **F20** al **F22**; se verificó en el historial del
-> repositorio y **nunca existió**: es un hueco al numerar, no un hallazgo perdido. Son **21**.
+> repositorio y **nunca existió**: es un hueco al numerar, no un hallazgo perdido. Con **F23**
+> (agregado el 2026-11-27), son **22**.
 
 | # | Sev. | Defecto | Cómo se midió |
 |---|:---:|---|---|
@@ -554,6 +555,31 @@ nadie había llegado a contar lo suficiente para verlo.**
 | **F15** | 🟠 | **La lista de contadores asignables no dice sucursal ni rol.** `assignable-users` devuelve sólo `id, username, nombre, role_name`; el desplegable pinta **sólo el nombre**. Quien arma el equipo de un conteo en Padre Hidalgo ve 24 nombres y **no puede distinguir al único almacenista de esa tienda** de los de Zamora, La Piedad o Canindo, ni ve a los que nunca entraron. | Respuesta real de `assignable-users?role=counter`: 24 personas, campos `id, username, nombre, role_name`, **sin sucursal**. En prod sólo `luis_espino` es almacenista de PH; 4 de los 11 nunca entraron. |
 | **F16** | ⛔ **RETIRADO el 2026-11-26: el hallazgo estaba MAL** | Decía: *«Asignar restringe lo que se VE, no lo que se PUEDE — el guard deja pasar a cualquiera con la clave `CONTAR` aunque no esté asignado»*. **Falso.** Lo leí en `ContarOAsignadoGuard`, y ese archivo **nunca se commiteó**: existe suelto en el árbol compartido desde el 2026-11-24 y **no está en producción** (en el controlador desplegado, `POST :id/count` sólo lleva `@RequirePermissions(CONTAR)`). El control real vive en `submitCount()`, commiteado desde antes de la auditoría: *«si el folio tiene contadores asignados, solo ellos cuentan»* → `ForbiddenException('No estás asignado como contador de este folio.')`, y además restringe por pasillo si se asignaron pasillos. O sea que **la regla que se aprobó el 2026-11-26 ya estaba implementada** y no hubo nada que cambiar. ⭐ La lección, que es lo que vale guardar: **leí un archivo del árbol y lo di por desplegado**. Un archivo sin commitear compila en todas las sesiones y no existe en prod. | Verificado con `git show HEAD:…/inventory-count.controller.ts` (sin el guard) y `git show HEAD:…/inventory-count.service.ts` (con el freno por asignación, líneas 483-492). `git log` del guard: **vacío**. |
 | **F22** | 🟡 | **El contador sin asignación recibe un mensaje que lo manda a pedir algo que ya existe.** La pantalla vacía dice «**No hay ningún folio de inventario abierto para contar. Pedile a tu supervisor que abra uno.**» cuando la causa real es que **no está asignado a ninguno** — el folio existe y está vivo. El supervisor que reciba ese pedido va a ver el folio abierto y no va a entender el reclamo. ⭐ El mensaje correcto **ya está escrito en el backend**: `ContarOAsignadoGuard` dice «No estás asignado a este conteo. Pídele a quien arma el equipo que te agregue como contador». La pantalla no lo usa. | Medido el 2026-11-26: `/counts/mine` devolvió **vacío** con `INV-2026-00010` vivo en `review`, porque la cuenta no figura entre los dos contadores asignados. |
+
+### F23 — la ubicación que mostraba el conteo era una constante
+
+> ⭐ **Agregado el 2026-11-27**, al enganchar el conteo con `/almacen/ubicaciones` (pedido de
+> Edgar). No salió de la auditoría de noviembre: salió de cruzar los dos módulos. En el código
+> lleva la etiqueta `[IC.UB1]` y no `[IC.F23]`, porque no es un defecto de esta pantalla sino
+> la costura que faltaba con la fase UB.
+
+| # | Sev. | Defecto | Cómo se midió |
+|---|:---:|---|---|
+| **F23** | 🔴 | **La columna «Ubic.» del supervisor, el renglón que confirma el contador y el catálogo offline mostraban una CONSTANTE.** Los tres leían `public.products.location`, que **tiene un solo valor distinto**: la cadena `Z000`. El folio la copiaba al abrir, así que **3,005 de los 3,364 artículos** de `INV-2026-00010` la decían. ⭐ Es el defecto más difícil de ver de su familia: **la columna se veía llena**, y un relleno uniforme no se cuestiona como se cuestiona un hueco. Mientras tanto el catálogo real existía y nadie lo miraba. | Prod, 2026-11-27, sólo lectura. `SELECT count(DISTINCT location) FROM public.products WHERE location IS NOT NULL` → **1**, sobre **11,816** filas con valor (de 14,986). El catálogo de la fase UB (ADR-090): **476** ubicaciones en `commercial.warehouse_bins` (471 de Padre Hidalgo, 3 de Zamora Centro, 1 de 8 Esquinas, 1 de CEDIS) y **52** asignaciones en `commercial.bin_assignments`, las 52 de PH. Cruzadas contra `p.location`: **0 coinciden**, **50 discrepan** (`Z000` contra `TA011`) y 1 producto sin valor. Con el catálogo real, el folio pasa de **3,005 ubicaciones dibujadas a 39 medidas**. |
+
+**Arreglado el 2026-11-27** (`2c8f336e3`): los tres caminos resuelven contra
+`bin_assignments` + `warehouse_bins` **por almacén** —una ubicación de Padre Hidalgo no vale
+para La Piedad—, devuelven **todas** las del producto en orden de recorrido
+(`TA011 · TA012 · TA013`; medido: 5 productos en dos ubicaciones y 3 en tres), el folio deja
+de sembrar la constante y `GET /counts/resolve` manda vacío porque **sin folio no hay almacén**.
+La pantalla declara la cobertura —«39 de 3,364 artículos tienen ubicación asignada»— y liga a
+`/almacen/ubicaciones/asignacion`, que es donde se arregla.
+
+⭐ **Que la cobertura BAJE de 3,005 a 39 es el resultado correcto** (regla 11): lo que no está
+asignado se declara vacío. Lo que antes se veía como un almacén ubicado al 89 % es, medido, un
+almacén ubicado al **1.2 %** — y recién ahora se puede trabajar en eso.
+
+---
 
 ### ✅ Lo que está BIEN, y hay que decirlo
 
