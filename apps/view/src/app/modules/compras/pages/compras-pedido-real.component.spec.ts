@@ -960,6 +960,32 @@ describe('[RA-UX.1b] el servidor frena el lote repetido y la pantalla deja confi
   });
 });
 
+describe('[PQ.162] la compra se muestra con impuestos, con la tasa de la ficha de Kepler', () => {
+  it('«A comprar» publica el total con IVA e IEPS y declara las celdas sin tasa', () => {
+    const c = montar(VACIO).componentInstance;
+    c.wbTotals.set({ pedido: 1000, pedido_ci: 1086, pedido_sin_tasa: 2, venta: 0, exis: 0 });
+    const k = c.pedidoKpi().find((x) => x.label === 'A comprar')!;
+    expect(k.value).toBe(1086);
+    expect(k.sub).toContain('con IVA e IEPS');
+    expect(k.sub).toContain('2 sin tasa en Kepler');
+    // backend anterior (sin pedido_ci): el número sin impuestos, DICHO
+    c.wbTotals.set({ pedido: 1000, venta: 0, exis: 0 });
+    const v = c.pedidoKpi().find((x) => x.label === 'A comprar')!;
+    expect([v.value, v.sub]).toEqual([1000, 'sin IVA · venta × cobertura']);
+  });
+
+  it('cada sucursal suma su propia tasa; la que no tiene tasa entra sin impuesto y se marca', () => {
+    const c = montar(VACIO).componentInstance;
+    const r = { product_id: 'p', caja_cost: 100, imp: 8 } as never;
+    vi.spyOn(c, 'branchBuys').mockReturnValue([{ code: '01', cc: 100, imp: 8 }, { code: '02', cc: 100, imp: 16 }, { code: '03', cc: 100, imp: null }] as never);
+    vi.spyOn(c, 'qtyOf').mockReturnValue(2);
+    expect(c.sumValor(r)).toBe(600);          // lo que se guarda: sin impuestos
+    expect(c.sumValorCI(r)).toBe(216 + 232 + 200);
+    expect(c.cajaCI(r)).toBe(108);
+    expect(c.sinTasa(r)).toBe(true);
+  });
+});
+
 describe('[RA-UX.9] la requisición en armado (el carrito)', () => {
   beforeEach(() => { try { localStorage.clear(); } catch { /* jsdom */ } });
   const fila = (pid: string, prov = 's-1', nombre = 'PROV UNO') => ({ product_id: pid, sku: pid, nombre: pid, supplier_id: prov, supplier_name: nombre, uxc: 16, caja_cost: 1, cells: {}, signals: null });
@@ -981,7 +1007,8 @@ describe('[RA-UX.9] la requisición en armado (el carrito)', () => {
     // Las cuentas por producto son las del desglose (probadas aparte): acá se fijan para probar el AGRUPADO.
     const cj: Record<string, number> = { 'p-1': 10, 'p-2': 5, 'p-3': 0 };
     vi.spyOn(c, 'sumCajas').mockImplementation((r: { product_id: string }) => cj[r.product_id] ?? 0);
-    vi.spyOn(c, 'sumValor').mockImplementation((r: { product_id: string }) => (cj[r.product_id] ?? 0) * 100);
+    // [PQ.162] El carrito suma lo que se va a PAGAR (con impuestos).
+    vi.spyOn(c, 'sumValorCI').mockImplementation((r: { product_id: string }) => (cj[r.product_id] ?? 0) * 100);
     c.agregarARequisicion(fila('p-1') as never);
     c.agregarARequisicion(fila('p-2', 's-2', 'PROV DOS') as never);
     c.agregarARequisicion(fila('p-3') as never);
@@ -1157,7 +1184,7 @@ describe('[RA-NEG.2] el desglose compacto: qué hacer, en pocas palabras', () =>
   const sucOf = (c: ComprasPedidoRealComponent, code: string) => c.branchBuys(fila()).find((b) => b.code === code)!;
   // [PQ.129] «Traspaso ✎»: el traspaso se cambia en el renglón, junto a «Pedir».
   // [PQ.161] «Valor» dice su base: sin IVA.
-  const COLS = ['Sucursal', 'Vende 30 d', 'Exist.', 'Hoy dura', 'Traspaso ✎', 'Pedir ✎', 'Queda', 'Valor sin IVA'];
+  const COLS = ['Sucursal', 'Vende 30 d', 'Exist.', 'Hoy dura', 'Traspaso ✎', 'Pedir ✎', 'Queda', 'Valor con impuestos'];
 
   it('la lista va en el orden en que se decide: la que menos aguanta HOY, arriba', () => {
     const c = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) }).componentInstance;
@@ -1789,7 +1816,7 @@ describe('[PQ.129] el traspaso junto a lo que se pide: en la lista y en el rengl
     f.detectChanges();
     const el = f.nativeElement as HTMLElement;
     const ths = [...el.querySelectorAll('.pr-wb-tbl thead th')].map((t) => (t.textContent || '').replace(/\s+/g, ' ').trim());
-    expect(ths[ths.indexOf('$ Pedido sin IVA') + 1]).toBe('Traspaso');
+    expect(ths[ths.indexOf('$ Pedido con impuestos') + 1]).toBe('Traspaso');
     expect(f.componentInstance.trasFilaEstado(fila())).toBe('hay');
     expect((el.querySelector('.pr-tra-col')?.textContent || '').replace(/\s+/g, ' ').trim()).toBe('+2 cj');
     expect(f.componentInstance.trasFilaTitle(fila())).toContain('Yurécuaro recibe 1 cj de Padre Hidalgo');
