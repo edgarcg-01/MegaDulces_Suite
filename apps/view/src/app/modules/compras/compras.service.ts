@@ -190,6 +190,9 @@ export interface WorkbookCell {
   /** RA-PRO.47 — costo de caja DE ESE ALMACÉN (el del producto es el `max` entre almacenes y
    *  sobrevalúa a la sucursal barata). Es el que usa el desglose para valuar cada renglón. */
   cc?: number;
+  /** `[PQ.162]` IVA % + IEPS % de la ficha de Kepler de ese almacén (la que copia la OC). Ausente =
+   *  sin ficha: el monto con impuestos de esa celda NO se puede afirmar y se declara. */
+  imp?: number;
   // U.2 — sólo viaja cuando el peldaño de unidad de ESE almacén NO está verificado
   // (`analytics.v_unit_rung_audit`). Con `rung` presente, `exis` no es confiable y la celda debe
   // mostrar `nat` + `natu` (la cantidad y el rótulo de la unidad que el ERP realmente guarda).
@@ -333,6 +336,9 @@ export interface WorkbookRow {
   max_cajas: number | null;        // máximo de red, en cajas
   transito_cajas: number | null;   // RA-PRO.44 — OC abierta (lo que ya se pidió y no ha llegado)
   suma_pedido_cajas: number; pedido_valor: number;
+  /** `[PQ.162]` El pedido con IVA e IEPS (lo que se va a pagar) y su tasa máxima entre almacenes.
+   *  Ausentes = backend anterior. */
+  pedido_valor_ci?: number; pedido_sin_tasa?: number; imp?: number | null;
   valor_venta: number;
   // U.2 — `valor_exis` es Σ de los almacenes con el peldaño VERIFICADO. Puede venir null si NINGUNO
   // lo está. Los que quedaron fuera se declaran acá abajo; nunca se dibujan como cero.
@@ -385,7 +391,9 @@ export interface WorkbookResponse {
    * que `exis`. Es el denominador de los días de inventario; `venta` está a PRECIO y no sirve
    * para ese cociente. `null` = sin demanda medida — no es cero.
    */
-  totals: { pedido: number; venta: number; exis: number; venta_costo?: number | null };
+  totals: { pedido: number; venta: number; exis: number; venta_costo?: number | null;
+    /** `[PQ.162]` El pedido con impuestos y cuántas celdas con pedido no tienen tasa en Kepler. */
+    pedido_ci?: number; pedido_sin_tasa?: number };
   // U.2 — el hueco del inventario valuado, declarado. `exis` de arriba es sólo lo verificado, así
   // que sin esto el total bajaría en silencio y se leería como "hay menos inventario".
   unit_rung?: { skus: number; celdas: number; arbitrado: number };
@@ -645,6 +653,9 @@ export interface RequisitionRow {
   total_lines: number;
   total_units: number;
   total_cost: number;
+  /** `[PQ.162]` Compra: lo que se va a pagar (con IVA e IEPS) y renglones sin tasa. `null`/ausente = traspaso o no medido. */
+  total_cost_ci?: number | null;
+  sin_tasa?: number | null;
   notes: string | null;
   created_at: string;
   approved_at: string | null;
@@ -736,6 +747,9 @@ export interface RequisitionLine {
   received_qty: number | null;
   unit_cost: number;
   line_cost: number;
+  /** `[PQ.162]` IVA % + IEPS % de la ficha de Kepler y el importe con impuestos (sólo compra; null = sin medir). */
+  imp?: number | null;
+  line_cost_ci?: number | null;
   /** `[RQ.1]` El costo que tiene HOY este producto en este almacén. `null` = no medible, nunca 0. */
   costo_hoy?: number | null;
   /** `true` movido · `false` igual · `null` **no se pudo medir** (no es lo mismo que "igual"). */
@@ -792,6 +806,8 @@ export interface RequisitionBatchRow {
   proveedores: number;
   renglones: number;
   monto: number;
+  /** `[PQ.162]` Como se paga: compras con impuestos, traspasos al costo. `null`/ausente = no medido. */
+  monto_ci?: number | null;
   created_at: string;
   dias: number;
   /** `mixto` cuando los documentos del lote NO están todos en el mismo estado. */
@@ -836,6 +852,10 @@ export interface RequisitionResumen {
   n_kepler_apagado?: number;
   monto_sin_kepler?: number;
   dias_max_sin_kepler?: number;
+  /** `[PQ.162]` Los mismos montos como se pagan (compras con impuestos, traspasos al costo). `null`/ausente = no medido. */
+  monto_ci?: number | null;
+  monto_mas_30_ci?: number | null;
+  monto_sin_kepler_ci?: number | null;
 }
 /** `[KR.7]` Un documento de Kepler leído de la réplica. `cancelada` sólo en estado C (Kepler sobrescribe quién y cuándo). */
 export interface DocKepler {

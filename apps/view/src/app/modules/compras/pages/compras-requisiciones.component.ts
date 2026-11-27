@@ -80,7 +80,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       @if (atascadas(); as a) {
         <div class="rq-alerta" role="status">
           <i class="pi pi-clock" aria-hidden="true"></i>
-          <span><strong>{{ a.n | number }}</strong> requisición(es) llevan más de 30 días sin resolverse ({{ money(a.monto) }}).
+          <span><strong>{{ a.n | number }}</strong> requisición(es) llevan más de 30 días sin resolverse ({{ money(a.monto) }}{{ a.ci ? ' a pagar' : ' sin IVA' }}).
             A esa edad el costo capturado ya no es el de hoy en la mayoría de los renglones: hay que <strong>recalcular</strong> antes de aprobar, o rechazarlas.</span>
           <button pButton type="button" class="p-button-sm p-button-text" (click)="verPendientes()"><span class="p-button-label">Ver pendientes</span></button>
         </div>
@@ -110,7 +110,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <div class="rq-lote-cab" role="status">
           <button pButton type="button" class="p-button-sm p-button-text" (click)="cerrarLote()"><span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Todos los lotes</span></button>
           <span><strong>{{ g.batch_folio || 'Lote sin folio' }}</strong> · {{ g.documentos }} documento(s)
-            · {{ g.compras }} compra(s) + {{ g.traspasos }} traspaso(s) · {{ money(g.monto) }}</span>
+            · {{ g.compras }} compra(s) + {{ g.traspasos }} traspaso(s) · {{ montoLote(g) }}</span>
         </div>
       }
 
@@ -120,7 +120,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <ng-template #header>
             <tr>
               <th>Lote</th><th>Qué se pidió</th>
-              <th class="rq-r">Docs</th><th class="rq-r">Renglones</th><th class="rq-r">Monto sin IVA</th>
+              <th class="rq-r">Docs</th><th class="rq-r">Renglones</th><th class="rq-r" title="Compra: con el IVA y el IEPS de la ficha de Kepler, lo que se va a pagar. Traspaso: al costo, no se paga.">A pagar</th>
               <th>Estado</th><th class="rq-r">Días</th><th>Quién</th><th><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
@@ -140,7 +140,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               </td>
               <td class="rq-r rq-strong">{{ g.documentos }}</td>
               <td class="rq-r">{{ g.renglones | number }}</td>
-              <td class="rq-r">{{ money(g.monto) }}</td>
+              <td class="rq-r">{{ montoLote(g) }}</td>
               <td>
                 <p-tag [value]="loteEstadoLabel(g)" [severity]="loteEstadoSev(g)"></p-tag>
               </td>
@@ -188,7 +188,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <ng-template #header>
             <tr>
               <th style="width:7rem">Tipo</th><th>Folio</th><th>De dónde · a dónde</th>
-              <th class="rq-r">Líneas</th><th class="rq-r">Costo sin IVA</th>
+              <th class="rq-r">Líneas</th><th class="rq-r" title="Compra: con el IVA y el IEPS de la ficha de Kepler, lo que se va a pagar. Traspaso: al costo, no se paga.">A pagar</th>
               <th>Estado</th><th class="rq-r">Días</th><th>Vigencia</th><th><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
@@ -210,7 +210,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 }
               </td>
               <td class="rq-r">{{ r.total_lines | number }}</td>
-              <td class="rq-r">{{ money(r.total_cost) }}</td>
+              <td class="rq-r">{{ montoFila(r) }}</td>
               <td><span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
                     @if (r.rejection_reason) { <div class="rq-sub rq-motivo">Motivo: {{ r.rejection_reason }}</div> }</td>
@@ -286,7 +286,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr>
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Folio</th><th>Almacén</th><th>Proveedor</th>
-                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r">Costo sin IVA</th>
+                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r" title="Con el IVA y el IEPS de la ficha de Kepler: lo que se va a pagar.">Con impuestos</th>
                   <th>Estado</th><th class="rq-r" title="Días desde que se creó. Lo calcula el servidor, no el reloj de esta máquina.">Días</th><th title="¿El costo capturado sigue siendo el de hoy? Se mide renglón por renglón contra el plan vigente.">Vigencia</th><th>Fecha</th><th>En Kepler</th>
                 </tr>
               </ng-template>
@@ -298,7 +298,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="rq-muted">{{ r.supplier_name || 'Varios' }}</td>
                   <td class="rq-r">{{ r.total_lines | number }}</td>
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
-                  <td class="rq-r">{{ money(r.total_cost) }}</td>
+                  <td class="rq-r">{{ r.source_type === 'branch' ? money(r.total_cost) : montoFila(r) }}</td>
                   <td class="rq-estado">
                     <span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
@@ -381,7 +381,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr>
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Folio</th><th>Origen</th><th>Destino</th>
-                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r">Costo est. sin IVA</th>
+                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r" title="Un traspaso no se paga: va al costo.">Costo est. al costo</th>
                   <th>Estado</th><th class="rq-r" title="Días desde que se creó. Lo calcula el servidor, no el reloj de esta máquina.">Días</th><th title="¿El costo capturado sigue siendo el de hoy? Se mide renglón por renglón contra el plan vigente.">Vigencia</th><th>Fecha</th><th><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
@@ -397,7 +397,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   </td>
                   <td class="rq-r">{{ r.total_lines | number }}</td>
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
-                  <td class="rq-r">{{ money(r.total_cost) }}</td>
+                  <td class="rq-r">{{ r.source_type === 'branch' ? money(r.total_cost) : montoFila(r) }}</td>
                   <td class="rq-estado">
                     <span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     @if (r.requested_by_branch) { <span class="rq-pill rq-pill-suc">DE SUCURSAL</span> }
@@ -457,7 +457,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr>
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Pidió</th><th>Qué pide</th><th>Folio</th>
-                  <th class="rq-r">Líneas</th><th class="rq-r">Costo sin IVA</th>
+                  <th class="rq-r">Líneas</th><th class="rq-r" title="Compra: con el IVA y el IEPS de la ficha de Kepler, lo que se va a pagar. Traspaso: al costo, no se paga.">A pagar</th>
                   <th>Estado</th><th class="rq-r">Días</th><th>Fecha</th>
                 </tr>
               </ng-template>
@@ -468,7 +468,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td>{{ quePide(r) }}</td>
                   <td class="rq-mono"><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/compras/requisiciones', r.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ r.folio }}</a></td>
                   <td class="rq-r">{{ r.total_lines | number }}</td>
-                  <td class="rq-r">{{ money(r.total_cost) }}</td>
+                  <td class="rq-r">{{ montoFila(r) }}</td>
                   <td class="rq-estado">
                     <span class="rq-est">{{ estadoLabel(r.estado) }}</span>
                     <!-- [PQ.1] Toda «Aprobada» dice si salió a Kepler, también aquí. -->
@@ -879,7 +879,7 @@ export class ComprasRequisicionesComponent implements OnInit {
     const rc = this.deResumen('received');
     return [
       { label: 'Esperando aprobación', value: p?.n ?? 0, tone: (p?.n ?? 0) > 0 ? 'warn' : undefined,
-        sub: p ? `${this.money(p.monto)} sin IVA · ${p.dias_prom} d de promedio` : 'sin requisiciones' },
+        sub: p ? `${this.montoRes(p.monto_ci, p.monto)} · ${p.dias_prom} d de promedio` : 'sin requisiciones' },
       // `[PQ.1]` La casilla deja de contar «aprobadas» y cuenta las que NO tienen documento en
       // Kepler, que es la cola real: aprobar sin que salga al ERP no compra nada. Si el servidor
       // es anterior a PQ.1 y no manda el desglose, se dice «sin medir» — nunca 0 (ADR-056).
@@ -888,19 +888,38 @@ export class ComprasRequisicionesComponent implements OnInit {
         : { label: 'Aprobadas sin documento en Kepler', value: a ? a.n - (a.n_kepler ?? 0) : 0,
             tone: a && a.n - (a.n_kepler ?? 0) > 0 ? 'warn' : undefined,
             // `[PQ.14]` «salió mal» ya no incluye el apagado: ése se dice aparte y en la cinta.
-            sub: a ? `${this.money(a.monto_sin_kepler ?? 0)} sin IVA · ${this.keplerSalioMal(a)} salió mal`
+            sub: a ? `${this.montoRes(a.monto_sin_kepler_ci, a.monto_sin_kepler ?? 0)} · ${this.keplerSalioMal(a)} salió mal`
               + (a.n_kepler_apagado != null ? ` · ${a.n_kepler_apagado} con Kepler apagado` : '')
               + ` · ${a.n_sin_empujar ?? 0} sin empujar · hasta ${a.dias_max_sin_kepler ?? 0} d` : 'ninguna',
             drill: 'kepler_sin_documento', drillLabel: 'Ver las aprobadas sin documento en Kepler' },
-      { label: 'Ordenadas', value: o?.n ?? 0, sub: o ? `${this.money(o.monto)} estimado sin IVA` : 'ninguna' },
-      { label: 'Recibidas', value: rc?.n ?? 0, sub: rc ? `${this.money(rc.monto)} estimado sin IVA` : 'ninguna' },
+      { label: 'Ordenadas', value: o?.n ?? 0, sub: o ? `${this.montoRes(o.monto_ci, o.monto)}, estimado` : 'ninguna' },
+      { label: 'Recibidas', value: rc?.n ?? 0, sub: rc ? `${this.montoRes(rc.monto_ci, rc.monto)}, estimado` : 'ninguna' },
     ];
   }
   /** Las pendientes que pasaron los 30 días — el escalón donde el costo deja de ser el de hoy. */
-  atascadas(): { n: number; monto: number } | null {
+  atascadas(): { n: number; monto: number; ci: boolean } | null {
     const p = this.deResumen('pending_approval');
-    return p && p.n_mas_30 > 0 ? { n: p.n_mas_30, monto: p.monto_mas_30 } : null;
+    if (!p || !(p.n_mas_30 > 0)) return null;
+    // [PQ.162] Como se paga, si el servidor lo midió; si no, el sin IVA, dicho.
+    return p.monto_mas_30_ci != null
+      ? { n: p.n_mas_30, monto: p.monto_mas_30_ci, ci: true }
+      : { n: p.n_mas_30, monto: p.monto_mas_30, ci: false };
   }
+
+  /**
+   * `[PQ.162]` Una compra se paga con impuestos (Edgar, 2026-11-27): la lista dice lo que se va a
+   * pagar — compras con el IVA y el IEPS de la ficha de Kepler, traspasos al costo (no se pagan). Si
+   * el servidor no lo midió (anterior, o sin la réplica de Kepler) se publica el sin IVA, DICHO.
+   */
+  montoRes(ci: number | null | undefined, sin: number): string {
+    return ci != null ? `${this.money(ci)} a pagar` : `${this.money(sin)} sin IVA`;
+  }
+  montoFila(r: RequisitionRow): string {
+    if (r.source_type === 'branch') return `${this.money(r.total_cost)} al costo`;
+    if (r.total_cost_ci == null) return `${this.money(r.total_cost)} sin IVA`;
+    return this.money(r.total_cost_ci) + (r.sin_tasa ? ` · ${r.sin_tasa} sin tasa` : '');
+  }
+  montoLote(g: RequisitionBatchRow): string { return this.montoRes(g.monto_ci, g.monto); }
   verPendientes(): void { this.fEstado = 'pending_approval'; this.reload(); }
 
   // ── `[PQ.1]` Aprobada ≠ escrita en Kepler ──────────────────────────────────────────────
