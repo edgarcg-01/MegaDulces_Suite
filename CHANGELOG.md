@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — Compras › Revisión de facturas: la conciliación reconoce al proveedor por el RFC de su factura y aprende de más facturas (PQ.150.2 · 2026-11-27 · en código, sin soltar)
+- Lo que la historia enseña del catálogo de cada proveedor ahora sale de la liga factura ↔ aplicación de PQ.150, sólo con el total igual: de 1,547 a 2,539 equivalencias y de 61 a 133 proveedores, con el mismo acierto (99.7 %, contra 0 % del placebo).
+- La conciliación por renglón busca lo aprendido con el RFC de la factura ligada además del de Kepler: 42 % de las entradas llegan sin RFC y para ellas no se buscaba nada. Renglones de factura con propuesta en 30 días: 39.4 % → 57.1 %.
+- Internal: migración `20261126232411` (`CREATE OR REPLACE VIEW`, antes de soltar, fuera de horario pico); `rfcsDelProveedor`, `porPrecedencia` y `equivalenciasDe`; la respuesta de la conciliación trae `proveedor_rfc_fuente`.
 ### Added — Pagos › Contratos de los cargos del banco: la API para confirmarlos, y sus cargos del mes solos en el Calendario (PGP.213 · 2026-11-26 · en código, sin soltar)
 - Tesorería ya puede confirmar, corregir, terminar o rechazar los contratos que el sistema propone a partir de lo que el banco cobra solo (arrendamiento, crédito, seguro, cuotas de comisión), y subir su PDF. Al confirmar uno, su cargo del mes entra al Calendario ya autorizado; al terminarlo, lo que estaba programado después de su fin sale del Calendario.
 - Con cada carga del estado de cuenta, el sistema propone lo nuevo, recalcula el interés de los créditos, programa el cargo de cada mes y da por pagado lo que el banco ya cobró.

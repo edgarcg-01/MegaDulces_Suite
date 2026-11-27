@@ -1,28 +1,37 @@
 /**
- * `[PQ.148]` LO QUE LA HISTORIA ENSEÑA DEL CATÁLOGO DEL PROVEEDOR — `commercial.v_supplier_item_code_history`,
- * con el SQL de la PROPIA migración (se importa `cuerpo()`, no se copia: si alguien cambia la vista,
- * esta prueba mide la nueva).
+ * `[PQ.148]` + `[PQ.150]` LO QUE LA HISTORIA ENSEÑA DEL CATÁLOGO DEL PROVEEDOR —
+ * `commercial.v_supplier_item_code_history`, con el SQL de la migración VIGENTE (se importa `cuerpo()`, no se
+ * copia: si alguien cambia la vista, esta prueba mide la nueva). Desde el segundo tramo de PQ.150
+ * (mig `20261126232411`) los pares factura ↔ aplicación salen de la liga de PQ.150, sólo con el total igual.
  *
  * Todo en transacciones de SÓLO LECTURA. Tres partes:
  *
- *   A. CASOS ARMADOS — el mismo SQL con las cuatro fuentes cambiadas por `VALUES` (no se escribe una
- *      fila en ningún lado; corre en cualquier Postgres, también en el del CI): BOM al inicio del XML,
- *      `&amp;` des-escapado, código normalizado, descuento, factor, ±$1, ±20 días en el borde, un
- *      par ambiguo en cada sentido, CL005, aplicación cancelada, CFDI cancelado, código corto,
- *      código repetido en la factura, renglones empatados, y el código que cambió de producto.
- *   B. ⭐ MUTANTES — cada guarda de la vista se rompe a propósito en el texto del SQL y los casos de A
- *      TIENEN que ponerse rojos. Si una guarda se puede quitar sin que nada falle, la prueba no la
- *      estaba midiendo (un gate sin prueba negativa es una intención).
- *   C. ⭐ CONTRA UN HECHO INDEPENDIENTE (prod, sólo lectura): se aprende de lo anterior a hace 30 días
- *      y se compara lo que la historia propone contra el SKU que la persona registró en la aplicación
- *      de Kepler en los últimos 30 días; el placebo es la propuesta del renglón vecino de la misma
- *      factura. Sin el ODS (CI) se declara NO MEDIDO, nunca verde. Medido el 2026-11-24: 1,054 de
- *      1,058 (99.6 %) contra 0 de 1,025.
+ *   A. CASOS ARMADOS — la CADENA ENTERA (el cuerpo de la liga de PQ.150 alimentando a la historia) con las
+ *      cuatro fuentes cambiadas por `VALUES` (no se escribe una fila; corre en cualquier Postgres, también en
+ *      el del CI): BOM al inicio del XML, `&amp;` des-escapado, código normalizado, descuento, factor, ±$1,
+ *      ±20 días en el borde, un par ambiguo en cada sentido, CL005, aplicación cancelada, CFDI cancelado,
+ *      código corto, código repetido, renglones empatados, el código que cambió de producto; y los dos de
+ *      PQ.150: el acreedor SIN RFC en Kepler ahora enseña (control: con la definición de PQ.148 no) y un par
+ *      ligado por folio con el total distinto NO enseña.
+ *   B. ⭐ MUTANTES — cada guarda de la historia se rompe a propósito en el texto del SQL y los casos de A
+ *      TIENEN que ponerse rojos. Las guardas del par (uno a uno, ventana, CL005, cancelados) son de la liga:
+ *      sus mutantes viven en `test-newdb-pq150-invoice-application.js`; aquí se rompe el uno a uno para
+ *      probar que la historia depende de él.
+ *   C. ⭐ CONTRA UN HECHO INDEPENDIENTE (prod, sólo lectura): se aprende de lo anterior a hace 30 días (la
+ *      liga recortada a esa fecha) y se compara lo que la historia propone contra el SKU que la persona
+ *      registró en la aplicación de Kepler en los últimos 30 días; el placebo es la propuesta del renglón
+ *      vecino de la misma factura. Sin el ODS (CI) se declara NO MEDIDO, nunca verde. Medido: PQ.148 el
+ *      2026-11-24, 1,054 de 1,058 (99.6 %) contra 0 de 1,025; con la liga el 2026-11-27, 1,644 de 1,649
+ *      (99.7 %) contra 0 de 1,592.
  */
 const path = require('path');
 try { require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true }); } catch { /* opcional */ }
 
-const MIG = require('../migrations-newdb/20261124231441_pq148_v_supplier_item_code_history.js');
+const MIG = require('../migrations-newdb/20261126232411_pq150_historia_aprende_de_la_liga.js');
+const LIGA = require('../migrations-newdb/20261125090951_pq150_factura_ligada_a_su_aplicacion.js');
+const PQ148 = require('../migrations-newdb/20261124231441_pq148_v_supplier_item_code_history.js');
+/** La cadena entera: la liga de PQ.150 (sobre las fuentes) alimentando a la historia. */
+const CADENA = (opts = {}) => MIG.cuerpo(opts.hasta ?? null, { ...opts, pares: `(${LIGA.cuerpo(opts.hasta ? { antesDe: opts.hasta } : {})})` });
 
 let pass = 0, fail = 0, nm = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('  ✓', m); } else { fail++; console.log('  ✗', m); } };
@@ -54,14 +63,18 @@ const xml = (conceptos, { bom = true } = {}) => (bom ? BOM : '')
 const KDXD = [
   ['08', 'PA', 'AAA010101AAA'], ['08', 'PB', 'BBB010101BBB'], ['08', 'PC', 'CCC010101CCC'],
   ['08', 'CL005', 'DDD010101DDD'], ['08', 'PE', 'EEE010101EEE'], ['08', 'PF', 'FFF010101FFF'], ['08', 'PH', 'HHH010101HHH'],
+  // `[PQ.150]` G con su RFC; I, el acreedor sin RFC en Kepler.
+  ['08', 'PG', 'GGG010101GGG'], ['08', 'PI', ''],
 ];
 const ap = [];   // [folio, prov, fecha, total, c43, renglones: [sku, cantidad, importe]]
 const cf = [];   // [id, rfc, fecha, total, estatus, xml]
 let n = 0;
 const uuid = () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`;
-const caso = (prov, rfc, { fecha, total, fechaAp = fecha, totalAp = total, c43 = '', estatus = 'Vigente', bom = true, conceptos, renglones, folio }) => {
-  cf.push([uuid(), rfc, fecha, total, estatus, xml(conceptos, { bom })]);
-  ap.push([folio, prov, fechaAp, totalAp, c43, renglones]);
+// `ref` = la referencia de la aplicación (`kdm1.c11`, donde Kepler guarda el folio del proveedor);
+// `folioCf` = el folio de la factura. Sin ellos la liga sólo puede casar por RFC + total (la regla de PQ.148).
+const caso = (prov, rfc, { fecha, total, fechaAp = fecha, totalAp = total, c43 = '', estatus = 'Vigente', bom = true, conceptos, renglones, folio, ref = null, folioCf = null }) => {
+  cf.push([uuid(), rfc, fecha, total, estatus, xml(conceptos, { bom }), folioCf]);
+  ap.push([folio, prov, fechaAp, totalAp, c43, renglones, ref]);
 };
 // A: el caso bueno, en cinco facturas.
 caso('PA', 'AAA010101AAA', { folio: 'A1', fecha: '2026-01-10', total: 1000, fechaAp: '2026-01-12', totalAp: 1000.4,
@@ -90,6 +103,14 @@ caso('CL005', 'DDD010101DDD', { folio: 'D1', fecha: '2026-01-10', total: 100, co
 caso('PE', 'EEE010101EEE', { folio: 'E1', fecha: '2026-01-10', total: 100, c43: 'C', conceptos: [{ cod: 'EE-01', imp: 100 }], renglones: [['SE1', 1, 100]] });
 caso('PF', 'FFF010101FFF', { folio: 'F1', fecha: '2026-01-10', total: 100, estatus: 'Cancelado', conceptos: [{ cod: 'FF-01', imp: 100 }], renglones: [['SF1', 1, 100]] });
 caso('PH', 'HHH010101HHH', { folio: 'H1', fecha: '2026-01-10', total: 1000, totalAp: 1001.5, conceptos: [{ cod: 'HH-01', imp: 1000 }], renglones: [['SH1', 1, 1000]] });
+// `[PQ.150]` G: ligada por RFC + folio de la referencia, pero la aplicación es $100 más que la factura (entrega
+// parcial, el caso de PQ.157): la liga la acepta (banda 0.5×–2×) y la historia NO debe aprender de ella.
+caso('PG', 'GGG010101GGG', { folio: 'G1', fecha: '2026-01-10', total: 1000, totalAp: 1100, ref: 'FAC-4321', folioCf: '4321',
+  conceptos: [{ cod: 'GG-01', imp: 1000 }], renglones: [['SG1', 1, 1000]] });
+// `[PQ.150]` I: el acreedor SIN RFC en Kepler (6 de cada 10): la liga lo casa por folio + total, y la historia
+// aprende bajo el RFC de la FACTURA. Con la definición de PQ.148 no aprendía nada (necesitaba el RFC de Kepler).
+caso('PI', 'III010101III', { folio: 'I1', fecha: '2026-01-10', total: 300, ref: 'F-555', folioCf: '555',
+  conceptos: [{ cod: 'II-01', imp: 300 }], renglones: [['SI1', 1, 300]] });
 
 /** El SQL de la vista con las cuatro fuentes cambiadas por los casos (VALUES tipados como las tablas). */
 function conCasos(cuerpoSql) {
@@ -97,24 +118,24 @@ function conCasos(cuerpoSql) {
   const bind = [];
   const lit = (v) => (v == null ? 'NULL' : `'${String(v).replace(/'/g, "''")}'`);
   const kdxd = KDXD.map(([s, c2, c10]) => `(${lit(s)}, ${lit(c2)}, ${lit(c10)})`).join(',\n    ');
-  const kdm1 = ap.map(([f, p, fe, t, c43]) => `('08', '08', 'X', 'A', 20::numeric, 1::numeric, ${lit(f)}, ${lit(fe)}::timestamp, ${lit(p)}, ${t}::numeric, ${lit(c43)})`).join(',\n    ');
+  const kdm1 = ap.map(([f, p, fe, t, c43, , ref]) => `('08', '08', 'X', 'A', 20::numeric, 1::numeric, ${lit(f)}, ${lit(fe)}::timestamp, ${lit(p)}, ${t}::numeric, ${lit(c43)}, ${lit(ref)}::text)`).join(',\n    ');
   const kdm2 = ap.flatMap(([f, , , , , rs]) => rs.map(([sku, q, imp], i) =>
     `('08', '08', 'X', 'A', 20::numeric, 1::numeric, ${lit(f)}, ${i + 1}::numeric, ${lit(sku)}, ${q}::float8, ${lit('NOMBRE ' + sku)}, 'PZA', ${imp}::numeric)`)).join(',\n    ');
-  const cfdis = cf.map(([id, rfc, fe, t, est, x]) => { bind.push(x);
-    return `('${T}'::uuid, '${id}'::uuid, ${lit(rfc)}::varchar, 'recibidas', 'I'::varchar, ${t}::numeric, (${lit(fe)}::date + time '12:00')::timestamp AT TIME ZONE 'America/Mexico_City', ?::text, ${lit(est)})`; }).join(',\n    ');
+  const cfdis = cf.map(([id, rfc, fe, t, est, x, folioCf]) => { bind.push(x);
+    return `('${T}'::uuid, '${id}'::uuid, ${lit(rfc)}::varchar, 'recibidas', 'I'::varchar, ${t}::numeric, (${lit(fe)}::date + time '12:00')::timestamp AT TIME ZONE 'America/Mexico_City', ?::text, ${lit(est)}, ${lit(id)}::text, ${lit(folioCf)}::text)`; }).join(',\n    ');
   const fuentes = `
 f_kdxd(sucursal, c2, c10) AS (VALUES
     ${kdxd}),
-f_kdm1(sucursal, c1, c2, c3, c4, c5, c6, c9, c10, c16, c43) AS (VALUES
+f_kdm1(sucursal, c1, c2, c3, c4, c5, c6, c9, c10, c16, c43, c11) AS (VALUES
     ${kdm1}),
 f_kdm2(sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c13) AS (VALUES
     ${kdm2}),
-f_cfdis(tenant_id, id, emisor_rfc, rol, tipo_comprobante, total, fecha, xml, estatus_sat) AS (VALUES
+f_cfdis(tenant_id, id, emisor_rfc, rol, tipo_comprobante, total, fecha, xml, estatus_sat, uuid, folio) AS (VALUES
     ${cfdis}),`;
   let sql = cuerpoSql
     .replace(/kepler_ods\.kdxd/g, 'f_kdxd').replace(/kepler_ods\.kdm1/g, 'f_kdm1')
     .replace(/kepler_ods\.kdm2/g, 'f_kdm2').replace(/fiscal\.cfdis/g, 'f_cfdis');
-  if (/kepler_ods\.|fiscal\./.test(sql)) throw new Error('quedó una fuente real en el SQL de los casos');
+  if (/kepler_ods\.|fiscal\.|analytics\./.test(sql)) throw new Error('quedó una fuente real en el SQL de los casos');
   sql = sql.replace(/^\s*WITH /, `WITH ${fuentes}\n`);
   return { sql, bind };
 }
@@ -144,6 +165,9 @@ function juzgar(filas) {
     ['NEGATIVA: el CFDI cancelado en el SAT no enseña', !rfcs.has('FFF010101FFF')],
     ['NEGATIVA: un total que difiere $1.50 no se empareja (±$1)', !rfcs.has('HHH010101HHH')],
     ['nada más: A da exactamente AB-01, AB 02 y AB-05', filas.filter((r) => r.proveedor_rfc === 'AAA010101AAA').length === 3],
+    ['[PQ.150] el acreedor SIN RFC en Kepler enseña (la liga lo casó por folio + total), bajo el RFC de la factura',
+      de('III010101III', 'II-01')?.sku === 'SI1'],
+    ['[PQ.150] NEGATIVA: un par ligado por folio con el total distinto ($100, entrega parcial) no enseña', !rfcs.has('GGG010101GGG')],
   ];
 }
 
@@ -154,24 +178,30 @@ const correrCasos = async (trx, cuerpoSql) => {
 
 // ─── B. Los mutantes: cada guarda, rota a propósito ────────────────────────────────────────────
 const MUTANTES = [
-  ['sin el «uno a uno» factura ↔ aplicación', 'WHERE n_cfdi = 1 AND n_ap = 1', 'WHERE true'],
+  ['[PQ.150] aprender de TODA liga, no sólo de las de total igual', 'WHERE abs(v.diferencia) < 1', 'WHERE true'],
+  ['sin el «uno a uno» factura ↔ aplicación (la historia depende de la liga)', 'WHERE n_ap = 1 AND n_cf = 1', 'WHERE true'],
+  ['sin el «uno a uno» renglón ↔ renglón', 'WHERE n_renglon = 1 AND n_linea = 1 AND', 'WHERE true AND'],
   ['sin recortar el BOM', 'ltrim(c.xml, chr(65279))', 'c.xml'],
   ['sin des-escapar los atributos', "'&amp;', '&')", "'&amp;', '&amp;')"],
-  ['sin excluir CL005', 'AND NOT EXISTS (SELECT 1 FROM aparte a WHERE a.rfc = p.rfc)', ''],
   ['sin la guarda de 3+ caracteres', 'CASE WHEN length(cod) >= 3 THEN cod END', 'cod'],
   ['sin la guarda del código repetido', 'AND codigo IS NOT NULL AND rep_en_factura = 1', 'AND codigo IS NOT NULL'],
 ];
 
 (async () => {
-  console.log('\n[PQ.148] commercial.v_supplier_item_code_history — el SQL de la migración\n');
+  console.log('\n[PQ.148] [PQ.150] commercial.v_supplier_item_code_history — el SQL de la migración vigente\n');
 
-  console.log(' A. Casos armados (VALUES, sólo lectura)');
+  console.log(' A. Casos armados (la liga de PQ.150 alimentando a la historia, VALUES, sólo lectura)');
   let base;
-  try { base = await soloLectura((trx) => correrCasos(trx, MIG.cuerpo())); } catch (e) { noMedido(`no hay Postgres para los casos: ${e.message}`); return salir(); }
+  try { base = await soloLectura((trx) => correrCasos(trx, CADENA())); } catch (e) { noMedido(`no hay Postgres para los casos: ${e.message}`); return salir(); }
   for (const [m, c] of juzgar(base)) ok(c, m);
+  // CONTROL con respuesta conocida: la definición de PQ.148, sobre los MISMOS casos, no aprendía del acreedor sin
+  // RFC en Kepler. Si la aprendiera, el caso I no estaría midiendo lo que trae PQ.150.
+  const antes = await soloLectura((trx) => correrCasos(trx, PQ148.cuerpo()));
+  ok(!antes.some((r) => r.codigo_proveedor === 'II-01') && antes.some((r) => r.codigo_proveedor === 'AB-01'),
+    'CONTROL: con la definición de PQ.148 el acreedor sin RFC en Kepler no enseñaba (y AB-01 sí)');
 
   console.log('\n B. Mutantes: cada guarda rota TIENE que poner rojo algún caso');
-  const texto = MIG.cuerpo();
+  const texto = CADENA();
   for (const [nombre, de, a] of MUTANTES) {
     if (!texto.includes(de)) { ok(false, `el mutante «${nombre}» no encontró su texto (¿cambió la vista?)`); continue; }
     const filas = await soloLectura((trx) => correrCasos(trx, texto.split(de).join(a)));
@@ -192,7 +222,13 @@ const MUTANTES = [
     const t0 = Date.now();
     const todo = (await trx.raw(`SELECT * FROM (${MIG.SELECT_SQL}) v`)).rows;
     console.log(`    (vista entera: ${todo.length} equivalencias, ${todo.filter((r) => r.estable).length} estables, ${Date.now() - t0} ms)`);
-    const aprendido = new Map((await trx.raw(`SELECT * FROM (${MIG.cuerpo(hoy)}) v`)).rows.map((r) => [`${r.proveedor_rfc}|${r.codigo_proveedor}`, r]));
+    // `[PQ.150]` La historia que aprende de la liga no aprende MENOS que la de PQ.148 (medido el 2026-11-27:
+    // 2,373 estables contra 1,449). Si la matvista quedara vacía o sin refrescar, esto lo dice.
+    const estables148 = (await trx.raw(`SELECT count(*)::int AS n FROM (${PQ148.SELECT_SQL}) v WHERE estable`)).rows[0].n;
+    const estables = todo.filter((r) => r.estable).length;
+    ok(estables >= estables148, `la historia con la liga no aprende menos que la de PQ.148: ${estables} estables contra ${estables148}`);
+    // Lo aprendido antes del corte: la liga recortada a esa fecha (decide el uno a uno sólo con el pasado).
+    const aprendido = new Map((await trx.raw(`SELECT * FROM (${CADENA({ hasta: hoy })}) v`)).rows.map((r) => [`${r.proveedor_rfc}|${r.codigo_proveedor}`, r]));
     const prueba = (await trx.raw(`SELECT * FROM (${MIG.cuerpo(null, { renglones: true })}) u WHERE fecha >= ?::date`, [hoy])).rows;
     const porFactura = new Map();
     for (const r of prueba) { if (!porFactura.has(r.cfdi_id)) porFactura.set(r.cfdi_id, []); porFactura.get(r.cfdi_id).push(r); }
