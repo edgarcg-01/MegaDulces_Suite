@@ -5,8 +5,21 @@
  * ordena por recorrido y al escanear marca Completo.
  */
 
-/** Una asignación viva de Ubicaciones (`commercial.bin_assignments` + `warehouse_bins`). */
-export interface AsignacionDeSurtido {
+import {
+  ordenDeRecorrido,
+  ubicacionDe as ubicacionGanadora,
+  type UbicacionDelProducto,
+} from '../warehouse-locations/ubicacion-del-producto';
+
+/**
+ * Una asignación viva de Ubicaciones (`commercial.bin_assignments` + `warehouse_bins`).
+ *
+ * ⭐ `[ICR.0.2]` La regla de **cuál gana** ya no vive acá: se mudó a
+ * `warehouse-locations/ubicacion-del-producto.ts`, que es el módulo dueño del catálogo, porque el
+ * inventario físico la necesitaba igual y la había vuelto a escribir (ADR-056). Acá queda la forma
+ * que el surtido pide — el código y el orden del recorrido, nada más.
+ */
+export interface AsignacionDeSurtido extends UbicacionDelProducto {
   product_id: string;
   presentacion_rotulo: string | null;
   papel: string;
@@ -14,30 +27,28 @@ export interface AsignacionDeSurtido {
   pick_sequence: number | string | null;
 }
 
-/** Dónde se surte primero: el lugar fijo; si no hay, la exhibición de tienda; al final, la reserva. */
-const ORDEN_PAPEL: Record<string, number> = { surtido_fijo: 0, exhibicion_tienda: 1, reserva_preferida: 2 };
-
 /**
  * El lugar donde se va a buscar el renglón. Entre las asignaciones del producto gana el papel (lugar
  * fijo antes que tienda o reserva) y, en el mismo papel, la de la presentación pedida. `null` = el
  * producto no tiene ubicación en ese almacén: se dice así, no se inventa una.
+ *
+ * ⭐ `descartarPapelDesconocido` es de **este** oficio y por eso se dice acá: un papel que este
+ * código no conoce bien podría ser cuarentena o merma, y mandar al surtidor ahí sería sacar
+ * mercancía que no debe salir. Entre equivocarse y no ir, no ir. ⚠️ El inventario físico usa el
+ * mismo primitivo con la respuesta CONTRARIA, a propósito: lo que está en cuarentena hay que
+ * contarlo. Hoy la diferencia no se puede ejercer (`ck_bin_assignments_papel` admite tres valores),
+ * pero las dos pruebas negativas la fijan para el día que UB agregue uno.
  */
 export function ubicacionDe(
   asignaciones: readonly AsignacionDeSurtido[],
   productId: string,
   unidad: string | null,
 ): { code: string; orden: number | null } | null {
-  const u = (unidad ?? '').trim().toUpperCase();
-  const delProducto = asignaciones
-    .filter((a) => a.product_id === productId && a.papel in ORDEN_PAPEL)
-    .sort((a, b) =>
-      ORDEN_PAPEL[a.papel] - ORDEN_PAPEL[b.papel] ||
-      Number((b.presentacion_rotulo ?? '').trim().toUpperCase() === u) - Number((a.presentacion_rotulo ?? '').trim().toUpperCase() === u),
-    );
-  const a = delProducto[0];
-  if (!a) return null;
-  const orden = a.pick_sequence == null || a.pick_sequence === '' ? null : Number(a.pick_sequence);
-  return { code: a.code, orden: Number.isFinite(orden) ? orden : null };
+  const a = ubicacionGanadora(asignaciones, productId, {
+    unidad,
+    descartarPapelDesconocido: true,
+  });
+  return a ? { code: a.code, orden: ordenDeRecorrido(a) } : null;
 }
 
 /** Las presentaciones con rótulo y al menos un código: lo único útil para reconocer un escaneo. */

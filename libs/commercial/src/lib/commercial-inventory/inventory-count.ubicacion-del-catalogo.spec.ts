@@ -59,7 +59,10 @@ describe('[IC.UB1] la ubicación sale del catálogo de /almacen/ubicaciones', ()
     for (const n of ['listItems', 'counterCatalog', 'getProgress', 'submitCount']) {
       expect(metodo(FUENTE, n), `no se encontró ${n}()`).not.toBe('');
     }
-    expect(metodo(FUENTE, 'listItems').length, 'el ancla de listItems falló').toBeLessThan(4000);
+    // Cota floja a propósito: lo que vigila es que el ancla no se traiga medio archivo (son
+    // ~28,000 caracteres), no el largo exacto del método — si no, cada línea que se le agregue
+    // rompe el control por un motivo que no es el que vigila.
+    expect(metodo(FUENTE, 'listItems').length, 'el ancla de listItems falló').toBeLessThan(6000);
     // Y el filtro de comentarios no se comió el código: lo que queda sigue teniendo los métodos.
     expect(CODIGO).toContain('async listItems(');
   });
@@ -71,14 +74,16 @@ describe('[IC.UB1] la ubicación sale del catálogo de /almacen/ubicaciones', ()
     expect(CODIGO).not.toMatch(/location\s*:\s*\w+\.location/);
   });
 
-  it('la fuente de la ubicación es bin_assignments + warehouse_bins, por almacén', () => {
+  it('la fuente de la ubicación es la vista derivada de UB, por almacén', () => {
     expect(FUENTE).toContain('const UBICACION_DEL_PRODUCTO');
-    expect(FUENTE).toContain('commercial.bin_assignments');
-    expect(FUENTE).toContain('commercial.warehouse_bins');
+    // `[ICR.0.2]` Ya no se arman las uniones acá: las hace la vista, una sola vez, para que
+    // el surtido y el conteo no vuelvan a separarse (el conteo no excluía las ubicaciones
+    // dadas de baja y el surtido sí).
+    expect(FUENTE).toContain('commercial.v_product_bin_location');
+    expect(CODIGO, 'volvió a unir las tablas a mano').not.toContain('commercial.bin_assignments');
+    expect(CODIGO, 'volvió a unir las tablas a mano').not.toContain('commercial.warehouse_bins');
     // Por almacén: una ubicación de Padre Hidalgo no vale para La Piedad.
-    expect(FUENTE).toContain('a.warehouse_id = ?::uuid');
-    // Lo borrado no cuenta como asignado.
-    expect(FUENTE).toContain('a.deleted_at IS NULL');
+    expect(FUENTE).toContain('v.warehouse_id = ?::uuid');
   });
 
   it('los TRES caminos que publican ubicación usan el mismo resolvedor', () => {
@@ -88,7 +93,7 @@ describe('[IC.UB1] la ubicación sale del catálogo de /almacen/ubicaciones', ()
       );
     }
     // submitCount lo usa por el helper, no por el LATERAL.
-    expect(metodo(FUENTE, 'submitCount')).toContain('this.ubicacionDe(');
+    expect(metodo(FUENTE, 'submitCount')).toContain('this.codigosDeUbicacion(');
   });
 
   it('el folio ya no SIEMBRA la constante al abrirse', () => {
@@ -100,8 +105,18 @@ describe('[IC.UB1] la ubicación sale del catálogo de /almacen/ubicaciones', ()
   });
 
   it('un producto en varias ubicaciones las devuelve todas, en orden de recorrido', () => {
-    expect(FUENTE).toContain('string_agg(b.code');
-    expect(FUENTE).toContain('ORDER BY b.pick_sequence');
+    expect(FUENTE).toContain('string_agg(v.bin_code');
+    expect(FUENTE).toContain('ORDER BY v.pick_sequence');
+  });
+
+  it('`[ICR.0.3]` el renglón dice su TRAMO y cuántos ocupa, no sólo sus códigos', () => {
+    expect(FUENTE).toContain('AS tramo');
+    expect(FUENTE).toContain('AS tramos');
+    // El tramo viaja en el contrato del renglón, no sólo en el SQL.
+    expect(FUENTE).toContain('tramo: string | null;');
+    expect(FUENTE).toContain('tramos: number;');
+    // `[ICR.0.4]` Y la lista del supervisor lo publica.
+    expect(metodo(FUENTE, 'listItems')).toContain('ub.tramo AS tramo');
   });
 
   it('PRUEBA NEGATIVA — si alguien reinstala la constante, el candado se pone ROJO', () => {

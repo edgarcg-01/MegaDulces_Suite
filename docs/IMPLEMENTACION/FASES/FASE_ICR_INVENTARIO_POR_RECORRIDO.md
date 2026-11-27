@@ -48,7 +48,7 @@ del 2026-11-27). Cero exportaciones al ERP. El proceso **nunca llegó al final**
 
 | Módulo | Qué tiene, medido el 2026-11-27 | Qué le da al inventario |
 |---|---|---|
-| **UB · Ubicaciones** | 476 ubicaciones, **472 con orden de recorrido** (`pick_sequence`), 12 piezas, 17 caras, 11 pasillos | **El recorrido**: en qué orden se camina el almacén |
+| **UB · Ubicaciones** | 476 ubicaciones, **472 con orden de recorrido** (`pick_sequence`), 12 piezas, 17 caras, 11 pasillos | **El recorrido**: en qué orden se camina. ⛔ **Corregido el 2026-11-27 al construir C0: las 472 son de TIENDA** (`zona='T'`), 322 de piso y 150 de cabecera. **La bodega tiene CERO.** El formato del código ya la contempla (`^([TB])...`), nadie la capturó |
 | **GP · Olas de surtido** | 9 tablas (`picking_waves`, `wave_lines`, `wave_sequences`, `wave_allocations`, `supervisor_tasks`…) | **El modelo de repartir trabajo** del almacén entre personas y seguir su avance — ya construido y en uso |
 | **Códigos por unidad** | **9,066** códigos con su peldaño (`kepler_base` 7,109 · `kepler_u2` 405 · `kepler_u3` 7 · `wincaja` 1,545) | **La unidad** en que cuenta cada persona |
 | **El ODS** | `analytics.v_erp_stock_on_hand`, derivada del ERP | **Un solo teórico** |
@@ -56,6 +56,25 @@ del 2026-11-27). Cero exportaciones al ERP. El proceso **nunca llegó al final**
 ⭐ **La idea en una frase:** la unidad de trabajo del conteo deja de ser *un SKU de una lista* y pasa
 a ser *una ubicación en el orden en que se camina*. Eso es lo que permite decir «este tramo es tuyo»
 — y es exactamente lo que ya hace el surtido de pedidos.
+
+### ⛔ Lo que apareció al construir C0, y cambia el orden del trabajo (2026-11-27)
+
+**El catálogo de ubicaciones que existe es el del PISO DE VENTA, no el de la bodega.** Las 472
+ubicaciones con recorrido de Padre Hidalgo son `zona='T'` (tienda): 322 de piso y 150 de cabecera,
+más 3 carretas y 1 legado sin recorrido. De bodega (`zona='B'`) hay **cero**, en PH y en todas. Y
+las 51 asignaciones vivas son las 51 de `papel='exhibicion_tienda'`.
+
+Eso **no tumba la fase, le pone el orden**: el teórico del ERP es por sucursal y **no separa piso
+de bodega**, así que un folio de PH cubre las dos mitades y sólo una tiene recorrido. El primer
+folio que se puede organizar por tramos es **de piso de venta**; la bodega entra cuando alguien
+capture sus ubicaciones (D5). ⚠️ Y **no se sabe qué fracción de la existencia está en cada mitad**:
+el ODS no lo dice. Se declara NO MEDIDO; no se reparte a ojo.
+
+⭐ **Y el mecanismo de repartir por pasillo ya está construido entero, apuntando al catálogo
+equivocado.** `inventory-team.service.ts` reparte un folio sobre `commercial.warehouse_aisles` y
+escribe `inventory_count_assignments.aisle_id`; `submitCount` ya acota al contador a sus pasillos.
+Lo que falta no es construirlo: es **apuntarlo al catálogo real** y darle tramos que existan. Eso
+abarata C1 y es lo que D2 ya recomendaba por otro motivo.
 
 ---
 
@@ -82,9 +101,9 @@ a ser *una ubicación en el orden en que se camina*. Eso es lo que permite decir
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
 | ICR.0.1 | **Un solo teórico**: el folio se siembra SÓLO desde el ODS (`v_erp_stock_on_hand`), con `qty > 0`. Se retiran las ramas `commercial` e `inventory` | ⬜ | Conteo de artículos del folio contra la vista, mismo almacén y misma fecha |
-| ICR.0.2 | **Cada artículo sabe dónde está**: su ubicación sale de `bin_assignments` + `warehouse_bins`, por almacén | ⬜ | Ya ejercido el 2026-11-27: 39 de 3,364 en PH. Debe dar lo mismo desde la API |
-| ICR.0.3 | **Cada artículo sabe en qué tramo está**: `pick_sequence` de su ubicación, y un tramo = un rango contiguo de esa secuencia | ⬜ | 472 de 476 ubicaciones tienen `pick_sequence`; las 4 sin él se declaran |
-| ICR.0.4 | **El artículo sin ubicación tiene su propio tramo**: «sin ubicar», que es trabajo real y hoy sería invisible | ⬜ | 3,325 de 3,364 hoy caerían ahí: la cifra tiene que verse, no esconderse |
+| ICR.0.2 | **Cada artículo sabe dónde está**: vista `commercial.v_product_bin_location` (`derive-no-copy`), una fila por asignación viva. El primitivo de **cuál gana** se muda a `warehouse-locations/ubicacion-del-producto.ts` y lo usan surtido y conteo | 🔨 2026-11-27 | Migración `20261127150434`, que se verifica a sí misma (filas de la vista = filas de su fuente, o falla). Candado de 11 pruebas con control y negativa, **ejercida**: al romper el filtro de bajas y el orden de papeles, 4 se ponen rojas |
+| ICR.0.3 | **Cada artículo sabe en qué tramo está**: `tramo` = `zona-pasillo` (`T-A`), y el renglón publica además **cuántos** ocupa | 🔨 2026-11-27 | 472 de 476 ubicaciones tienen `pick_sequence`; las 4 sin él caen en `sin-recorrido` y **se declaran**. ⚠️ Falta ejercerlo contra la API: la vista todavía no está en prod |
+| ICR.0.4 | **El artículo sin ubicación tiene su propio tramo**: `SIN_UBICAR`, que es trabajo real y hoy sería invisible | 🔨 2026-11-27 | **3,322 de 3,361** con existencia en Padre Hidalgo caerían ahí (1.2 % ubicado): la cifra ya sale por `located` en el tablero del folio. Falta la pantalla (C3) |
 | ICR.0.5 | **Retirar el catálogo de 4 pasillos** (`warehouse_aisles`) del conteo, o declararlo muerto | ⬜ | Que ningún camino del módulo lo lea |
 
 ⛔ Sin importer: todo deriva. Lo que no se pudo verificar **se declara**, nunca se dibuja como 0.
@@ -132,6 +151,7 @@ ve cada usuario y cómo lo ve»*.
 | **D4** | ¿Se puede contar en **pieza suelta** cuando la unidad nativa es el paquete? | **Hoy no**: no existe el factor paquete→pieza y el del código de barras discrepa 96 %. O se consigue el dato, o se declara que no se cuenta así | Edgar |
 | **D5** | ¿Quién captura las **3,325 asignaciones de ubicación** que faltan, y cuándo? | El inventario es el único momento en que alguien recorre el almacén entero: **capturar la ubicación mientras se cuenta** | Edgar |
 | **D6** | **El cupo**: 11 fases 🔨 contra 4 | ✅ **Firmada 2026-11-27**: Edgar la abrió por encima del cupo. Quedan **12 🔨** | Edgar |
+| **D7** | ⭐ **¿El renglón de conteo es por PRODUCTO o por (ubicación × producto)?** Apareció al construir C0: un producto puede estar en varios tramos —hoy **8 de 40** asignados están en dos o tres—, y entonces «este tramo es tuyo» no alcanza: alguien tiene que contar la otra punta | **Por (ubicación × producto)**, como un renglón hijo del artículo y no cambiando el grano del actual: el teórico del ERP es **por producto** y la diferencia se sigue calculando ahí. ⚠️ Mientras no se firme, C0 **no lo resuelve en silencio**: el renglón publica `tramos > 1` para que se vea | Edgar |
 
 **Estado al 2026-11-27:** D1, D2, D3 y D4 **tomadas por Claude** con la recomendación de esta tabla
 (decisiones de diseño y de proceso). D5 **a medias**: el mecanismo se adopta, el reparto del trabajo
@@ -171,5 +191,6 @@ de captura espera a Edgar. D6 **firmada**. Cada una que se ejerza en código dej
 
 | Fecha | Qué pasó |
 |---|---|
+| 2026-11-27 | **C0 construido** (ICR.0.2–0.4): la vista `commercial.v_product_bin_location`, el primitivo compartido con surtido, y el tramo en el renglón del folio. ⛔ Lo que apareció al medir: **el catálogo de ubicaciones es del piso de venta, no de la bodega** (0 ubicaciones `zona='B'` en toda la empresa), y **el mecanismo de repartir por pasillo ya estaba construido entero**, apuntando al catálogo muerto de 4 filas. Nace **D7**. Falta aplicar la migración en prod y ejercerlo desde la API. |
 | 2026-11-27 | **Abierta por Edgar**, por encima del cupo (12 🔨 contra 4): *«abrámoslo»*. D6 firmada; D1–D4 las toma Claude con la recomendación escrita; D5 partida (el mecanismo sí, el reparto del trabajo no). Arranca por **C0**, que es derivable hoy y no cambia ninguna pantalla. |
 | 2026-11-27 | Plan escrito. Lo pidió Edgar al parar el trabajo de parcheo: *«el modelo es anterior a muchas cosas nuevas; hay que partir de ver qué nos aportan esos módulos»*. Las cifras de §1 se midieron ese día contra prod, y las de interfaz **en pantalla viva** recorriendo el proceso con el folio `INV-2026-00011`. Queda ⬜ por cupo. |

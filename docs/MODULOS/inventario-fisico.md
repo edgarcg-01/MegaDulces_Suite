@@ -529,7 +529,7 @@ nadie había llegado a contar lo suficiente para verlo.**
 >
 > ⚠️ **No hay F21.** La numeración salta del **F20** al **F22**; se verificó en el historial del
 > repositorio y **nunca existió**: es un hueco al numerar, no un hallazgo perdido. Con **F23** y
-> **F24** (agregados el 2026-11-27) y **F25** a **F28** (medidos en pantalla viva ese mismo dia), son **27**.
+> **F24** (agregados el 2026-11-27) y **F25** a **F28** (medidos en pantalla viva ese mismo dia) y **F29**-**F30** (medidos al construir C0 de la fase ICR), son **29**.
 
 | # | Sev. | Defecto | Cómo se midió |
 |---|:---:|---|---|
@@ -740,6 +740,46 @@ uno), así que repartir sin ese dato repartiría mal.
 ⚠️ **Lo que NO es:** el salto de 2,094 a 3,364 del mismo almacén (F12) **no fue** un cambio de
 fuente. Re-verificado hoy: contando sólo lo que tiene existencia, las dos fuentes coinciden
 (**3,376** contra **3,363**). La conclusión de F12 sigue en pie.
+
+### ⛔⛔ F29 — el catálogo de ubicaciones es el del PISO DE VENTA; la bodega tiene cero
+
+> Apareció al construir C0 de la fase ICR, midiendo lo que F27 daba por sabido. Es el caso de
+> «el nombre de una columna no es su significado»: `warehouse_bins` se lee como *ubicaciones del
+> almacén* y son las del salón.
+
+| # | Sev. | Defecto | Cómo se midió |
+|---|:---:|---|---|
+| **F29** | 🔴 | **Las 472 ubicaciones con orden de recorrido son de TIENDA, no de almacén.** El
+esquema distingue las dos mitades —`ck_wh_bins_zona` admite `T` (tienda) y `B` (bodega), y el
+código las lleva adelante (`^([TB])([A-Z])(0[1-9]|[1-9][0-9])([1-9])$`)— pero **sólo se capturó la
+tienda**. Y el teórico del ERP es **por sucursal**: no separa piso de bodega. Así que un folio de
+Padre Hidalgo cubre las dos mitades y sólo una se puede caminar en orden. | Prod, 2026-11-27, sólo
+lectura: de 476 ubicaciones, **322 `tienda_piso` + 150 `tienda_cabecera`** (las 472 con
+`pick_sequence`), 3 carretas y 1 legado. `zona='B'`: **0**, en las 20 sucursales. Las 51
+asignaciones vivas son las 51 de `papel='exhibicion_tienda'`. |
+
+⚠️ **Lo que NO se pudo medir, y se declara:** qué fracción de la existencia de una sucursal está
+en el piso y cuánta en la bodega. El ODS no lo dice y no hay segundo testigo. Repartirlo a ojo
+sería inventar el denominador del trabajo.
+
+⭐ **Qué cambia:** el primer folio que se puede organizar por recorrido es **de piso de venta**, no
+de almacén. No es menos valioso —es donde está la exhibición y donde más se descuadra— pero hay
+que decirlo, porque «inventario por recorrido del almacén» prometía otra cosa.
+
+### ⭐ F30 — el reparto por pasillo ya está construido entero, apuntando al catálogo muerto
+
+| # | Sev. | Hallazgo | Cómo se midió |
+|---|:---:|---|---|
+| **F30** | 🟢 | **Lo que F27 llamaba «falta el dato» es más barato de lo que parecía: falta
+APUNTARLO.** `inventory-team.service.ts` ya parte un folio en pasillos y escribe
+`inventory_count_assignments.aisle_id`; `submitCount` ya acota a cada contador a los suyos; hay
+una vista de avance por pasillo. Todo eso existe y funciona — contra `commercial.warehouse_aisles`,
+que tiene 4 filas inventadas el 19-jun («Pasillo 1»…«Pasillo 4»), coordenadas de cuadrícula en
+`0,0` y **0 ubicaciones colgando**: `warehouse_bins.aisle_id` está en **0 de 476**. | Fuente +
+prod, 2026-11-27. El enlace padre-hijo entre los dos catálogos **existe como columna y nunca se
+llenó**. |
+
+⭐ Por eso C1 de la fase ICR no es construir el reparto: es **darle un catálogo que exista**.
 
 ### Lo que sigue SIN ver, aun con la pantalla abierta
 

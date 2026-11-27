@@ -32,6 +32,17 @@ export interface InventoryCountItemRow {
   brand_name: string | null;
   /** `[IC.UB1]` Del catálogo de `/almacen/ubicaciones`, no de `public.products`. */
   location: string | null;
+  /**
+   * `[ICR.0.3]` El pedazo de recorrido donde el producto se encuentra **primero** al caminar
+   * (`zona-pasillo`: `T-A`). `null` = no tiene ubicación asignada — el tramo «sin ubicar», que es
+   * trabajo real y hoy se lleva la enorme mayoría del folio.
+   */
+  tramo: string | null;
+  /**
+   * `[ICR.0.4]` Cuántos tramos distintos ocupa. `0` = ninguno. ⭐ **`> 1` importa**: contar sólo
+   * donde dice `tramo` dejaría mercancía del mismo producto sin contar en otra parte.
+   */
+  tramos: number;
   expected_qty: string | number | null;
   count_1: string | number | null;
   count_2: string | number | null;
@@ -52,8 +63,8 @@ export interface InventoryCountItemRow {
 }
 
 /**
- * Lo mínimo que `ubicacionDe` necesita de la transacción. Se tipa estructuralmente en vez de
- * `any` para que el compilador vea la forma de lo que devuelve `raw` — que es de dónde sale el
+ * Lo mínimo que `codigosDeUbicacion` necesita de la transacción. Se tipa estructuralmente en vez
+ * de `any` para que el compilador vea la forma de lo que devuelve `raw` — que es de dónde sale el
  * `codigos` de más abajo.
  */
 interface TrxConRaw {
@@ -83,13 +94,31 @@ interface TrxConRaw {
  *
  * Un producto puede estar en varias ubicaciones (medido: 5 en dos y 3 en tres), así que se
  * devuelven todas, en el orden en que se recorre el almacén (`pick_sequence`).
+ *
+ * ── `[ICR.0.2]` De dónde sale ahora ──────────────────────────────────────────────────────
+ * De la vista `commercial.v_product_bin_location`, no de las dos tablas: la consulta de acá se
+ * había escrito aparte de la del surtido y ya se estaban separando —ésta **no excluía las
+ * ubicaciones dadas de baja**—, que es lo que ADR-056 cobra. Hoy no cambia ningún número (476 de
+ * 476 están `activa`); la que cambiaba era la siguiente.
+ *
+ * ── `[ICR.0.3][ICR.0.4]` El tramo, y por qué se declara en vez de resolverse ─────────────
+ * `tramo` es el pedazo de recorrido donde el producto **se encuentra primero al caminar**
+ * (`pick_sequence` más chico), y `tramos` **cuántos pedazos distintos** ocupa. Se publican los dos
+ * a propósito: con `tramos > 1`, decir sólo el primero escondería que hay mercancía del mismo
+ * producto en otra parte, y quien contara ese tramo reportaría de menos sin saberlo. El renglón
+ * **dice** que está en dos lugares; repartir el conteo por ubicación en vez de por producto es
+ * `[ICR.1.1]`, y hasta que esa decisión se tome, esto no se resuelve en silencio (regla 11).
+ *
+ * ⛔ Acá NO se aplica la prioridad de `papel` (lugar fijo > exhibición > reserva). Esa regla vive
+ * en `warehouse-locations/ubicacion-del-producto.ts` y sirve para decidir **a dónde mandar a
+ * alguien**; el conteo no manda a un lugar: tiene que recorrerlos todos.
  */
 const UBICACION_DEL_PRODUCTO = `
-  SELECT string_agg(b.code, ' · ' ORDER BY b.pick_sequence NULLS LAST, b.code) AS codigos
-    FROM commercial.bin_assignments a
-    JOIN commercial.warehouse_bins b ON b.id = a.bin_id
-   WHERE a.warehouse_id = ?::uuid
-     AND a.deleted_at IS NULL
+  SELECT string_agg(v.bin_code, ' · ' ORDER BY v.pick_sequence NULLS LAST, v.bin_code) AS codigos,
+         (array_agg(v.tramo ORDER BY v.pick_sequence NULLS LAST, v.bin_code))[1] AS tramo,
+         count(DISTINCT v.tramo)::int AS tramos
+    FROM commercial.v_product_bin_location v
+   WHERE v.warehouse_id = ?::uuid
 `;
 
 /**
@@ -829,7 +858,7 @@ export class InventoryCountService {
         sku = prodInfo?.sku ?? null;
         name = prodInfo?.nombre ?? null;
         // `[IC.UB1]` La ubicación del catálogo de UB para ESTE almacén, o nada.
-        loc = await this.ubicacionDe(trx, count.warehouse_id, productId);
+        loc = await this.codigosDeUbicacion(trx, count.warehouse_id, productId);
       }
 
       // Respuesta CIEGA: ni expected_qty ni varianza.
@@ -1215,7 +1244,7 @@ export class InventoryCountService {
        */
       const [ubic] = await trx('commercial.inventory_count_items as i')
         .joinRaw(
-          `LEFT JOIN LATERAL (${UBICACION_DEL_PRODUCTO} AND a.product_id = i.product_id) ub ON TRUE`,
+          `LEFT JOIN LATERAL (${UBICACION_DEL_PRODUCTO} AND v.product_id = i.product_id) ub ON TRUE`,
           [count.warehouse_id],
         )
         .where('i.count_id', countId)
@@ -1395,7 +1424,7 @@ export class InventoryCountService {
       return trx('commercial.inventory_count_items as i')
         .leftJoin('public.products as p', 'p.id', 'i.product_id')
         .joinRaw(
-          `LEFT JOIN LATERAL (${UBICACION_DEL_PRODUCTO} AND a.product_id = i.product_id) ub ON TRUE`,
+          `LEFT JOIN LATERAL (${UBICACION_DEL_PRODUCTO} AND v.product_id = i.product_id) ub ON TRUE`,
           [count.warehouse_id],
         )
         .where('i.count_id', countId)
@@ -1453,18 +1482,22 @@ export class InventoryCountService {
   }
 
   /**
-   * `[IC.UB1]` La ubicación de UN producto en UN almacén, del catálogo de
-   * `/almacen/ubicaciones`. Devuelve `null` cuando no está asignado — que hoy es
-   * casi siempre, y es justo lo que hay que poder ver.
+   * `[IC.UB1]` **Los códigos** de las ubicaciones de UN producto en UN almacén, del catálogo de
+   * `/almacen/ubicaciones`, en el orden en que se caminan. Devuelve `null` cuando no está
+   * asignado — que hoy es casi siempre, y es justo lo que hay que poder ver.
+   *
+   * ⚠️ No confundir con `ubicacionDe` de `warehouse-locations/ubicacion-del-producto.ts`, que
+   * elige **UNA** por prioridad de `papel` para mandar a alguien ahí. Acá se devuelven todas,
+   * porque quien cuenta tiene que recorrerlas todas; de ahí el nombre distinto.
    */
-  private async ubicacionDe(
+  private async codigosDeUbicacion(
     trx: TrxConRaw,
     warehouseId: string | null | undefined,
     productId: string | null | undefined,
   ): Promise<string | null> {
     if (!warehouseId || !productId) return null;
     const { rows } = await trx.raw(
-      `${UBICACION_DEL_PRODUCTO} AND a.product_id = ?::uuid`,
+      `${UBICACION_DEL_PRODUCTO} AND v.product_id = ?::uuid`,
       [warehouseId, productId],
     );
     return rows?.[0]?.codigos ?? null;
@@ -1495,7 +1528,7 @@ export class InventoryCountService {
         .leftJoin('inventory.products as ip', 'ip.sku', 'i.product_sku')
         // `[IC.UB1]` La ubicación REAL, del catálogo de `/almacen/ubicaciones`.
         .joinRaw(
-          `LEFT JOIN LATERAL (${UBICACION_DEL_PRODUCTO} AND a.product_id = i.product_id) ub ON TRUE`,
+          `LEFT JOIN LATERAL (${UBICACION_DEL_PRODUCTO} AND v.product_id = i.product_id) ub ON TRUE`,
           [count.warehouse_id],
         )
         .where('i.count_id', countId);
@@ -1514,6 +1547,11 @@ export class InventoryCountService {
           trx.raw('COALESCE(p.nombre, ip.nombre) AS product_name'),
           trx.raw('COALESCE(b.nombre, ip.categoria) AS brand_name'),
           trx.raw('ub.codigos AS location'),
+          // `[ICR.0.3][ICR.0.4]` El tramo del recorrido donde el producto se encuentra PRIMERO, y
+          // cuántos ocupa. `NULL` = sin ubicación asignada, que es trabajo real: la pantalla lo
+          // nombra «sin ubicar» en vez de dejar un hueco (regla 11).
+          trx.raw('ub.tramo AS tramo'),
+          trx.raw('COALESCE(ub.tramos, 0)::int AS tramos'),
           'i.expected_qty',
           'i.count_1',
           'i.count_2',

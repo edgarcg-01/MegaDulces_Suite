@@ -4023,6 +4023,17 @@ export interface InventoryCountItem {
   product_name: string | null;
   brand_name: string | null;
   location: string | null;
+  /**
+   * `[ICR.0.3]` El pedazo de recorrido donde el producto se encuentra **primero** al caminar
+   * (`zona-pasillo`: `T-A`, con `T` = tienda y `B` = bodega). `null` = sin ubicación asignada,
+   * que es el tramo «sin ubicar» y hoy se lleva casi todo el folio.
+   */
+  tramo?: string | null;
+  /**
+   * `[ICR.0.4]` Cuántos tramos distintos ocupa el producto. ⭐ **`> 1` importa**: contar sólo
+   * donde dice `tramo` dejaría mercancía del mismo producto sin contar en otra parte.
+   */
+  tramos?: number;
   expected_qty: number | string;
   count_1: number | string | null;
   count_2: number | string | null;
