@@ -286,7 +286,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr>
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Folio</th><th>Almacén</th><th>Proveedor</th>
-                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r" title="Con el IVA y el IEPS de la ficha de Kepler: lo que se va a pagar.">Con impuestos</th>
+                  <th class="rq-r">Líneas</th><th class="rq-r" title="Suma de las cajas pedidas.">Cajas</th><th class="rq-r" title="Con el IVA y el IEPS de la ficha de Kepler: lo que se va a pagar.">Con impuestos</th>
                   <th>Estado</th><th class="rq-r" title="Días desde que se creó. Lo calcula el servidor, no el reloj de esta máquina.">Días</th><th title="¿El costo capturado sigue siendo el de hoy? Se mide renglón por renglón contra el plan vigente.">Vigencia</th><th>Fecha</th><th>En Kepler</th>
                 </tr>
               </ng-template>
@@ -381,7 +381,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr>
                   <th class="rq-chk"><input type="checkbox" [checked]="todasMarcadas()" (change)="marcarTodas($any($event.target).checked)" aria-label="Marcar todas las de la página" /></th>
                   <th>Folio</th><th>Origen</th><th>Destino</th>
-                  <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r" title="Con el IVA y el IEPS de la ficha de Kepler: la mercancía vale lo que se pagó por ella.">Con impuestos</th>
+                  <th class="rq-r">Líneas</th><th class="rq-r" title="Suma de las cajas pedidas.">Cajas</th><th class="rq-r" title="Con el IVA y el IEPS de la ficha de Kepler: la mercancía vale lo que se pagó por ella.">Con impuestos</th>
                   <th>Estado</th><th class="rq-r" title="Días desde que se creó. Lo calcula el servidor, no el reloj de esta máquina.">Días</th><th title="¿El costo capturado sigue siendo el de hoy? Se mide renglón por renglón contra el plan vigente.">Vigencia</th><th>Fecha</th><th><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>

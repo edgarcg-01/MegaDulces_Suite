@@ -128,6 +128,35 @@ describe('[PQ.166] el total de cajas de la OC', () => {
   it('suma las cajas verificadas (la 0007492: 4 × 132 = 528 cj)', () => {
     expect(textoTotalCajasOc([caja(132), caja(132), caja(132), caja(132)])).toBe('528 cj');
   });
+  it('[PQ.168] un renglón capturado EN CAJAS (CJA, factor 1) ya son cajas: la OC 00-0007511', () => {
+    const cja = (n: number) => ({ cantidad: n, unidades_por_caja: 1, costo_unitario: 1074.03, costo_caja: 1074.03, unidad: 'CJA' });
+    expect(textoTotalCajasOc([cja(25), cja(11), cja(15)])).toBe('51 cj');
+    expect(cajasDeRenglon(cja(25))).toBe(25);
+    // y una PZA con factor 1 SIGUE sin ser caja ([PQ.82])
+    expect(cajasDeRenglon({ cantidad: 5, unidades_por_caja: 1, costo_unitario: 115.5, costo_caja: 115.5, unidad: 'PZA' })).toBeNull();
+  });
+  it('[PQ.168] control con datos REALES: los 15 renglones de la OC 00-0007511 (prod, 2026-11-27) suman 222 cj', () => {
+    // [cantidad, unidades_por_caja, costo_unitario, costo_caja, unidad] tal como los da analytics.erp_purchase_doc_lines.
+    const reales: [number, number, number, number, string][] = [
+      [25, 1, 581.45, 581.45, 'CJA'],
+      [11, 1, 1074.03, 1074.03, 'CJA'],
+      [15, 1, 1023.71, 1023.71, 'CJA'],
+      [50, 1, 603.12, 603.12, 'CJA'],
+      [10, 1, 1101.33, 1101.33, 'CJA'],
+      [7, 1, 1074.03, 1074.03, 'CJA'],
+      [10, 1, 1032.06, 1032.06, 'CJA'],
+      [11, 1, 1074.03, 1074.03, 'CJA'],
+      [5, 1, 1074.03, 1074.03, 'CJA'],
+      [15, 1, 1033.69, 1033.69, 'CJA'],
+      [20, 1, 1074.03, 1074.03, 'CJA'],
+      [15, 1, 1146.45, 1146.45, 'CJA'],
+      [10, 1, 1023.74, 1023.74, 'CJA'],
+      [13, 1, 1036.17, 1036.17, 'CJA'],
+      [5, 1, 631.11, 631.11, 'CJA'],
+    ];
+    const lineas = reales.map(([cantidad, unidades_por_caja, costo_unitario, costo_caja, unidad]) => ({ cantidad, unidades_por_caja, costo_unitario, costo_caja, unidad }));
+    expect(textoTotalCajasOc(lineas)).toBe('222 cj');
+  });
   it('un renglón sin cajas verificadas no se suma como cero: se dice', () => {
     expect(textoTotalCajasOc([caja(10), rota])).toBe('10 cj + 1 renglón(es) sin verificar');
     expect(textoTotalCajasOc([rota])).toBe('1 renglón(es) sin cajas verificadas');
