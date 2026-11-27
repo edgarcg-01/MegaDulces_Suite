@@ -28,6 +28,8 @@ describe('[PQ.3.4] el módulo del Calendario de compras arranca', () => {
   const P = PurchaseCalendarController.prototype;
   const rutas: [string, (...a: never[]) => unknown, RequestMethod, string, Permission[], Permission[]][] = [
     ['calendario', P.calendario, RequestMethod.GET, '/', [Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR, Permission.COMPRAS_CALENDARIO_CICLO], []],
+    // [PQ.3.24] El aviso vive en Pedido: también lo lee quien sólo tiene COMPRAS_PEDIDO_VER (son conteos, con alcance).
+    ['aviso', P.aviso, RequestMethod.GET, 'aviso', [Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR, Permission.COMPRAS_CALENDARIO_CICLO, Permission.COMPRAS_PEDIDO_VER], [Permission.COMPRAS_PROVEEDORES_VER]],
     // [PQ.3.6] «Sin regla» es de toda la empresa: sólo quien define ciclos (la pantalla y la API dicen lo mismo).
     ['propuestas', P.propuestas, RequestMethod.GET, 'propuestas', [Permission.COMPRAS_CALENDARIO_CICLO], [Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR]],
     ['guardarRegla', P.guardarRegla, RequestMethod.POST, 'reglas', [Permission.COMPRAS_CALENDARIO_CICLO], [Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR]],

@@ -3,7 +3,7 @@
 > Anexo de [`FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md`](FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md), frente **F2** (agenda de
 > proveedores). Reemplaza el alcance de **PQ.3** y lo parte en **PQ.3.1–PQ.3.14**; absorbe la pestaña Ciclo
 > de **PQ.4** y la fuente del aviso de **PQ.5**. Método: [`METODO_DE_TRABAJO.md`](../../METODO_DE_TRABAJO.md).
-> Las decisiones de este anexo se numeran **DC1–DC39** para no confundirlas con las D del plan base.
+> Las decisiones de este anexo se numeran **DC1–DC40** para no confundirlas con las D del plan base.
 > ⭐ **Cómo se revisa (reglas por alcance: corporativo, zona o sucursal) y las visitas por WhatsApp: §10.**
 > ⭐ **El apartado se llama «Proveedores» (DC32, 2026-11-24): Calendario · Citas · Revisión · Acuerdos · Listas de
 > precios. Cómo quedó en el menú y qué apartado es cada item: §10.14.**
@@ -160,6 +160,7 @@ Ciclo de Pedido: una sola agenda.
 | DC38 | **Pestaña «Condiciones» en Proveedores** (la sexta): mínimo pactado, tiempo de entrega y fill rate reales, pedido típico, ciclo (la regla del Calendario) y plazo de pago. Parámetros de compra se queda con lo del motor: Categorías, Red de abasto y los ajustes globales (PQ.3.28) | ✅ Francisco, 2026-11-25 · 🟡 falta el OK de la jefa de compras y de Edgar: en la junta del 24-nov se acordaron cinco pestañas |
 | DC41 | **Quién entra a Citas** (PQ.3.8, §10.19): agendan **Compras** (gerencia, compras, Compras Morelia y auxiliares: 10 personas), **Mercadotecnia** (4) y **Tesorería** (1); **Dirección** (3) consulta. Encargados de tienda y almacenistas **no**: su trato con el proveedor es la entrega y el pedido del Calendario. Una sola agenda para todos (DC9). Llaves `COMPRAS_CITAS_VER` y `COMPRAS_CITAS_AGENDAR` | ✅ Francisco, 2026-11-26 («sin tiendas») |
 | DC42 | **La invitación por correo (PQ.3.12) espera al final del módulo Proveedores**, y la conexión con Gmail la afina Edgar. Mientras, Citas agenda sin mandar invitación. Medido ese día (§9.5): el correo de la Suite nunca ha salido (Google rechaza los 79 intentos por falta de contraseña de aplicación) y sólo 1 de las 18 personas de Citas tiene correo registrado | ✅ Francisco, 2026-11-26 («lo dejamos pendiente») |
+| DC40 | **La requisición de compra de la Suite atiende la revisión, en la sucursal a la que va** (PQ.3.29, §10.18): cuenta desde que se crea —cualquier estado menos borrador y cancelada—, el día en que se creó, en la sucursal DESTINO de cada renglón (sin destino, la que emite), sin esperar la OC de Kepler. No escribe marcas: el calendario la lee; si se cancela, deja de contar sola. Feedback de Compras del 2026-11-25: «cuando revisen el proveedor y salga requisición, que lo marque como revisado» | ✅ Francisco, 2026-11-25 («desde que se crea») |
 | DC39 | **Se retira `import-supplier-params.js`**: el ciclo del motor y el pedido típico salen de una vista derivada de Kepler (regla 1, cero importers). Los valores que nadie sabe quién puso (172 ciclos y 255 mínimos «desconocido») no se promueven a «mínimo pactado»: se declaran y se le muestran a Compras para que capture los reales (PQ.3.25) | 🟡 Claude, 2026-11-25 (técnica, por regla 1) |
 
 ### 4.1 Quién entra (DC6), medido contra los roles de prod
@@ -203,7 +204,7 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
   concentrada caen en miércoles, pero sólo el 37 % de sus OC sale ese día. No se propone como día de
   revisión; las citas de entrega son del WMS (§2).
 
-## 6. Items (en el tracker como PQ.3.1–PQ.3.28)
+## 6. Items (en el tracker como PQ.3.1–PQ.3.29)
 
 | # | Entregable | Capa |
 |---|---|---|
@@ -235,6 +236,7 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | PQ.3.26 | **El mínimo del proveedor, pactado** (DC36): monto o cajas, con motivo (para surtir o flete gratis), quién y cuándo; Pedido avisa cuando no se alcanza | C0→C3 |
 | PQ.3.27 | **Tiempo de entrega y fill rate reales** (DC15, DC37): por proveedor y sucursal, desde Kepler; el motor usa el real (cambia números: antes/después, commit aparte); se retira la captura | C0→C1 |
 | PQ.3.28 | **La pestaña «Condiciones»** (DC38): las condiciones de cada proveedor en un lugar; Parámetros de compra queda con lo del motor. Espera el OK de la jefa de compras y de Edgar | C3 |
+| PQ.3.29 | **La requisición de la Suite atiende la revisión en la sucursal destino** (DC40, §10.18): actividad nueva del calendario, sin marcas automáticas | C0→C3 |
 
 ## 7. Definición de Terminado
 
@@ -278,6 +280,7 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | 2026-11-24 | **PQ.3.15 ✅ · PQ.3.21 ✅ · PQ.3.22 ✅** en prod: `/api/health` sirve `b995d6a2a` (#617) y la migración `20261124133043` está aplicada con sus 3 columnas (sólo lectura). Todavía ninguna de las 16 reglas vivas usa la cadencia nueva ni tiene responsable: se mide el uso, no sólo la llegada | sesión Claude |
 | 2026-11-24 | **PQ.3.17 🧪** (§10.13): quién definió, quién cambió y de qué a qué, sin tabla propia: las reglas se suman a `analytics.master_data_history` con un disparador (mig `20261124231747`), cada escritura declara quién, y sin disparador el historial se declara no medido. 13 ✓ contra Postgres real, 8 mutantes en rojo. Falta la prueba visual y su PR (después del de (c)) | sesión Claude |
 | 2026-11-25 | **PQ.3.17 · prueba visual ✔** (§10.13): dos gerencias escriben por pantalla sobre la misma regla y el detalle dice las dos, con el de qué a qué; escritorio, Fold 7, celular y oscuro; sin el disparador, la pantalla lo declara. 40/40; con (c) en la misma corrida, lo de un alta en bloque ya no sale como «Cambios». Va en el mismo PR que (c) | sesión Claude |
+| 2026-11-25 | **DC40 ✅ · PQ.3.29 🧪** (§10.18): feedback de Compras —que la requisición marque al proveedor como revisado—. Medido: la compra sale de una sucursal y va a otras (253 de 425 requisiciones en 30 días), así que la OC de Kepler no caía en la sucursal de la regla; las 4 marcas «se pidió fuera de Kepler» de 30 días tenían su requisición. La requisición cuenta desde que se crea, en la sucursal destino. Antes/después en prod: «toca hoy» 1 → 0 y «sin ancla» 1 → 0 | Francisco (feedback de Compras) + sesión Claude |
 
 ---
 
@@ -1446,6 +1449,123 @@ Calendario, en **ninguno** coinciden los tres. Tres ejemplos:
 **El orden.** PQ.3.24 va primero: es chico y hoy Pedido y el Calendario le dicen a la misma persona cosas distintas
 sobre a quién le toca pedir. Después sigue Citas (PQ.3.8 C1–C3) y, en paralelo de datos, PQ.3.25 y PQ.3.27 (C0).
 PQ.3.26 y PQ.3.28 esperan el OK de la sexta pestaña.
+### 10.17 El aviso de Pedido lee el Calendario (PQ.3.24 · DC35 · 2026-11-25)
+
+**Las preguntas antes de tocar la pantalla (skill `diseno` §0b)**
+
+1. *Qué ve y en qué orden:* primero lo que confirmó la gerencia —«Hoy te toca pedirle a N proveedores según el
+   Calendario: R rezagados · H de hoy»— y debajo, en segundo plano, lo que sólo propone Kepler: «Sin regla todavía: M
+   proveedores que el ciclo de Kepler da por vencidos (V) o de hoy (H), sin confirmar». El orden es el de la confianza.
+2. *Qué no ve:* canales («637 canales vencidos» y la nota «un canal es un proveedor en una sucursal»): quien pide
+   piensa en proveedores. Tampoco «los próximos 7 días»: no decide nada hoy.
+3. *Accesibilidad:* un clic al Calendario («Abrir el Calendario», sólo a quien tiene una de sus tres llaves: a los
+   demás la ruta les da 403) y un clic a la pestaña Ciclo («Ver el ciclo»), que sigue listando los canales.
+4. *Ligas:* el Calendario, donde vive la regla; el Ciclo, donde viven los canales sin regla.
+5. *¿Le toca?* Sí: es Pedido, donde se pide. Lo abren 16 puestos (1,913 lecturas en 30 días, medido 2026-11-25), la
+   mayoría sin llaves del Calendario: por eso el aviso es un endpoint propio que también lee quien sólo tiene
+   `COMPRAS_PEDIDO_VER` (son conteos, con su alcance).
+
+**Cómo quedó (🧪)**
+
+- `GET /api/compras/calendario/aviso` (`leerAviso`): con regla = el MISMO calendario que ve quien pregunta (su
+  alcance, PQ.3.6), contado por proveedor (rezagado si alguna regla lo está; si no, de hoy); sin regla = los canales
+  de compra que ninguna regla viva cubre —por clave de Kepler o por la ficha de Pedido que resolvió la regla (R5),
+  dentro del alcance de la regla— con las MISMAS condiciones del KPI de `worklist`, cada proveedor una vez por su canal
+  más atrasado. Los canales van en un SAVEPOINT: si fallan, `sin_regla.measured: false` y la pantalla lo dice.
+- La cobertura se mide contra TODAS las reglas vivas: un proveedor con regla corporativa no sale «sin regla» en la
+  sucursal de un encargado, y tampoco en su «con regla» (el encargado no ve las corporativas, igual que en el
+  Calendario). Para cada persona, el aviso dice lo mismo que su Calendario.
+- Pedido (`compras-pedido-real`): el aviso usa `CalendarioComprasService.aviso()`; ya no lee `worklist`. La pestaña
+  Ciclo no cambia.
+
+**Antes y después** (pg-prod 7688376744939610156, sólo lectura, con el repo real, 2026-11-25)
+
+| | Antes (ciclo por canal) | Después |
+|---|---|---|
+| Con regla (Calendario) | mezclados con el resto | **0 rezagados · 1 de hoy** (21 proveedores con regla) |
+| Sin regla (sin confirmar) | 121 vencidos + 22 de hoy, todos juntos; un proveedor vencido en una sucursal y de hoy en otra contaba en los dos | **114 vencidos + 16 de hoy** |
+| Una sucursal (04) | — | con regla: 1 proveedor, al día · sin regla: 3 vencidos |
+| Sin alcance | — | ceros |
+
+- **Control independiente** (SQL a mano, cobertura por clave): 115 contra 114. La diferencia es **un** proveedor que
+  Kepler marcó «no usar» y que Pedido ya excluye (`[PQ.145]`); el repo y el control coinciden en los demás.
+- **Tiempo:** 2.7 s para toda la empresa y 1.7 s para una sucursal: lee el calendario completo con su actividad de
+  Kepler. Se carga aparte y no frena la pantalla de Pedido; si hace falta, se aligera después.
+
+**Lo que no hace:** no quita la pestaña Ciclo (PQ.3.5 lo pedía y sigue pendiente) ni cambia el sugerido (PQ.6).
+
+**Prueba visual ✔ (PQ.3.23 y PQ.3.24, 2026-11-25, local: API :3338 contra Docker y vista :4203)** — 84 ✓, 0 fallas:
+
+- **Respuesta conocida:** se sembraron 9 canales de compra (cubiertos por regla corporativa, de sucursal y de zona; uno
+  de zona en OTRA zona; uno de sucursal en otra sucursal; un proveedor vencido en una sucursal y de hoy en otra; uno
+  que vence en 5 días). La API contestó exactamente lo sembrado para la gerencia (2 vencidos + 2 de hoy), el encargado
+  de 04 (1 + 0) y un usuario con sólo Pedido en 04 y 05 (2 + 1); «con regla» cuadra con el Calendario de la misma
+  persona (7 proveedores; 3 con alguna regla rezagada).
+- **El aviso dice lo que dice la API**, palabra por palabra, en escritorio, Fold 7, celular y oscuro (contraste ≥ 5.87:1);
+  quien sólo tiene Pedido no ve «Abrir el Calendario» (la API del Calendario le da 403); el enlace lleva al Calendario
+  y «Ver el ciclo» a la pestaña Ciclo; sin desplazamiento lateral.
+- **PQ.3.23:** el menú dice «Proveedores» justo antes de Pedido (también en la barra inferior del celular), la migaja
+  dice «Proveedores», el Calendario no pinta barra con una sola pestaña, y Parámetros de compra tiene «Por proveedor»
+  (ninguna pestaña «Proveedores»).
+- **Encontró y se corrigió:** (1) con el dedo, «Abrir el Calendario» y «Ver el ciclo» medían **24 px** (el segundo ya
+  venía así): ahora 44 (`--tap-min`, sólo táctil); (2) en el celular los dos enlaces se comían la mitad del ancho y el
+  aviso quedaba en **9 renglones** angostos: ahora el texto toma el ancho y los enlaces bajan (4 renglones; Fold 7, 3).
+  El criterio «≤ 5 renglones» tiene su negativa: con el acomodo viejo inyectado, el celular da 9 y la prueba lo atrapa.
+- Visto de paso, ajeno a este item: en el Fold 7 el encabezado de la tabla de Pedido encima «EN CAMINO» con «VALOR
+  EXIST.» (columna fija). No se tocó.
+
+### 10.18 La requisición de la Suite atiende la revisión en la sucursal destino (PQ.3.29 · DC40 · 2026-11-25)
+
+Feedback de Compras (Francisco, 2026-11-25): *«cuando revisen en el calendario el proveedor y salga requisición,
+automáticamente lo marque como revisado»*.
+
+**Lo medido** (pg-prod, sólo lectura, 2026-11-25)
+
+- La requisición pasa a OC de Kepler casi siempre el mismo día (mediana 0 días, 90 % en menos de 17 h; 382 de 30
+  días) y las OC que escribe la Suite están en la copia que lee el calendario (115 de 115 en 7 días). **No es retraso.**
+- **Es la sucursal:** la compra se concentra. En 30 días, 253 de 425 requisiciones de compra llevan renglones a otra
+  sucursal que la que emite, y la OC de Kepler nace en la que emite. El calendario busca la actividad en la sucursal de
+  la regla y no la encontraba.
+- El caso del día: un proveedor con regla en cada sucursal recibió 5 requisiciones, todas emitidas por la 08, con
+  renglones para 06, 01, 03, 04 y 05. Compras marcó a mano 06, 01, 03 y 04 «se pidió fuera de Kepler» —«sí se pasó en
+  la Suite pero no lo marcó»—, 05 seguía «toca hoy» y 02 (sin requisición) se marcó «no hace falta». Las 4 marcas
+  «fuera de Kepler» de 30 días tenían su requisición.
+
+**La regla (DC40, Francisco: «desde que se crea»)**
+
+- Cuenta la requisición de **compra** (sin almacén origen), en cualquier estado menos borrador y cancelada, el día en
+  que se creó (hora de México), en la **sucursal destino** de cada renglón de compra; un renglón sin destino cuenta en
+  la sucursal que emite. Los renglones de traspaso no cuentan.
+- **No escribe marcas.** El calendario la lee como una fuente más de actividad («Requisición de la Suite»), igual que
+  la OC y la entrada. Si se cancela, deja de contar sola: no hay nada que deshacer.
+- El mismo día, la OC de Kepler gana como «última atención» (es la evidencia más fuerte).
+- R5: la requisición cuenta para la clave de su ficha y para la de la regla que resolvió esa ficha de Pedido.
+- No es la requisición de **Kepler** (X-A-30), que el 2026-11-20 no sumó nada contra la hoja: la de la Suite dice a
+  dónde va cada renglón, y eso es lo que faltaba.
+- El día fijo de «Sin regla» (PQ.3.14) no la usa: mide cuándo pasa el proveedor, y eso lo dice Kepler.
+
+**Antes y después** (prod, sólo lectura, repo real, 2026-11-25): «toca hoy» 1 → 0 (la regla de la 05, atendida por su
+requisición) · «sin ancla» 1 → 0 (una regla de zona, anclada por una requisición del 3-nov) · al día 28 → 30. Las 4
+reglas que se marcaron a mano ese día ahora dicen «Requisición de la Suite». La de 02 conserva su «no hace falta».
+`leerCalendario` con requisiciones: 1.3 s.
+
+**Verificación**
+
+- Dominio: 5 pruebas nuevas (69 ✔ en el calendario): la fila de requisición, R5, el caso del día (con su control: sin
+  requisiciones las tres «tocan hoy»), la negativa de otra sucursal destino y el desempate con la OC.
+- `test-newdb-pq3-29-requisicion-atiende.js`, Postgres real como `app_runtime`: **13 ✓**. Cuenta en las sucursales
+  destino y no en la que emite; sin destino, en la que emite; cancelada, borrador, traspaso y renglón de traspaso no
+  cuentan; fuera de la ventana no suma fecha; por ficha (R5); y `leerCalendario` deja al día la regla con requisición y
+  NO la que sólo tiene una cancelada.
+- Pantalla y manual: el rótulo «Requisición de la Suite» y su explicación.
+- **7 mutantes en rojo** (canceladas y borradores, la sucursal que emite, renglones de traspaso, el calendario sin
+  requisiciones, R5, el rótulo, el manual); control en verde; restaurados por hash. El del manual salió VERDE la primera
+  vez: el candado de rótulos no miraba las fuentes de «Última atención». Ahora las incluye (`FUENTE_ACTIVIDAD`) y el
+  mutante se pone en rojo.
+- **Prueba visual ✔** (local, API :3338 contra Docker, vista :4203, 2026-11-25): con una requisición sembrada que emite la 08
+  y va a Yurécuaro, la regla de ese proveedor queda al día y «Reglas» dice «Requisición de la Suite» en «Última
+  atención», en escritorio y celular; una regla sin requisición no lo dice (control); sin desplazamiento lateral.
+
 ### 10.19 Citas: el dominio, la API y la pantalla (PQ.3.8 · C1–C3 · DC41 · 2026-11-26)
 Francisco, 2026-11-26: *«sigue con citas»*. Sobre la base de C0 (§10.15), las tres capas que faltaban.
 **Quién entra (DC41)** — medido en prod (sólo lectura), personas activas por rol:
