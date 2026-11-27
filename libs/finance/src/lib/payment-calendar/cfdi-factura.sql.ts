@@ -1,6 +1,8 @@
 import type { Knex } from 'knex';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { VENTANA_CFDI_DIAS, cfdisDeFacturas, type CfdiDeLaFactura, type CfdiDelRenglon, type CfdiRecibido, type FacturaPagadaCancelada, type FacturaParaCfdi } from '@megadulces/contracts/finance/cfdi-factura';
+import { normaDelPago, type NormaDelCfdi } from '@megadulces/contracts/finance/norma-fiscal-cfdi';
+import { leerAutorizacionesNorma } from '../shared/norma-fiscal-autorizaciones.sql';
 
 /**
  * `[PGP.108]` **La lectura del CFDI de cada factura de los pagos de un día.** La regla vive en el
@@ -14,6 +16,9 @@ import { VENTANA_CFDI_DIAS, cfdisDeFacturas, type CfdiDeLaFactura, type CfdiDelR
  * quedan fuera (`sin_documento`).
  */
 
+/** La llave de Kepler de una factura CAPTURADA (`supplier_payable`, alias `o`): la misma que la derivada (`kepler_payable`). */
+const LLAVE_DE_CAPTURADA = "md5('kepler_payable|' || o.kepler_sucursal || '|' || o.kepler_doc_tipo || '|' || o.kepler_doc_sub || '|' || btrim(o.kepler_folio))::uuid";
+
 /**
  * Paso 1 — la llave del documento de Kepler de cada renglón. Parámetros: `[tenant, item ids (uuid[])]`.
  * ⚠️ Medido en prod (2026-11-10, un día de 47 facturas): todo en UNA consulta tardaba 600–1,000 ms
@@ -23,12 +28,27 @@ export const SQL_LLAVES_DE_RENGLONES = `
 SELECT i.id::text AS item_id,
        (CASE WHEN i.obligation_source = 'kepler_payable' THEN i.obligation_id
              WHEN o.kepler_folio IS NOT NULL
-             THEN md5('kepler_payable|' || o.kepler_sucursal || '|' || o.kepler_doc_tipo || '|' || o.kepler_doc_sub || '|' || btrim(o.kepler_folio))::uuid
+             THEN ${LLAVE_DE_CAPTURADA}
         END)::text AS oid
   FROM finance.payment_allocation_items i
   LEFT JOIN commercial.supplier_payment_obligations o
     ON i.obligation_source = 'supplier_payable' AND o.id = i.obligation_id
  WHERE i.tenant_id = ? AND i.id = ANY(?::uuid[])`;
+
+/**
+ * `[PGP.225]` Paso 1 desde las OBLIGACIONES, antes de que el renglón exista: el freno revisa ANTES de
+ * escribir, así un rechazo no deja nada a medias. La misma llave que `SQL_LLAVES_DE_RENGLONES`.
+ * Parámetros: `[refs (text[]), orígenes (text[]), ids (uuid[]), tenant]`.
+ */
+export const SQL_LLAVES_DE_OBLIGACIONES = `
+SELECT p.ref AS item_id,
+       (CASE WHEN p.source = 'kepler_payable' THEN p.id
+             WHEN o.kepler_folio IS NOT NULL
+             THEN ${LLAVE_DE_CAPTURADA}
+        END)::text AS oid
+  FROM unnest(?::text[], ?::text[], ?::uuid[]) AS p(ref, source, id)
+  LEFT JOIN commercial.supplier_payment_obligations o
+    ON p.source = 'supplier_payable' AND o.id = p.id AND o.tenant_id = ?`;
 
 /** Paso 2 — el documento de Kepler (la MISMA forma que el cierre `[PGP.94]`). Parámetros: `[llaves (uuid[])]`. */
 export const SQL_DOCUMENTOS_KEPLER = `
@@ -52,6 +72,7 @@ export const SQL_CFDIS_CANDIDATOS = `
 SELECT c.uuid::text AS uuid, upper(btrim(c.emisor_rfc)) AS emisor_rfc, c.total::float8 AS total,
        to_char(c.fecha AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS fecha,
        c.metodo_pago, c.forma_pago,
+       c.estatus_sat, c.receptor_uso_cfdi, c.receptor_regimen, c.emisor_regimen,
        nullif(c.impuestos ->> 'iva_trasladado', '')::float8 AS iva,
        nullif(c.impuestos ->> 'ieps_trasladado', '')::float8 AS ieps,
        c.total_retenidos::float8 AS retenido
@@ -74,7 +95,11 @@ function sumarDias(fecha: string, n: number): string {
 type FacturaLeida = FacturaParaCfdi & { sucursal: string | null; acreedor: string | null };
 
 async function leerFacturasParaCfdi(trx: Knex | Knex.Transaction, tenantId: string, itemIds: readonly string[]): Promise<FacturaLeida[]> {
-  const llaves = (await trx.raw(SQL_LLAVES_DE_RENGLONES, [tenantId, [...itemIds]])).rows as { item_id: string; oid: string | null }[];
+  return facturasDeLlaves(trx, (await trx.raw(SQL_LLAVES_DE_RENGLONES, [tenantId, [...itemIds]])).rows as { item_id: string; oid: string | null }[]);
+}
+
+/** Pasos 2–3 a partir de la llave de cada factura (venga del renglón o de la obligación). */
+async function facturasDeLlaves(trx: Knex | Knex.Transaction, llaves: readonly { item_id: string; oid: string | null }[]): Promise<FacturaLeida[]> {
   const oids = [...new Set(llaves.map((l) => l.oid).filter((x): x is string => !!x))];
   const docs = oids.length
     ? (await trx.raw(SQL_DOCUMENTOS_KEPLER, [oids])).rows as { oid: string; sucursal: string; acreedor: string; importe: number; fecha: string | null }[]
@@ -143,6 +168,54 @@ export async function leerCfdiConCancelados(trx: Knex | Knex.Transaction, tenant
     // Sin RFC no se puede saber: se deja ausente (NO MEDIDO), nunca `[]`.
     if (rfc) renglon.pagadas_canceladas = pagadasDe.get(rfc) ?? [];
     out.set(id, renglon);
+  }
+  return out;
+}
+
+/** `[PGP.225]` Una factura que se va a programar o autorizar, por su obligación. `ref` la nombra en la respuesta. */
+export interface ObligacionParaNorma {
+  ref: string;
+  obligation_source: string;
+  obligation_id: string;
+}
+
+/** `[PGP.225]` El CFDI que se le ligó a la factura (vigente, o el cancelado que casa si no hay vigente) y lo que dice la norma. */
+export interface NormaDeLaFactura {
+  cfdi: CfdiRecibido;
+  norma: NormaDelCfdi;
+}
+
+/**
+ * `[PGP.225]` **La norma fiscal de cada factura, al pagarla el `fechaPago`.** La misma liga que la pantalla (`[PGP.108]`
+ * y, sin vigente, el cancelado de `[PGP.163]`), pero desde la obligación: corre ANTES de escribir el renglón.
+ * ⛔ Lo que no liga un CFDI único no aparece (D-NF6, v1: pasa, y la pantalla ya dice «sin CFDI» o «varios»).
+ */
+export async function leerNormaDeObligaciones(
+  trx: Knex | Knex.Transaction, tenantId: string, obligaciones: readonly ObligacionParaNorma[], fechaPago: string, hoy: string,
+): Promise<Map<string, NormaDeLaFactura>> {
+  const out = new Map<string, NormaDeLaFactura>();
+  const facturasDeKepler = obligaciones.filter((o) => o.obligation_source === 'supplier_payable' || o.obligation_source === 'kepler_payable');
+  if (!facturasDeKepler.length) return out;
+  const llaves = (await trx.raw(SQL_LLAVES_DE_OBLIGACIONES, [
+    facturasDeKepler.map((o) => o.ref), facturasDeKepler.map((o) => o.obligation_source), facturasDeKepler.map((o) => o.obligation_id), tenantId,
+  ])).rows as { item_id: string; oid: string | null }[];
+  const facturas = await facturasDeLlaves(trx, llaves);
+  const vigentes = cfdisDeFacturas(facturas, await leerCandidatos(trx, tenantId, facturas, SQL_CFDIS_CANDIDATOS));
+  const sinVigente = facturas.filter((f) => vigentes.get(f.item_id)?.estado === 'ninguno');
+  const cancelados = sinVigente.length
+    ? cfdisDeFacturas(sinVigente, await leerCandidatos(trx, tenantId, sinVigente, SQL_CFDIS_CANCELADOS))
+    : new Map<string, CfdiDeLaFactura>();
+  const ligados = new Map<string, CfdiRecibido>();
+  for (const f of facturas) {
+    const v = vigentes.get(f.item_id);
+    const c = cancelados.get(f.item_id);
+    const cfdi = v?.estado === 'unico' ? v.cfdi : c?.estado === 'unico' ? c.cfdi : null;
+    if (cfdi) ligados.set(f.item_id, cfdi);
+  }
+  // `[PGP.224]` Lo que ya decidió Administración o Contabilidad sobre cada CFDI (una decisión por regla).
+  const decisiones = await leerAutorizacionesNorma(trx, tenantId, [...ligados.values()].map((c) => c.uuid));
+  for (const [itemId, cfdi] of ligados) {
+    out.set(itemId, { cfdi, norma: normaDelPago(cfdi, fechaPago, hoy, decisiones.get(cfdi.uuid.toLowerCase())) });
   }
   return out;
 }

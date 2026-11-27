@@ -10,8 +10,9 @@ import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarAjusteAlSaldo, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarTransferenciaDe, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDeLosDias, leerValidacionDelDia } from './validacion-pago.sql';
-import { leerCfdiConCancelados, leerCfdiDeFacturas } from './cfdi-factura.sql';
+import { leerCfdiConCancelados, leerCfdiDeFacturas, leerNormaDeObligaciones } from './cfdi-factura.sql';
 import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
+import { detieneElPago, textoDelFreno, type FrenoDelPago, type MomentoDelPago } from '@megadulces/contracts/finance/norma-fiscal-cfdi';
 import { leerRepsDeFacturas } from './rep-de-factura.sql';
 import { leerCuentasGasto } from './cuenta-gasto.sql';
 import { polizaEgresoDelPago } from '@megadulces/contracts/finance/momento-poliza';
@@ -2835,6 +2836,8 @@ export class PaymentCalendarService {
       if (classifications.size > 1) throw new BadRequestException('Un mismo pago no puede mezclar clasificaciones distintas (compromiso financiero / gasto / proveedor) — crea pagos separados.');
       if (payees.size > 1) throw new BadRequestException('Un mismo pago no puede juntar facturas de beneficiarios distintos: es una sola transferencia a una sola cuenta. Crea un pago por beneficiario.');
       if (branches.size > 1) throw new BadRequestException(`Un mismo pago no puede juntar facturas de sucursales distintas (${[...branches].join(', ')}): cada pago entra al centro de costo de su almacén. Crea un pago por sucursal.`);
+      // `[PGP.225]` La norma fiscal de sus CFDI, antes de escribir nada.
+      await this.assertNormaFiscal(trx, tenantId, items, dto.date, 'programar');
       const lot = await this.getOrCreateLot(trx, tenantId, dto.date);
       if (LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día ya fue autorizado/cerrado — no admite pagos nuevos (reprograma a otro día).');
       // `[PGP.91]` NETO: lo que sale del banco. El descuento no es dinero que salga.
@@ -2892,6 +2895,9 @@ export class PaymentCalendarService {
         if (a.payee !== b.payee) throw new BadRequestException('Esta factura es de otro beneficiario: un pago es una sola transferencia a una sola cuenta.');
         if (a.branch !== b.branch) throw new BadRequestException(`Esta factura es de la sucursal ${b.branch} y el pago es de la ${a.branch}: cada pago entra al centro de costo de su almacén.`);
       }
+      // `[PGP.225]` La norma fiscal de su CFDI, contra el día del pago, antes de escribir.
+      const { rows: [{ dia: diaDelPago }] } = await trx.raw(`SELECT to_char(lot_date, 'YYYY-MM-DD') AS dia FROM finance.payment_calendar_lots WHERE id = ?`, [allocation.lot_id]);
+      await this.assertNormaFiscal(trx, tenantId, [item], diaDelPago, 'programar');
       const conDescuento = norm.discount_amount > 0;
       await trx('finance.payment_allocation_items').insert({
         tenant_id: tenantId, allocation_id: allocationId, obligation_source: item.obligation_source,
@@ -3019,6 +3025,8 @@ export class PaymentCalendarService {
       // `[PGP.199]` Un pago fallido ya rebotó (su salida se devolvió y no cuenta): la guarda sólo encuentra dinero que sí salió.
       await this.assertNoSalio(trx, tenantId, allocation, 'reprogramar', username, aunqueSalio, hoy);
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });
+      // `[PGP.225]` Moverlo de día también es programarlo: una PUE no se pasa a un mes que ya no es el suyo.
+      await this.assertNormaFiscal(trx, tenantId, items as { obligation_source: string; obligation_id: string }[], newDate, 'programar', hoy);
       await trx('finance.payment_allocations').where({ id: allocationId }).update({
         status: 'cancelled', notes: `${allocation.notes ?? ''}\n[reprogramado a ${newDate}]`.trim(),
         reprogram_reason: reason, reprogram_reason_detail: reason === 'otro' ? reasonDetail!.trim() : null,
@@ -3610,6 +3618,26 @@ export class PaymentCalendarService {
   }
 
   /**
+   * `[PGP.225]` **La norma fiscal del CFDI frena el pago** (anexo NF; Francisco, 2026-11-26, ratificado por Edgar: «cada
+   * mes se tienen detalles graves con contabilidad generando no deducciones»). Una PUE de un mes anterior por
+   * transferencia o cheque no se paga; una factura cancelada tampoco; lo que el SAT no ha verificado no se autoriza.
+   * Corre ANTES de escribir (lee las obligaciones, no los renglones): un rechazo no deja nada a medias. La regla vive
+   * en `norma-fiscal-cfdi.contract` (`detieneElPago`); aquí sólo se juntan sus datos.
+   */
+  private async assertNormaFiscal(
+    trx: Knex.Transaction, tenantId: string, obligaciones: readonly { obligation_source: string; obligation_id: string }[],
+    fechaPago: string, momento: MomentoDelPago, hoy: string = todayMx(),
+  ): Promise<void> {
+    const lista = obligaciones.map((o, i) => ({ ref: String(i), obligation_source: o.obligation_source, obligation_id: o.obligation_id }));
+    const frenos: FrenoDelPago[] = [];
+    for (const { cfdi, norma } of (await leerNormaDeObligaciones(trx, tenantId, lista, fechaPago, hoy)).values()) {
+      const motivo = detieneElPago(norma, momento);
+      if (motivo) frenos.push({ uuid: cfdi.uuid, total: Number(cfdi.total), motivo });
+    }
+    if (frenos.length) throw new ConflictException(textoDelFreno(frenos, momento));
+  }
+
+  /**
    * `[TP.15]` Kepler todavía debe cada factura del pago (se mide al autorizar y al marcar pagado).
    * `[PGP.113]` Era un ciclo dentro de `execute()`; salió aquí para que autorizar diga lo mismo ANTES
    * de que Dirección firme algo que el ERP ya no debe.
@@ -3653,7 +3681,7 @@ export class PaymentCalendarService {
    * NO MEDIDO / NO IMPUESTO: que quien autoriza no sea quien armó (igual que con el día; se dice en
    * pantalla, no se bloquea). Es decisión de Edgar.
    */
-  async authorize(allocationId: string, username: string): Promise<AllocationRowLite> {
+  async authorize(allocationId: string, username: string, hoy: string = todayMx()): Promise<AllocationRowLite> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).forUpdate().first();
@@ -3676,6 +3704,10 @@ export class PaymentCalendarService {
         throw new BadRequestException(`No cabe en el tope del ${lot.dia}: ya hay ${PESOS_MX.format(Number(comprometido))} autorizados o pagados de ${PESOS_MX.format(tope)} y este pago es de ${PESOS_MX.format(monto)} (faltan ${PESOS_MX.format(Number(comprometido) + monto - tope)}).`);
       }
       await this.assertFacturasVigentes(trx, tenantId, allocationId);
+      // `[PGP.225]` La norma fiscal, otra vez: entre programar y autorizar pudo cambiar el mes, o el SAT cancelarla.
+      const itemsDelPago = (await trx('finance.payment_allocation_items').where({ allocation_id: allocationId })
+        .select('obligation_source', 'obligation_id')) as { obligation_source: string; obligation_id: string }[];
+      await this.assertNormaFiscal(trx, tenantId, itemsDelPago, lot.dia, 'autorizar', hoy);
       let folio: string | null = allocation.folio ?? null;
       if (!folio) {
         const prefijo = lot.folio || `${lot.dia.replace(/-/g, '').slice(2)}-01`;
@@ -3925,6 +3957,10 @@ export class PaymentCalendarService {
       // Caja una instrucción sin cuenta de origen ni destino.
       const unprepared = pending.filter((a: AllocationRowLite) => !isPrepared(a));
       if (unprepared.length) throw new BadRequestException(`${unprepared.length} pago(s) sin preparar (método, cuenta de origen y destino) — Tesorería debe prepararlos antes de autorizar`);
+      // `[PGP.225]` La misma norma fiscal que autorizar un pago solo: el día completo no la salta.
+      const itemsDelDia = (await trx('finance.payment_allocation_items').whereIn('allocation_id', (pending as AllocationRowLite[]).map((a) => a.id))
+        .select('obligation_source', 'obligation_id')) as { obligation_source: string; obligation_id: string }[];
+      await this.assertNormaFiscal(trx, tenantId, itemsDelDia, date, 'autorizar');
       const [{ consumo }] = await trx('finance.payment_allocations').where({ lot_id: lot.id }).whereIn('status', ['pending', 'executed'])
         .select(trx.raw('coalesce(sum(amount_assigned),0) AS consumo'));
       if (Number(consumo) > Number(capacity.authorized_amount) + 0.005) {

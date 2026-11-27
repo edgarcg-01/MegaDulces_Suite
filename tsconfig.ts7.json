@@ -59,6 +59,7 @@
       "@megadulces/contracts/finance/validacion-pago": ["./libs/contracts/src/finance/validacion-pago.contract.ts"],
       "@megadulces/contracts/finance/aviso-de-pago": ["./libs/contracts/src/finance/aviso-de-pago.contract.ts"],
       "@megadulces/contracts/finance/cfdi-factura": ["./libs/contracts/src/finance/cfdi-factura.contract.ts"],
+      "@megadulces/contracts/finance/norma-fiscal-cfdi": ["./libs/contracts/src/finance/norma-fiscal-cfdi.contract.ts"],
       "@megadulces/contracts/finance/momento-poliza": ["./libs/contracts/src/finance/momento-poliza.contract.ts"],
       "@megadulces/contracts/authz/permission-meta": ["./libs/contracts/src/authz/permission-meta.ts"],
       "@megadulces/contracts/authz/permissions": ["./libs/contracts/src/authz/permissions.ts"],
