@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewChild, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
+import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
@@ -20,6 +21,7 @@ import { CountFocusService } from '../../../core/services/count-focus.service';
 import { CantidadFisicaDirective } from '../../../shared/directives/cantidad-fisica.directive';
 import { InventoryOfflineService } from '../../../core/services/inventory-offline.service';
 import type { InventoryScanPending } from '../../../core/services/offline-database.service';
+import { cuentaDeConversion, type CuentaDeConversion } from './conteo-cuenta-de-conversion';
 
 /**
  * `[IC.F13]` Lo que el servidor reconoce de un código, con el nombre de la CATEGORÍA.
@@ -56,6 +58,9 @@ interface FeedEntry {
   selector: 'app-comercial-inventory-count',
   standalone: true,
   imports: [
+    // `[ICR.M6]` En un standalone el pipe se declara o el AOT de producción truena, aunque el
+    // build local pase en verde.
+    DecimalPipe,
     FormsModule,
     ButtonModule,
     SelectModule,
@@ -113,6 +118,53 @@ interface FeedEntry {
           </div>
         }
 
+        <!--
+          [ICR.M5] LA COLA, VISIBLE EN TODOS LOS ESTADOS.
+
+          Estaba dentro del bloque de sesion activa, o sea que desaparecía justo cuando importa:
+          al tocar «Terminar» la persona se va, y lo que quedó sin subir se iba con ella sin
+          decir nada (E4 del acta del 2026-11-27). Ahora cuelga del folio, no de la jornada:
+          se ve al elegir el folio, contando y después de terminar.
+
+          Sigue sin ocupar un pixel cuando no hay nada que decir — las dos cajas son
+          condicionales. El marco de esta pantalla ya se come el 48 % del alto en celular.
+
+          ⚠️ El contador de pendientes cuenta la cola ENTERA (todos los folios), no la del folio
+          elegido: es a propósito, porque lo que no subió de otro folio tampoco llegó.
+        -->
+        @if (!offline.online() || offline.pending() > 0) {
+          <div class="ic-net" role="status" [class.ic-net-off]="!offline.online()">
+            @if (!offline.online()) {
+              <span><i class="pi pi-wifi"></i> Sin conexión · <b>{{ offline.pending() }}</b> sin subir — se guardan aquí y se suben al reconectar.</span>
+            } @else {
+              <span><i class="pi pi-sync pi-spin"></i> <b>{{ offline.pending() }}</b> sin subir…</span>
+              <button pButton [text]="true" size="small" class="ic-net-retry" (click)="retrySync()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
+            }
+          </div>
+        }
+        <!--
+          [ICR.M5] Este dispositivo llegó sin el catálogo y sin red: no puede reconocer ni un
+          código. Se DICE antes de empezar, en vez de que se descubra escaneando.
+          Se pinta sólo con la medición hecha (0) — nunca con catalogoLocal() en null.
+        -->
+        @if (!offline.online() && catalogoLocal() === 0) {
+          <div class="ic-net ic-net-off" role="alert">
+            <span><i class="pi pi-database"></i> Este dispositivo no tiene descargado el catálogo del folio y no hay conexión: ningún código se va a reconocer. Conéctate una vez antes de empezar.</span>
+          </div>
+        }
+        <!-- Escaneos rechazados por el servidor (folio cerrado / segregación): no se
+             reintentan, pero NO desaparecen en silencio — el contador los ve y avisa. -->
+        @if (discarded().length) {
+          <div class="ic-net ic-net-off ic-net-discarded" role="alert">
+            <span><i class="pi pi-exclamation-triangle"></i> {{ discarded().length }} escaneo(s) rechazado(s) — no llegaron al conteo. Avisa al supervisor.</span>
+            <ul class="ic-discarded-list">
+              @for (d of discarded(); track d.scan_uuid) {
+                <li><b>{{ d.quantity }}</b> · {{ d.barcode || d.product_id }} <small>{{ d.motivo_descarte }}</small></li>
+              }
+            </ul>
+          </div>
+        }
+
         @if (selectedFolioId() && !sessionActive() && justFinishedPass() === null) {
           <!-- Pantalla de inicio: arrancar la jornada de conteo -->
           <div class="ic-start">
@@ -124,11 +176,25 @@ interface FeedEntry {
         }
 
         @if (justFinishedPass() !== null) {
-          <!-- Jornada terminada -->
-          <div class="ic-done">
-            <i class="pi pi-check-circle"></i>
+          <!--
+            Jornada terminada.
+
+            [ICR.M5] El rótulo dice lo que PASÓ, no lo que se esperaba: decía «Registramos tu
+            conteo» aunque quedaran escaneos en la cola, que es exactamente el silencio de E4.
+            Con cola sucia la tarjeta se pone en rojo y nombra el número — es el momento en que
+            alguien se va de la sucursal, y la regla operativa es que nadie se va con la cola
+            en rojo. El botón «Reintentar» está arriba, en la caja de la cola.
+          -->
+          <div class="ic-done" [class.ic-done-sucia]="colaSucia()">
+            <i class="pi" [class.pi-check-circle]="!colaSucia()" [class.pi-exclamation-triangle]="colaSucia()"></i>
             <h2>Fase {{ justFinishedPass() }} terminada</h2>
-            <p>Registramos tu conteo. Espera a que el supervisor habilite la siguiente fase o cierre el folio.</p>
+            @if (offline.pending() > 0) {
+              <p>Faltan <b>{{ offline.pending() }}</b> escaneos por subir. No cierres la app ni te vayas hasta que llegue a cero.</p>
+            } @else if (discarded().length) {
+              <p>Tu conteo subió, pero <b>{{ discarded().length }}</b> escaneos quedaron rechazados y no entraron al folio. Avisa al supervisor antes de irte.</p>
+            } @else {
+              <p>Todo lo que contaste ya se subió. Espera a que el supervisor habilite la siguiente fase o cierre el folio.</p>
+            }
             <button pButton [text]="true" severity="secondary" (click)="startCount()"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Volver a contar esta fase</span></button>
           </div>
         }
@@ -138,29 +204,6 @@ interface FeedEntry {
             <span><i class="pi pi-stopwatch"></i> Conteo en curso · Fase {{ currentPass() }}</span>
             <button pButton severity="success" size="small" [loading]="finishing()" (click)="finishCount()"><span class="p-button-icon p-button-icon-left pi pi-flag-fill" aria-hidden="true"></span><span class="p-button-label">Terminar</span></button>
           </div>
-          <!-- Estado de red (offline-first): los conteos se encolan; cero pérdida. -->
-          @if (!offline.online() || offline.pending() > 0) {
-            <div class="ic-net" [class.ic-net-off]="!offline.online()">
-              @if (!offline.online()) {
-                <span><i class="pi pi-wifi"></i> Sin conexión — los conteos se guardan y se suben al reconectar.</span>
-              } @else {
-                <span><i class="pi pi-sync pi-spin"></i> Subiendo {{ offline.pending() }} pendiente(s)…</span>
-                <button pButton [text]="true" size="small" class="ic-net-retry" (click)="retrySync()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
-              }
-            </div>
-          }
-          <!-- Escaneos rechazados por el servidor (folio cerrado / segregación): no se
-               reintentan, pero NO desaparecen en silencio — el contador los ve y avisa. -->
-          @if (discarded().length) {
-            <div class="ic-net ic-net-off ic-net-discarded">
-              <span><i class="pi pi-exclamation-triangle"></i> {{ discarded().length }} escaneo(s) rechazado(s) — no llegaron al conteo. Avisa al supervisor.</span>
-              <ul class="ic-discarded-list">
-                @for (d of discarded(); track d.scan_uuid) {
-                  <li><b>{{ d.quantity }}</b> · {{ d.barcode || d.product_id }} <small>{{ d.motivo_descarte }}</small></li>
-                }
-              </ul>
-            </div>
-          }
           <!-- Progreso ciego -->
           <div class="ic-progress">
             <div class="ic-progress-bar">
@@ -272,7 +315,37 @@ interface FeedEntry {
               placeholder="0"
             ></p-inputnumber>
 
-            <button pButton class="ic-submit" [loading]="submitting()" [disabled]="!code() || qty() === null || qty() === undefined" (click)="submit()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Registrar conteo</span></button>
+            <!--
+              [ICR.M6] LA CUENTA, ANTES DE ACEPTAR.
+
+              Contar en cajas multiplica el error por el factor, y NINGUNA base sabe cuántas
+              piezas trae la caja que está en el anaquel: medido en prod el 2026-11-27 para
+              Yurécuaro, de los 133 productos con código de caja el factor del catálogo y el
+              del ERP discrepan en 123 de 134 comparaciones. Si alguien cuenta 3 cajas, la
+              caja real trae 12 y el sistema cree 24, registramos 72 donde hay 36.
+
+              Entonces la pantalla no esconde la multiplicación: la escribe, con el factor
+              suelto, para que se verifique contra la caja que la persona tiene en la mano.
+              El factor sale del resolvedor (catalog.product_barcodes) — no se inventa, y sin
+              unidad nativa no se afirma ninguna conversion: el bloque entero no se pinta.
+
+              Sólo aparece cuando se cuenta en una unidad que NO es la nativa: en el caso
+              común —un solo código, factor 1— la tarjeta queda exactamente como estaba.
+            -->
+            @if (conversion(); as c) {
+              <div class="ic-conversion">
+                <span class="ic-conversion-cuenta">{{ c.cantidad | number: '1.0-3' }} {{ c.unidad }} × {{ c.factor | number: '1.0-3' }} = <b>{{ c.total | number: '1.0-3' }} {{ c.nativa }}</b></span>
+                <span class="ic-conversion-verifica">Verifica que 1 {{ c.unidad }} traiga {{ c.factor | number: '1.0-3' }} {{ c.nativa }}. Si no, cambia la unidad y avisa al supervisor.</span>
+              </div>
+            }
+
+            <!--
+              [ICR.M6] El botón dice lo que va a ESCRIBIR, no lo que hace. Lo último que toca
+              el pulgar es la cifra que queda en el folio, en la unidad del teórico.
+              ⛔ PrimeNG 22: la directiva pButton ignora el atributo label — el texto va en el span, como el resto
+              de los botones de esta pantalla.
+            -->
+            <button pButton class="ic-submit" [loading]="submitting()" [disabled]="!code() || qty() === null || qty() === undefined" (click)="submit()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">@if (conversion(); as c) { Registrar {{ c.total | number: '1.0-3' }} {{ c.nativa }} } @else { Registrar conteo }</span></button>
           </div>
 
           <!-- Feed de últimos conteos -->
@@ -327,6 +400,11 @@ interface FeedEntry {
     .ic-start i, .ic-done i { font-size: 2.75rem; display: block; margin-bottom: .75rem; }
     .ic-start i { color: var(--action, #f05a28); }
     .ic-done i { color: var(--ok-fg, #16a34a); }
+    /* [ICR.M5] Cola sucia al terminar: el check verde sería un rótulo que miente. */
+    .ic-done-sucia { border-color: var(--bad-fg, #dc2626); }
+    .ic-done-sucia i { color: var(--bad-fg, #dc2626); }
+    .ic-done-sucia p { color: var(--bad-soft-fg, #991b1b); }
+    .ic-done-sucia p b { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; }
     .ic-start h2, .ic-done h2 { font-size: 1.2rem; margin: 0 0 .4rem; color: var(--text-main, #09090B); }
     .ic-start p, .ic-done p { color: var(--text-muted, #52525B); margin: 0 auto 1.25rem; max-width: 34ch; line-height: 1.45; }
     :host ::ng-deep .ic-start-btn { padding: .9rem 2rem; font-size: 1.05rem; min-height: 48px; }
@@ -339,6 +417,8 @@ interface FeedEntry {
     .ic-net { display: flex; align-items: center; gap: .4rem; padding: .5rem .8rem; margin-bottom: 1rem; border-radius: var(--r-md, 12px); font-size: .8rem; font-weight: 600; background: var(--warn-soft-bg, #fef3c7); color: var(--warn-soft-fg, #92400e); }
     .ic-net-off { background: var(--bad-soft-bg, #fee2e2); color: var(--bad-soft-fg, #991b1b); }
     .ic-net i { font-size: 1rem; }
+    /* [ICR.M5] El número de la cola, en mono tabular: se lee de reojo y no baila al cambiar. */
+    .ic-net b { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; }
     .ic-net-discarded { flex-direction: column; align-items: flex-start; gap: .35rem; }
     :host ::ng-deep .ic-net-retry { margin-left: auto; }
     .ic-discarded-list { margin: 0; padding-left: 1.1rem; font-size: .78rem; font-weight: 500; }
@@ -405,6 +485,17 @@ interface FeedEntry {
     .ic-prod-info { display: flex; flex-direction: column; min-width: 0; }
     .ic-prod-name { font-weight: 700; font-size: 1.05rem; line-height: 1.2; color: var(--text-main, #09090B); }
     .ic-prod-meta { font-size: .8rem; color: var(--text-muted, #52525B); font-family: var(--font-mono, monospace); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+    /*
+      [ICR.M6] La cuenta de la conversión. NO es una alarma —se dispararía en cada caja y
+      dejaría de significar algo—: es el renglón que se coteja contra la caja en la mano.
+      Jerarquía: primario el total en la unidad del teórico (lo que se va a escribir),
+      secundario la multiplicación, terciario la instrucción de verificar.
+    */
+    .ic-conversion { display: flex; flex-direction: column; gap: .15rem; margin-top: .6rem; padding: .6rem .75rem; border: 1px solid var(--border-color, #E4E4E7); border-left-width: 3px; border-radius: var(--r-md, 12px); background: var(--hover-bg, #F4F4F5); }
+    .ic-conversion-cuenta { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; font-size: var(--fs-sm); color: var(--text-muted, #52525B); }
+    .ic-conversion-cuenta b { font-size: 1.15rem; font-weight: 700; color: var(--text-main, #09090B); }
+    .ic-conversion-verifica { font-size: var(--fs-xs); color: var(--text-muted, #52525B); line-height: 1.35; }
 
     /* Submit — CTA grande, zona del pulgar. */
     .ic-submit { margin-top: 1rem; width: 100%; }
@@ -484,6 +575,44 @@ export class ComercialInventoryCountComponent {
           : `${u.unit} · 1 = ${u.factor} ${nativa}`,
     }));
   });
+  /**
+   * ⛔⛔ `[ICR.M6]` **La cuenta que se muestra antes de aceptar, cuando se cuenta en cajas.**
+   *
+   * Un error de una caja son 24 unidades, y **ninguna base de datos sabe cuántas piezas trae
+   * la caja que está en el anaquel**: medido en prod el 2026-11-27 para Yurécuaro, 1,905 de
+   * 2,024 artículos tienen factor de caja, y donde además hay código de barras de caja (133
+   * productos) el factor del catálogo discrepa del del ERP en **123 de 134** comparaciones
+   * contra 11 que coinciden. Por eso la multiplicación no se hace a escondidas: se escribe
+   * con el factor suelto, que es lo que la persona puede cotejar contra la caja que tiene
+   * en la mano.
+   *
+   * Devuelve `null` —y la pantalla no afirma nada— en los cuatro casos en que no hay cuenta
+   * que mostrar: sin cantidad tecleada, contando en la unidad nativa, con factor 1, o
+   * **sin unidad nativa conocida** (15 % de los artículos no tienen código primario). Un
+   * relleno ahí sería inventar el factor, que es justo el defecto que esto previene.
+   *
+   * ⚠️ Los tres signals se leen **antes** de llamar a la cuenta: un `computed()` que corta
+   * antes de leerlos queda sin esa dependencia y no vuelve a recalcular.
+   *
+   * La aritmética y sus cinco casos de `null` viven —y se prueban de verdad— en
+   * `conteo-cuenta-de-conversion.ts`: esta pantalla no se puede montar en una prueba.
+   */
+  readonly conversion = computed<CuentaDeConversion | null>(() => {
+    const cantidad = this.qty();
+    const elegida = this.unidad();
+    const unidades = this.resolved()?.units_available ?? [];
+    return cuentaDeConversion(cantidad, elegida, unidades);
+  });
+
+  /** `[ICR.M5]` Queda algo que no llegó al folio: sin subir, o rechazado. */
+  readonly colaSucia = computed(() => this.offline.pending() > 0 || this.discarded().length > 0);
+
+  /**
+   * `[ICR.M5]` Productos del folio que este dispositivo tiene descargados. `null` mientras no
+   * se midió — **no es cero**: un cero dibujado sin medir sería el defecto que esto previene.
+   */
+  readonly catalogoLocal = signal<number | null>(null);
+
   resolving = signal(false);
   notFound = signal(false);
 
@@ -500,6 +629,12 @@ export class ComercialInventoryCountComponent {
 
   constructor() {
     this.loadFolios();
+    // `[ICR.M5]` Arranca con la pantalla: lo que quedó sin subir de una jornada anterior se
+    // drena solo al volver a entrar, sin que nadie tenga que tocar «Reintentar». El primer
+    // intento es inmediato — esperar los 15 s del temporizador es esperar de más cuando la
+    // persona acaba de abrir la pantalla justamente a ver si ya subió.
+    this.startPeriodicFlush();
+    this.retrySync();
     this.destroyRef.onDestroy(() => { this.stopScan(); this.focus.stop(); this.stopPeriodicFlush(); });
     this.setupIntegrityMonitor();
   }
@@ -509,6 +644,25 @@ export class ComercialInventoryCountComponent {
     const onVisibility = () => { document.hidden ? onHidden() : this.flushInterruption('visibility'); };
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', onHidden); // backstop iOS (freeze sin visibilitychange)
+
+    /*
+      ⛔ `[ICR.M5]` **Cerrar la app con la cola sucia pregunta primero.**
+
+      Lo capturado NO se pierde —vive en Dexie y se drena al volver a entrar—, pero quien
+      cierra la pestaña a media cuenta se va creyendo que entregó lo que contó, y el supervisor
+      cierra el folio sin esas filas. La regla operativa del acta es «nadie se va con la cola
+      en rojo», y esto es lo que la vuelve ejecutable en el momento exacto en que se rompe.
+
+      ⚠️ El texto lo pone el navegador: desde 2019 ninguno muestra un mensaje propio. Y en la
+      app nativa de Capacitor este evento puede no dispararse — ahí el freno es la tarjeta roja
+      de «fase terminada» y el candado de la ruta.
+    */
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (this.offline.pending() <= 0) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
 
     // Capacitor nativo: más confiable que la web para background/lock en iOS/Android.
     CapApp.addListener('appStateChange', ({ isActive }) => {
@@ -520,6 +674,7 @@ export class ComercialInventoryCountComponent {
     this.destroyRef.onDestroy(() => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onHidden);
+      window.removeEventListener('beforeunload', onBeforeUnload);
       this.appStateHandle?.remove();
     });
   }
@@ -609,6 +764,10 @@ export class ComercialInventoryCountComponent {
           if (open.length === 1) {
             this.selectedFolioId.set(open[0].id);
             this.refreshProgress();
+            // `[ICR.M5]` Lo rechazado y el catálogo local se miden al ENTRAR, no al iniciar
+            // jornada: si quedó algo de la vez pasada, la persona lo ve sin tocar nada.
+            this.refreshDiscarded();
+            this.refreshCatalogoLocal();
           }
         },
         error: () => this.toast.add({ severity: 'error', summary: 'No se pudieron cargar los folios' }),
@@ -622,9 +781,11 @@ export class ComercialInventoryCountComponent {
     this.sessionActive.set(false);
     this.justFinishedPass.set(null);
     this.focus.stop();
-    this.stopPeriodicFlush();
+    // `[ICR.M5]` El temporizador NO se apaga al cambiar de folio: la cola es de todos los
+    // folios, y lo que quedó sin subir del anterior tiene que seguir subiendo.
     this.refreshProgress();
     this.refreshDiscarded();
+    this.refreshCatalogoLocal();
   }
 
   startCount() {
@@ -652,10 +813,27 @@ export class ComercialInventoryCountComponent {
       });
   }
 
-  finishCount() {
+  /**
+   * ⛔⛔ `[ICR.M5]` **Primero se vacía la cola, después se termina.**
+   *
+   * El reenvío de un escaneo ya aplicado no duplica (idempotencia por `scan_uuid`), pero una
+   * captura **nueva** que sube cuando el folio ya cambió de estado la rechaza el guard de
+   * estado con 409 y se descarta: la persona la contó y nunca llegó (E4 del acta del
+   * 2026-11-27). Terminar la jornada es exactamente ese cambio de estado, así que la cola se
+   * drena **antes** de tocarlo, no después.
+   *
+   * Si queda algo pendiente —sin red, o el servidor no contesta— **no se niega terminar**:
+   * la tarjeta de «fase terminada» lo dice en rojo con su número.
+   */
+  async finishCount() {
     const id = this.selectedFolioId();
     if (!id) return;
     this.finishing.set(true);
+    if (this.offline.pending() > 0 && this.offline.online()) {
+      const res = await this.offline.flush();
+      if (res.synced) this.refreshProgress();
+      if (res.discarded) this.refreshDiscarded();
+    }
     this.svc.inventoryFinishSession(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -664,8 +842,9 @@ export class ComercialInventoryCountComponent {
           this.sessionActive.set(false);
           this.focus.stop();
           this.stopScan();
-          this.stopPeriodicFlush();
+          // `[ICR.M5]` El drenado sigue corriendo: terminar la jornada no termina la cola.
           this.justFinishedPass.set(r.pass ?? this.currentPass());
+          this.refreshDiscarded();
         },
         error: (e) => {
           this.finishing.set(false);
@@ -688,11 +867,23 @@ export class ComercialInventoryCountComponent {
     this.offline.discardedFor(id).then((d) => this.discarded.set(d)).catch(() => { /* best-effort */ });
   }
 
+  /** `[ICR.M5]` Mide si este dispositivo trae el catálogo del folio descargado. */
+  private refreshCatalogoLocal() {
+    const id = this.selectedFolioId();
+    if (!id) { this.catalogoLocal.set(null); return; }
+    this.offline.catalogCountFor(id)
+      .then((n) => this.catalogoLocal.set(n))
+      .catch(() => this.catalogoLocal.set(null)); // no se pudo medir → no se dibuja un cero
+  }
+
   /** Pre-cachea el catálogo del folio (blind-safe) al iniciar la jornada con red,
    *  para que el primer escaneo offline de un SKU del folio se reconozca sin red. */
   private prefetchCatalog() {
     const id = this.selectedFolioId();
-    if (!id || !this.offline.online()) return;
+    // ⛔ `[ICR.M5]` Sin red no hay descarga, y eso **se mide y se dice**: quien llega a la
+    // sucursal con el teléfono ya sin señal no puede reconocer ni un código, y hasta hoy se
+    // enteraba escaneando. No se fuerza la descarga —no hay cómo—: se declara.
+    if (!id || !this.offline.online()) { this.refreshCatalogoLocal(); return; }
     this.svc.inventoryCounterCatalog(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -702,8 +893,8 @@ export class ComercialInventoryCountComponent {
           sku: r.sku ?? null,
           product_name: r.product_name ?? null,
           location: r.location ?? null,
-        }))),
-        error: () => { /* best-effort; el lazy-cache cubre lo escaneado online */ },
+        }))).then(() => this.refreshCatalogoLocal()).catch(() => this.refreshCatalogoLocal()),
+        error: () => this.refreshCatalogoLocal(), // best-effort; el lazy-cache cubre lo escaneado online
       });
   }
 
@@ -716,16 +907,29 @@ export class ComercialInventoryCountComponent {
     });
   }
 
-  /** Drena la cola cada 15s mientras se cuenta: cubre fallos transitorios (5xx/
-   *  timeout) que dejarían pendientes sin un nuevo escaneo que dispare el flush. */
+  /**
+   * Drena la cola cada 15s: cubre fallos transitorios (5xx/timeout) que dejarían pendientes
+   * sin un nuevo escaneo que dispare el flush.
+   *
+   * ⛔ `[ICR.M5]` **Mientras la pantalla esté abierta, no mientras dure la jornada.** Corría
+   * sólo con `sessionActive()` y se apagaba al terminar, que es justo cuando quedan los
+   * pendientes que nadie va a reintentar: la cola se congelaba en rojo y el único camino era
+   * que alguien tocara «Reintentar». Ahora el único freno es el de siempre —hay red y hay
+   * pendientes—, y el temporizador muere con el componente.
+   */
   private startPeriodicFlush() {
     this.stopPeriodicFlush();
     this.flushTimer = setInterval(() => {
-      if (this.sessionActive() && this.offline.online() && this.offline.pending() > 0) {
+      if (this.offline.online() && this.offline.pending() > 0) {
         this.offline.flush().then((res) => {
           if (res.synced) this.refreshProgress();
           if (res.discarded) this.refreshDiscarded();
         });
+      }
+      // `[ICR.M5]` Si la jornada arrancó sin red, el catálogo quedó en cero y nadie lo iba a
+      // descargar nunca. En cuanto vuelve la señal se baja solo, sin pedirle nada a nadie.
+      if (this.sessionActive() && this.offline.online() && this.catalogoLocal() === 0) {
+        this.prefetchCatalog();
       }
     }, 15000);
   }

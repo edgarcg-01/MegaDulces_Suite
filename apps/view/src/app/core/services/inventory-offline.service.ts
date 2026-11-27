@@ -66,6 +66,22 @@ export class InventoryOfflineService {
     return (await this.db.inventoryCatalog.get(`${countId}:${barcode}`)) ?? null;
   }
 
+  /**
+   * `[ICR.M5]` **Cuántos productos de este folio tiene descargados ESTE dispositivo.**
+   *
+   * `cacheFolioCatalog` sólo corre con red (`prefetchCatalog` se rinde sin conexión), así que
+   * un teléfono que llega a la sucursal ya sin señal se queda en **cero** y no puede reconocer
+   * ni un código. La pantalla no puede arreglarlo —descargar sin red no existe— pero sí tiene
+   * que **decirlo** antes de que alguien empiece a contar a ciegas de verdad.
+   *
+   * ⚠️ Cuenta sólo lo que tiene código de barras: `cacheFolioCatalog` filtra por `barcode`
+   * porque la llave del cache es el código. Un cero no distingue «nunca se descargó» de «este
+   * folio no tiene ni un producto con código», pero lo segundo no existe en prod.
+   */
+  async catalogCountFor(countId: string): Promise<number> {
+    return this.db.inventoryCatalog.where('count_id').equals(countId).count();
+  }
+
   // ───── Outbox de escaneos ─────
 
   /** Encola un escaneo (se persiste antes que la red → cero pérdida). */
