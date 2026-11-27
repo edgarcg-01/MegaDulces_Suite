@@ -73,6 +73,15 @@ export const PAGOS_TABS: readonly PageTab[] = [
     permission: Permission.COMPRAS_OBLIGACIONES_VER,
   },
   {
+    // `[PGP.229]` Las facturas fuera de norma fiscal (S01, régimen ≠ 612) que esperan la decisión de Administración o
+    // Contabilidad. Es un paso del ciclo, no un reporte: sin esa decisión el Calendario no autoriza el pago. Va después
+    // de «Cuentas de pago» porque las dos se resuelven antes de autorizar.
+    label: 'Fuera de norma',
+    route: '/finanzas/facturas-fuera-de-norma',
+    icon: 'pi pi-exclamation-triangle',
+    permission: Permission.FINANCE_PAYMENTS_VER,
+  },
+  {
     // `[PGP.97]` — Lo que SALIÓ del banco, contra Kepler y contra el programa (2026-11-07). Entra
     // por ser el paso que cierra el ciclo —pagar es que salga del banco Y quede asentado en
     // Kepler—, no por tema: es la guía de quien elabora el pago en Kepler, y donde O3 lo va a

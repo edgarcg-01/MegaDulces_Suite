@@ -104,6 +104,9 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       // Calendario —sin la cuenta del proveedor no se prepara la transferencia— y quien prepara
       // es Tesorería, no Compras. Entra por el orden del trabajo, no por categoría.
       '/finanzas/cuentas-pago',
+      // `[PGP.229]` (2026-11-27) las facturas fuera de norma fiscal que esperan la decisión de Administración o
+      // Contabilidad: sin ella el Calendario no autoriza el pago. Paso del ciclo (se decide antes de autorizar), no tema.
+      '/finanzas/facturas-fuera-de-norma',
       // `[PGP.97]` (2026-11-07) lo que SALIÓ del banco contra Kepler y el programa: el paso que
       // cierra el pago (salió del banco y quedó asentado). Va antes del expediente.
       '/finanzas/salidas-banco',
@@ -171,6 +174,7 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       const ARCHIVOS: Record<string, string> = {
         '/finanzas/calendario-pagos': 'finanzas-calendario-pagos.component.ts',
         '/finanzas/cuentas-pago': 'finanzas-cuentas-pago.component.ts',
+        '/finanzas/facturas-fuera-de-norma': 'finanzas-facturas-fuera-de-norma.component.ts',
         '/finanzas/salidas-banco': 'finanzas-salidas-banco.component.ts',
         '/finanzas/pagos-comprobantes': 'finanzas-pagos-comprobantes.component.ts',
         '/finanzas/anticipos-solicitados': 'finanzas-anticipos-solicitados.component.ts',

@@ -187,7 +187,7 @@ describe('[AU.33] contra el árbol REAL', () => {
    * ⛔ **Enmienda `[CPA.10]`:** las tres «caídas mal» eran, en realidad, el índice uno-a-uno
    * acreditando una clave compartida a una sola pantalla. `FINANCE_FINDINGS_GESTIONAR` **sí**
    * tiene «Hallazgos» propio, y `FINANCE_PAYMENTS_*` abre Calendario de pagos **y** Pagos a
-   * proveedor. Las tres aparecen hoy en `LAS_25_PANTALLAS`. La lección de método se sostiene;
+   * proveedor. Las tres aparecen hoy en `LAS_26_PANTALLAS`. La lección de método se sostiene;
    * lo que falló fue el instrumento con que se comprobó.
    */
   /*
@@ -211,25 +211,26 @@ describe('[AU.33] contra el árbol REAL', () => {
    * decisión es justo éste: quitarle esa clave a alguien cierra **tres** pantallas, y la UI de
    * roles ahora lo dice en vez de nombrar una sola.
    */
-  const LAS_25_PANTALLAS = [
+  // `[PGP.229]` «Facturas fuera de norma» se ve con FINANCE_PAYMENTS_VER: quitarla también la cierra (26).
+  const LAS_26_PANTALLAS = [
     'contabilidad/cfdi', 'contabilidad/cierre-contable', 'contabilidad/conciliacion',
     'contabilidad/contabilidad', 'contabilidad/credenciales', 'contabilidad/descarga',
     'contabilidad/diot', 'contabilidad/facturar', 'contabilidad/impuestos',
     'contabilidad/libro-compras', 'contabilidad/listas-sat', 'contabilidad/materialidad',
     'contabilidad/mi-cierre',
     'finanzas/bancos', 'finanzas/calendario-pagos', 'finanzas/cartera', 'finanzas/cobranza',
-    'finanzas/egresos', 'finanzas/estado-cuenta-acreedores', 'finanzas/gastos',
+    'finanzas/egresos', 'finanzas/estado-cuenta-acreedores', 'finanzas/facturas-fuera-de-norma', 'finanzas/gastos',
     'finanzas/hallazgos', 'finanzas/maat', 'finanzas/pagos-comprobantes',
     'finanzas/pronto-pago', 'finanzas/tareas',
   ];
 
-  it('las 27 claves del caso real caen en 25 pantallas de 2 proyectos', () => {
+  it('las 27 claves del caso real caen en 26 pantallas de 2 proyectos', () => {
     const r = pantallasAfectadas(
       LAS_27.map((k) => ({ permission_key: k, allow: false })),
       AUTHZ_TREE,
     );
     expect(r.sinModulo).toEqual([]);
-    expect(r.pantallas.map((p) => `${p.projectId}/${p.moduleId}`).sort()).toEqual(LAS_25_PANTALLAS);
+    expect(r.pantallas.map((p) => `${p.projectId}/${p.moduleId}`).sort()).toEqual(LAS_26_PANTALLAS);
     expect(new Set(r.pantallas.map((p) => p.projectId))).toEqual(new Set(['finanzas', 'contabilidad']));
     /*
      * ⛔ `[CPA.10]` Acá se exigía que la suma diera 27 («ninguna clave se contó dos veces»), y

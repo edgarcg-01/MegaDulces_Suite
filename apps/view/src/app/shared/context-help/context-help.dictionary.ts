@@ -3090,6 +3090,28 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // pago. Sin esta entrada, lo absorbido llega sin explicación: el chip del descuento vivía con
   // su definición metida en un `title`, que sólo existe para quien tiene mouse (regla P).
   // `[PGP.118]` Anticipos a proveedor: qué hacer con cada X-D-60 sin aplicar. Palabra llana.
+  // `[PGP.229]` La bandeja de las facturas fuera de norma fiscal (anexo NF).
+  'facturas-fuera-de-norma': {
+    title: 'Facturas fuera de norma — qué se decide y por qué',
+    intro:
+      'Una factura recibida que no cumple la norma fiscal de la empresa no se paga hasta que Administración o Contabilidad diga si se usa o no. Basta una firma, y queda quién, cuándo y por qué. Sin esa decisión el Calendario de pagos la deja programar, pero no autorizar.',
+    groups: [
+      {
+        heading: 'Lo que pide decisión',
+        entries: [
+          { term: 'Uso S01 (sin efectos fiscales)', def: 'El proveedor timbró la factura diciendo que no tiene efectos fiscales: no es deducible. Se decide si de todos modos se paga. Las comisiones que el banco cobra solo (BBVA, Banorte) no piden decisión, ni los traslados.' },
+          { term: 'Régimen distinto de 612', def: 'La empresa es persona física con actividad empresarial (régimen 612). Una factura timbrada a nuestro nombre con otro régimen hay que aceptarla o pedir que la vuelvan a timbrar. El IMSS es excepción por regla: timbra con 606 y no re-timbra.' },
+        ],
+      },
+      {
+        heading: 'Lo que no tiene salida aquí',
+        entries: [
+          { term: 'PUE de un mes anterior', def: 'Una PUE pagada por transferencia o cheque después del mes de la factura no se paga: el proveedor la sustituye por una PPD. No se autoriza en esta pantalla.' },
+          { term: 'Cancelada o sin verificar', def: 'La cancelada se reemplaza por la que la sustituye. La que el SAT todavía no verifica se paga cuando el escáner nocturno la verifique.' },
+        ],
+      },
+    ],
+  },
   'anticipos-proveedor': {
     title: 'Anticipos a proveedor — qué hacer con cada uno',
     intro:

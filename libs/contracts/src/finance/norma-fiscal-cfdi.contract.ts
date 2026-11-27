@@ -251,14 +251,18 @@ export type MomentoDelPago = 'programar' | 'autorizar';
  * - `sin_medir`: al autorizar (D-NF5: no se paga hasta que el SAT la verifique), salvo el régimen que la
  *   factura no trae (los CFDI 3.3 no lo tenían; 0 sin régimen en 2026, medido): se dice, no detiene.
  *   Programarla para otro día sí se puede: el escáner la verifica en la noche.
- * - `requiere_autorizacion` (S01, régimen): TODAVÍA NO detiene. La tabla de la decisión existe desde
- *   `[PGP.224]`, pero la pantalla para tomarla llega con `[PGP.229]`; detenerla antes la dejaría sin salida.
- *   Mientras, se ve como aviso. Una decisión «no se usa» ya tomada sí detiene (es `solo_informativa`).
+ * - `requiere_autorizacion` (S01, régimen sin decisión): al autorizar (`[PGP.229]`). Se programa para que
+ *   el pago se vea y quien decide lo encuentre en la bandeja «Facturas fuera de norma», pero no sale sin que
+ *   Administración o Contabilidad diga «se usa». Una decisión «no se usa» detiene siempre (es `solo_informativa`).
  */
 export function detieneElPago(n: NormaDelCfdi, momento: MomentoDelPago): MotivoNorma | null {
   return n.motivos.find((m) => m.veredicto === 'solo_informativa'
-    || (momento === 'autorizar' && m.veredicto === 'sin_medir' && m.regla !== 'regimen')) ?? null;
+    || (momento === 'autorizar' && m.veredicto === 'sin_medir' && m.regla !== 'regimen')
+    || (momento === 'autorizar' && m.veredicto === 'requiere_autorizacion')) ?? null;
 }
+
+/** `[PGP.229]` Dónde se decide lo que pide decisión (lo dice el 409, para que tenga salida). */
+export const DONDE_SE_DECIDE = 'decídela en Finanzas › Facturas fuera de norma';
 
 /**
  * La norma de una factura del Calendario al pagarla, con el CFDI recibido que se le ligó (vigente o el cancelado
@@ -288,6 +292,7 @@ const PESOS = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN
 
 /** El mensaje del rechazo (409): qué factura y por qué, una por una. */
 export function textoDelFreno(frenos: readonly FrenoDelPago[], momento: MomentoDelPago): string {
-  const una = (f: FrenoDelPago) => `la factura de ${PESOS.format(f.total)} (CFDI ${f.uuid.slice(0, 8).toUpperCase()}): ${f.motivo.texto}`;
+  const una = (f: FrenoDelPago) => `la factura de ${PESOS.format(f.total)} (CFDI ${f.uuid.slice(0, 8).toUpperCase()}): ${f.motivo.texto}`
+    + (f.motivo.veredicto === 'requiere_autorizacion' ? ` (${DONDE_SE_DECIDE})` : '');
   return `No se puede ${momento} este pago — ${frenos.map(una).join(' · ')}`;
 }

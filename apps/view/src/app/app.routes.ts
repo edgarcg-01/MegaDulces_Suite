@@ -700,6 +700,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        // [PGP.229] Las facturas recibidas fuera de norma fiscal que esperan decisión. Se ve con FINANCE_PAYMENTS_VER (el 409
+        // del Calendario manda aquí) y se decide con FINANCE_CFDI_NORMA_DECIDIR: la ruta acepta las dos (landing-guards).
+        path: 'facturas-fuera-de-norma',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-facturas-fuera-de-norma.component').then(m => m.FinanzasFacturasFueraDeNormaComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_PAYMENTS_VER, Permission.FINANCE_CFDI_NORMA_DECIDIR)]
+      },
+      {
         // `[PGP.118]` Anticipos a proveedor: los X-D-60 sin aplicar, contra qué se aplican. Sólo lectura.
         // Mismo permiso que el resto de Deuda con proveedores (ya repartido: no cambia el acceso de nadie).
         path: 'anticipos',

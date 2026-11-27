@@ -131,7 +131,7 @@ Tres cuidados que deciden el diseño:
 
 | Punto | Cambio | Reglas |
 |---|---|---|
-| Calendario: crear, sumar factura, reprogramar · autorizar el pago y el día | **Construido (`[PGP.225]`)**: el servidor rechaza (409, factura por factura con su motivo) **antes de escribir**. Al programar detiene cancelada y PUE de mes anterior; al autorizar, además, lo que el SAT no ha verificado. Con `[PGP.224]`, una decisión «no se usa» ya detiene y una «se usa» quita el aviso; S01 y régimen **sin decisión** se ven como aviso hasta que exista la pantalla para decidir (`[PGP.229]`): detenerlas antes las dejaría sin salida. Lo que no liga un CFDI único pasa (D-NF6) | N0, N1, N4; N2 y N3 decididas (sin decidir, con `[PGP.229]`) |
+| Calendario: crear, sumar factura, reprogramar · autorizar el pago y el día | **Construido (`[PGP.225]`)**: el servidor rechaza (409, factura por factura con su motivo) **antes de escribir**. Al programar detiene cancelada y PUE de mes anterior; al autorizar, además, lo que el SAT no ha verificado. Con `[PGP.224]`, una decisión «no se usa» ya detiene y una «se usa» quita el aviso. Con `[PGP.229]`, S01 y régimen **sin decisión** se programan pero **no se autorizan**, y el 409 dice dónde decidir. Lo que no liga un CFDI único pasa (D-NF6) | N0, N1, N2, N3, N4 |
 | Póliza de egreso ContPAQi (dictamen) | Suma N1–N3 a lo que ya bloquea | N1, N2, N3 |
 | Bandeja del SAT y crear solicitud | Lo informativo no se puede elegir; S01 espera su autorización | N0, N2, N3, N4 |
 | Comprobación X-A-10 | Revisar estatus y tipo, que hoy no revisa | N0, N3 |
@@ -153,7 +153,7 @@ Orden por dinero × esfuerzo (la regla de Edgar): primero donde sale el dinero.
 | `[PGP.226]` | C2 | Freno en Gastos: bandeja del SAT, crear solicitud, X-A-10, caja | Ídem, por cada punto que escribe |
 | `[PGP.227]` | C2 | Freno en Compras: los caminos del expediente, materialidad, libro de compras, dictamen ContPAQi | Ídem |
 | `[PGP.228]` | C2 | Ventas: emitidas con régimen ≠ 612 fuera de la venta; ajuste de abono (`'Cancelado'`) | Antes/después del número de venta medido (regla 15) |
-| `[PGP.229]` | C2+C3 | Bandeja «Facturas fuera de norma» + decidir y revocar (el endpoint que escribe la tabla de `[PGP.224]`) + encender el freno de S01 y régimen sin decisión | Skill `diseno` (§0b), `check:pantalla`, prueba visual 3 perfiles, endpoint probado contra Postgres real con el payload de la pantalla, permiso repartido en prod a los puestos de D-NF2 |
+| `[PGP.229]` | C2+C3 | Bandeja «Facturas fuera de norma» + decidir y revocar (el endpoint que escribe la tabla de `[PGP.224]`) + encender el freno de S01 y régimen sin decisión | Skill `diseno` (§0b), `check:pantalla`, prueba visual 3 perfiles, endpoint probado contra Postgres real con el payload de la pantalla, permiso repartido en prod a los puestos de D-NF2 — **🧪 2026-11-26** (diseño en §8; falta la prueba visual y repartir en prod) |
 | `[PGP.230]` | — | El candado tiene prueba negativa | Romper la regla a propósito pone rojo el `check` |
 
 ## 6. Decisiones
@@ -179,3 +179,30 @@ Orden por dinero × esfuerzo (la regla de Edgar): primero donde sale el dinero.
   pagado en efectivo: lo mismo que F5 rechaza en las compras (y lo que el `VERDAD_ABSOLUTA` §41.11 contó en 521 emitidas de
   2026).
 - **La comprobación X-A-10** no revisa si el CFDI se canceló después de la solicitud.
+
+## 8. `[PGP.229]` La bandeja «Facturas fuera de norma» — el diseño antes de la plantilla (skill `diseno` §0a)
+
+| # | Paso | Respuesta |
+|---|---|---|
+| 1 | **Propósito** | Decidir si una factura fuera de norma **se usa o no**. La pregunta, sin «y»: *¿qué facturas esperan mi decisión, empezando por la que sale primero a pago?* |
+| 2 | **Quién entra** | Deciden `contabilidad` (5) y `direccion` (4), con `FINANCE_CFDI_NORMA_DECIDIR` (D-NF2). Ven quienes ven el Calendario (`FINANCE_PAYMENTS_VER`): el 409 los manda aquí. Medido en `ui_usage` (30 días): contabilidad y direccion crean, reprograman y autorizan en el Calendario a diario |
+| 3 | **El estado real** | 2026: **60 recibidas tipo I** piden decisión (35 S01, el resto régimen); el Calendario tiene **114 pagos pendientes con 259 renglones**. Cuántas de esas 60 están en un pago: **NO MEDIDO** hasta que la bandeja corra en prod (lo dice ella misma, arriba) |
+| 4 | **Nivel 0** | Titular: «N esperan decisión · M ya están en un pago · la más próxima sale el X». La lista: primero las que están en un pago (la que sale antes), luego la más nueva. Por fila: emisor (nombre y RFC), folio, fecha, total, **qué pide decisión** en llano, el pago (día y folio). Una acción: **Decidir** |
+| 5 | **Qué no ve** | Las decididas (segmento aparte, con su conteo) · lo que la regla exceptúa (IMSS, la comisión que el banco cobra solo, traslados) y las canceladas: no piden nada, no aparecen |
+| 6 | **Desglose** | Fila → side-peek: método y forma, uso, régimen; **todos** los motivos de la norma (también lo que no se autoriza, como la PUE de mes anterior); el XML (`app-cfdi-visor`, `/fiscal/cfdi/:uuid/xml`); los pagos que la llevan → el día en el Calendario (`?vista=dia&fecha=`); las decisiones vivas (quién, cuándo, motivo) con **Revocar** |
+| 7 | **Accesibilidad** | Buscar por emisor, RFC, folio o UUID (también los 8 caracteres que dice el 409), sin acentos ni orden (`filtrarPorBusqueda`). La fila se abre con Enter. El XML a un clic. ⚠️ `tesoreria` y `finanzas_operativo` no tienen `FISCAL_CFDI_VER`: el visor les dice que no pueden verlo |
+| 8 | **Ligas** | Viene del Calendario (el 409 nombra esta pantalla) · va al día del pago en el Calendario. Pendiente con nombre: el atajo «Decidir» en el renglón del Calendario (otra sesión tiene ese archivo abierto; `[PGP.229.2]`) |
+| 9 | **¿Le toca?** | Sí, Finanzas › Egresos, junto a Pagos. Gastos y Compras (`[PGP.226]`/`[PGP.227]`) usarán la misma bandeja y la misma decisión |
+| 10 | **Maqueta** | ver abajo |
+| 11 | **Criterios** | `check:pantalla` sin falla nueva · `app-load-state` (cargando ≠ vacío ≠ error) · `app-freshness-pill` · cifras `tabular-nums` · 44 px al dedo · motivo obligatorio con el botón deshabilitado mientras no alcance 3 letras · el botón se deshabilita en el primer clic · tema oscuro sólo con tokens |
+| 12 | **Lo que la pantalla no resuelve** | La factura sin CFDI ligado no aparece (D-NF6: el freno tampoco la detiene) · el XML para quien no tiene `FISCAL_CFDI_VER` · el atajo en el Calendario (paso 8) |
+
+```
+Facturas fuera de norma                                              hace 1 min  ↻
+12 esperan decisión · 3 ya están en un pago · la más próxima sale el 28-nov
+[ Por decidir 12 ] [ Decididas 41 ]                          [ emisor, RFC, folio o UUID ]
+
+Emisor                          Folio     Fecha    Total        Pide decisión                 Pago
+CFE SUMINISTRADOR …  CSS160…    A-1234   12-nov   $3,480.00    Régimen 606, no 612           28-nov · 261128-01-03  [Decidir]
+GASOLINERA DEL VALLE …  GVZ…    B-55     03-nov   $1,250.00    Uso S01 (sin efectos)         —                      [Decidir]
+```

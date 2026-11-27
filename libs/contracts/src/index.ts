@@ -340,3 +340,5 @@ export * from './http/quote-capture.contract';
 export * from './http/quote-units.contract';
 // `[GP.R.2]` El cierre del resto de centavos de un cliente con el Ajuste Abono `U-A-30`, y el insoluto que le queda ante el SAT.
 export * from './finance/ajuste-abono.contract';
+// `[PGP.229]` La bandeja «Facturas fuera de norma»: la decisión de Administración o Contabilidad (la regla, en finance/norma-fiscal-cfdi).
+export * from './finance/facturas-fuera-de-norma.contract';
