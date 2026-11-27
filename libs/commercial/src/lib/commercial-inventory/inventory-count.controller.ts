@@ -15,6 +15,7 @@ import type {
   OpenCycleCountDto,
   SubmitCountDto,
   ResolveItemDto,
+  InventoryCountItemRow,
 } from './inventory-count.service';
 import {
   RolesGuard,
@@ -241,7 +242,7 @@ export class InventoryCountController {
     @Query('status') status?: string,
     // `[IC.F5]` La salida al tope de 2,000: buscar llega a cualquier artículo del folio.
     @Query('search') search?: string,
-  ) {
+  ): Promise<InventoryCountItemRow[]> {
     return this.service.listItems(id, status, search);
   }
 
