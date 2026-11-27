@@ -74,15 +74,16 @@ const SQL_COBERTURA = `
            AND f.business_date <= d.business_date + 9
       ) p
   )
+  -- ⛔ El ORDEN de las columnas no es cosmético: \`CREATE OR REPLACE VIEW\` sólo deja AGREGAR al
+  --    final, nunca insertar en medio ni renombrar. Medido el 2026-11-27: poner las dos nuevas
+  --    antes de \`carga_truncada\` hizo fallar la migración con «cannot change name of view column
+  --    "carga_truncada" to "dias_habiles_despues"». Las nuevas van AL FINAL, siempre.
   SELECT c.tenant_id,
          c.business_date,
          c.rutas,
          c.tickets,
          c.med_local,
          round(c.tickets::numeric / nullif(c.rutas, 0), 2) AS tickets_por_ruta,
-         c.dias_habiles_despues,
-         -- Sólo se juzga un día CERRADO y con la serie ya seguida: ver el encabezado.
-         (c.business_date < current_date AND c.dias_habiles_despues >= 3) AS evaluable,
          (     c.business_date < current_date
            AND c.dias_habiles_despues >= 3
            AND c.med_local IS NOT NULL
@@ -94,7 +95,11 @@ const SQL_COBERTURA = `
            AND c.med_local IS NOT NULL
            AND c.rutas < c.med_local * 0.6
            AND (c.tickets::numeric / nullif(c.rutas, 0)) >= 5
-         ) AS operacion_parcial
+         ) AS operacion_parcial,
+         -- Las dos columnas NUEVAS, al final por lo dicho arriba.
+         c.dias_habiles_despues,
+         -- Sólo se juzga un día CERRADO y con la serie ya seguida: ver el encabezado.
+         (c.business_date < current_date AND c.dias_habiles_despues >= 3) AS evaluable
     FROM con_vecindad c
 `;
 
@@ -129,12 +134,12 @@ exports.down = async function down(knex) {
     )
     SELECT d.tenant_id, d.business_date, d.rutas, d.tickets, v.med_local,
            round(d.tickets::numeric / nullif(d.rutas, 0), 2) AS tickets_por_ruta,
-           NULL::int AS dias_habiles_despues,
-           true AS evaluable,
            (v.med_local IS NOT NULL AND d.rutas < v.med_local * 0.6
             AND (d.tickets::numeric / nullif(d.rutas, 0)) < 5) AS carga_truncada,
            (v.med_local IS NOT NULL AND d.rutas < v.med_local * 0.6
-            AND (d.tickets::numeric / nullif(d.rutas, 0)) >= 5) AS operacion_parcial
+            AND (d.tickets::numeric / nullif(d.rutas, 0)) >= 5) AS operacion_parcial,
+           NULL::int AS dias_habiles_despues,
+           true AS evaluable
       FROM dia d
       CROSS JOIN LATERAL (
         SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY n.rutas) AS med_local
