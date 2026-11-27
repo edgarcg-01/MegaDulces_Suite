@@ -18,7 +18,10 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato, BandejaFich
  *  3. **Accesibilidad:** dos acciones por ficha — «Ligar al cobro» (abre los cobros de Kepler que pueden ser, los del
  *     cliente primero) y «Rechazar» (con un motivo que el cliente va a leer). La foto abre en otra pestaña.
  *  4. **Ligado a:** el cobro de Kepler (folio) al ligar, y la ficha del cliente en Cartera y en su enlace (estado).
- *  5. **¿Le toca?** Sí: es el trabajo de Cobranza; la Suite no registra cobros en Kepler, sólo los liga.
+ *  5. **¿Le toca?** Sí: es el trabajo de Cobranza. ⭐ Desde `[CC.33]` la Suite **sí registra el cobro en Kepler**
+ *     (documento, cartera, aplicaciones y póliza), bajo interruptor por sucursal. ⛔⛔ Lo que **no** hace es
+ *     **timbrar**: el complemento de pago lo emite el programa de Kepler, así que el aviso de la fila tiene que
+ *     seguir diciendo que falta cerrarlo — un «listo» que no es cierto es peor que no tener el botón.
  *
  * `[CC.21]` **La columna «Banco»: ¿la ficha entró al banco?** (Edgar: «validar ese monto que haya entrado a movimientos
  * de bancos»). Se cruza la ficha con el estado de cuenta y con el cobro que la conciliación ya le ligó a ese abono:
@@ -131,6 +134,10 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato, BandejaFich
                                 }
                               }
                             }
+                            <!-- [CC.33] Lo que contesto Kepler al registrar. Nunca dice «listo»: dice que falta el timbre. -->
+                            @if (avisoCobro(f.id); as aviso) {
+                              <span class="fc-warn">{{ aviso }}</span>
+                            }
                           }
                         }
                         @case ('de_otro_cliente') {
@@ -169,7 +176,13 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato, BandejaFich
                       @if (f.banco?.estado === 'sin_aplicar' && !f.banco?.disputado_con && f.banco?.abonos?.[0]?.declarado !== f.cliente_code) {
                         <button type="button" class="fc-btn fc-btn-main" [disabled]="trabajando() === f.id" (click)="declararAbono(f)">Marcar el abono como suyo</button>
                       }
-                      <button type="button" class="fc-btn" [class.fc-btn-main]="!botonDelBanco(f)" [disabled]="trabajando() === f.id" (click)="abrirLigar(f)">{{ botonDelBanco(f) ? 'Otro cobro' : 'Ligar al cobro' }}</button>
+                      <!-- [CC.33] Registrar el cobro en Kepler desde aqui. Solo donde el interruptor lo permite:
+                           un boton que falla ensena a desconfiar de todos. -->
+                      @if (cobroHabilitado(f) && f.banco?.estado === 'sin_aplicar') {
+                        <button type="button" class="fc-btn fc-btn-main" [disabled]="trabajando() === f.id"
+                                (click)="registrarCobro(f)">{{ trabajando() === f.id ? 'Registrando…' : 'Registrar el cobro en Kepler' }}</button>
+                      }
+                      <button type="button" class="fc-btn" [class.fc-btn-main]="!botonDelBanco(f) && !cobroHabilitado(f)" [disabled]="trabajando() === f.id" (click)="abrirLigar(f)">{{ botonDelBanco(f) ? 'Otro cobro' : 'Ligar al cobro' }}</button>
                       <button type="button" class="fc-btn" [disabled]="trabajando() === f.id" (click)="abrirRechazo(f)">Rechazar</button>
                     }
                   }
@@ -251,6 +264,19 @@ export class FichasClientesComponent {
   cuadre(id: string): FacturasQueCuadran | null { return this.cuadres()[id] ?? null; }
   /** Los folios de las que cuadran, para decirlos en una línea. */
   folios(q: FacturasQueCuadran): string { return q.facturas.map((x) => x.folio).join(', '); }
+
+  /**
+   * `[CC.33]` En qué sucursales se puede registrar el cobro desde la Suite. Se pregunta al servidor —el navegador
+   * no puede ver el interruptor— y mientras no conteste, el botón no aparece.
+   */
+  private readonly habilitadas = signal<Record<string, boolean>>({});
+  /** ⚠️ Se pregunta por la sucursal de la CUENTA del cliente, que es la que la fila muestra. */
+  cobroHabilitado(f: FichaClienteBandeja): boolean {
+    return this.habilitadas()[String(f.cuenta_sucursal ?? '')] === true;
+  }
+  /** `[CC.33]` Lo que contestó Kepler al registrar, por ficha: el folio, o el motivo de la negativa. */
+  private readonly registrado = signal<Record<string, string>>({});
+  avisoCobro(id: string): string | null { return this.registrado()[id] ?? null; }
 
   private readonly svc = inject(FichasClientesService);
   private readonly destroyRef = inject(DestroyRef);
@@ -365,6 +391,54 @@ export class FichasClientesComponent {
         error: () => undefined,
       });
     }
+    this.pedirHabilitadas(esperan);
+  }
+
+  /**
+   * `[CC.33]` Pregunta en qué sucursales se puede registrar el cobro. Una vez por sucursal, no por fila.
+   * Si falla, queda en `false` y el botón no aparece: **no ofrecer** es mejor que ofrecer y fallar.
+   */
+  private pedirHabilitadas(fichas: FichaClienteBandeja[]): void {
+    const sucursales = [...new Set(fichas.map((f) => String(f.cuenta_sucursal ?? '')).filter((s) => /^[0-9]{2}$/.test(s)))];
+    for (const s of sucursales) {
+      if (s in this.habilitadas()) continue;
+      this.svc.cobroHabilitado(s).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => this.habilitadas.update((m) => ({ ...m, [s]: r.habilitado === true })),
+        error: () => this.habilitadas.update((m) => ({ ...m, [s]: false })),
+      });
+    }
+  }
+
+  /**
+   * `[CC.33]` ⭐⭐ **Registra el cobro en Kepler.** Si una sola factura cuadra al centavo, va esa; si no, manda las
+   * que la persona ya eligió. ⛔ **No cierra el caso**: el complemento de pago lo emite el programa de Kepler, así
+   * que el aviso que queda en la fila lo dice en vez de celebrar.
+   */
+  registrarCobro(f: FichaClienteBandeja): void {
+    if (this.trabajando()) return;
+    this.trabajando.set(f.id);
+    const q = this.cuadre(f.id);
+    const facturas = q?.modo === 'exacta'
+      ? q.facturas.map((x) => ({ doc_code: x.doc_code, folio: x.folio, monto: q.monto }))
+      : undefined;
+    this.svc.escribirCobro(f.id, facturas).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.trabajando.set(null);
+        if (r.estado === 'escrito') {
+          this.registrado.update((m) => ({
+            ...m,
+            [f.id]: `Cobro ${r.kepler.folio} registrado en Kepler${r.ya_estaba ? ' (ya estaba)' : ''}. Falta timbrarlo desde Kepler: sin complemento, la factura sigue abierta ante el SAT.`,
+          }));
+          this.cargar();
+        } else {
+          this.registrado.update((m) => ({ ...m, [f.id]: r.motivo }));
+        }
+      },
+      error: (e: { error?: { message?: string } }) => {
+        this.trabajando.set(null);
+        this.registrado.update((m) => ({ ...m, [f.id]: e?.error?.message || 'No se pudo registrar el cobro.' }));
+      },
+    });
   }
 
   cambiar(v: string): void { this.estado.set(v); this.cerrar(); this.cargar(); }
