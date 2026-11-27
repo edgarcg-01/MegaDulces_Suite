@@ -12,16 +12,13 @@ import { DOCTIPOS, coordenada } from './kepler-doctipo';
 import { MARCA_SUITE, plantillaDe, servidoresEncendidos, topeDiario, urlDeServidor } from './kepler-servidores';
 import { piezasEnteras } from './fraccion-caja';
 import { factorFichaKepler, frenoFichaSinCaja } from './ficha-kepler';
+// `[KR.16]` `textoKepler` vive en `kepler-texto.ts` (`[PQ.160]`); se reexporta para no mover a quien ya lo importa de aquí.
+import { textoKepler } from './kepler-texto';
+export { textoKepler };
 
 /** `[PQ.17]` Piezas enteras de un renglón con fracción de caja, o `null` (misma regla que la mesa y el lote). */
 const piezasEnterasDe = (l: { sku: string; cajas: number; piezas_por_caja?: number | null }): number | null =>
   piezasEnteras({ sku: l.sku, final_qty: l.cajas, piezas_por_caja: l.piezas_por_caja ?? null });
-
-/**
- * `[KR.16]` Número → texto como Kepler lo guarda en sus columnas `varchar` de importe (`c57`):
- * sin relleno, hasta dos decimales, sin ceros de sobra. Medido: `791`, `373.76`, `1083`.
- */
-export const textoKepler = (v: number): string => String(Math.round((Number(v) || 0) * 100) / 100);
 
 /**
  * `[PQ.146]` El texto de condiciones (`kdm1.c30`) que Kepler escribe para un plazo (`c17`), medido en

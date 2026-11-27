@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import type {
   OcCancelacionDisponibleDto, OcCancelacionDto, OcCancelarInputDto, RequisicionCancelacionDisponibleDto, RequisicionCancelacionDto,
+  OcEdicionDisponibleDto, OcEdicionDto, OcEditarInputDto,
 } from '@megadulces/contracts';
 
 import { OcCancelacionService } from './oc-cancelacion.service';
@@ -60,5 +61,28 @@ export class OcCancelacionController {
   @ApiOperation({ summary: 'KR.7 — ¿Se puede ofrecer «Cancelar en Kepler» en la ficha de esta requisición? No escribe. Revisa que haya llegado a Kepler, el interruptor, el tope, si ya se canceló y la regla de Kepler contra la réplica (al cancelar se revisa otra vez contra Kepler vivo).' })
   disponibleRequisicion(@Param('id') id: string): Promise<RequisicionCancelacionDisponibleDto> {
     return this.svc.disponibleRequisicion(id);
+  }
+
+  /** `[PQ.160]` Editar las cantidades de la OC en Kepler, con motivo. Mismo prefijo y mismo controlador (sin firma nueva, #414). */
+  @Post('open-purchase-orders/:sucursal/:folio/editar')
+  @RequirePermissions(Permission.COMPRAS_OC_EDITAR)
+  @ApiOperation({ summary: 'PQ.160 — Cambia en Kepler las cantidades de una OC pendiente y sin vale, con las fórmulas de Kepler (renglón y encabezado), todo o nada. Sólo renglones existentes y cantidades > 0. Motivo obligatorio. Apagado por sucursal en kepler_push_switch (tipo edita_oc). Devuelve aplicada|rechazada con el porqué.' })
+  editar(
+    @Param('sucursal') sucursal: string,
+    @Param('folio') folio: string,
+    // Se valida adentro (motivo, renglones): el cuerpo llega sin garantías.
+    @Body() body: Partial<OcEditarInputDto>,
+  ): Promise<OcEdicionDto> {
+    return this.svc.editar(sucursal, folio, body ?? {});
+  }
+
+  @Get('open-purchase-orders/:sucursal/:folio/edicion')
+  @RequirePermissions(Permission.COMPRAS_OC_EDITAR)
+  @ApiOperation({ summary: 'PQ.160 — ¿Se puede ofrecer «Editar cantidades» para esta OC, y con qué renglones? No escribe. Revisa el interruptor, el tope y la regla contra la réplica (al guardar se revisa otra vez contra Kepler vivo).' })
+  disponibleEdicion(
+    @Param('sucursal') sucursal: string,
+    @Param('folio') folio: string,
+  ): Promise<OcEdicionDisponibleDto> {
+    return this.svc.disponibleEdicion(sucursal, folio);
   }
 }

@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { ClaseOc, EstadoCadena, FlujoComprasDto, type Freshness, MonthlySalesResponse, type OcCancelacionDisponibleDto, type OcCancelacionDto, OcSeguimiento, type RequisicionCancelacionDisponibleDto, type RequisicionCancelacionDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto, type PedidoNegociacionDto, WorkbookSkuSignals } from '@megadulces/contracts';
+import { ClaseOc, EstadoCadena, FlujoComprasDto, type Freshness, MonthlySalesResponse, type OcCancelacionDisponibleDto, type OcCancelacionDto, type OcEdicionDisponibleDto, type OcEdicionDto, OcSeguimiento, type RequisicionCancelacionDisponibleDto, type RequisicionCancelacionDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto, type PedidoNegociacionDto, WorkbookSkuSignals } from '@megadulces/contracts';
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
@@ -1485,6 +1485,18 @@ export class ComprasService {
   ocCancelacion(sucursal: string, folio: string): Observable<OcCancelacionDisponibleDto> {
     return this.http.get<OcCancelacionDisponibleDto>(
       `${this.base}/open-purchase-orders/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/cancelacion`);
+  }
+
+  /** [PQ.160] ¿Se puede ofrecer «Editar cantidades» para esta OC, y con qué renglones? No escribe. */
+  ocEdicion(sucursal: string, folio: string): Observable<OcEdicionDisponibleDto> {
+    return this.http.get<OcEdicionDisponibleDto>(
+      `${this.base}/open-purchase-orders/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/edicion`);
+  }
+
+  /** [PQ.160] Cambia en Kepler las cantidades de la OC, con motivo. Devuelve aplicada | rechazada con el porqué. */
+  editarOc(sucursal: string, folio: string, renglones: Array<{ renglon: number; cantidad: number }>, motivo: string): Observable<OcEdicionDto> {
+    return this.http.post<OcEdicionDto>(
+      `${this.base}/open-purchase-orders/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/editar`, { renglones, motivo });
   }
 
   /** [KR.7] ¿Se puede ofrecer «Cancelar en Kepler» en la ficha de esta requisición? No escribe. */

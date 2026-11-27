@@ -182,6 +182,8 @@ export * from './http/precios-sucursales.contract';
 export * from './http/precios-catalogo.contract';
 export * from './http/oc-seguimiento.contract';
 export * from './http/oc-cancelacion.contract';
+// `[PQ.160]` Editar las cantidades de una OC de Kepler, con motivo.
+export * from './http/oc-edicion.contract';
 export * from './http/oc-cadena.contract';
 export * from './http/flujo-compras.contract';
 export * from './http/replenishment-monthly.contract';

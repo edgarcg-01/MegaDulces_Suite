@@ -6,10 +6,12 @@ import { ScopeService, TenantContextService, TenantKnexService, todayMx } from '
 import {
   warehouseName, type OcCancelacionDisponibleDto, type OcCancelacionDto,
   type RequisicionCancelacionDisponibleDto, type RequisicionCancelacionDto,
+  type OcEdicionDisponibleDto, type OcEdicionDto, type OcEdicionRenglonDto, type OcEditarInputDto,
 } from '@megadulces/contracts';
 
 import { KeplerOcCancelAdapter } from './kepler-oc-cancel.adapter';
 import { decidirCancelacionOc, motivoValido, type EntradaDecision } from './kepler-oc-cancelacion';
+import { motivoEdicionValido, presentacion, revisarOcEditable, type EntradaEdicion, type RenglonOcKepler } from './kepler-oc-edicion';
 import { decidirCancelacionRequisicion, entradaDesdeReplica, motivoSuiteCancelada } from './kepler-req-cancelacion';
 import { leerRequisicionEnReplica, type RequisicionEnReplica } from './kepler-requisicion-replica';
 import { CAPTURISTA_SUITE, horaMx } from './kepler-requisition-sink.adapter';
@@ -19,6 +21,10 @@ const AREA = 'compras';
 const TABLA = 'commercial.purchase_order_cancellations';
 /** `[KR.7]` La migración que extiende `TABLA` a requisiciones y siembra su interruptor. */
 const MIGRACION_KR7 = '20261114120335';
+/** `[PQ.160]` Las ediciones de cantidades (un renglón por intento) y su interruptor. */
+const TABLA_EDICION = 'commercial.purchase_order_edits';
+const MIGRACION_PQ160 = '20261126174034';
+const INTERRUPTOR_EDICION = 'edita_oc';
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Qué se cancela. La OC se identifica por su llave de Kepler; la requisición, además, por su id en la Suite. */
@@ -325,6 +331,172 @@ export class OcCancelacionService {
       vales_vivos: vales.map((v) => v.folio),
       requisicion,
       otras_oc_vivas: otras,
+    };
+  }
+
+
+  // ── [PQ.160] Editar cantidades de la OC en Kepler ─────────────────────────────────────────────────────
+
+  /**
+   * `[PQ.160]` **Cambiar en Kepler las cantidades de una OC pendiente y sin vale**, con motivo. Candados, en orden
+   * (cada uno rechaza con su porqué y sin tocar Kepler): la llave `COMPRAS_OC_EDITAR` (controlador) y el alcance
+   * por sucursal; el motivo; el interruptor `edita_oc` de esa sucursal y su tope diario; la regla y los permisos de
+   * Kepler (en el adaptador, dentro de su transacción, contra Kepler vivo).
+   *
+   * Todo intento que llega a Kepler queda en `purchase_order_edits` (aplicada o rechazada), con cada renglón antes
+   * y después: la requisición de la que salió no cambia, y esto es lo que explica la diferencia.
+   * ⚠️ Kepler y la Suite son dos bases: si Kepler confirma y el registro falla, el log de error lleva todo el renglón.
+   */
+  async editar(sucursal: string, folio: string, body: Partial<OcEditarInputDto>): Promise<OcEdicionDto> {
+    const { s, f } = this.llave(sucursal, folio);
+    const m = motivoEdicionValido(typeof body?.motivo === 'string' ? body.motivo : null);
+    if (!m.ok) throw new BadRequestException(m.motivo);
+    const cambios = Array.isArray(body?.renglones)
+      ? body.renglones.map((r) => ({ renglon: Number(r?.renglon), cantidad: Number(r?.cantidad) }))
+      : [];
+    if (!cambios.length) throw new BadRequestException('No cambiaste ninguna cantidad');
+    if (cambios.length > 200) throw new BadRequestException('Demasiados renglones en una edición');
+    await this.exigirAlcance(s);
+
+    const c = await this.candadosEdicion(s, true);
+    if (c.bloqueo) {
+      throw c.bloqueo.status === 409 ? new ConflictException(c.bloqueo.porque) : new ServiceUnavailableException(c.bloqueo.porque);
+    }
+    const ctx = this.tenantCtx.get();
+    const userId = ctx?.userId ?? null;
+    const username = ctx?.username ?? null;
+    const r = await this.kepler.editar({ sucursal: s, folio: f, cambios });
+
+    const filas = (r.plan?.renglones ?? []).map((x) => ({
+      renglon: x.renglon, sku: x.sku, unidad: x.unidad, antes: x.antes, despues: x.despues,
+      importe_antes: x.importe_antes, importe_despues: x.importe_despues,
+    }));
+    const fila = {
+      tenant_id: c.tenantId, sucursal: s, oc_folio: f, motivo: m.valor, estado: r.estado,
+      rechazo: r.estado === 'rechazada' ? (r.motivo ?? 'Kepler no la editó') : null,
+      cambios: JSON.stringify(filas), total_antes: r.plan?.total_antes ?? null, total_despues: r.estado === 'aplicada' ? (r.plan?.total ?? null) : null,
+      origen: 'suite', created_by: userId, created_by_username: username, updated_by: userId,
+    };
+    let creada: string = new Date().toISOString();
+    try {
+      const [row] = await this.tk.run((trx) => trx(TABLA_EDICION).insert(fila).returning(['created_at']));
+      creada = new Date(row.created_at).toISOString();
+    } catch (e) {
+      this.logger.error(`[PQ.160] OC ${s}|${f} ${r.estado} en Kepler pero NO quedó registrada en la Suite: ${(e as Error).message} — ${JSON.stringify(fila)}`);
+    }
+    this.logger.log(`[PQ.160] OC ${s}|${f}: ${r.estado}${r.motivo ? ` (${r.motivo})` : ''} por ${username ?? userId ?? 'system'}`);
+    return {
+      sucursal: s, folio: f, estado: r.estado, rechazo: fila.rechazo, motivo: m.valor, cambios: filas,
+      total_antes: fila.total_antes, total_despues: fila.total_despues, editada_por: username, editada_en: creada,
+    };
+  }
+
+  /** `[PQ.160]` ¿Se puede OFRECER «Editar cantidades» para esta OC, y con qué renglones? No escribe nada. */
+  async disponibleEdicion(sucursal: string, folio: string): Promise<OcEdicionDisponibleDto> {
+    const { s, f } = this.llave(sucursal, folio);
+    await this.exigirAlcance(s);
+    const base = { sucursal: s, folio: f, total: null, renglones: [] as OcEdicionRenglonDto[], requisicion: null as string | null };
+    let c: Awaited<ReturnType<OcCancelacionService['candadosEdicion']>>;
+    try {
+      c = await this.candadosEdicion(s, false);
+    } catch (e) {
+      if (e instanceof HttpException) return { ...base, disponible: false, porque: e.message, ultima: null };
+      throw e;
+    }
+    const leido = await this.tk.run(async (trx) => {
+      const u = await trx(TABLA_EDICION).where({ tenant_id: c.tenantId, sucursal: s, oc_folio: f }).whereNull('deleted_at')
+        .orderBy('created_at', 'desc').first();
+      return { ultima: u ?? null, replica: await this.leerReplicaEdicion(trx, s, f) };
+    });
+    const ultima = leido.ultima ? this.aDtoEdicion(leido.ultima as Record<string, unknown>) : null;
+    if (c.bloqueo) return { ...base, disponible: false, porque: c.bloqueo.porque, ultima };
+    if (!leido.replica) return { ...base, disponible: false, porque: 'Esta base no tiene la réplica de Kepler: no se puede revisar la orden', ultima };
+    const { entrada, referencia } = leido.replica;
+    const rev = revisarOcEditable(entrada);
+    if (!rev.ok) return { ...base, disponible: false, porque: rev.motivo, requisicion: referencia, ultima };
+    const renglones: OcEdicionRenglonDto[] = rev.oc.renglones.map((r) => ({
+      renglon: r.renglon, sku: r.sku, nombre: r.nombre, unidad: r.unidad, factor: r.factor,
+      cantidad: presentacion(r) ?? 0, costo: Math.round(r.costo_base * r.factor * 10000) / 10000, importe: r.importe,
+    }));
+    return { sucursal: s, folio: f, disponible: true, porque: null, total: rev.oc.total, renglones, requisicion: referencia, ultima };
+  }
+
+  /** `[PQ.160]` La OC leída de la RÉPLICA, con la misma forma que el adaptador lee de Kepler vivo. */
+  private async leerReplicaEdicion(trx: Knex.Transaction, s: string, f: string): Promise<{ entrada: EntradaEdicion; referencia: string | null } | null> {
+    if (!(await trx.raw(`SELECT to_regclass('kepler_ods.kdm2') AS t`)).rows[0]?.t) return null;
+    const DOC = (tipo: number) => `btrim(c1) = ? AND c2 = 'X' AND c3 = 'A' AND c4::numeric = ${tipo}`;
+    const hs = (await trx.raw(
+      `SELECT (c5::numeric)::int::text AS serie, btrim(c6) AS folio, btrim(c43) AS estado, coalesce(c13, 0)::float8 AS descuento,
+              coalesce(c14, 0)::float8 AS iva, coalesce(c15, 0)::float8 AS ieps, coalesce(c16, 0)::float8 AS total,
+              coalesce(c42, 0)::float8 AS saldo, nullif(btrim(c11), '') AS referencia
+         FROM kepler_ods.kdm1 WHERE ${DOC(35)} AND btrim(c6) = ?`, [s, f])).rows as Array<Record<string, unknown>>;
+    const vales = ((await trx.raw(
+      `SELECT btrim(c6) AS folio FROM kepler_ods.kdm1
+        WHERE ${DOC(37)} AND c37::numeric = 35 AND btrim(c39) = ? AND btrim(c43) <> 'C' ORDER BY 1`, [s, f])).rows as Array<{ folio: string }>).map((v) => v.folio);
+    const h = hs[0];
+    if (!h || hs.length !== 1) return { entrada: { oc: null, coincidencias: hs.length, vales_vivos: vales }, referencia: null };
+    const rs = (await trx.raw(
+      `SELECT c7::int AS renglon, btrim(c8) AS sku, btrim(coalesce(c10, '')) AS nombre,
+              coalesce(nullif(btrim(c55::text), ''), btrim(coalesce(c11, ''))) AS unidad,
+              coalesce(c9, 0)::float8 AS cantidad_base, coalesce(c12, 0)::float8 AS costo_base, coalesce(c13, 0)::float8 AS importe,
+              coalesce(nullif(btrim(c17::text), ''), '0')::float8 AS iva, coalesce(c18, 0)::float8 AS ieps,
+              coalesce(c24, 0)::float8 AS pendiente, c31::float8 AS c31,
+              coalesce(btrim(c51::text), '') AS c51, coalesce(btrim(c56::text), '') AS c56,
+              coalesce(nullif(btrim(c58::text), ''), '1')::float8 AS factor
+         FROM kepler_ods.kdm2 WHERE ${DOC(35)} AND c5::numeric = ?::numeric AND btrim(c6) = ? ORDER BY c7::int`,
+      [s, String(h['serie']), f])).rows as Array<Record<string, unknown>>;
+    const renglones: RenglonOcKepler[] = rs.map((r) => ({
+      renglon: Number(r['renglon']), sku: String(r['sku'] ?? ''), nombre: String(r['nombre'] ?? ''), unidad: String(r['unidad'] ?? ''),
+      cantidad_base: Number(r['cantidad_base']), costo_base: Number(r['costo_base']), importe: Number(r['importe']),
+      iva: Number(r['iva']), ieps: Number(r['ieps']), pendiente: Number(r['pendiente']),
+      c31: r['c31'] === null || r['c31'] === undefined ? null : Number(r['c31']),
+      c51: String(r['c51'] ?? ''), c56: String(r['c56'] ?? ''), factor: Number(r['factor']),
+    }));
+    return {
+      referencia: (h['referencia'] as string | null) ?? null,
+      entrada: {
+        coincidencias: 1, vales_vivos: vales,
+        oc: {
+          serie: String(h['serie']), folio: String(h['folio']), estado: String(h['estado']), descuento: Number(h['descuento']),
+          iva: Number(h['iva']), ieps: Number(h['ieps']), total: Number(h['total']), saldo: Number(h['saldo']), renglones,
+        },
+      },
+    };
+  }
+
+  /** `[PQ.160]` Migración, interruptor y tope. Sin la tabla lanza 503 (`disponibleEdicion` lo vuelve «no disponible»). */
+  private async candadosEdicion(s: string, paraEditar: boolean): Promise<{ tenantId: string; bloqueo: { status: 409 | 503; porque: string } | null }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hoy = todayMx();
+    const suc = warehouseName(s);
+    const leido = await this.tk.run(async (trx) => {
+      if (!(await trx.raw(`SELECT to_regclass(?) AS t`, [TABLA_EDICION])).rows[0]?.t) {
+        throw new ServiceUnavailableException(`Editar OC todavía no está habilitado: falta aplicar la migración ${MIGRACION_PQ160}.`);
+      }
+      const sw = await trx('commercial.kepler_push_switch').where({ tenant_id: tenantId, sucursal: s, tipo: INTERRUPTOR_EDICION }).first();
+      const n = await trx(TABLA_EDICION)
+        .where({ tenant_id: tenantId, sucursal: s, estado: 'aplicada', origen: 'suite' }).whereNull('deleted_at')
+        .whereRaw(`(created_at AT TIME ZONE 'America/Mexico_City')::date = ?::date`, [hoy])
+        .count<{ n: string }[]>('* as n');
+      return { sw, hoyN: Number(n[0]?.n ?? 0) };
+    });
+    if (!leido.sw?.encendida) return { tenantId, bloqueo: { status: 503, porque: `Editar OC en Kepler está apagado para ${suc}: edítala en Kepler a mano` } };
+    const tope = leido.sw.tope_dia === null || leido.sw.tope_dia === undefined ? null : Number(leido.sw.tope_dia);
+    if (tope !== null && leido.hoyN >= tope) {
+      const dicho = paraEditar ? `ya editó hoy ${leido.hoyN} OC desde la Suite` : 'llegó hoy a su tope de ediciones desde la Suite';
+      return { tenantId, bloqueo: { status: 503, porque: `${suc} ${dicho} (tope ${tope}): edítala en Kepler a mano` } };
+    }
+    return { tenantId, bloqueo: null };
+  }
+
+  private aDtoEdicion(r: Record<string, unknown>): OcEdicionDto {
+    const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+    const cambios = typeof r['cambios'] === 'string' ? JSON.parse(r['cambios'] as string) : (r['cambios'] ?? []);
+    return {
+      sucursal: String(r['sucursal']), folio: String(r['oc_folio']), estado: r['estado'] as OcEdicionDto['estado'],
+      rechazo: (r['rechazo'] as string | null) ?? null, motivo: String(r['motivo'] ?? ''), cambios: cambios as OcEdicionDto['cambios'],
+      total_antes: num(r['total_antes']), total_despues: num(r['total_despues']),
+      editada_por: (r['created_by_username'] as string | null) ?? null, editada_en: new Date(r['created_at'] as string).toISOString(),
     };
   }
 

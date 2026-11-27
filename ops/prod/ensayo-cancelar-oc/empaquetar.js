@@ -32,8 +32,9 @@ esbuild.build({
   external: ['pg-native'],
   alias: {
     '@megadulces/platform-core': path.join(RAIZ, 'libs/platform-core/src/lib/kepler/kepler-servidor.ts'),
-    // La regla importa `OC_CANCELAR_MOTIVO_MIN` (2026-11-13): al archivo del contrato, no al barril.
-    '@megadulces/contracts': path.join(RAIZ, 'libs/contracts/src/http/oc-cancelacion.contract.ts'),
+    // La regla importa `OC_CANCELAR_MOTIVO_MIN` (2026-11-13) y, desde PQ.160, `OC_EDITAR_MOTIVO_MIN`: a los dos
+    // archivos del contrato (contracts-oc.ts), no al barril.
+    '@megadulces/contracts': path.join(__dirname, 'contracts-oc.ts'),
   },
   plugins: [{
     name: 'nest-minimo',

@@ -18,6 +18,7 @@ import {
   OC_NOTA_MAX, OC_SEGUIMIENTO_ESTATUS, OC_SEGUIMIENTO_LABEL, OC_SIN_REVISAR, OcSeguimientoEstatus,
   notaObligatoria, validarSeguimiento,
   OC_CANCELAR_MOTIVO_MIN, type OcCancelacionDisponibleDto, type OcCancelacionDto,
+  OC_EDITAR_MOTIVO_MIN, type OcEdicionDisponibleDto, type OcEdicionDto, type OcEdicionRenglonDto,
   anticiposDeOc, ETAPA_ANTICIPO_TEXTO, PERMISOS_PEDIR_ANTICIPO, type AnticipoSolicitadoRow, type EtapaSolicitudAnticipo,
 } from '@megadulces/contracts';
 import { PedirAnticipoDialogComponent } from '../../finanzas/components/pedir-anticipo-dialog.component';
@@ -469,6 +470,13 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
           }
 
           <div class="oa-pk-actions">
+            <!-- [PQ.160] Editar cantidades en Kepler: sólo si el servidor dice que se puede; si no, abajo dice por qué. -->
+            @if (canEditarOc && edInfo()?.disponible) {
+              <button pButton type="button" class="p-button-sm p-button-text" (click)="abrirEdicion(peekOrden()!)">
+                <span class="p-button-icon p-button-icon-left pi pi-sliders-h" aria-hidden="true"></span>
+                <span class="p-button-label">Editar cantidades</span>
+              </button>
+            }
             @if (puedeEditar()) {
               <button pButton type="button" class="p-button-sm p-button-text" (click)="abrirSeguimiento(peekOrden()!)">
                 <span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span>
@@ -491,6 +499,21 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
           <!-- [PQ.110] Cancelar en Kepler: acción destructiva, separada de las de todos los días y en
                --bad-fg. Sólo se ofrece si el servidor dice que se puede (interruptor, tope, regla de
                Kepler); si no, se dice por qué en vez de mostrar un botón que va a fallar. -->
+          @if (canEditarOc && edInfo(); as ei) {
+            @if (ei.ultima?.estado === 'aplicada') {
+              <p class="oa-pk-canc-msg oa-muted">
+                <span class="pi pi-sliders-h" aria-hidden="true"></span>
+                <span>Cantidades cambiadas en Kepler el {{ ei.ultima!.editada_en | date:'dd/MM/yy HH:mm' }} por {{ ei.ultima!.editada_por || 'alguien sin nombre registrado' }}
+                  ({{ money(ei.ultima!.total_antes) }} → {{ money(ei.ultima!.total_despues) }}): {{ ei.ultima!.motivo }}</span>
+              </p>
+            }
+            @if (!ei.disponible) {
+              <p class="oa-pk-canc-msg oa-muted">
+                <span class="pi pi-info-circle" aria-hidden="true"></span>
+                <span>Editar cantidades: {{ ei.porque }}</span>
+              </p>
+            }
+          }
           @if (canCancelar) {
             <div class="oa-pk-canc">
               @if (cancInfo(); as ci) {
@@ -522,6 +545,80 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
           }
         }
       </app-side-peek>
+
+      <!-- [PQ.160] Editar cantidades. Antes de guardar dice cuánto cambia el total y que la requisición NO cambia. -->
+      <p-dialog [visible]="!!edOrden()" (visibleChange)="$event ? null : cerrarEdicion()" [modal]="true"
+                [style]="{ width: '44rem' }" [breakpoints]="{ '720px': '95vw' }"
+                [dismissableMask]="!edEnviando()" [closable]="!edEnviando()" [closeOnEscape]="!edEnviando()"
+                [header]="edOrden() ? 'Editar cantidades · OC ' + edOrden()!.folio : ''">
+        @if (edOrden(); as o) {
+          <div class="oa-dlg">
+            @if (edResultado(); as r) {
+              @if (r.estado === 'aplicada') {
+                <p class="oa-canc-ok" role="status">
+                  <span class="pi pi-check-circle" aria-hidden="true"></span>
+                  <span>Kepler ya tiene las cantidades nuevas de la OC {{ o.folio }}: el total pasó de {{ money(r.total_antes) }} a {{ money(r.total_despues) }}.</span>
+                </p>
+                <p class="oa-dlg-hint">La lista y el detalle lo reflejan en unos segundos, cuando llega la réplica de Kepler.</p>
+              } @else {
+                <p class="oa-dlg-err" role="alert">Kepler no la cambió: {{ r.rechazo }}</p>
+                <p class="oa-dlg-hint">No se escribió nada en Kepler. El intento quedó registrado con tu motivo.</p>
+              }
+            } @else {
+              <p class="oa-dlg-sub">{{ o.proveedor || 'Sin proveedor' }} · {{ o.almacen | sucursal }}</p>
+              <div class="oa-ed-tabla">
+                <table class="oa-ed">
+                  <caption class="oa-sr">Cantidades de la orden {{ o.folio }}</caption>
+                  <thead>
+                    <tr><th scope="col">SKU</th><th scope="col">Producto</th><th scope="col" class="comm-num">Hoy</th>
+                      <th scope="col" class="comm-num">Nueva</th><th scope="col">Unidad</th><th scope="col" class="comm-num">Importe nuevo</th></tr>
+                  </thead>
+                  <tbody>
+                    @for (l of edRenglones(); track l.renglon) {
+                      <tr [class.oa-ed-cambia]="cambiaRenglon(l)">
+                        <td><span class="comm-code">{{ l.sku }}</span></td>
+                        <td>{{ l.nombre || '—' }}</td>
+                        <td class="comm-num">{{ l.cantidad | number:'1.0-4' }}</td>
+                        <td class="comm-num">
+                          <input pInputText type="number" class="oa-ed-in" min="0" step="any" inputmode="decimal"
+                                 [attr.aria-label]="'Cantidad nueva de ' + (l.nombre || l.sku) + ' en ' + l.unidad"
+                                 [disabled]="edEnviando()" [ngModel]="edCantidad(l)" (ngModelChange)="ponerCantidad(l, $event)" />
+                        </td>
+                        <td class="oa-muted">{{ l.unidad }}@if (l.factor !== 1) { <span> de {{ l.factor | number:'1.0-4' }}</span> }</td>
+                        <td class="comm-num">{{ money(importeNuevo(l)) }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <p class="oa-ed-total" aria-live="polite">
+                Total sin impuestos: {{ money(subtotalHoy()) }} → <b>{{ money(subtotalNuevo()) }}</b>
+                @if (subtotalNuevo() !== subtotalHoy()) { <span class="oa-muted">({{ subtotalNuevo() > subtotalHoy() ? '+' : '−' }}{{ money(abs(subtotalNuevo() - subtotalHoy())) }})</span> }
+              </p>
+              @if (edInfo()?.requisicion; as rq) {
+                <p class="oa-dlg-hint">La requisición {{ rq }} se queda con sus cantidades: la diferencia queda explicada con tu motivo.</p>
+              }
+              @if (edCantidadMala()) { <p class="oa-dlg-err" role="alert">Cada cantidad tiene que ser mayor que cero. Para quitar un renglón, edítala en Kepler.</p> }
+              <label class="oa-dlg-lbl" for="oa-ed-motivo">Por qué cambian las cantidades <span class="oa-req">(obligatorio)</span></label>
+              <textarea id="oa-ed-motivo" class="oa-dlg-nota" rows="2" maxlength="500" [disabled]="edEnviando()"
+                        [ngModel]="edMotivo()" (ngModelChange)="edMotivo.set($event)"
+                        placeholder="Por ejemplo: el proveedor confirma 12 cajas más por SKU."></textarea>
+              <p class="oa-dlg-hint">Al menos {{ edMotivoMin }} letras. Queda en la Suite junto a la orden, con tu nombre.</p>
+              @if (edError()) { <p class="oa-dlg-err" role="alert">{{ edError() }}</p> }
+            }
+          </div>
+        }
+        <ng-template #footer>
+          @if (edResultado()) {
+            <button pButton type="button" class="p-button-sm" (click)="cerrarEdicion()">Cerrar</button>
+          } @else {
+            <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [disabled]="edEnviando()" (click)="cerrarEdicion()">Volver</button>
+            <button pButton type="button" class="p-button-sm" [disabled]="edEnviando() || !edListo()" (click)="confirmarEdicion()">
+              {{ edEnviando() ? 'Guardando en Kepler…' : 'Guardar en Kepler' }}
+            </button>
+          }
+        </ng-template>
+      </p-dialog>
 
       <!-- [PQ.110] Confirmar la cancelación. Dice ANTES qué pasa en Kepler (la OC y su requisición);
            el motivo llega lleno con la nota de «No surtida / cancelada» cuando la hay. -->
@@ -762,6 +859,16 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
     .oa-pk-canc-msg { display: flex; gap: .45rem; align-items: flex-start; margin: .25rem 0; font-size: .8rem; line-height: 1.45; }
     .oa-pk-canc-msg .pi { margin-top: .15rem; font-size: var(--fs-xs); }
     .oa-canc-que { margin: 0 0 .35rem; font-size: .85rem; line-height: 1.5; }
+    /* [PQ.160] La tabla de cantidades: la columna «Nueva» es la única que se escribe; la fila que cambia se marca. */
+    .oa-ed-tabla { overflow-x: auto; max-height: 50vh; overflow-y: auto; }
+    .oa-ed { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    .oa-ed th { text-align: left; font-size: .7rem; font-weight: 600; color: var(--text-muted); padding: .3rem .4rem; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; background: var(--surface-card); }
+    .oa-ed td { padding: .3rem .4rem; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+    .oa-ed .comm-num { text-align: right; }
+    .oa-ed-in { width: 6.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+    .oa-ed-cambia td { background: color-mix(in oklab, var(--action) 8%, transparent); }
+    .oa-ed-total { margin: .4rem 0 0; font-size: .85rem; font-variant-numeric: tabular-nums; }
+    .oa-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .oa-canc-ok { display: flex; gap: .45rem; align-items: flex-start; margin: 0; font-size: .9rem; line-height: 1.5; }
     .oa-canc-ok .pi { color: var(--ok-fg); margin-top: .2rem; }
   `],
@@ -993,6 +1100,7 @@ export class ComprasOcAbiertasComponent implements OnInit {
         },
       });
     this.revisarCancelacion(o);
+    this.revisarEdicion(o);
   }
 
   // ── [PQ.110] Cancelar la OC en Kepler ────────────────────────────────────────────────────
@@ -1072,6 +1180,117 @@ export class ComprasOcAbiertasComponent implements OnInit {
         // Un 4xx/5xx del servidor trae su porqué. Sin respuesta NO se sabe si Kepler cambió: se dice así.
         this.cancError.set(e?.error?.message
           || 'No se pudo confirmar la cancelación. Vuelve a abrir la orden para ver si quedó cancelada en Kepler.');
+      },
+    });
+  }
+
+  // ── [PQ.160] Editar las cantidades en Kepler ────────────────────────────────────────────────
+  // Como cancelar: la regla vive en el servidor y la pantalla PREGUNTA antes de ofrecer el botón.
+  readonly canEditarOc = this.perms.has(Permission.COMPRAS_OC_EDITAR);
+  readonly edMotivoMin = OC_EDITAR_MOTIVO_MIN;
+  readonly edInfo = signal<OcEdicionDisponibleDto | null>(null);
+  private edInfoSub: Subscription | null = null;
+  readonly edOrden = signal<FilaOc | null>(null);
+  readonly edRenglones = signal<OcEdicionRenglonDto[]>([]);
+  /** Cantidad nueva por renglón; lo que no está aquí no cambia. */
+  readonly edNuevas = signal<ReadonlyMap<number, number | null>>(new Map());
+  readonly edMotivo = signal('');
+  readonly edError = signal<string | null>(null);
+  readonly edEnviando = signal(false);
+  readonly edResultado = signal<OcEdicionDto | null>(null);
+  readonly abs = Math.abs;
+
+  private revisarEdicion(o: FilaOc): void {
+    this.edInfo.set(null);
+    this.edInfoSub?.unsubscribe();
+    if (!this.canEditarOc) return;
+    this.edInfoSub = this.api.ocEdicion(o.almacen, o.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.edInfo.set(r),
+      // Sin respuesta no se ofrece el botón: no se dibuja uno que no se sabe si funciona.
+      error: () => this.edInfo.set(null),
+    });
+  }
+
+  abrirEdicion(o: FilaOc): void {
+    const info = this.edInfo();
+    if (!info?.disponible) return;
+    this.edOrden.set(o);
+    this.edRenglones.set(info.renglones);
+    this.edNuevas.set(new Map());
+    this.edMotivo.set('');
+    this.edError.set(null);
+    this.edResultado.set(null);
+  }
+
+  edCantidad(l: OcEdicionRenglonDto): number | null {
+    const m = this.edNuevas();
+    return m.has(l.renglon) ? (m.get(l.renglon) ?? null) : l.cantidad;
+  }
+  ponerCantidad(l: OcEdicionRenglonDto, v: unknown): void {
+    const n = v === '' || v === null || v === undefined ? null : Number(v);
+    this.edNuevas.update((m) => new Map(m).set(l.renglon, Number.isFinite(n as number) ? (n as number) : null));
+  }
+  cambiaRenglon(l: OcEdicionRenglonDto): boolean {
+    const n = this.edCantidad(l);
+    return n !== null && Math.round(n * 10000) !== Math.round(l.cantidad * 10000);
+  }
+  /** Como el servidor: cantidad base = presentación × empaque, importe = base × costo base (costo de la presentación / empaque). */
+  importeNuevo(l: OcEdicionRenglonDto): number {
+    const n = this.edCantidad(l);
+    if (n === null || !(n > 0)) return 0;
+    return Math.round(n * l.costo * 100) / 100;
+  }
+  // Métodos y no `computed`: la plantilla los llama y lee las señales igual (sigue reactiva), y la prueba los ejerce.
+  subtotalHoy(): number { return Math.round(this.edRenglones().reduce((s, l) => s + l.importe, 0) * 100) / 100; }
+  subtotalNuevo(): number {
+    return Math.round(this.edRenglones().reduce((s, l) => s + (this.cambiaRenglon(l) ? this.importeNuevo(l) : l.importe), 0) * 100) / 100;
+  }
+  edCantidadMala(): boolean {
+    for (const [, v] of this.edNuevas()) if (v === null || !(v > 0)) return true;
+    return false;
+  }
+  /** Sólo los renglones que cambian: lo que va al servidor. */
+  edCambios(): Array<{ renglon: number; cantidad: number }> {
+    return this.edRenglones().filter((l) => this.cambiaRenglon(l)).map((l) => ({ renglon: l.renglon, cantidad: this.edCantidad(l) as number }));
+  }
+  edListo(): boolean {
+    return this.edCambios().length > 0 && !this.edCantidadMala()
+      && this.edMotivo().replace(/\s+/g, ' ').trim().length >= OC_EDITAR_MOTIVO_MIN;
+  }
+
+  /** Mientras se envía no se cierra: la respuesta tardía no tendría dónde decir qué pasó en Kepler. */
+  cerrarEdicion(): void {
+    if (this.edEnviando()) return;
+    const aplicada = this.edResultado()?.estado === 'aplicada';
+    this.edOrden.set(null);
+    this.edResultado.set(null);
+    if (aplicada) {
+      const p = this.peekOrden();
+      if (p) this.abrirDetalle(p);
+      this.reload();
+    }
+  }
+
+  private edReq = 0;
+  confirmarEdicion(): void {
+    const o = this.edOrden();
+    if (!o || this.edEnviando() || !this.edListo()) return;
+    this.edEnviando.set(true);
+    this.edError.set(null);
+    const req = ++this.edReq;
+    this.api.editarOc(o.almacen, o.folio, this.edCambios(), this.edMotivo()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        if (req !== this.edReq) return;
+        this.edEnviando.set(false);
+        this.edResultado.set(r);
+        const p = this.peekOrden();
+        if (p && this.llaveOc(p) === this.llaveOc(o)) this.revisarEdicion(p);
+      },
+      error: (e) => {
+        if (req !== this.edReq) return;
+        this.edEnviando.set(false);
+        this.edError.set(e?.error?.message
+          || 'No se pudo confirmar el cambio. Vuelve a abrir la orden para ver si Kepler ya tiene las cantidades nuevas.');
       },
     });
   }
