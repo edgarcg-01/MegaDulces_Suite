@@ -5,7 +5,7 @@ import {
   WorkbookSkuSignals,
   validarSeguimiento, coberturaAutoabastoSql, coberturaAutoabasto,
   KEPLER_REQUISITION_SINK_PORT, type KeplerRequisitionSinkPort, type KeplerLineaResuelta,
-  type AutoabastoEnvioKepler,
+  type AutoabastoEnvioKepler, conImpuestos, tasaImpuestos,
 } from '@megadulces/contracts';
 
 /**
@@ -479,6 +479,9 @@ export interface RequisitionListRowDto {
   total_lines: number;
   total_units: number | string;
   total_cost: number | string;
+  /** `[PQ.162]` Compra: lo que se va a pagar (con IVA e IEPS) y renglones sin tasa. Traspaso o no medido: ausente/null. */
+  total_cost_ci?: number | null;
+  sin_tasa?: number | null;
   notes: string | null;
   created_at: Date | string;
   approved_at: Date | string | null;
@@ -527,6 +530,15 @@ export interface RequisitionVigenciaDto {
   vigente: boolean | null;
 }
 
+/** `[PQ.162]` Lo que la ficha de la requisición necesita de cada renglón para ponerle impuestos (y lo que le escribe). */
+interface RenglonCI {
+  sku: string;
+  final_qty: number | string;
+  line_cost: number | string;
+  imp?: number | null;
+  line_cost_ci?: number;
+}
+
 /** `[RQ.2]` Conteo por estado del universo filtrado — no de la página. */
 export interface RequisitionResumenDto {
   estado: string;
@@ -557,6 +569,13 @@ export interface RequisitionResumenDto {
   /** Monto y antigüedad de las que NO tienen documento en Kepler (error + sin empujar). */
   monto_sin_kepler: number;
   dias_max_sin_kepler: number;
+  /**
+   * `[PQ.162]` Los mismos montos como se PAGAN: compras con IVA e IEPS de la ficha de Kepler,
+   * traspasos al costo. `null` = sin la réplica de Kepler: no se midió, la pantalla lo dice.
+   */
+  monto_ci: number | null;
+  monto_mas_30_ci: number | null;
+  monto_sin_kepler_ci: number | null;
 }
 
 /** `[MT.6]` Pagina de requisiciones. */
@@ -2464,13 +2483,22 @@ export class CommercialReplenishmentService {
                  -- traspaso). NULL = sin canal medido. Unico por (almacen, proveedor): no multiplica.
                  rcw.via AS canal_via,
                  ${COV_ROW} AS cov_dias,
-                 ${colExpr} AS col_code, ${conFuera ? 'rp.fuera' : 'false'} AS fuera
+                 ${colExpr} AS col_code, ${conFuera ? 'rp.fuera' : 'false'} AS fuera,
+                 -- [PQ.162] La compra se paga CON impuestos (Edgar, 2026-11-27). La tasa es la de la
+                 -- ficha de Kepler de ESE almacen (kdii.c18 IVA, c19 IEPS, en negativo): la misma que el
+                 -- sink copia al renglon de la OC [PQ.21]. Formula de Kepler: total = importe x (1 +
+                 -- IVA/100 + IEPS/100), medida contra c16 en 3,381 de 3,381 OC sin descuento de
+                 -- encabezado (ago-nov 2026). Los almacenes RUTA no existen en Kepler: toman la de
+                 -- CEDIS, que es la misma en las 9 sucursales salvo 1 SKU. NULL = sin ficha: se declara.
+                 abs(COALESCE(kii.c18, k00.c18)) + abs(COALESCE(kii.c19, k00.c19)) AS imp
             FROM catalog.products pr
             JOIN ${rpSrc(vbfSrc)} rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
             LEFT JOIN catalog.suppliers spk ON spk.tenant_id = pr.tenant_id AND spk.id = pr.supplier_id
             LEFT JOIN kepler_ods.kdpv_prov_prod kpp
                    ON kpp.sucursal = w.code AND kpp.c1 = spk.code AND kpp.c2 = pr.sku AND kpp.c4 > 0
+            LEFT JOIN kepler_ods.kdii kii ON kii.sucursal = w.code AND kii.c1 = pr.sku
+            LEFT JOIN kepler_ods.kdii k00 ON k00.sucursal = '00' AND k00.c1 = pr.sku
             LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
             LEFT JOIN commercial.replenishment_channel rcw ON rcw.tenant_id = pr.tenant_id AND rcw.warehouse_id = rp.warehouse_id AND rcw.supplier_id = pr.supplier_id
             -- [RA-DYN.U7] fre es un CTE MATERIALIZED, no una subconsulta en linea, por la misma
@@ -2568,7 +2596,10 @@ export class CommercialReplenishmentService {
                  -- y el freno BAJA la razon, asi que el max tampoco la ve.
                  -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
                  min(b.season_ratio) FILTER (WHERE b.season_src = 'fin_pico') AS fp_ratio,
-                 bool_or(b.fuera) AS fuera
+                 bool_or(b.fuera) AS fuera,
+                 -- [PQ.162] max: en GENERAL la columna junta almacenes; la tasa es la misma salvo 1 SKU
+                 -- y el max no se queda corto (lo que se cuida es no pedir de mas).
+                 max(b.imp) AS imp
             FROM base b
            GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code
         ),
@@ -2584,7 +2615,7 @@ export class CommercialReplenishmentService {
                  -- almacenes) el valor de la sucursal barata sale inflado, y la suma no cuadra
                  -- contra pedido_valor, que el backend ya calcula celda por celda.
                  jsonb_object_agg(col_code, jsonb_strip_nulls(jsonb_build_object(
-                   'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran, 'cc', caja_cost,
+                   'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran, 'cc', caja_cost, 'imp', imp,
                    'mx', max_cjs_cell, 'rop', reorder_cjs_cell,
                    'trf', CASE WHEN traspaso THEN true END,
                    'sr', CASE WHEN sobre_reorden THEN true END,
@@ -2621,6 +2652,11 @@ export class CommercialReplenishmentService {
                  -- ⚠️ SIN BACKTICKS ACÁ: este comentario va dentro de un template literal de JS.
                  round(sum(ped)::numeric, 1) AS suma_pedido_cajas,
                  round(sum(ped * caja_cost)::numeric, 2) AS pedido_valor,
+                 -- [PQ.162] Lo que se va a PAGAR: el mismo pedido con IVA e IEPS de cada celda. Una
+                 -- celda sin tasa entra sin impuesto y se CUENTA en pedido_sin_tasa: no se esconde.
+                 round(sum(ped * caja_cost * (1 + COALESCE(imp, 0) / 100.0))::numeric, 2) AS pedido_valor_ci,
+                 count(*) FILTER (WHERE imp IS NULL AND ped > 0)::int AS pedido_sin_tasa,
+                 max(imp) AS imp,
                  count(*) FILTER (WHERE ped IS NULL)::int AS almacenes_sin_pedido,
                  round(sum(rev)::numeric, 2) AS valor_venta,
                  -- U.2 — el valuado publicado es Σ de los almacenes VERIFICADOS. Los marcados no se
@@ -2706,11 +2742,13 @@ export class CommercialReplenishmentService {
       //
       // NO SE INVENTA EL PATRON: `transferPlan` y `overstockList`, en este mismo archivo, ya
       // publican su `_total` / `_total_valor` exactamente asi.
-      const TOT_COLS = ['_c', '_total_pedido', '_total_venta', '_total_exis', '_total_venta_costo',
+      const TOT_COLS = ['_c', '_total_pedido', '_total_pedido_ci', '_pedido_sin_tasa', '_total_venta', '_total_exis', '_total_venta_costo',
         '_exis_sin_valuar_skus', '_exis_sin_valuar_celdas', '_exis_sin_valuar_arbitrado',
         '_freno_fin_pico', '_freno_temporada'] as const;
       const win = `, count(*) OVER ()::int AS _c,
                round(SUM(pedido_valor) OVER ()::numeric, 2)                              AS _total_pedido,
+               round(SUM(pedido_valor_ci) OVER ()::numeric, 2)                           AS _total_pedido_ci,
+               (COALESCE(SUM(pedido_sin_tasa) OVER (), 0))::int                          AS _pedido_sin_tasa,
                round(SUM(valor_venta) OVER ()::numeric, 2)                               AS _total_venta,
                round(SUM(valor_exis) OVER ()::numeric, 2)                                AS _total_exis,
                round(SUM(valor_vta_costo) OVER ()::numeric, 2)                           AS _total_venta_costo,
@@ -2747,6 +2785,7 @@ export class CommercialReplenishmentService {
         const totales = w0
           ? {
               c: w0._c, total_pedido: w0._total_pedido, total_venta: w0._total_venta,
+              total_pedido_ci: w0._total_pedido_ci, pedido_sin_tasa: w0._pedido_sin_tasa,
               total_exis: w0._total_exis, total_venta_costo: w0._total_venta_costo,
               exis_sin_valuar_skus: w0._exis_sin_valuar_skus,
               exis_sin_valuar_celdas: w0._exis_sin_valuar_celdas,
@@ -2755,6 +2794,8 @@ export class CommercialReplenishmentService {
             }
           : (await trx.raw(`SELECT count(*)::int c,
           round(SUM(pedido_valor)::numeric,2) total_pedido,
+          round(SUM(pedido_valor_ci)::numeric,2) total_pedido_ci,
+          COALESCE(SUM(pedido_sin_tasa), 0)::int pedido_sin_tasa,
           round(SUM(valor_venta)::numeric,2)  total_venta,
           round(SUM(valor_exis)::numeric,2)   total_exis,
           round(SUM(valor_vta_costo)::numeric,2) total_venta_costo,
@@ -2870,6 +2911,10 @@ export class CommercialReplenishmentService {
         agotados_con_venta: res.agotados ?? null,
         totals: {
           pedido: Number(tot?.total_pedido || 0),
+          /** `[PQ.162]` Lo mismo con IVA e IEPS de la ficha de Kepler: lo que se va a pagar. */
+          pedido_ci: Number(tot?.total_pedido_ci || 0),
+          /** `[PQ.162]` Celdas con pedido y SIN tasa en Kepler: entran sin impuesto y se declaran. */
+          pedido_sin_tasa: Number(tot?.pedido_sin_tasa || 0),
           venta: Number(tot?.total_venta || 0),
           exis: Number(tot?.total_exis || 0),
           /**
@@ -5007,6 +5052,8 @@ export class CommercialReplenishmentService {
       if (q.estado) { conds.push('r.estado = :est'); binds.est = q.estado; }
       if (q.source_type === 'supplier' || q.source_type === 'branch') { conds.push('r.source_type = :st'); binds.st = q.source_type; }
       const where = conds.join(' AND ');
+      // [PQ.162] Lo que se va a pagar por el lote (compras con impuestos, traspasos al costo).
+      const conKdii = await this.kdiiLista(trx);
       const inner = `
         SELECT COALESCE(r.batch_id, r.id)                                   AS lote,
                max(r.batch_folio)                                           AS batch_folio,
@@ -5017,6 +5064,7 @@ export class CommercialReplenishmentService {
                count(DISTINCT r.supplier_id) FILTER (WHERE r.supplier_id IS NOT NULL)::int AS proveedores,
                COALESCE(sum(r.total_lines), 0)::int                         AS renglones,
                COALESCE(sum(r.total_cost), 0)                               AS monto,
+               ${conKdii ? `COALESCE(sum(${CommercialReplenishmentService.SQL_MONTO_CI}), 0)` : 'NULL::numeric'} AS monto_ci,
                min(r.created_at)                                            AS created_at,
                floor(extract(epoch FROM now() - min(r.created_at)) / 86400)::int AS dias,
                -- El estado del LOTE no se inventa: si todos coinciden es ése, y si no, se DICE
@@ -5030,9 +5078,12 @@ export class CommercialReplenishmentService {
           LEFT JOIN identity.users u      ON u.id = r.created_by
           LEFT JOIN catalog.suppliers sup ON sup.tenant_id = r.tenant_id AND sup.id = r.supplier_id
           LEFT JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
+          LEFT JOIN (${this.sqlRequisicionCI(conKdii, ':t')}) ci ON ci.requisition_id = r.id
          WHERE ${where}
          GROUP BY COALESCE(r.batch_id, r.id)`;
-      const tot = (await trx.raw(`SELECT count(*)::int c FROM (${inner}) z`, binds)).rows[0];
+      // [PQ.162] El conteo no necesita los impuestos: se cuenta sin la subconsulta (cuesta ~137 ms).
+      const tot = (await trx.raw(`SELECT count(DISTINCT COALESCE(r.batch_id, r.id))::int c
+          FROM commercial.purchase_requisitions r WHERE ${where}`, binds)).rows[0];
       const rows = (await trx.raw(
         `${inner} ORDER BY min(r.created_at) DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
       // `[RQ.11]` CUÁNTOS LOTES DE VERDAD HAY. Sin esto la pantalla no puede distinguir
@@ -5046,6 +5097,46 @@ export class CommercialReplenishmentService {
           WHERE r.tenant_id = :t AND r.batch_id IS NOT NULL`, { t: tenantId })).rows[0];
       return { total: Number(tot?.c || 0), page, pageSize, rows, disponible: true, con_lote: Number(real?.c || 0) };
     });
+  }
+
+  /**
+   * `[PQ.162]` **Lo que se va a pagar por cada requisición de compra**, derivado al leer (nunca
+   * guardado): Σ `line_cost` × (1 + IVA% + IEPS%) con la ficha de Kepler (`kdii`) del almacén que la
+   * ordena, o la de CEDIS si ese almacén no tiene ficha — la misma regla que la ficha de la
+   * requisición y que el sink. Medido el 2026-11-27 contra el `c16` de las 406 requisiciones que la
+   * Suite escribió en Kepler: 388 a menos de $1; de las 18 restantes, 10 son documentos de Kepler
+   * cuyo SUBTOTAL ya no es el de la requisición (folio cruzado en 03, o vacío) y 8 tienen en Kepler
+   * una tasa que la ficha de hoy ya no trae (cambió después; para una compra nueva manda la de hoy).
+   *
+   * Los traspasos no se pagan: no salen aquí. `sin_tasa` cuenta renglones sin ficha (van sin impuesto).
+   * Sin la réplica (base de pruebas) devuelve cero filas, los montos `_ci` van null y la pantalla lo DECLARA.
+   * Cuesta ~137 ms sobre todas las requisiciones del tenant: se une sólo donde se SUMA (resumen y
+   * lotes); la página se pide por sus ids con `extra`.
+   */
+  private sqlRequisicionCI(conKdii: boolean, tenant: string, extra = ''): string {
+    if (!conKdii) return 'SELECT NULL::uuid AS requisition_id, NULL::numeric AS total_ci, NULL::int AS sin_tasa WHERE false';
+    return `SELECT l.requisition_id,
+               round(sum(l.line_cost * (1 + COALESCE(abs(COALESCE(k.c18, k0.c18)) + abs(COALESCE(k.c19, k0.c19)), 0) / 100.0)), 2) AS total_ci,
+               count(*) FILTER (WHERE k.c1 IS NULL AND k0.c1 IS NULL AND l.final_qty > 0)::int AS sin_tasa
+          FROM commercial.purchase_requisitions r0
+          JOIN commercial.purchase_requisition_lines l ON l.tenant_id = r0.tenant_id AND l.requisition_id = r0.id
+          JOIN catalog.products pr0 ON pr0.tenant_id = l.tenant_id AND pr0.id = l.product_id
+          LEFT JOIN commercial.warehouses w0 ON w0.tenant_id = r0.tenant_id AND w0.id = r0.warehouse_id
+          LEFT JOIN kepler_ods.kdii k  ON k.sucursal = w0.code AND k.c1 = pr0.sku
+          LEFT JOIN kepler_ods.kdii k0 ON k0.sucursal = '00' AND k0.c1 = pr0.sku
+         WHERE r0.tenant_id = ${tenant} AND r0.source_type <> 'branch'${extra}
+         GROUP BY l.requisition_id`;
+  }
+  /** `[PQ.162]` El monto de una requisición tal como se paga: compra con impuestos, traspaso al costo. */
+  private static readonly SQL_MONTO_CI = `CASE WHEN r.source_type = 'branch' THEN r.total_cost ELSE COALESCE(ci.total_ci, r.total_cost) END`;
+  /** `[PQ.162]` ¿Está la réplica de la ficha de Kepler? Se pregunta una vez por proceso. */
+  private rqKdii: boolean | null = null;
+  private async kdiiLista(trx: Knex.Transaction): Promise<boolean> {
+    if (this.rqKdii != null) return this.rqKdii;
+    try { this.rqKdii = !!(await trx.raw(`SELECT to_regclass('kepler_ods.kdii') IS NOT NULL AS t`)).rows?.[0]?.t; }
+    catch { this.rqKdii = false; }
+    if (!this.rqKdii) this.logger.warn('[PQ.162] sin kepler_ods.kdii: los montos de requisiciones se publican sin impuestos y lo dicen.');
+    return this.rqKdii;
   }
 
   /** `[RQ.8]` ¿Llegó la migración del lote? Se pregunta, no se asume (igual que `[RQ.1]`). */
@@ -5169,17 +5260,39 @@ export class CommercialReplenishmentService {
       const vig = await this.vigenciaDeRequisiciones(trx, tenantId, rows.map((r: any) => r.id));
       for (const r of rows as any[]) r.vigencia = vig.get(r.id) ?? null;
 
+      // `[PQ.162]` Lo que se va a pagar por cada compra de la página (con impuestos). Sólo sus ids:
+      // la subconsulta entera cuesta ~137 ms y aquí se pintan 50. Traspaso o sin réplica = null.
+      const conKdii = await this.kdiiLista(trx);
+      const filasCI = rows as unknown as Array<{ id: string; source_type?: string | null; total_cost_ci?: number | null; sin_tasa?: number | null }>;
+      const idsCompra = filasCI.filter((r) => r.source_type !== 'branch').map((r) => r.id);
+      if (conKdii && idsCompra.length) {
+        const ci = new Map<string, { total_ci: string; sin_tasa: number }>(
+          ((await trx.raw(this.sqlRequisicionCI(true, '?', ' AND r0.id = ANY(?)'), [tenantId, idsCompra])).rows as Array<{ requisition_id: string; total_ci: string; sin_tasa: number }>)
+            .map((x) => [String(x.requisition_id), x]));
+        for (const r of filasCI) {
+          const x = ci.get(String(r.id));
+          r.total_cost_ci = x ? Number(x.total_ci) : null;
+          r.sin_tasa = x ? Number(x.sin_tasa) : null;
+        }
+      }
+
       // `[RQ.2]` EL RESUMEN POR ESTADO, SOBRE TODO EL UNIVERSO (no sobre la pagina, y desde
       // `[RQ.16]` tampoco sobre el estado filtrado — ver arriba).
       // Es lo que faltaba para que alguien pueda ver que hay 610 esperando: la lista devolvia
       // un `total` y nada mas, y con el filtro por defecto en "todos los estados" las pendientes
       // quedaban mezcladas con las canceladas y las recibidas, 50 por pagina, ordenadas por
       // fecha — o sea que las mas viejas, que son las que importan, caian en la pagina 12.
+      // `[PQ.162]` El resumen suma lo que se va a pagar: une la subconsulta de impuestos (sólo aquí).
+      const MCI = CommercialReplenishmentService.SQL_MONTO_CI;
       const resumenRows = await baseResumen.clone().clearSelect().clearOrder()
+        .leftJoin(trx.raw(`(${this.sqlRequisicionCI(conKdii, '?')}) AS ci`, [tenantId]), 'ci.requisition_id', 'r.id')
         .groupBy('r.estado')
         .select('r.estado',
           trx.raw('count(*)::int AS n'),
           trx.raw('COALESCE(sum(r.total_cost), 0) AS monto'),
+          trx.raw(`COALESCE(sum(${MCI}), 0) AS monto_ci`),
+          trx.raw(`COALESCE(sum(${MCI}) FILTER (WHERE r.created_at < now() - interval '30 days'), 0) AS monto_mas_30_ci`),
+          trx.raw(`COALESCE(sum(${MCI}) FILTER (WHERE ${opc('kepler_folio')} IS NULL), 0) AS monto_sin_kepler_ci`),
           trx.raw(`COALESCE(max(floor(extract(epoch FROM now() - r.created_at) / 86400)), 0)::int AS dias_max`),
           trx.raw(`COALESCE(round(avg(floor(extract(epoch FROM now() - r.created_at) / 86400))), 0)::int AS dias_prom`),
           // `[RQ.2]` El corte de 30 días no es de gusto: es el escalón donde la medición cambia de
@@ -5206,6 +5319,10 @@ export class CommercialReplenishmentService {
         n_kepler: Number(x.n_kepler) || 0, n_kepler_error: Number(x.n_kepler_error) || 0, n_sin_empujar: Number(x.n_sin_empujar) || 0,
         n_kepler_apagado: Number(x.n_kepler_apagado) || 0,
         monto_sin_kepler: Number(x.monto_sin_kepler) || 0, dias_max_sin_kepler: Number(x.dias_max_sin_kepler) || 0,
+        // `[PQ.162]` Lo mismo, como se paga. Sin la réplica de Kepler no se miden: van null y se dice.
+        monto_ci: conKdii ? Number(x.monto_ci) || 0 : null,
+        monto_mas_30_ci: conKdii ? Number(x.monto_mas_30_ci) || 0 : null,
+        monto_sin_kepler_ci: conKdii ? Number(x.monto_sin_kepler_ci) || 0 : null,
       }));
       return { total: Number(totalRow?.c || 0), page, pageSize, rows, resumen };
     });
@@ -5593,6 +5710,7 @@ export class CommercialReplenishmentService {
         l.costo_hoy = hoy != null && hoy > 0 ? Number(hoy.toFixed(4)) : null;
         l.costo_movido = l.costo_hoy != null && cap > 0 ? Math.abs(cap - l.costo_hoy) > 0.01 * l.costo_hoy : null;
       }
+      const impuestos = await this.impuestosDeRequisicion(trx, header, lines as unknown as RenglonCI[]);
       const vig = (await this.vigenciaDeRequisiciones(trx, tenantId, [id])).get(id) ?? null;
       const dias = Math.floor((Date.now() - new Date(header.created_at).getTime()) / 86400000);
 
@@ -5658,13 +5776,53 @@ export class CommercialReplenishmentService {
       // Suite acaba de cancelar. Sin la migración 20261114120335 no hay columna, ni renglones que leer.
       const kepler_cancelacion = await leerCancelacionKeplerDeRequisicion(trx, tenantId, id);
       return {
-        ...header, lines, dias, vigencia: vig, bajadas, origen, lote,
+        ...header, lines, dias, vigencia: vig, bajadas, origen, lote, ...impuestos,
         purchase_order_id: po?.id ?? null, purchase_order_folio: po?.folio ?? null,
         oc_cancelada,
         en_kepler,
         kepler_cancelacion,
       };
     });
+  }
+
+  /**
+   * `[PQ.162]` **Lo que se va a pagar por una requisición de compra**: cada renglón con el IVA y el
+   * IEPS de la ficha de Kepler (`kdii.c18`/`c19`) del almacén que la ordena —la que el sink copia al
+   * renglón de la OC `[PQ.21]`—, o la de CEDIS si ese almacén no tiene ficha (la tasa es la misma en
+   * las 9 sucursales salvo 1 SKU). Escribe `imp` y `line_cost_ci` en cada renglón y devuelve el total.
+   *
+   * Un traspaso no se paga: no lleva impuestos (`total_cost_ci` = `null`). Un renglón sin ficha entra
+   * sin impuesto y se cuenta en `sin_tasa`. Si la réplica no está (base de pruebas) o falla, todo va
+   * `null`: la pantalla lo declara y muestra el monto sin impuestos, nunca uno inventado.
+   */
+  private async impuestosDeRequisicion(
+    trx: Knex.Transaction, header: { source_type?: string | null; warehouse_code?: string | null }, lines: RenglonCI[],
+  ): Promise<{ total_cost_ci: number | null; sin_tasa: number | null }> {
+    const nada = { total_cost_ci: null, sin_tasa: null };
+    if (header.source_type === 'branch' || !lines.length) return nada;
+    try {
+      if (!(await trx.raw(`SELECT to_regclass('kepler_ods.kdii') AS t`)).rows[0]?.t) return nada;
+      const suc = String(header.warehouse_code ?? '').trim() || '00';
+      const skus = [...new Set(lines.map((l) => String(l.sku)))];
+      // Savepoint: un error aquí no puede abortar la transacción de la ficha.
+      const rows = await trx.transaction(async (sp) => (await sp.raw(
+        `SELECT c1 AS sku, sucursal, c18, c19 FROM kepler_ods.kdii WHERE c1 = ANY(?) AND sucursal IN (?, '00')`,
+        [skus, suc])).rows as Array<{ sku: string; sucursal: string; c18: string | null; c19: string | null }>);
+      const propia = new Map<string, number | null>(), cedis = new Map<string, number | null>();
+      for (const r of rows) (r.sucursal === suc ? propia : cedis).set(r.sku, tasaImpuestos(r.c18, r.c19));
+      let total = 0, sinTasa = 0;
+      for (const l of lines) {
+        const imp = propia.get(String(l.sku)) ?? cedis.get(String(l.sku)) ?? null;
+        if (imp == null && Number(l.final_qty) > 0) sinTasa++;
+        l.imp = imp;
+        l.line_cost_ci = conImpuestos(Number(l.line_cost) || 0, imp);
+        total += l.line_cost_ci;
+      }
+      return { total_cost_ci: Math.round(total * 100) / 100, sin_tasa: sinTasa };
+    } catch (e) {
+      this.logger.warn(`[PQ.162] impuestos de la requisición no medidos: ${(e as Error).message}`);
+      return nada;
+    }
   }
 
   /**

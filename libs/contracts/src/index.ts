@@ -137,6 +137,8 @@ export * from './http/autoabasto-mesa.contract';
 export * from './http/cantidad-pedido.contract';
 // [AB.PM.2] El pedido a mano: el alcance del renglón y cómo se parte al mandarlo.
 export * from './http/autoabasto-captura.contract';
+// [PQ.162] Una compra se muestra con impuestos desde el pedido: la fórmula de Kepler.
+export * from './http/impuestos-compra.contract';
 export * from './http/warehouse-locations.contract';
 export * from './http/warehouse-fixtures.contract';
 export * from './http/warehouse-retiro.contract';
