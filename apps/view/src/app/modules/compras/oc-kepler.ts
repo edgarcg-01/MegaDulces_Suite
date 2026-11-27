@@ -26,13 +26,18 @@ export type RenglonOc = OcRenglonDto;
  * y el PDF muestra la cantidad en su unidad con las cajas "sin verificar" — nunca un número
  * de cajas inventado (CLAUDE.md: nunca adivinar una unidad).
  */
-export function cajasDeRenglon(r: Pick<RenglonOc, 'cantidad' | 'unidades_por_caja' | 'costo_unitario' | 'costo_caja'>): number | null {
+export function cajasDeRenglon(r: Pick<RenglonOc, 'cantidad' | 'unidades_por_caja' | 'costo_unitario' | 'costo_caja'> & { unidad?: string | null }): number | null {
   const upc = Number(r.unidades_por_caja);
   const cu = Number(r.costo_unitario);
   const cc = Number(r.costo_caja);
   const cant = Number(r.cantidad);
   // Cantidad negativa (ajuste/devolución capturado como OC): no hay cajas que mostrar.
-  if (!(upc > 0) || !(cu > 0) || !(cc > 0) || !Number.isFinite(cant) || cant < 0) return null;
+  if (!Number.isFinite(cant) || cant < 0) return null;
+  // [PQ.168] Un renglón capturado EN CAJAS (unidad CJA) ya son cajas: su factor es 1 y la regla de
+  // [PQ.82] lo descartaba, así que el total de la OC 00-0007511 decía «15 renglón(es) sin cajas
+  // verificadas» con las 15 en «cja». Medido el 2026-11-27: 4,166 renglones de OC en CJA, TODOS con factor 1.
+  if (String(r.unidad ?? '').trim().toUpperCase() === 'CJA') return cant;
+  if (!(upc > 0) || !(cu > 0) || !(cc > 0)) return null;
   // [PQ.82] un factor de 1 no es una caja: es la misma unidad del renglón
   if (upc === 1) return null;
   if (Math.abs(cc - cu * upc) > 0.01 * cc) return null;
@@ -130,7 +135,7 @@ export function totalesOc(
  * cajas»). Suma sólo las cajas VERIFICADAS por costo (`cajasDeRenglon`); los renglones que no se pueden
  * convertir no se suman ni se dibujan como cero: se cuentan y se dicen («120 cj + 2 renglón(es) sin verificar»).
  */
-export function textoTotalCajasOc(lineas: Pick<RenglonOc, 'cantidad' | 'unidades_por_caja' | 'costo_unitario' | 'costo_caja'>[]): string {
+export function textoTotalCajasOc(lineas: (Pick<RenglonOc, 'cantidad' | 'unidades_por_caja' | 'costo_unitario' | 'costo_caja'> & { unidad?: string | null })[]): string {
   let cajas = 0, sinVerificar = 0;
   for (const l of lineas) {
     const c = cajasDeRenglon(l);

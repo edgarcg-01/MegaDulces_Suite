@@ -406,7 +406,8 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
   kpiItems(r: RequisitionDetail): MetricStripItem[] {
     const fmtDate = (d: any) => d ? new Date(d).toLocaleString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
     const items: MetricStripItem[] = [
-      { label: 'Unidades', value: r.total_units },
+      // [PQ.168] Son CAJAS: total_units = Σ final_qty, medido en 3,349 de 3,349 requisiciones de 60 días.
+      { label: 'Cajas', value: r.total_units },
       // `[PQ.23]` Sin impuestos: Kepler suma IVA e IEPS al total del documento (RQ-2026-01601:
       // $787,585 aquí, $850,496.05 en Kepler). Sin decirlo, las dos cifras parecen no cuadrar.
       // `[PQ.162]` Una compra se paga con impuestos (Edgar, 2026-11-27): eso es lo que se aprueba. El
