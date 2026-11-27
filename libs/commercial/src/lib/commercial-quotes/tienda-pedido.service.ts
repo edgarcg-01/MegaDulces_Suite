@@ -39,6 +39,9 @@ export interface RegistroPedidoTienda {
   kepler_folio?: string;
 }
 
+/** De qué tienda vino. La columna `origen` existe para no migrar al segundo; hoy hay una. */
+const ORIGEN_TIENDA = 'wix';
+
 @Injectable()
 export class TiendaPedidoService {
   private readonly logger = new Logger(TiendaPedidoService.name);
@@ -128,6 +131,79 @@ export class TiendaPedidoService {
   }
 
   private async registrarAhora(pedido: PedidoTienda): Promise<RegistroPedidoTienda> {
+    const r = await this.decidir(pedido);
+    await this.anotar(pedido, r);
+    return r;
+  }
+
+  /**
+   * `[COT.7.50]` **El libro de lo que la tienda entregó, haya entrado o no.**
+   *
+   * ⛔⛔ Sin esta fila, un pedido **pagado** que no se puede armar vuelve a Wix como recibido y no
+   * deja rastro en ningún lado: nadie puede rescatar la venta, y una pantalla que mire sólo las
+   * cotizaciones va a ver **cero rechazos**, que es indistinguible de «todo entró bien».
+   *
+   * `ya_estaba` se anota como `creado` subiendo `entregas`: el pedido está creado, lo que se repitió
+   * es la entrega del aviso.
+   *
+   * ⚠️ **Falla ABIERTO a propósito**, y es una concesión con nombre: si el libro no se puede
+   * escribir, el pedido igual se contesta. Preferir lo contrario haría que Wix reintentara un
+   * pedido ya creado por un problema de bitácora. Cuando falla, queda un `error` que lo dice.
+   */
+  private async anotar(pedido: PedidoTienda, r: RegistroPedidoTienda): Promise<void> {
+    const numero = (pedido?.numero ?? '').trim();
+    if (!numero) return;
+    const estado = r.estado === 'rechazado' ? 'rechazado' : 'creado';
+    // La restricción `store_orders_creado_ck` no admite un «creado» sin cotización: si no la hay,
+    // esto NO es un creado, por más que el flujo haya llegado hasta acá.
+    if (estado === 'creado' && !r.quote_id) {
+      this.logger.error(`Pedido ${numero}: estado ${r.estado} sin cotización, no se anota (sería una fila que miente).`);
+      return;
+    }
+    const tenantId = this.tenantCtx.requireTenantId();
+    try {
+      await this.tk.run(async (k) => {
+        await k('commercial.store_orders')
+          .insert({
+            tenant_id: tenantId,
+            origen: ORIGEN_TIENDA,
+            numero,
+            estado,
+            motivo: r.motivo ?? null,
+            quote_id: r.quote_id ?? null,
+            quote_code: r.quote_code ?? null,
+            kepler_sucursal: r.kepler_sucursal ?? null,
+            kepler_folio: r.kepler_folio ?? null,
+            pago: pedido.pago ?? null,
+            estatus_tienda: pedido.estado ?? null,
+            comprador: pedido.comprador ?? null,
+            renglones: Array.isArray(pedido.renglones) ? pedido.renglones.length : null,
+            carga: JSON.stringify(pedido),
+          })
+          .onConflict(['tenant_id', 'origen', 'numero'])
+          .merge({
+            estado,
+            motivo: r.motivo ?? null,
+            quote_id: r.quote_id ?? null,
+            quote_code: r.quote_code ?? null,
+            kepler_sucursal: r.kepler_sucursal ?? null,
+            kepler_folio: r.kepler_folio ?? null,
+            pago: pedido.pago ?? null,
+            estatus_tienda: pedido.estado ?? null,
+            comprador: pedido.comprador ?? null,
+            renglones: Array.isArray(pedido.renglones) ? pedido.renglones.length : null,
+            carga: JSON.stringify(pedido),
+            entregas: k.raw('store_orders.entregas + 1'),
+            updated_at: k.fn.now(),
+          });
+      });
+    } catch (e) {
+      const motivo = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Pedido ${numero}: NO se pudo anotar en commercial.store_orders (${estado}): ${motivo}`);
+    }
+  }
+
+  private async decidir(pedido: PedidoTienda): Promise<RegistroPedidoTienda> {
     this.tenantCtx.requireTenantId();
     const numero = (pedido?.numero ?? '').trim();
     if (!numero) throw new BadRequestException('El pedido de la tienda no trae número.');

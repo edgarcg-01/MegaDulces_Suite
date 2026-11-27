@@ -10381,9 +10381,54 @@ más) — PR aparte para no volver ilegible el diff.
     los 3 pedidos recientes son variantes que `[CV.30]` marcó OCULTAR/RETIRAR y **siguen a la
     venta** — se arregla en la tienda, no en el código. ⚠️ **Y el volumen es chico:** ~4 pedidos
     pagados al mes. Automatizar acá vale por el error que quita, no por las horas.
+  - ⭐⭐ **Medido en PROD el 2026-11-27: el webhook ya está vivo y falla cerrado.**
+    `POST /api/webhooks/tienda/pedido` sin token contesta **503**, que es exactamente lo que el
+    diseño manda cuando falta `TIENDA_WEBHOOK_TOKEN` — **no un 404** (la ruta existe y está
+    registrada) ni un 403 (el secreto no está puesto). La prueba negativa del fallo-cerrado quedó
+    ejercida **contra producción**, no contra un doble. `/api/health` sirve `38b164095`.
+  - ✅ **Construido el 2026-11-27 — el libro: `commercial.store_orders`** (migración
+    `20261127081647`, 8 pruebas nuevas; la suite del servicio pasa de 14 a **22**).
+    - ⛔⛔ **Por qué tiene que entrar ANTES de que Edgar encienda el disparo.** Hoy un pedido que
+      **no se puede armar** vuelve a Wix como recibido (200, a propósito) y **no deja rastro en
+      ningún lado**: ni fila, ni cotización, ni nada que una persona pueda encontrar después.
+      **El cliente ya pagó.** Sin la tabla, el primer rechazo se pierde para siempre y una
+      pantalla que mire sólo las cotizaciones va a ver **cero rechazos** — indistinguible de
+      «todo entró bien». Es el caso de `finance.cash_ledger_cut_denominations` otra vez.
+    - **Una fila por `(tenant_id, origen, numero)`**, con el pedido **ya mapeado** en `carga` para
+      poder rescatarlo a mano sin volver a Wix, y `entregas` contando cuántas veces llegó el mismo
+      aviso. Un reintento **sube el contador**, no crea un pedido más.
+    - ⭐ **La tabla no puede guardar una fila que mienta**, y eso es restricción, no disciplina:
+      `store_orders_motivo_ck` prohíbe un rechazo **sin motivo** y `store_orders_creado_ck` un
+      «creado» **sin cotización**. El servicio tiene la misma guarda antes de escribir.
+    - ⛔ **NO hay columna de total.** El mapeo no trae un total medido y sumar `precio × cantidad`
+      lo inventaría (ignora envío y descuentos). Cada `precio_tienda` vive dentro de `carga`.
+    - ⚠️ **Falla ABIERTO, declarado:** si el libro no se puede escribir, el pedido igual se
+      contesta —preferir lo contrario haría a Wix reintentar un pedido ya creado por un problema
+      de bitácora—. Queda un `error` en el registro que lo dice.
+    - ⚠️ **Y esto NO es el candado contra duplicados:** ése sigue siendo `yaEntro()` contra
+      `commercial.quotes`, que es lo que de verdad no puede duplicarse. Esta tabla es el libro.
+    - ⚠️ **NO MEDIDO:** una entrega que muere **antes** de decidir no deja fila. Ese caso contesta
+      5xx y Wix reintenta, así que el rastro queda en el reintento.
+    - **Pruebas negativas, las dos ejercidas:** al dejar de anotar los rechazos caen exactamente
+      las dos pruebas del rastro; al quitar la guarda de la fila que miente cae exactamente la
+      suya. Al restaurar, **22 verdes**. `tsc --noEmit` sobre `libs/commercial`: **0 errores
+      propios**.
+    - ⭐ **La migración se EJERCIÓ, no sólo se escribió** — en un Postgres efímero propio
+      (`system_identifier=7712858253629286080`, verificado **distinto** del de prod
+      `7688376744939610156` antes de tocar nada): `up` · `up` otra vez **sin cambiar el esquema**
+      (19 columnas, 3 CHECK, 4 índices, RLS on/forced, `app_runtime` con SELECT/INSERT/UPDATE) ·
+      las tres restricciones rechazando sus tres filas mentirosas **con control positivo** (las 2
+      filas legítimas sí entran) · el upsert subiendo `entregas` de 1 a 2 **sin duplicar** · RLS
+      aislando al leer y al escribir · `down` dejando la tabla sin rastro.
+    - ⛔ **El primer rojo del RLS era el INSTRUMENTO, no la política:** medí como `postgres`, que
+      es superusuario, y a un superusuario **RLS nunca lo alcanza** —ni con `FORCE`—. Rehecho con
+      `app_runtime` y control positivo (el tenant propio ve sus 2) dio verde. *Un rojo también se
+      audita antes de publicarse.*
+    - ⛔ **Generada y probada, NO aplicada.** No toca prod sin que Edgar lo autorice.
   - **Falta:** **registrar el disparo en Wix** (automatización del panel u App OAuth: de Edgar) ·
-    `TIENDA_WEBHOOK_TOKEN` como secreto de k3s · el adaptador de `EmpujeTienda` con la llave ·
-    y C3, ver el folio y ver el pedido que no pudo armarse con su porqué.
+    `TIENDA_WEBHOOK_TOKEN` como secreto de k3s · aplicar `20261127081647` en prod · el adaptador
+    de `EmpujeTienda` con la llave · y C3, la pantalla que muestre el libro (sobre todo los
+    rechazados, que son ventas pagadas esperando rescate).
   - ⚠️ **Contra el cupo:** 10 fases 🔨 contra un tope de 4. Por eso esto entra como **item de COT.7**,
     no como fase nueva.
 

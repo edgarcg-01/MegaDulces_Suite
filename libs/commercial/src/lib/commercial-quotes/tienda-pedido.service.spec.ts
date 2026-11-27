@@ -34,8 +34,15 @@ function armar(opciones: {
   previo?: { id: string; code: string; kepler_folio: string | null } | null;
   escaleras?: Map<string, unknown>;
   enviarFalla?: string;
+  /** El libro revienta (base caída, permiso faltante): el pedido igual se tiene que contestar. */
+  libroFalla?: string;
 } = {}) {
-  const llamadas = { create: [] as unknown[], enviar: [] as string[] };
+  const llamadas = {
+    create: [] as unknown[],
+    enviar: [] as string[],
+    /** Lo que se escribió en `commercial.store_orders`: `{ tabla, fila, merge }`. */
+    anotado: [] as { tabla: string; fila: Record<string, unknown>; merge?: Record<string, unknown> }[],
+  };
   const fila = opciones.previo ?? undefined;
   // knex de mentira, explícito: cada método de la cadena devuelve el constructor,
   // y `first()` resuelve la fila (o `undefined` si no hay pedido previo).
@@ -44,7 +51,26 @@ function armar(opciones: {
     constructor[m] = () => constructor;
   }
   constructor['first'] = async () => fila;
-  const knex = (() => constructor) as unknown;
+  let tabla = '';
+  constructor['insert'] = (f: unknown) => {
+    if (opciones.libroFalla) throw new Error(opciones.libroFalla);
+    const anotacion = { tabla, fila: f as Record<string, unknown> };
+    llamadas.anotado.push(anotacion);
+    return {
+      onConflict: () => ({
+        merge: async (upd: unknown) => {
+          anotacion.merge = upd as Record<string, unknown>;
+        },
+      }),
+    };
+  };
+  const knex = Object.assign(
+    (t: string) => {
+      tabla = t;
+      return constructor;
+    },
+    { raw: (sql: string) => ({ __raw: sql }), fn: { now: () => ({ __raw: 'now()' }) } },
+  ) as unknown;
   const tk = { run: async (fn: (k: unknown) => unknown) => await fn(knex) };
   const svc = new TiendaPedidoService(
     tk as never,
@@ -175,5 +201,93 @@ describe('[COT.7.50] ⛔⛔ dos entregas del MISMO aviso a la vez no son dos ped
     const { svc, llamadas } = armar();
     await Promise.all([svc.registrar(pedido()), svc.registrar(pedido({ numero: '11224' }))]);
     expect(llamadas.create).toHaveLength(2);
+  });
+});
+
+describe('[COT.7.50] ⛔⛔ el libro: un pedido que NO entró tiene que dejar rastro', () => {
+  /** La anotación en `commercial.store_orders`, que es la única fila que esto escribe. */
+  const libro = (llamadas: { anotado: { tabla: string; fila: Record<string, unknown>; merge?: Record<string, unknown> }[] }) => {
+    expect(llamadas.anotado).toHaveLength(1);
+    expect(llamadas.anotado[0].tabla).toBe('commercial.store_orders');
+    return llamadas.anotado[0];
+  };
+
+  it('⭐⭐ un pedido RECHAZADO deja fila, con su motivo: sin esto el cliente pagó y nadie se entera', async () => {
+    const { svc, llamadas } = armar();
+    const r = await svc.registrar(pedido({ renglones: [{ sku: '99999', cantidad: 1, presentacion: 'Paquete', precio_tienda: 1, nombre: null }] }));
+    expect(r.estado).toBe('rechazado');
+    const { fila } = libro(llamadas);
+    expect(fila['estado']).toBe('rechazado');
+    expect(fila['numero']).toBe('11222');
+    expect(String(fila['motivo'])).toContain('99999');
+    expect(fila['quote_id']).toBeNull();
+  });
+
+  it('⭐ y la carga guardada alcanza para rescatarlo a mano, sin volver a Wix', async () => {
+    const { svc, llamadas } = armar();
+    await svc.registrar(pedido({ renglones: [{ sku: '99999', cantidad: 7, presentacion: 'Caja', precio_tienda: 310.5, nombre: 'PALETA' }] }));
+    const { fila } = libro(llamadas);
+    const carga = JSON.parse(String(fila['carga']));
+    expect(carga.renglones).toEqual([{ sku: '99999', cantidad: 7, presentacion: 'Caja', precio_tienda: 310.5, nombre: 'PALETA' }]);
+    expect(carga.comprador).toBe('Comprador De Prueba');
+    expect(fila['renglones']).toBe(1);
+    expect(fila['pago']).toBe('PAID');
+    expect(fila['estatus_tienda']).toBe('APPROVED');
+  });
+
+  it('un pedido que SÍ entró queda como `creado`, con su cotización y su folio', async () => {
+    const { svc, llamadas } = armar();
+    await svc.registrar(pedido());
+    const { fila } = libro(llamadas);
+    expect(fila['estado']).toBe('creado');
+    expect(fila['quote_id']).toBe('q-1');
+    expect(fila['quote_code']).toBe('COT-2026-99999');
+    expect(fila['kepler_folio']).toBe('0004360');
+    expect(fila['origen']).toBe('wix');
+    expect(fila['tenant_id']).toBe('t1');
+  });
+
+  it('la cotización creada con Kepler caído queda `creado` CON el motivo: el hueco se declara', async () => {
+    const { svc, llamadas } = armar({ enviarFalla: 'el interruptor de Kepler está apagado' });
+    await svc.registrar(pedido());
+    const { fila } = libro(llamadas);
+    expect(fila['estado']).toBe('creado');
+    expect(String(fila['motivo'])).toContain('interruptor');
+    expect(fila['kepler_folio']).toBeNull();
+  });
+
+  it('⭐ la MISMA entrega otra vez no es un pedido más: sube `entregas` sobre la misma llave', async () => {
+    const { svc, llamadas } = armar({ previo: { id: 'q-0', code: 'COT-2026-00828', kepler_folio: '0004359' } });
+    const r = await svc.registrar(pedido());
+    expect(r.estado).toBe('ya_estaba');
+    const { fila, merge } = libro(llamadas);
+    // `ya_estaba` es una entrega repetida de un pedido que SÍ está creado: así se anota.
+    expect(fila['estado']).toBe('creado');
+    expect(fila['quote_code']).toBe('COT-2026-00828');
+    expect(merge?.['entregas']).toEqual({ __raw: 'store_orders.entregas + 1' });
+  });
+
+  it('⛔ PRUEBA NEGATIVA: un «creado» SIN cotización no se anota — la fila mentiría', async () => {
+    const { svc, llamadas } = armar();
+    // El único camino que devuelve `creado` sin cotización no existe hoy; se fuerza para probar
+    // que la guarda está, porque `store_orders_creado_ck` lo rechazaría en la base igualmente.
+    const anotar = (svc as unknown as { anotar: (p: unknown, r: unknown) => Promise<void> }).anotar.bind(svc);
+    await anotar(pedido(), { estado: 'creado' });
+    expect(llamadas.anotado).toHaveLength(0);
+  });
+
+  it('⛔ si el LIBRO falla, el pedido igual se contesta (falla abierto, declarado)', async () => {
+    const { svc, llamadas } = armar({ libroFalla: 'permission denied for table store_orders' });
+    const r = await svc.registrar(pedido());
+    expect(r.estado).toBe('creado');
+    expect(r.quote_code).toBe('COT-2026-99999');
+    expect(llamadas.anotado).toHaveLength(0);
+  });
+
+  it('sin número no hay llave: no se anota nada suelto', async () => {
+    const { svc, llamadas } = armar();
+    const anotar = (svc as unknown as { anotar: (p: unknown, r: unknown) => Promise<void> }).anotar.bind(svc);
+    await anotar(pedido({ numero: '  ' }), { estado: 'rechazado', motivo: 'x' });
+    expect(llamadas.anotado).toHaveLength(0);
   });
 });
