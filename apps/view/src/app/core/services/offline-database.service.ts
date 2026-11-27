@@ -144,6 +144,13 @@ export interface InventoryScanPending {
   product_id: string | null;
   barcode: string | null;
   quantity: number;
+  /**
+   * `[IC.F24]` La unidad que la persona declaró al contar (`PAQ`, `CJA`, `PZA`…). Viaja con
+   * el escaneo para que un conteo hecho SIN RED llegue con su unidad y no se normalice mal
+   * al sincronizar. `null` = no se declaró; el servidor usa la del código que trae el SKU.
+   * No va indexada, así que Dexie no necesita subir de versión.
+   */
+  unit?: string | null;
   capture_pass: number;
   client_ts: string;
   sincronizado: boolean;

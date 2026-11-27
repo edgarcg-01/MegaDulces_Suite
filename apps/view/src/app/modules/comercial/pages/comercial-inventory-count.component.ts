@@ -31,6 +31,12 @@ import type { InventoryScanPending } from '../../../core/services/offline-databa
  */
 type ProductoResuelto = ResolvedProduct & { category_name?: string | null };
 
+/** `[IC.F24]` Una opción del selector de unidad, ya con su texto armado. */
+interface OpcionDeUnidad {
+  unit: string;
+  etiqueta: string;
+}
+
 interface FeedEntry {
   sku: string | null;
   name: string | null;
@@ -220,6 +226,36 @@ interface FeedEntry {
               }
             }
 
+            <!--
+              [IC.F24] EN QUE UNIDAD se cuenta, antes de teclear el numero.
+              El teorico del folio esta en la unidad nativa del almacen, y hasta hoy la pantalla
+              no la nombraba: el campo decia «Cantidad fisica» a secas. Medido en prod: 2,596 de
+              3,364 articulos (77 %) tienen un factor de 12 o mas, asi que contar cajas donde el
+              sistema espera paquetes equivoca la varianza por el factor.
+              El valor por defecto es el del codigo que viene con el SKU (is_primary, que son
+              todos kepler_base con factor 1). El selector solo aparece cuando hay mas de una.
+            -->
+            @if (resolved()) {
+              @if (opcionesDeUnidad().length > 1) {
+                <label class="ic-label" for="ic-unidad">Unidad</label>
+                <p-select
+                  inputId="ic-unidad"
+                  [options]="opcionesDeUnidad()"
+                  [(ngModel)]="unidad"
+                  optionLabel="etiqueta"
+                  optionValue="unit"
+                  styleClass="ic-unidad"
+                ></p-select>
+              } @else if (unidad()) {
+                <p class="ic-unidad-fija">Se cuenta en <strong>{{ unidad() }}</strong>.</p>
+              } @else {
+                <p class="ic-unidad-fija ic-unidad-falta">
+                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                  Este producto no tiene unidad en el catálogo. Cuenta como venga y avisa al supervisor.
+                </p>
+              }
+            }
+
             <label class="ic-label" for="ic-qty">Cantidad física</label>
             <p-inputnumber
               #qtyInput
@@ -320,6 +356,13 @@ interface FeedEntry {
     /* Captura — tarjeta activa (lo que el contador mira en bucle). */
     .ic-capture { display: flex; flex-direction: column; gap: .35rem; margin-bottom: 1.5rem; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #E4E4E7); border-radius: var(--r-lg, 16px); padding: 1rem 1rem 1.15rem; }
     .ic-label { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted, #52525B); text-transform: uppercase; letter-spacing: .04em; margin-top: .5rem; }
+    /*
+      [IC.F24] La unidad, pegada al campo de cantidad. Cuando hay una sola no se gasta un
+      selector: se dice en una linea. Cuando no hay ninguna se avisa, que es distinto de callar.
+    */
+    .ic-unidad-fija { margin: .35rem 0 0; font-size: var(--fs-sm); color: var(--text-muted, #52525B); }
+    .ic-unidad-falta { color: var(--warn-soft-fg); display: flex; gap: .4rem; align-items: baseline; }
+    :host ::ng-deep .ic-unidad { width: 100%; }
     .ic-label:first-child { margin-top: 0; }
     .ic-code-row { display: flex; gap: .5rem; align-items: stretch; }
     .ic-code-row .ic-input-code { flex: 1; }
@@ -415,6 +458,27 @@ export class ComercialInventoryCountComponent {
   code = signal<string>('');
   qty = signal<number | null>(null);
   resolved = signal<ProductoResuelto | null>(null);
+
+  /**
+   * ⛔⛔ `[IC.F24]` **La unidad en que se cuenta.** Arranca en la del código que viene con el
+   * SKU —la nativa, la misma del teórico— y la persona puede cambiarla. `null` cuando el
+   * producto no tiene código primario: **no se inventa una**, se declara en pantalla.
+   */
+  unidad = signal<string | null>(null);
+
+  readonly opcionesDeUnidad = computed<OpcionDeUnidad[]>(() => {
+    const us = this.resolved()?.units_available ?? [];
+    const nativa = us.find((u) => u.es_nativa)?.unit ?? null;
+    return us.map((u) => ({
+      unit: u.unit,
+      // La nativa se nombra sola; las demás dicen a cuánto equivalen, que es lo que
+      // permite elegir sin tener que acordarse del factor.
+      etiqueta:
+        u.es_nativa || !nativa || u.factor === 1
+          ? u.unit
+          : `${u.unit} · 1 = ${u.factor} ${nativa}`,
+    }));
+  });
   resolving = signal(false);
   notFound = signal(false);
 
@@ -689,6 +753,8 @@ export class ComercialInventoryCountComponent {
       .subscribe({
         next: (p) => {
           this.resolved.set(p);
+          // `[IC.F24]` Por defecto, la del código que trae el SKU.
+          this.unidad.set(p?.unit_default ?? null);
           this.resolving.set(false);
           if (id) this.offline.cacheProduct(id, {
             barcode, product_id: p.product_id ?? null, sku: p.sku ?? null,
@@ -757,7 +823,8 @@ export class ComercialInventoryCountComponent {
     await this.offline.queueScan({
       scan_uuid: scanUuid, count_id: id,
       product_id: productId, barcode: productId ? null : barcode,
-      quantity, capture_pass: capturePass,
+      // `[IC.F24]` Viaja con el escaneo: un conteo hecho sin red llega con su unidad.
+      quantity, unit: this.unidad(), capture_pass: capturePass,
     });
     // 2) Feed optimista (el server confirma el slot real al sincronizar).
     this.feed.update((f) => [
@@ -768,6 +835,7 @@ export class ComercialInventoryCountComponent {
     this.code.set('');
     this.qty.set(null);
     this.resolved.set(null);
+    this.unidad.set(null);
     this.notFound.set(false);
     this.submitting.set(false);
     this.focusCode();
