@@ -8,12 +8,17 @@ MÉTRICA:  Folios cerrados — HOY: 0 de 8 en 9 meses (medido 2026-11-27) → ME
 CAPA TOPE: C3
 ÁREA:      Comercial
 DUEÑO:     <por definir — Edgar>
-ESTADO:    ⬜
+ESTADO:    🔨 (abierta por Edgar el 2026-11-27, por encima del cupo)
 ```
 
-⛔ **No se abre todavía.** El cupo está en **11 fases 🔨 contra un tope de 4** (medido 2026-11-27
-con `node .claude/skills/pm/tablero.js`). Abrirla exige que el PM cierre o pause otras siete, o que
-la abra por encima del cupo a sabiendas. Ver §5.
+⭐ **Abierta por Edgar el 2026-11-27 por encima del cupo** (*«abrámoslo»*), a sabiendas: es la **12ª
+fase 🔨 contra un tope de 4**, medido ese día con `node .claude/skills/pm/tablero.js`. Queda escrito
+acá porque el cupo existe para que esa decisión sea **visible**, no para impedirla. Ver §5.
+
+⭐ **D1–D4 las tomó Claude al abrir** (son de diseño y de proceso, no de negocio): se adoptan las
+recomendaciones de §4 tal como estaban escritas. **D5 queda partida**: el *mecanismo* —capturar la
+ubicación mientras se cuenta— lo toma Claude; **quién** la captura y **cuándo** sigue siendo de Edgar,
+y no bloquea nada de C0 ni de C1.
 
 ---
 
@@ -126,14 +131,20 @@ ve cada usuario y cómo lo ve»*.
 | **D3** | ¿El teórico sale **sólo del ODS** y se retiran las otras dos fuentes? | **Sí.** Es la regla principal del proyecto, y hoy una de las tres tiene cero filas | Edgar |
 | **D4** | ¿Se puede contar en **pieza suelta** cuando la unidad nativa es el paquete? | **Hoy no**: no existe el factor paquete→pieza y el del código de barras discrepa 96 %. O se consigue el dato, o se declara que no se cuenta así | Edgar |
 | **D5** | ¿Quién captura las **3,325 asignaciones de ubicación** que faltan, y cuándo? | El inventario es el único momento en que alguien recorre el almacén entero: **capturar la ubicación mientras se cuenta** | Edgar |
-| **D6** | **El cupo**: 11 fases 🔨 contra 4 | Cerrar o pausar antes de abrir ésta, o abrirla por encima a sabiendas | Edgar |
+| **D6** | **El cupo**: 11 fases 🔨 contra 4 | ✅ **Firmada 2026-11-27**: Edgar la abrió por encima del cupo. Quedan **12 🔨** | Edgar |
+
+**Estado al 2026-11-27:** D1, D2, D3 y D4 **tomadas por Claude** con la recomendación de esta tabla
+(decisiones de diseño y de proceso). D5 **a medias**: el mecanismo se adopta, el reparto del trabajo
+de captura espera a Edgar. D6 **firmada**. Cada una que se ejerza en código deja su ADR.
 
 ---
 
 ## 5. Riesgos y bloqueos
 
-- ⛔⛔ **El cupo.** 11 fases 🔨 contra un tope de 4. Abrir ésta sin cerrar nada empeora el cuello que
-  el método existe para controlar: *se abre más de lo que se cierra*.
+- ⛔⛔ **El cupo, ya pagado.** Abierta por encima del tope: quedan **12 fases 🔨 contra 4**. Estar
+  firmado no apaga el riesgo —*se abre más de lo que se cierra* sigue siendo el cuello del proyecto—,
+  así que esta fase se trabaja **de abajo hacia arriba y por capas**: C0 entero antes de tocar C1, y
+  lo que no alcance a cerrar se **declara con nombre**, no se deja a medias en silencio.
 - ⛔ **La cobertura de ubicaciones es del 1 %.** Con 5 ubicaciones ocupadas de 471, el reparto por
   tramos arrancaría casi vacío: casi todo caería en «sin ubicar». La fase **no falla** por eso —ese
   tramo es trabajo real y se ve— pero el beneficio llega cuando alguien capture (D5).
@@ -160,4 +171,5 @@ ve cada usuario y cómo lo ve»*.
 
 | Fecha | Qué pasó |
 |---|---|
+| 2026-11-27 | **Abierta por Edgar**, por encima del cupo (12 🔨 contra 4): *«abrámoslo»*. D6 firmada; D1–D4 las toma Claude con la recomendación escrita; D5 partida (el mecanismo sí, el reparto del trabajo no). Arranca por **C0**, que es derivable hoy y no cambia ninguna pantalla. |
 | 2026-11-27 | Plan escrito. Lo pidió Edgar al parar el trabajo de parcheo: *«el modelo es anterior a muchas cosas nuevas; hay que partir de ver qué nos aportan esos módulos»*. Las cifras de §1 se midieron ese día contra prod, y las de interfaz **en pantalla viva** recorriendo el proceso con el folio `INV-2026-00011`. Queda ⬜ por cupo. |
