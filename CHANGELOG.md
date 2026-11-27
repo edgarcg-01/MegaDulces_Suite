@@ -21,6 +21,15 @@
 ### Fixed — Almacén › Ubicaciones: «Configurar el croquis» armaba las piezas y no lo decía (UB.PL.10 · 2026-11-26 · en código, sin soltar)
 - El botón funcionaba —armó 8 piezas de Padre Hidalgo, cabeceras incluidas— pero la pantalla quedaba idéntica, así que se tocaba de nuevo hasta que el sistema cortaba por exceso de peticiones.
 - Ahora dice cuántas piezas armó y cómo se llaman, se apaga mientras trabaja y el segundo clic no vuelve a pedir.
+### Fixed — Pagos › Calendario: un pago ya pagado no dice «Ya no se debe: quítalo del día» (PGP.220 · 2026-11-26 · en código, sin soltar)
+- El renglón de un pago ya pagado decía «Ya no se debe: quítalo del día» porque su factura ya no se debe… porque se pagó. Así pareció que el pago de Effem no había entrado a Kepler, cuando la Suite ya había escrito su documento. Ahora lo pagado dice cómo salió y si está cerrado («Pagado y cerrado» o «Marcado pagado · falta …»).
+- Medido: lo decían 289 de los 322 pagos pagados desde octubre.
+
+### Changed — Pagos › Preparar pago: BBVA no deja pasar de $1,000,000.00 por transferencia, y el pago se parte solo (PGP.221 · 2026-11-26 · en código, sin soltar)
+- Al preparar una transferencia de BBVA de más de un millón, «Preparar pago» ya viene partido: $1,000,000.00 en cada transferencia y el resto en la última, desde la misma cuenta (se puede cambiar). Así cada transferencia es su propio pago: casa con su salida del banco, recibe su PDF y lleva su documento en Kepler.
+- Una transferencia de BBVA de más de un millón ya no se prepara ni se autoriza entera; el aviso dice en cuántas sale. Un anticipo, que sale en una sola, pide una cuenta de otro banco. Santander y los demás bancos no cambian.
+- Internal: la regla vive en `@megadulces/contracts` (`tope-por-transferencia.contract.ts`); el servidor la aplica al preparar, al partir y al autorizar (el pago y el día).
+
 ### Fixed — Pagos › Preparar pago: la ✕ para quitar una transferencia se ve (PGP.190.2 · 2026-11-26 · en código, sin soltar)
 - Al partir un pago en tres o más transferencias, cada renglón tiene una ✕ para quitarlo. Desde la actualización de PrimeNG salía vacía: se podía tocar, pero no se veía. Ahora se ve, alineada con el importe y la cuenta, y con el dedo mide 44 px.
 - Internal: en PrimeNG 22 `pButton` ya no tiene `icon` ni `label`; el ícono va dentro del botón (`[iconOnly]`). Hay 28 botones más con el mismo defecto en otras pantallas (AUD-UI.5).

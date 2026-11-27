@@ -24,6 +24,7 @@ import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubier
 // `[PGP.120]` El anticipo aplicado desde el Calendario: lo apartado y la verificación de un renglón.
 import { SQL_ANTICIPOS_CON_APARTADO, SQL_ANTICIPO_PARA_FACTURA, type FilaAnticipoParaFactura } from './anticipo-calendario.sql';
 import { faltaCuentaParaTransferirAnticipo, faltaOrigenMismoBanco, tipoDeAcreedor, warehouseName } from '@megadulces/contracts';
+import { avisoDeTope, excesoDeTope } from '@megadulces/contracts';
 // `[PGP.157]` La caja del anticipo en efectivo (la de su base) y los estados de un día ya autorizado.
 import { cajaDeSalidaTexto, ESTADOS_DIA_AUTORIZADO } from '@megadulces/contracts';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
@@ -3136,12 +3137,14 @@ export class PaymentCalendarService {
     // el layout del banco pide los dos. Antes bastaba uno cualquiera: una transferencia quedaba
     // «preparada» con sólo la cuenta de origen y sin saber a dónde iba el dinero.
     const needsOrigin = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico' || dto.payment_method === 'cheque';
+    let bancoDeOrigen: string | null = null;
     if (needsOrigin) {
       if (!dto.bank_account_id) throw new BadRequestException('Elige la cuenta de origen (de cuál cuenta nuestra sale el pago).');
       // `[PGP.33]` La caja YA es un origen válido: medido, 2,771 pagos ($54,897,784) salieron de
       // CAJA GENERAL. Antes este `where` la rechazaba y el error culpaba a la cuenta.
       const origin = await trx('finance.bank_accounts').where({ id: dto.bank_account_id, active: true }).first();
       if (!origin) throw new BadRequestException('La cuenta de origen no existe o está inactiva.');
+      bancoDeOrigen = origin.bank ?? null;
       // `[PGP.155]` A una cuenta del catálogo SIN CLABE no hay SPEI: sólo sale de una cuenta nuestra del mismo
       // banco (VUMERSOFT: BBVA a BBVA). Qué cuenta de ese banco, la decide la Tesorería (`[PGP.75]`).
       // `[PGP.155.2]` Sólo en TRANSFERENCIA (revisión independiente): en un cargo automático el proveedor cobra
@@ -3158,6 +3161,7 @@ export class PaymentCalendarService {
      * migración `pgp127` todavía no llegó (sin `payee_clabe`, pide igual una cuenta aprobada). Va ANTES del
      * «Transferencia requiere la cuenta destino» genérico: en un anticipo, el aviso dice cuál cuenta.
      */
+    let esAnticipo = false;
     if (usesDestination) {
       const { rows: ants } = await trx.raw(
         `SELECT to_jsonb(o) ->> 'payee_clabe' AS clabe, to_jsonb(o) ->> 'payee_account_number' AS cuenta
@@ -3166,10 +3170,19 @@ export class PaymentCalendarService {
           WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo'`,
         [tenantId, allocationId]);
       const filas = ants as { clabe: string | null; cuenta: string | null }[];
+      esAnticipo = filas.length > 0;
       const falta = faltaCuentaParaTransferirAnticipo({
         clabesDeAnticipos: filas.map((r) => r.clabe ?? null), cuentasDeAnticipos: filas.map((r) => r.cuenta ?? null), cuentaElegida,
       });
       if (falta) throw new BadRequestException(falta);
+    }
+    // `[PGP.221]` El banco no deja pasar una transferencia de más de su tope por operación (BBVA: $1,000,000.00; Francisco,
+    // 2026-11-26). Prepararla entera es preparar algo que Tesorería va a tener que partir a mano en el banco: cada parte
+    // quedaría sin su pago en la Suite, sin su comprobante y sin su X-D-26 (el caso de Effem). Se parte en «Preparar pago».
+    // Las partes de `prepararEnTransferencias` pasan por aquí con SU importe (ya recalculado): una parte que cabe, pasa.
+    if (dto.payment_method === 'transferencia') {
+      const tope = avisoDeTope({ importe: Number(allocation.amount_assigned), banco: bancoDeOrigen, esAnticipo });
+      if (tope) throw new BadRequestException(tope);
     }
     if (dto.payment_method === 'transferencia' && !destinationText?.trim()) {
       throw new BadRequestException('Transferencia requiere la cuenta destino (elige una del catálogo del proveedor o captura la CLABE).');
@@ -3249,6 +3262,22 @@ export class PaymentCalendarService {
   }
 
   /**
+   * `[PGP.221]` El tope del banco para un pago YA preparado (al autorizarlo, él solo o con su día): sólo transferencias;
+   * `null` si cabe o si su banco no tiene tope medido. La regla y el texto, los de «Preparar pago» (`avisoDeTope`).
+   */
+  private async avisoDeTopeDelPago(trx: Knex.Transaction, a: AllocationRowLite): Promise<string | null> {
+    if (a.payment_method !== 'transferencia' || !a.bank_account_id) return null;
+    const origen = await trx('finance.bank_accounts').where({ id: a.bank_account_id }).first('bank') as { bank: string | null } | undefined;
+    const importe = Number(a.amount_assigned);
+    if (!excesoDeTope(importe, origen?.bank ?? null)) return null;
+    const { rows } = await trx.raw(
+      `SELECT 1 FROM finance.payment_allocation_items i
+         JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id AND o.tenant_id = i.tenant_id
+        WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo' LIMIT 1`, [a.id]);
+    return avisoDeTope({ importe, banco: origen?.bank ?? null, esAnticipo: rows.length > 0 });
+  }
+
+  /**
    * `[PGP.190]` **Preparar un pago que sale en varias transferencias** (Francisco, 2026-11-20: «hay pagos que se hacen con
    * varias transferencias»; eligió «Partir en pagos»). El pago se parte en un pago por transferencia, en el mismo día, y
    * cada uno queda preparado: la misma cuenta destino y su propia cuenta de origen. Así cada transferencia se casa sola
@@ -3304,6 +3333,16 @@ export class PaymentCalendarService {
       } catch (e: unknown) {
         if (e instanceof ErrorAlPartir) throw new BadRequestException(e.message);
         throw e;
+      }
+      // `[PGP.221]` Cada transferencia, dentro del tope de SU banco: se dice cuál pasa, antes de tocar nada. (Una cuenta que no
+      // existe no tiene banco aquí: la rechaza `prepareEn` con su motivo, y el reparto entero se deshace.)
+      const uuids = [...new Set(origenes)].filter((o) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(o));
+      const bancoDe = new Map(uuids.length
+        ? ((await trx('finance.bank_accounts').whereIn('id', uuids).select('id', 'bank')) as { id: string; bank: string | null }[]).map((r) => [String(r.id), r.bank])
+        : []);
+      for (let k = 0; k < partes.length; k++) {
+        const tope = avisoDeTope({ importe: partes[k].importe, banco: bancoDe.get(origenes[k]) ?? null, parte: k + 1 });
+        if (tope) throw new BadRequestException(tope);
       }
 
       // La 1ª transferencia se queda en el pago original; las demás nacen en el mismo día, en el orden escrito
@@ -3661,6 +3700,9 @@ export class PaymentCalendarService {
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se autoriza un pago pendiente');
       if (allocation.authorized_at) throw new BadRequestException(`Este pago ya lo autorizó ${allocation.authorized_by ?? 'Dirección'}.`);
       if (!isPrepared(allocation)) throw new BadRequestException('Falta prepararlo (método, cuenta de origen y destino) antes de autorizarlo.');
+      // `[PGP.221]` Lo que el banco no va a dejar pasar no se autoriza entero (se preparó antes de la regla, o le sumaron facturas).
+      const topeDelBanco = await this.avisoDeTopeDelPago(trx, allocation);
+      if (topeDelBanco) throw new BadRequestException(topeDelBanco);
       const { rows: [lot] } = await trx.raw(
         `SELECT id, status, folio, to_char(lot_date, 'YYYY-MM-DD') AS dia FROM finance.payment_calendar_lots WHERE id = ? FOR UPDATE`, [allocation.lot_id]);
       if (!lot) throw new NotFoundException('El día del pago no existe');
@@ -3925,6 +3967,11 @@ export class PaymentCalendarService {
       // Caja una instrucción sin cuenta de origen ni destino.
       const unprepared = pending.filter((a: AllocationRowLite) => !isPrepared(a));
       if (unprepared.length) throw new BadRequestException(`${unprepared.length} pago(s) sin preparar (método, cuenta de origen y destino) — Tesorería debe prepararlos antes de autorizar`);
+      // `[PGP.221]` Ni un día con una transferencia que su banco no va a dejar pasar.
+      for (const a of pending as AllocationRowLite[]) {
+        const tope = await this.avisoDeTopeDelPago(trx, a);
+        if (tope) throw new BadRequestException(`Un pago del día pasa del tope de su banco: ${tope}`);
+      }
       const [{ consumo }] = await trx('finance.payment_allocations').where({ lot_id: lot.id }).whereIn('status', ['pending', 'executed'])
         .select(trx.raw('coalesce(sum(amount_assigned),0) AS consumo'));
       if (Number(consumo) > Number(capacity.authorized_amount) + 0.005) {
