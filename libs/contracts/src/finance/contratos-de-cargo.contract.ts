@@ -289,3 +289,86 @@ export function problemasParaConfirmar(c: ContratoParaRevisar, renglones: readon
   }
   return p;
 }
+
+// ─── Lo que se puede cambiar, y lo que trae mal un cuerpo de la pantalla ([PGP.213]) ────────────
+
+/**
+ * Sólo una PROPUESTA se corrige (encabezado y renglones): un contrato confirmado ya programa sus cargos con la firma de
+ * Tesorería (DCR5), y cambiarlo por debajo cambiaría lo ya autorizado. Si cambió el contrato real, se termina y se da de
+ * alta el nuevo.
+ */
+export const sePuedeEditar = (estado: EstadoContratoCargo): boolean => estado === 'propuesto';
+
+/** El PDF se sube a una propuesta (para confirmarla, DCR11) o a un contrato confirmado que llegó sin él. */
+export const sePuedeSubirDocumento = (estado: EstadoContratoCargo): boolean => estado === 'propuesto' || estado === 'confirmado';
+
+const FECHA = /^\d{4}-\d{2}-\d{2}$/;
+const fechaValida = (f: unknown): boolean => typeof f === 'string' && FECHA.test(f) && !Number.isNaN(Date.parse(`${f}T12:00:00Z`))
+  && new Date(`${f}T12:00:00Z`).toISOString().slice(0, 10) === f;
+
+/** El encabezado que manda la pantalla (sólo lo que trae se revisa). Vacío = se puede escribir. */
+export function problemasDeEncabezado(h: {
+  tipo?: unknown; acreedor?: unknown; cadencia?: unknown; dia_desde?: unknown; dia_hasta?: unknown; inicio?: unknown; fin?: unknown;
+  sucursal?: unknown;
+}): string[] {
+  const p: string[] = [];
+  if (h.tipo !== undefined && !TIPOS_CONTRATO_CARGO.includes(h.tipo as TipoContratoCargo)) p.push('El tipo de contrato no es uno de los que lleva la Suite.');
+  if (h.acreedor !== undefined) {
+    const n = String(h.acreedor ?? '').trim().length;
+    if (n < 2 || n > 200) p.push('El acreedor va de 2 a 200 letras.');
+  }
+  if (h.sucursal !== undefined && h.sucursal !== null && !/^[0-9]{2}$/.test(String(h.sucursal))) p.push('La sucursal son dos dígitos (00, 08…).');
+  if (h.cadencia !== undefined && !CADENCIAS_CONTRATO_CARGO.includes(h.cadencia as CadenciaContratoCargo)) p.push('La cadencia es mensual o semanal.');
+  const cad: CadenciaContratoCargo = h.cadencia === 'semanal' ? 'semanal' : 'mensual';
+  for (const [k, v] of [['desde', h.dia_desde], ['hasta', h.dia_hasta]] as const) {
+    if (v !== undefined && !diaValido(cad, Number(v))) p.push(`El día ${k} no es válido: ${cad === 'semanal' ? 'del 1 (lunes) al 7 (domingo)' : 'del 1 al 31'}.`);
+  }
+  if (h.dia_desde !== undefined && h.dia_hasta !== undefined && Number(h.dia_hasta) < Number(h.dia_desde)) p.push('El día «hasta» va después del día «desde».');
+  for (const [k, v] of [['inicio', h.inicio], ['fin', h.fin]] as const) {
+    if (v !== undefined && v !== null && !fechaValida(v)) p.push(`La fecha de ${k} no es una fecha (AAAA-MM-DD).`);
+  }
+  if (fechaValida(h.inicio) && fechaValida(h.fin) && String(h.fin) < String(h.inicio)) p.push('El contrato termina antes de empezar.');
+  return p;
+}
+
+/** Un renglón que manda la pantalla. `n` = su número en la lista, para decir cuál. Vacío = se puede escribir. */
+export function problemasDeRenglon(r: {
+  concepto?: unknown; descripcion?: unknown; regla_importe?: unknown; importe_fijo?: unknown; cargos_por_periodo?: unknown;
+  tasa_referencia?: unknown; tasa_puntos?: unknown; base_dias?: unknown; tabla?: unknown;
+}, n: number): string[] {
+  const p: string[] = [];
+  const cual = `Concepto ${n}`;
+  if (!CONCEPTOS_RENGLON_CARGO.includes(r.concepto as ConceptoRenglonCargo)) p.push(`${cual}: no es renta, capital, interés, IVA, seguro, comisión u otro.`);
+  const largo = String(r.descripcion ?? '').trim().length;
+  if (largo < 2 || largo > 200) p.push(`${cual}: la descripción va de 2 a 200 letras.`);
+  if (!REGLAS_IMPORTE_CARGO.includes(r.regla_importe as ReglaImporteCargo)) p.push(`${cual}: el importe es fijo, por tabla o estimado.`);
+  // El importe fijo va SÓLO en un renglón «fijo» (y ahí es obligatorio): el CHECK `fixed_ck` de la base.
+  const conImporte = r.importe_fijo !== undefined && r.importe_fijo !== null && r.importe_fijo !== '';
+  if (r.regla_importe === 'fijo' && !(Number(r.importe_fijo) > 0)) p.push(`${cual}: es de importe fijo y el importe va mayor que cero.`);
+  if (r.regla_importe !== 'fijo' && conImporte) p.push(`${cual}: sólo un importe fijo lleva importe; por tabla o estimado, va vacío.`);
+  if (r.cargos_por_periodo !== undefined && !(Number.isInteger(Number(r.cargos_por_periodo)) && Number(r.cargos_por_periodo) >= 1 && Number(r.cargos_por_periodo) <= 31)) {
+    p.push(`${cual}: los cargos por periodo van de 1 a 31.`);
+  }
+  // La tasa variable sólo en un interés, con su referencia y su base de días (DCR8/DCR10): el CHECK `rate_ck`.
+  const conTasa = [r.tasa_referencia, r.tasa_puntos, r.base_dias].some((v) => v !== undefined && v !== null && v !== '');
+  if (conTasa) {
+    if (r.concepto !== 'interes') p.push(`${cual}: la tasa sólo va en un concepto de interés.`);
+    if (String(r.tasa_referencia ?? '').trim().length < 2) p.push(`${cual}: falta la referencia de la tasa (TIIE, CETES…).`);
+    if (![360, 365].includes(Number(r.base_dias))) p.push(`${cual}: la base de días es 360 o 365.`);
+    if (r.tasa_puntos !== undefined && r.tasa_puntos !== null && r.tasa_puntos !== '' && !Number.isFinite(Number(r.tasa_puntos))) p.push(`${cual}: los puntos sobre la tasa van en número.`);
+  }
+  if (r.tabla !== undefined) {
+    if (!Array.isArray(r.tabla)) p.push(`${cual}: la tabla de amortización es una lista de fechas e importes.`);
+    else {
+      const fechas = new Set<string>();
+      r.tabla.forEach((f: { fecha?: unknown; importe?: unknown; saldo?: unknown }, i: number) => {
+        if (!fechaValida(f?.fecha)) p.push(`${cual}, fila ${i + 1} de la tabla: la fecha no es una fecha (AAAA-MM-DD).`);
+        else if (fechas.has(String(f.fecha))) p.push(`${cual}, fila ${i + 1} de la tabla: la fecha ${String(f.fecha)} ya está en otra fila.`);
+        else fechas.add(String(f.fecha));
+        if (!(Number(f?.importe) > 0)) p.push(`${cual}, fila ${i + 1} de la tabla: el importe va mayor que cero.`);
+        if (f?.saldo !== undefined && f?.saldo !== null && !(Number(f.saldo) >= 0)) p.push(`${cual}, fila ${i + 1} de la tabla: el saldo no puede ser negativo.`);
+      });
+    }
+  }
+  return p;
+}

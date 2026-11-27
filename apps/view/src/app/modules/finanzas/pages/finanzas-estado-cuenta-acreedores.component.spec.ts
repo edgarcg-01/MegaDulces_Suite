@@ -92,7 +92,8 @@ describe('[ECA.9] FinanzasEstadoCuentaAcreedoresComponent', () => {
     if (!tr) throw new Error(`no hay renglón ${folio}`);
     return tr;
   };
-  const pideEvidencia = () => http.expectOne((r) => r.url.endsWith('/finance/payment-calendar/evidencia'));
+  // `[PGP.231]` POST con las llaves en el cuerpo: en la URL, con el token de un superadmin, daba 431.
+  const pideEvidencia = () => http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/finance/payment-calendar/evidencia/consulta'));
 
   /** Monta, elige al acreedor y entrega su estado de cuenta. Devuelve la petición de evidencia pendiente. */
   const abrir = (docs?: AcreedorDocumento[], calendarioMedido = true) => {
@@ -142,8 +143,11 @@ describe('[ECA.9] FinanzasEstadoCuentaAcreedoresComponent', () => {
 
   it('pide la factura SÓLO de lo que tiene saldo, con la llave de Pagos', () => {
     const req = abrir();
-    const refs = (req.request.params.get('refs') ?? '').split(',');
+    const refs = (req.request.body as { refs: string[] }).refs;
     expect(refs).toEqual(['oblig:00|20|1|0003499', 'oblig:05|20|1|0003600', 'oblig:00|20|1|0003700']);
+    // ⛔ NEGATIVA [PGP.231]: nada viaja en la URL.
+    expect(req.request.params.keys()).toEqual([]);
+    expect(req.request.urlWithParams).not.toContain('oblig');
     // ⛔ NEGATIVA: la pagada no se busca.
     expect(refs.some((r) => r.endsWith('0003001'))).toBe(false);
     req.flush([]);

@@ -11,6 +11,7 @@ import {
 
 import { construirPadron, resolverRfcAcreedor, type ViaRfc } from '../../contpaqi/rfc-acreedor';
 import { conceptosDelCfdi } from '../../goods-receipt-proofs/fuente-renglones';
+import { sqlDiaDelCfdi } from '../../shared/dia-del-cfdi.sql';
 
 /** La vía del contrato y la del primitivo CP.8.71 son la misma: si una cambia, esto deja de compilar. */
 const _mismaVia: ViaRfcDelAcreedor = '' as ViaRfc;
@@ -27,9 +28,9 @@ const DIAS_DEL_PADRON = 540;
  * El día de la factura. ⚠️ `fiscal.cfdis.fecha` tiene DOS convenciones, medidas en prod (2026-11-15, 2,005 de 2,005
  * contra el atributo `Fecha` del XML): la descarga de ContPAQi guarda la hora LOCAL como si fuera UTC, y la descarga
  * masiva del SAT guarda el instante real. Leerla siempre en hora de México corría un día las de 00:00 a 05:59.
+ * La lectura vive en `shared/dia-del-cfdi.sql.ts` (`[PGP.225]` la necesitó también para el freno de la PUE).
  */
-const SQL_DIA_DEL_CFDI = `to_char(CASE WHEN c.source = 'descarga_masiva' THEN c.fecha AT TIME ZONE 'America/Mexico_City'
-                                     ELSE c.fecha AT TIME ZONE 'UTC' END, 'YYYY-MM-DD')`;
+const SQL_DIA_DEL_CFDI = sqlDiaDelCfdi('c');
 /**
  * El IVA trasladado. La descarga de ContPAQi lo trae resumido (`iva_trasladado`); la descarga masiva guarda el nodo
  * crudo del XML (`Traslados.Traslado`, un objeto o una lista): ahí es la suma de los traslados del impuesto 002.

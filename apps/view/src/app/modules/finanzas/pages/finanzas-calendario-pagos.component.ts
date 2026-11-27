@@ -15,7 +15,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import type {
   PaymentCalendarAllocation, PaymentCalendarAllocationItem, PaymentCalendarDaySummary, PaymentCalendarWeek, PaymentCalendarWeekDay,
-  PagoSugerido, PagosAtrasadosDia, PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
+  PagoSugerido, PagosAtrasadosDia, PayableEvidenceQuery, PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
   DiscountReason, PaymentCalendarDiscountLine, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountBody, PaymentCalendarItemDiscountResult,
 } from '@megadulces/contracts';
 import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL, bancoCanonico, bancoSinCuentaNuestra, destinoSinClabe, origenesParaDestino, origenPropuesto } from '@megadulces/contracts';
@@ -24,6 +24,7 @@ import { avisoPagadasCanceladas, avisosFiscales, pagadasCanceladasDe, textoCfdi,
 import { textoPolizaEgreso } from '@megadulces/contracts/finance/momento-poliza';
 import { cierreCompleto, faltaParaCerrar, nombreTipoPagoKepler, sinComprobantePorque, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
 import { folioDelCheque } from '@megadulces/contracts';
+import { EVIDENCIA_REFS_POR_CONSULTA } from '@megadulces/contracts';
 import { PagosComprobantesService } from '../pagos-comprobantes.service';
 import type { CreditoPorSucursal, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { anteriorAlCorte, bloqueadaPorCorte, type CorteSueltaRow } from '@megadulces/contracts';
@@ -58,7 +59,8 @@ import { avisoAnticipoDelPago } from './calendario-pagos-anticipo';
 import { notaAplicable } from './calendario-pagos-credito';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type { DebeMenosDelPago, FacturaQueDebeMenos, PaymentCalendarAjusteAlSaldo, PaymentCalendarBandeja, PaymentCalendarEscrituraKepler, PaymentCalendarPartido, PaymentCalendarPrepararEnTransferencias, PaymentCalendarReprogramado } from '@megadulces/contracts';
-import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, diasDeAtraso, etapaDelPago, etapaInicial, salioDelBanco, type EtapaPago } from './calendario-pagos-etapa';
+import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, avisoDeSaldadas, diasDeAtraso, etapaDelPago, etapaInicial, salioDelBanco, type EtapaPago } from './calendario-pagos-etapa';
+import { avisoDeTope, excesoDeTope } from '@megadulces/contracts';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
 
@@ -1009,8 +1011,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           <span class="pg-cierre-d">· {{ s.cuenta }} · <span class="comm-num">{{ money(s.importe) }}</span></span>
                           <span class="pg-falta"><i class="pi pi-exclamation-circle" aria-hidden="true"></i>falta marcarlo y su pago en Kepler</span>
                         </span>
-                      } @else if (a.kepler_saldadas > 0) {
-                        <!-- [PGP.35][PGP.48] Lo que el ERP ya no debe, dicho corto; el porqué está en el desglose. -->
+                      } @else if (avisoDeSaldadas(a)) {
+                        <!-- [PGP.35][PGP.48] Lo que el ERP ya no debe, dicho corto; el porqué está en el desglose.
+                             [PGP.220] Nunca en un pago ya pagado: su factura dejó de deberse porque se pagó (decía «quítalo del día»
+                             en 289 de 322 pagados; Effem, 2026-11-26). Lo pagado sigue abajo: cómo salió y si está cerrado. -->
                         <span class="pg-saldada">
                           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                           @if (noSePuedePagar(a)) { Ya no se debe: quítalo del día }
@@ -1064,7 +1068,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       } @else if (a.status === 'pending' && !autorizadoFila(a)) {
                         @if (pasado(a)) {
                           <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="saving()" [attr.aria-label]="'Mover a otro día el pago de ' + allocationTitle(a)" (click)="openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover</button>
-                        } @else if (prepared(a) && !noSePuedePagar(a) && canAuthorize()) {
+                        } @else if (prepared(a) && !noSePuedePagar(a) && canAuthorize() && !comoSale(a).falta) {
                           <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="saving()" (click)="autorizarObjetivo.set(a)"
                                   [attr.aria-label]="'Autorizar el pago de ' + allocationTitle(a) + ' por ' + money(a.amount_assigned)"><span class="pi pi-verified" aria-hidden="true"></span>&nbsp;Autorizar</button>
                           <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="openPrepare(a)" [attr.aria-label]="'Cambiar cómo sale el pago de ' + allocationTitle(a)">Cambiar</button>
@@ -1118,7 +1122,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         @if (a.kepler_cierre?.pagos?.length) {
                           <!-- [PGP.96] Qué hizo Kepler con este pago, documento por documento (kdxf: el pago aplicado a la factura). -->
                           <div class="pg-cierre-x">
-                            <p class="pg-x-d">{{ textoCierre(a.kepler_cierre!) }}. Lo registró Kepler; la Suite no lo marcó, lo lee.</p>
+                            <!-- [PGP.220] Un pago ya pagado SÍ lo marcó la Suite (a mano, por el banco o por su comprobante). -->
+                            <p class="pg-x-d">{{ textoCierre(a.kepler_cierre!) }}. {{ a.status === 'executed' ? 'Así lo tiene Kepler:' : 'Lo registró Kepler; la Suite no lo marcó, lo lee.' }}</p>
                             <ul class="pg-cierre-l" [attr.aria-label]="'Documentos de Kepler del pago de ' + allocationTitle(a)">
                               @for (p of a.kepler_cierre!.pagos; track p.sucursal + p.doc_prefix + p.folio) {
                                 <li>
@@ -1137,7 +1142,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                               }
                             </ul>
                           </div>
-                        } @else if (a.kepler_saldadas > 0) {
+                        } @else if (avisoDeSaldadas(a)) {
                           <p class="pg-x-d">Al armar el día el ERP debía estas facturas. Hoy ya no: se pagaron por fuera o tienen nota de crédito, y marcarlas como pagadas fallaría.</p>
                         }
                         @if (numero(a.discount_total) > 0) {
@@ -1488,6 +1493,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           <label class="cal-check cal-prep-varias"><p-checkbox inputId="cal-prep-varias" [binary]="true" [ngModel]="prepVarias" (ngModelChange)="activarVarias($event)" />Sale en varias transferencias</label>
         }
         @if (prepVarias && puedePartir()) {
+          <!-- [PGP.221] Por qué ya viene partido: el tope del banco por operación (Effem, 2026-11-26). -->
+          @if (prepPartidoPorTope(); as t) {
+            <p class="cal-dlg-hint cal-habito"><i class="pi pi-building-columns" aria-hidden="true"></i> {{ t.banco }} no deja pasar de <b class="comm-num">{{ money(t.tope) }}</b> por transferencia: el pago ya va partido en {{ t.n }}. Puedes cambiar los importes o las cuentas.</p>
+          }
           <p class="cal-dlg-label" id="cal-prep-tr-titulo">Transferencias: importe y cuenta de origen de cada una</p>
           <div role="group" aria-labelledby="cal-prep-tr-titulo">
             @for (p of prepPartes; track $index; let i = $index, ultima = $last) {
@@ -1518,7 +1527,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         } @else {
         <label class="cal-dlg-label" for="cal-prep-origin">Cuenta de origen (de dónde sale el dinero)</label>
         <!-- [PGP.155] A una cuenta sin CLABE sólo se transfiere desde una cuenta nuestra del mismo banco: sólo se ofrecen ésas. -->
-        <p-select appendTo="body" inputId="cal-prep-origin" [options]="prepOrigenes()" [(ngModel)]="prepOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" [fluid]="true" [emptyMessage]="origenVacio()" class="cal-dlg-sel" />
+        <p-select appendTo="body" inputId="cal-prep-origin" [options]="prepOrigenes()" [(ngModel)]="prepOriginId" (onChange)="partirSiPasaDelTope()" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" [fluid]="true" [emptyMessage]="origenVacio()" class="cal-dlg-sel" />
+        <!-- [PGP.221] Entera no pasa del tope de su banco (quitaron «varias» o es un anticipo): dicho bajo el origen, con qué hacer. -->
+        @if (avisoTopeUnaSola(); as t) {
+          <p class="cal-dlg-hint cal-habito-nm" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ t }}</p>
+        }
         <!-- [PGP.218] Lo que pasa en la cuenta elegida CON este pago (la misma regla del servidor, conUnPagoMas): el cargo del
              banco que deja sin cubrir y cuánto falta, o en voz baja lo que queda. No bloquea: Tesorería decide. -->
         @if (avisoDeCuenta(prepAllocation, prepOriginId); as av) {
@@ -3461,12 +3474,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         refs = [...this.refsDePagosAbiertos(), ...this.filasDeuda().map((f) => (f.o.entity_ref ?? '').trim())]
           .filter((r, i, all) => r.startsWith('oblig:') && all.indexOf(r) === i
             && !this.evidenciaRespondidas().has(r) && !this.evidenciaPedida.has(r))
-          .slice(0, 200);
+          .slice(0, EVIDENCIA_REFS_POR_CONSULTA);
         if (!refs.length) return;
         refs.forEach((r) => this.evidenciaPedida.add(r));
-        const rows = await firstValueFrom(this.http.get<PayableEvidenceRow[]>(
-          `${this.base}/evidencia`, { params: { refs: refs.join(',') } },
-        ));
+        // `[PGP.231]` Las llaves van en el CUERPO: en la URL, 200 llaves + el token de un superadmin daban 431.
+        const consulta: PayableEvidenceQuery = { refs };
+        const rows = await firstValueFrom(this.http.post<PayableEvidenceRow[]>(`${this.base}/evidencia/consulta`, consulta));
         const m = new Map(this.evidencias());
         for (const r of rows ?? []) if (r?.entity_ref) m.set(r.entity_ref, r);
         this.evidencias.set(m);
@@ -4138,6 +4151,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   });
   /** `[PGP.146]` La salida del banco de un pendiente (null si no salió o no se sabe). */
   salida(a: PaymentCalendarAllocation) { return salioDelBanco(a); }
+  /** `[PGP.220]` El aviso de facturas que Kepler ya no debe: nunca en un pago ya pagado (`calendario-pagos-etapa.ts`). */
+  avisoDeSaldadas(a: PaymentCalendarAllocation) { return avisoDeSaldadas(a); }
   /**
    * Las facturas del pago se pueden quitar o descontar: pendiente y sin autorizar. `[PGP.146]` Y que no haya salido
    * ya del banco: quitarle una factura la volvería a ofrecer para pagar.
@@ -4738,6 +4753,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         // Una cuenta recordada que ya no está en el catálogo no se propone: se pide de nuevo.
         if (this.bulkOriginId && !(rows ?? []).some((r) => r.id === this.bulkOriginId)) this.bulkOriginId = null;
         this.originLoading.set(false);
+        // `[PGP.221]` Si el diálogo abrió antes de saber el banco de cada cuenta, el tope se mira ahora.
+        if (this.prepareVisible) this.partirSiPasaDelTope();
       },
       error: (e) => {
         this.originOpts.set([]);
@@ -5266,6 +5283,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const texto = [m, origen].filter(Boolean).join(' · ') + (destino ? ` → ${destino}` : '');
     if (!a.bank_account_id) return { texto, falta: 'la cuenta de origen' };
     if (a.payment_method === 'transferencia' && !(a.destination_account_text ?? '').trim()) return { texto, falta: 'la cuenta destino' };
+    // `[PGP.221]` Preparada ENTERA desde un banco que no la deja pasar (se preparó antes de la regla o le sumaron facturas):
+    // falta partirla. El servidor no la autoriza; «Cambiar» abre «Preparar pago», que la parte sola.
+    if (a.payment_method === 'transferencia' && a.status === 'pending') {
+      const x = excesoDeTope(this.numero(a.amount_assigned), this.bancoDeOrigen(a.bank_account_id));
+      if (x) return { texto, falta: `partirla: ${x.banco} no deja pasar de ${this.money(x.tope)} por transferencia` };
+    }
     return { texto, falta: null };
   }
   /**
@@ -5977,7 +6000,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.prepAccounts.set([]);
     this.prepAccountsError.set(null);
     this.prepPedida.set(null);
-    this.prepVarias = false; this.prepPartes = []; this.prepPartesError.set(null);
+    this.prepVarias = false; this.prepPartes = []; this.prepPartesError.set(null); this.prepPartidoPorTope.set(null);
     // `[PGP.190.1]` Si las cuentas de origen no llegaron al entrar, se piden otra vez al abrir el diálogo.
     if (!this.originOpts().length && !this.originLoading()) this.cargarOrigenes();
     this.prepSupplierId = this.proveedorDe(a);
@@ -6031,6 +6054,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         error: () => this.prepPedida.set(null),
       });
     }
+    // `[PGP.221]` Si ya viene con un origen de un banco con tope y pasa de él, el diálogo abre partido.
+    this.partirSiPasaDelTope();
     this.prepareVisible = true;
   }
   /**
@@ -6069,11 +6094,46 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * sólo hay una de ese banco, ésa. Si no, se queda vacía para elegir entre las de ese banco.
    */
   ajustarOrigenAlDestino(): void {
-    if (!this.prepBancoObligado()) return;
-    const h = this.prepAllocation ? this.habitoDe(this.prepAllocation) : null;
-    this.prepOriginId = origenPropuesto({
-      actual: this.prepOriginId, sirven: this.prepOrigenes().map((o) => o.id), delDia: this.bulkOriginId, historial: h?.cuenta_origen_id ?? null,
-    });
+    if (this.prepBancoObligado()) {
+      const h = this.prepAllocation ? this.habitoDe(this.prepAllocation) : null;
+      this.prepOriginId = origenPropuesto({
+        actual: this.prepOriginId, sirven: this.prepOrigenes().map((o) => o.id), delDia: this.bulkOriginId, historial: h?.cuenta_origen_id ?? null,
+      });
+    }
+    // `[PGP.221]` Con el método, el destino o el origen nuevos, lo que pasa del tope del banco se parte solo.
+    this.partirSiPasaDelTope();
+  }
+  /** `[PGP.221]` El banco de una cuenta nuestra de origen (`null` si no se conoce: entonces no se le aplica tope). */
+  private bancoDeOrigen(id: string | null | undefined): string | null {
+    return id ? this.originOpts().find((o) => o.id === id)?.bank ?? null : null;
+  }
+  /**
+   * `[PGP.221]` **BBVA no deja pasar de $1,000,000.00 por transferencia** (Francisco, 2026-11-26: «es el tope por
+   * operación»). Una transferencia que sale de un banco con tope y pasa de él se parte SOLA en «Sale en varias
+   * transferencias»: el tope en cada una y el resto en la última, todas desde la cuenta elegida (la persona las puede
+   * cambiar). Antes salía entera de la Suite y Tesorería la partía a mano en el banco: el caso de Effem (25-nov) quedó con
+   * dos salidas, ningún PDF casó y Kepler recibió UN documento por la suma. No toca lo que la persona ya partió.
+   */
+  readonly prepPartidoPorTope = signal<{ banco: string; tope: number; n: number } | null>(null);
+  partirSiPasaDelTope(): void {
+    const a = this.prepAllocation;
+    if (!a || !this.puedePartir() || this.prepVarias) return;
+    const x = excesoDeTope(this.numero(a.amount_assigned), this.bancoDeOrigen(this.prepOriginId));
+    if (!x?.partes) return;
+    this.prepVarias = true;
+    this.prepPartesError.set(null);
+    // Con comas: «1000000.00» se lee mal (prueba visual del 2026-11-26); `numero()` las quita al guardar.
+    this.prepPartes = x.partes.map((importe) => ({ amount: importe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), origin: this.prepOriginId }));
+    this.prepPartidoPorTope.set({ banco: x.banco, tope: x.tope, n: x.partes.length });
+  }
+  /**
+   * `[PGP.221]` La transferencia en UNA sola pasa del tope de su banco: lo que se dice bajo el origen (y lo que impide
+   * guardar). Pasa si la persona quitó «Sale en varias transferencias» o si es un anticipo (no se parte: otro banco).
+   */
+  avisoTopeUnaSola(): string | null {
+    const a = this.prepAllocation;
+    if (!a || this.prepMethod !== 'transferencia' || (this.prepVarias && this.puedePartir())) return null;
+    return avisoDeTope({ importe: this.numero(a.amount_assigned), banco: this.bancoDeOrigen(this.prepOriginId), esAnticipo: this.esPagoDeAnticipo(a) });
   }
   /**
    * `[PGP.190]` Se puede partir en varias transferencias: una transferencia que no es anticipo (el anticipo sale en una
@@ -6086,6 +6146,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   activarVarias(on: boolean): void {
     this.prepVarias = on;
     this.prepPartesError.set(null);
+    if (!on) this.prepPartidoPorTope.set(null);
     if (on && this.prepPartes.length < 2) this.prepPartes = [{ amount: '', origin: this.prepOriginId }, { amount: '', origin: this.prepOriginId }];
   }
   agregarTransferencia(): void {
@@ -6111,6 +6172,11 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (importes.slice(0, -1).some((x) => !(x > 0))) { this.prepPartesError.set('Escribe el importe de cada transferencia (la última lleva el resto).'); return; }
     if (!(importes[n - 1] > 0)) { this.prepPartesError.set('Las transferencias escritas ya suman el pago o más: a la última no le queda nada.'); return; }
     if (this.prepPartes.some((p) => !p.origin)) { this.prepPartesError.set('Elige de qué cuenta sale cada transferencia.'); return; }
+    // `[PGP.221]` Cada transferencia, dentro del tope de SU banco (el servidor lo revisa igual).
+    for (let i = 0; i < n; i++) {
+      const tope = avisoDeTope({ importe: importes[i], banco: this.bancoDeOrigen(this.prepPartes[i].origin), parte: i + 1 });
+      if (tope) { this.prepPartesError.set(tope); return; }
+    }
     const body: PaymentCalendarPrepararEnTransferencias = {
       supplier_payment_account_id: this.prepAccountId || null,
       destination_account_text: this.prepAccountId ? null : (this.prepDestination.trim() || null),
@@ -6131,6 +6197,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   confirmPrepare(): void {
     if (!this.prepAllocation || !this.prepMethod) { this.toast.add({ severity: 'warn', summary: 'Falta el método', detail: 'Elige cómo se paga.' }); return; }
     if (this.prepVarias && this.puedePartir()) { this.confirmarVarias(this.prepAllocation); return; }
+    // `[PGP.221]` Entera no pasa del tope de su banco: el aviso ya está bajo el origen; aquí sólo no se guarda.
+    const tope = this.avisoTopeUnaSola();
+    if (tope) { this.toast.add({ severity: 'warn', summary: 'Pasa del tope del banco', detail: tope, life: 10000 }); return; }
     const usesOrigin = this.prepMethod !== 'efectivo';
     // El destino sólo viaja en transferencia / cargo: en efectivo o cheque la favorita del
     // proveedor (que se propone sola) no debe acabar impresa como destino para Caja General.

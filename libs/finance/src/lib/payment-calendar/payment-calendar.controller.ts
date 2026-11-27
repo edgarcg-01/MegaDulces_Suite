@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
@@ -9,7 +9,7 @@ import {
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarSuficiencia, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarSuficiencia, PaymentCalendarWeek, PaymentOriginAccount, PayableEvidenceQuery, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -112,9 +112,22 @@ export class PaymentCalendarController {
    */
   @Get('evidencia')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
-  @ApiOperation({ summary: 'La prueba documental de una lista de documentos (hasta 200), separados por coma, con el mismo `entity_ref` que ya trae cada obligación. Devuelve el PDF del proveedor, el UUID fiscal, o la razón por la que no hay ninguno — nunca un hueco mudo.' })
+  @ApiOperation({ summary: 'La prueba documental de una lista de documentos (hasta 200), separados por coma, con el mismo `entity_ref` que ya trae cada obligación. Devuelve el PDF del proveedor, el UUID fiscal, o la razón por la que no hay ninguno — nunca un hueco mudo. ⚠️ Con muchas llaves y un token grande la URL pasa del límite de Node (431): las pantallas usan `POST evidencia/consulta`; éste queda para pestañas abiertas antes del cambio.' })
   listEvidenceByRefs(@Query('refs') refs?: string): Promise<PayableEvidenceRow[]> {
     return this.svc.listEvidenceByRefs(String(refs ?? '').split(',').filter(Boolean));
+  }
+
+  /**
+   * `[PGP.231]` La MISMA consulta, con las llaves en el cuerpo (`PayableEvidenceQuery`). Es POST porque una URL de 200
+   * llaves más el token de un `superadmin` pasa los 16 KB de cabeceras de Node (431); no escribe nada (200, no 201).
+   */
+  @Post('evidencia/consulta')
+  @HttpCode(200)
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: '[PGP.231] La prueba documental de hasta 200 documentos, con las llaves `oblig:…` en el cuerpo `{ refs: string[] }` en vez de en la URL. Sólo lee.' })
+  consultarEvidencia(@Body() body?: PayableEvidenceQuery): Promise<PayableEvidenceRow[]> {
+    const refs = Array.isArray(body?.refs) ? body.refs.filter((r): r is string => typeof r === 'string') : [];
+    return this.svc.listEvidenceByRefs(refs);
   }
 
   @Get('evidencia/archivo/:proofId')

@@ -78,6 +78,8 @@ export * from './http/payment-calendar.contract';
 export * from './finance/suficiencia-de-cuentas.contract';
 // `[PGP.210]` El contrato que sustenta un cargo del banco: vocabulario (= los CHECK) y reglas puras.
 export * from './finance/contratos-de-cargo.contract';
+// `[PGP.213]` La API de esos contratos: los cuerpos que manda la pantalla y lo que devuelve cada ruta.
+export * from './http/charge-contracts.contract';
 // `[PGP.219]` El interés del crédito, calculado: saldo × tasa implícita del último cargo × días (DCR8/DCR10).
 export * from './finance/interes-del-credito.contract';
 // [PGP.97] la guía «pagado en el banco, falta en Kepler».
@@ -265,6 +267,8 @@ export * from './finance/anticipos.contract';
 export * from './finance/venta-vendedor.contract';
 // `[PGP.155]` A una cuenta sin CLABE se transfiere sólo desde una cuenta nuestra del mismo banco.
 export * from './finance/mismo-banco.contract';
+// `[PGP.221]` El tope por operación del banco (BBVA: $1,000,000): la transferencia que pasa de él sale partida.
+export * from './finance/tope-por-transferencia.contract';
 // `[PGP.157]` Dónde se entrega el efectivo, y el anticipo autorizado que Caja General tiene por entregar.
 export * from './finance/entrega-efectivo.contract';
 // `[GX.79]` el tope de un archivo de evidencia de gasto (20 MB): pantalla, API y proxy.

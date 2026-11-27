@@ -48,6 +48,11 @@ export interface CfdiRecibido {
   iva: number | null;
   ieps: number | null;
   retenido: number | null;
+  /** `[PGP.225]` Lo que lee la norma fiscal (`norma-fiscal-cfdi.contract`). Ausente = la consulta no lo trajo. */
+  estatus_sat?: string | null;
+  receptor_uso_cfdi?: string | null;
+  receptor_regimen?: string | null;
+  emisor_regimen?: string | null;
 }
 
 export type EstadoCfdiFactura = 'unico' | 'varios' | 'ninguno' | 'sin_rfc' | 'sin_documento';
