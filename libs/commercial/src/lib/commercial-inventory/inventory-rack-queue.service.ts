@@ -346,8 +346,16 @@ export class InventoryRackQueueService {
    * anotar al que llega en `held_by`, que es lo que después impide que la segunda vuelta de ese
    * rack le toque a él.
    *
-   * ⛔ Y no se puede unir a un rack cuya vuelta anterior contó esa misma persona: la única
-   * negación que se conserva (§4.4).
+   * ⭐ **Y el mismo botón sirve para RETOMAR.** El caso sale de combinar §4.6 con §4.6: dos
+   * personas en un rack y al dueño se le muere el teléfono. El supervisor libera; el que se había
+   * unido **sigue parado ahí, a media repisa**, y por `takeNext` no lo puede recuperar —ya está en
+   * `held_by`, que es justo lo que impide que la cola repita un rack—. Sin esto quedaría encerrado
+   * fuera de su propio trabajo y la mercancía ya contada ahí se volvería a contar desde cero.
+   * Retomar sólo vale sobre un rack **libre** en el que esa persona ya estuvo, **en esa misma
+   * vuelta**.
+   *
+   * ⛔ Lo que NO se relaja en ninguno de los dos caminos: no se puede unir ni retomar un rack cuya
+   * vuelta anterior contó esa misma persona. Es la única negación que se conserva (§4.4).
    */
   async join(countId: string, dto: { aisle_id?: string | null }) {
     const uid = this.userId();
@@ -361,34 +369,46 @@ export class InventoryRackQueueService {
       const mio = await this.rackDe(trx, countId, uid);
       if (mio) throw new ConflictException(`Todavía tienes el rack ${mio.code}. Termínalo antes de unirte a otro.`);
 
+      // Un solo UPDATE para los dos caminos, y los dos se deciden en el WHERE —nunca en un `if`
+      // que mire antes y escriba después—:
+      //   · `taken` y yo NO estoy en `held_by`  → me UNO (el dueño no cambia);
+      //   · `free`  y yo SÍ estoy en `held_by`  → lo RETOMO (paso a ser el dueño).
+      // El segundo caso es un compare-and-swap sobre la fila única: si dos ex-ocupantes aprietan a
+      // la vez, el segundo re-evalúa el `status` ya con el candado y ve `taken`, así que no entra.
       const { rows } = await trx.raw(
         `UPDATE commercial.inventory_count_rack_state s
-            SET held_by = array_append(s.held_by, ?::uuid), updated_at = now(), updated_by = ?::uuid
+            SET held_by  = CASE WHEN ?::uuid = ANY(s.held_by)
+                                THEN s.held_by ELSE array_append(s.held_by, ?::uuid) END,
+                status   = CASE WHEN s.status = 'free' THEN 'taken' ELSE s.status END,
+                holder_id = CASE WHEN s.status = 'free' THEN ?::uuid ELSE s.holder_id END,
+                taken_at = CASE WHEN s.status = 'free' THEN now() ELSE s.taken_at END,
+                updated_at = now(), updated_by = ?::uuid
           WHERE s.count_id = ?
             AND s.aisle_id IS NOT DISTINCT FROM ?::uuid
-            AND s.status = 'taken'
-            AND NOT (?::uuid = ANY(s.held_by))
+            AND (   (s.status = 'taken' AND NOT (?::uuid = ANY(s.held_by)))
+                 OR (s.status = 'free'  AND      ?::uuid = ANY(s.held_by)))
             AND NOT EXISTS (
                   SELECT 1 FROM commercial.inventory_count_rack_state p
                    WHERE p.count_id = s.count_id
                      AND p.aisle_id IS NOT DISTINCT FROM s.aisle_id
                      AND p.pass < s.pass
                      AND ?::uuid = ANY(p.held_by))
-        RETURNING s.aisle_id, s.pass, s.taken_at`,
-        [uid, uid, countId, pedido, uid, uid],
+        RETURNING s.aisle_id, s.pass, s.taken_at, s.holder_id`,
+        [uid, uid, uid, uid, countId, pedido, uid, uid, uid],
       );
       const fila = (rows as any[])[0];
       if (!fila) {
-        // Se distingue el «no está ocupado» del «no puedes tú», porque la persona hace cosas
-        // distintas con cada respuesta.
+        // Se distingue cada «no» de los otros, porque la persona hace cosas distintas con cada uno.
         const estado = await trx('commercial.inventory_count_rack_state')
           .where({ count_id: countId })
           .andWhere((b: any) => (pedido ? b.where('aisle_id', pedido) : b.whereNull('aisle_id')))
           .orderBy('pass', 'desc')
           .first('status', 'pass');
         if (!estado) throw new NotFoundException('Ese rack no está en la cola de este folio.');
-        if (estado.status !== 'taken')
-          throw new ConflictException('Ese rack no lo está contando nadie. Toca «Dame el siguiente».');
+        if (estado.status === 'done')
+          throw new ConflictException('Ese rack ya se cerró. Toca «Dame el siguiente».');
+        if (estado.status === 'free')
+          throw new ConflictException('Ese rack está libre y no lo has contado. Toca «Dame el siguiente».');
         throw new ConflictException(
           'No puedes unirte a este rack: tú hiciste su primera vuelta y el segundo conteo lo tiene que hacer otra persona.',
         );
@@ -396,8 +416,11 @@ export class InventoryRackQueueService {
 
       const rack = await this.decorar(trx, fila.aisle_id, fila.pass, fila.taken_at);
       rack.ya_contado = await this.yaContadoEn(trx, countId, rack.aisle_id, rack.pass);
-      this.logger.log(`[ICR.M8] folio ${countId}: ${uid} se UNIÓ al rack ${rack.code} (vuelta ${rack.pass})`);
-      return { ok: true, rack };
+      const retomado = fila.holder_id === uid;
+      this.logger.log(
+        `[ICR.M8] folio ${countId}: ${uid} ${retomado ? 'RETOMÓ el' : 'se UNIÓ al'} rack ${rack.code} (vuelta ${rack.pass})`,
+      );
+      return { ok: true, rack, retomado, soy_el_dueno: retomado };
     });
   }
 

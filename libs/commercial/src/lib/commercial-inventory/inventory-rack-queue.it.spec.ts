@@ -342,6 +342,46 @@ suite('[ICR.M8] La cola de racks contra Postgres real: un rack, un dueño', () =
     expect((fila.held_by as string[]).sort()).toEqual([p('ana'), p('beto')].sort());
   });
 
+  it('⭐ al que se unió y le liberan el rack NO se le encierra fuera de su propio trabajo', async () => {
+    // El caso del martes: dos personas en un rack y al dueño se le muere el teléfono. El
+    // supervisor libera; el que se había unido sigue parado ahí, a media repisa. Por `takeNext`
+    // no lo puede recuperar (ya está en `held_by`, que es lo que impide repetir un rack), así que
+    // sin «retomar» quedaría encerrado y lo ya contado ahí se volvería a contar desde cero.
+    const e = await escenario([['J-01', 1]], { blind: false });
+    const ana = p('ana');
+    const beto = p('beto');
+
+    await svc(ana).takeNext(e.folio); // Ana toma J-01
+    await svc(beto).takeNext(e.folio); // Beto toma el montón
+    await svc(beto).finish(e.folio, { aisle_id: null }); // y lo cierra: ya no le queda nada libre
+
+    const sinLibres = await svc(beto).takeNext(e.folio);
+    expect(sinLibres.estado).toBe('sin_libres');
+    await svc(beto).join(e.folio, { aisle_id: e.rack['J-01'] }); // se une al de Ana
+
+    const item = await renglon(e.folio, e.rack['J-01']);
+    await captura(e.folio, item, e.rack['J-01'], beto, 1, 7);
+
+    // A Ana se le muere el teléfono y el supervisor libera el rack.
+    await svc(p('gael')).release(e.folio, { aisle_id: e.rack['J-01'], reason: 'se quedó sin batería' });
+
+    // ⛔ La cola NO se lo devuelve sola a Beto — sería repetirle un rack…
+    const porCola = await svc(beto).takeNext(e.folio);
+    expect(porCola.estado).not.toBe('asignado');
+
+    // …pero RETOMAR sí, explícito, y pasa a ser el dueño con lo ya contado a la vista.
+    const r = await svc(beto).join(e.folio, { aisle_id: e.rack['J-01'] });
+    expect(r.retomado).toBe(true);
+    expect(r.rack.ya_contado).toHaveLength(1);
+    const fila = (await estado(e.folio)).find((x) => x.aisle_id === e.rack['J-01'])!;
+    expect(fila.status).toBe('taken');
+    expect(fila.holder_id).toBe(beto);
+
+    // ⛔ NEGATIVA: retomar no es una puerta para quien nunca estuvo ahí.
+    await svc(p('gael')).release(e.folio, { aisle_id: e.rack['J-01'], reason: 'prueba' });
+    await expect(svc(p('cata')).join(e.folio, { aisle_id: e.rack['J-01'] })).rejects.toThrow(/libre y no lo has contado/i);
+  });
+
   it('⭐ el orden se CAPTURA y la cola obedece: cambiarlo cambia lo que entrega', async () => {
     // El lazo cerrado: sin esto la columna existiría y nadie podría llenarla desde la pantalla —
     // un orden de recorrido que no se puede capturar es una columna muerta.
