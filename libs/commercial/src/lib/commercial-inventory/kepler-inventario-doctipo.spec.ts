@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 
 import {
   DOCTIPOS_INVENTARIO, IVA_ACTA_PCT, MARCA_INVENTARIO, SERIE_INVENTARIO, SQL_EXISTENCIA_KEPLER,

@@ -6,6 +6,7 @@ import {
   ConflictException,
   ForbiddenException,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
@@ -93,6 +94,99 @@ export interface TomarSiguienteRespuesta {
   motivo?: string;
 }
 
+/** El folio, con lo único que esta cola le lee. */
+interface FolioDeConteo {
+  id: string;
+  folio: string;
+  warehouse_id: string;
+  status: string;
+  current_pass: number | string | null;
+  blind_double_count: boolean | null;
+}
+
+/** Lo que devuelve el `RETURNING` de tomar un rack, y lo que `rackDe` lee de la fila. */
+interface FilaDeRack {
+  aisle_id: string | null;
+  pass: number | string;
+  taken_at: string | null;
+}
+
+/** Lo mismo, cuando la consulta además devuelve quién lo tiene (`join`). */
+interface FilaDeRackConDueno extends FilaDeRack {
+  holder_id: string | null;
+}
+
+/** Un renglón del tablero, ya decorado por la consulta de `board`. */
+interface FilaDelTablero extends FilaDeRack {
+  status: string;
+  finished_at: string | null;
+  released_at: string | null;
+  release_reason: string | null;
+  held_by: string[] | null;
+  code: string | null;
+  name: string | null;
+  walk_sequence: number | string | null;
+  holder_id: string | null;
+  holder_nombre: string | null;
+  holder_username: string | null;
+  productos_capturados: number | string | null;
+}
+
+/** Un rack ocupado al que alguien se puede unir. */
+interface FilaOcupada extends FilaDeRack {
+  code: string | null;
+  name: string | null;
+  holder_nombre: string | null;
+  holder_username: string | null;
+}
+
+export interface CerrarRackRespuesta {
+  ok: true;
+  cerrado: { aisle_id: string | null; pass: number };
+  siguiente: TomarSiguienteRespuesta;
+}
+
+export interface UnirseRespuesta {
+  ok: true;
+  rack: RackDeLaCola;
+  /** `true` cuando la persona ya era dueña del rack y sólo lo retomó. */
+  retomado: boolean;
+  soy_el_dueno: boolean;
+}
+
+export interface SoltarRackRespuesta {
+  ok: true;
+  rack: RackDeLaCola;
+  /** ⭐ Soltar NO borra lo capturado: esto dice cuántas capturas siguen vivas. */
+  capturas_conservadas: number;
+}
+
+export interface TableroDeRacks {
+  folio: string;
+  status: string;
+  current_pass: number;
+  blind_double_count: boolean;
+  /** Se publica a propósito: sin orden de recorrido capturado, la cola entrega en un orden estable que NO es el del almacén. */
+  sin_orden_de_recorrido: boolean;
+  racks: {
+    aisle_id: string | null;
+    code: string;
+    name: string | null;
+    pass: number;
+    status: string;
+    walk_sequence: number | null;
+    holder: { user_id: string; name: string } | null;
+    taken_at: string | null;
+    minutos_tomado: number | null;
+    finished_at: string | null;
+    released_at: string | null;
+    release_reason: string | null;
+    personas: number;
+    productos_capturados: number;
+  }[];
+  resumen: { libres: number; tomados: number; terminados: number };
+}
+
 @Injectable()
 export class InventoryRackQueueService {
   private readonly logger = new Logger(InventoryRackQueueService.name);
@@ -110,7 +204,7 @@ export class InventoryRackQueueService {
     return uid;
   }
 
-  private async folioOrThrow(trx: any, countId: string) {
+  private async folioOrThrow(trx: Knex.Transaction, countId: string): Promise<FolioDeConteo> {
     if (!UUID.test(countId)) throw new BadRequestException('count_id inválido');
     const folio = await trx('commercial.inventory_counts').where('id', countId).first();
     if (!folio) throw new NotFoundException('Folio no encontrado');
@@ -132,7 +226,7 @@ export class InventoryRackQueueService {
    * ⚠️ Con el catálogo vacío queda **una sola fila**: el montón. Ése es el caso de Yurécuaro si el
    * lunes no alcanzan a capturar, y el sistema tiene que comportarse —no quedarse sin cola—.
    */
-  private async ensureQueue(trx: any, folio: { id: string; warehouse_id: string }, uid: string) {
+  private async ensureQueue(trx: Knex.Transaction, folio: { id: string; warehouse_id: string }, uid: string): Promise<void> {
     await trx.raw(
       `INSERT INTO commercial.inventory_count_rack_state
          (tenant_id, count_id, aisle_id, pass, status, created_by, updated_by)
@@ -239,7 +333,7 @@ export class InventoryRackQueueService {
         [uid, uid, uid, uid, countId, uid, uid],
       );
 
-      const tomado = (rows as any[])[0];
+      const tomado = (rows as FilaDeRack[])[0];
       if (tomado) {
         const rack = await this.decorar(trx, tomado.aisle_id, tomado.pass, tomado.taken_at);
         rack.ya_contado = await this.yaContadoEn(trx, countId, rack.aisle_id, rack.pass);
@@ -281,7 +375,7 @@ export class InventoryRackQueueService {
    * como faltante) está declarada FUERA del martes (§6 del anexo); esto es el «terminé mi rack»
    * informativo, que es lo que le deja ver el avance al supervisor.
    */
-  async finish(countId: string, dto: { aisle_id?: string | null }) {
+  async finish(countId: string, dto: { aisle_id?: string | null }): Promise<CerrarRackRespuesta> {
     const uid = this.userId();
     const pedido = dto?.aisle_id ? String(dto.aisle_id).trim() : null;
     if (pedido && !UUID.test(pedido)) throw new BadRequestException('aisle_id inválido');
@@ -357,7 +451,7 @@ export class InventoryRackQueueService {
    * ⛔ Lo que NO se relaja en ninguno de los dos caminos: no se puede unir ni retomar un rack cuya
    * vuelta anterior contó esa misma persona. Es la única negación que se conserva (§4.4).
    */
-  async join(countId: string, dto: { aisle_id?: string | null }) {
+  async join(countId: string, dto: { aisle_id?: string | null }): Promise<UnirseRespuesta> {
     const uid = this.userId();
     const pedido = dto?.aisle_id ? String(dto.aisle_id).trim() : null;
     if (pedido && !UUID.test(pedido)) throw new BadRequestException('aisle_id inválido');
@@ -396,12 +490,12 @@ export class InventoryRackQueueService {
         RETURNING s.aisle_id, s.pass, s.taken_at, s.holder_id`,
         [uid, uid, uid, uid, countId, pedido, uid, uid, uid],
       );
-      const fila = (rows as any[])[0];
+      const fila = (rows as FilaDeRackConDueno[])[0];
       if (!fila) {
         // Se distingue cada «no» de los otros, porque la persona hace cosas distintas con cada uno.
         const estado = await trx('commercial.inventory_count_rack_state')
           .where({ count_id: countId })
-          .andWhere((b: any) => (pedido ? b.where('aisle_id', pedido) : b.whereNull('aisle_id')))
+          .andWhere((b: Knex.QueryBuilder) => (pedido ? b.where('aisle_id', pedido) : b.whereNull('aisle_id')))
           .orderBy('pass', 'desc')
           .first('status', 'pass');
         if (!estado) throw new NotFoundException('Ese rack no está en la cola de este folio.');
@@ -440,7 +534,7 @@ export class InventoryRackQueueService {
    * que la cola no se lo vuelve a dar y la segunda vuelta no le va a tocar. Si volvió y quiere
    * seguir en ese rack, el camino es `join` —explícito—, no que la cola se lo devuelva sola.
    */
-  async release(countId: string, dto: { aisle_id?: string | null; pass?: number; reason?: string }) {
+  async release(countId: string, dto: { aisle_id?: string | null; pass?: number; reason?: string }): Promise<SoltarRackRespuesta> {
     const uid = this.userId();
     const pedido = dto?.aisle_id ? String(dto.aisle_id).trim() : null;
     if (pedido && !UUID.test(pedido)) throw new BadRequestException('aisle_id inválido');
@@ -450,7 +544,7 @@ export class InventoryRackQueueService {
       await this.folioOrThrow(trx, countId);
       let q = trx('commercial.inventory_count_rack_state')
         .where({ count_id: countId, status: 'taken' })
-        .andWhere((b: any) => (pedido ? b.where('aisle_id', pedido) : b.whereNull('aisle_id')));
+        .andWhere((b: Knex.QueryBuilder) => (pedido ? b.where('aisle_id', pedido) : b.whereNull('aisle_id')));
       if (dto?.pass) q = q.andWhere('pass', Number(dto.pass));
 
       const [fila] = await q
@@ -488,7 +582,7 @@ export class InventoryRackQueueService {
    * Incluye los racks que **todavía nadie tomó**: ésa es la mitad que hoy no existe y la que
    * distingue «acá no hay nada» de «nadie llegó».
    */
-  async board(countId: string) {
+  async board(countId: string): Promise<TableroDeRacks> {
     const uid = this.tenantCtx.get()?.userId ?? null;
     return this.tk.run(async (trx) => {
       const folio = await this.folioOrThrow(trx, countId);
@@ -514,7 +608,7 @@ export class InventoryRackQueueService {
         [countId],
       );
 
-      const racks = (rows as any[]).map((r) => ({
+      const racks = (rows as FilaDelTablero[]).map((r) => ({
         aisle_id: r.aisle_id as string | null,
         code: InventoryRackQueueService.rotulo(r.aisle_id, r.code, r.name),
         name: r.name as string | null,
@@ -556,7 +650,7 @@ export class InventoryRackQueueService {
   // ───────────────────────────────────────────────────────────────────────────────────────────
 
   /** El rack que esta persona tiene tomado ahora, si tiene alguno. */
-  private async rackDe(trx: any, countId: string, uid: string): Promise<RackDeLaCola | null> {
+  private async rackDe(trx: Knex.Transaction, countId: string, uid: string): Promise<RackDeLaCola | null> {
     const fila = await trx('commercial.inventory_count_rack_state')
       .where({ count_id: countId, holder_id: uid, status: 'taken' })
       .first('aisle_id', 'pass', 'taken_at');
@@ -565,7 +659,7 @@ export class InventoryRackQueueService {
   }
 
   private async decorar(
-    trx: any,
+    trx: Knex.Transaction,
     aisleId: string | null,
     pass: number | string,
     takenAt: string | null,
@@ -583,7 +677,7 @@ export class InventoryRackQueueService {
     };
   }
 
-  private async libres(trx: any, countId: string): Promise<number> {
+  private async libres(trx: Knex.Transaction, countId: string): Promise<number> {
     const r = await trx('commercial.inventory_count_rack_state')
       .where({ count_id: countId, status: 'free' })
       .count('* as n')
@@ -592,7 +686,7 @@ export class InventoryRackQueueService {
   }
 
   /** Los racks ocupados a los que ESTA persona se podría unir (§4.6). */
-  private async ocupadosParaUnirse(trx: any, countId: string, uid: string) {
+  private async ocupadosParaUnirse(trx: Knex.Transaction, countId: string, uid: string): Promise<TomarSiguienteRespuesta['puedes_unirte']> {
     const { rows } = await trx.raw(
       `SELECT s.aisle_id, s.pass, s.taken_at, a.code, a.name,
               u.nombre AS holder_nombre, u.username AS holder_username
@@ -611,7 +705,7 @@ export class InventoryRackQueueService {
         ORDER BY s.taken_at ASC`,
       [countId, uid, uid],
     );
-    return (rows as any[]).map((r) => ({
+    return (rows as FilaOcupada[]).map((r) => ({
       aisle_id: r.aisle_id as string | null,
       code: InventoryRackQueueService.rotulo(r.aisle_id, r.code, r.name),
       holder: (r.holder_nombre || r.holder_username || null) as string | null,
@@ -627,7 +721,7 @@ export class InventoryRackQueueService {
    * 24» le da un número al que anclarse. Las dos cosas se cumplen mostrando **qué productos**, no
    * **cuántos** — que además es lo único que hace falta para no recontar.
    */
-  private async yaContadoEn(trx: any, countId: string, aisleId: string | null, pass: number) {
+  private async yaContadoEn(trx: Knex.Transaction, countId: string, aisleId: string | null, pass: number): Promise<NonNullable<RackDeLaCola['ya_contado']>> {
     const { rows } = await trx.raw(
       `SELECT DISTINCT i.product_id, i.product_sku, p.nombre AS name
          FROM commercial.inventory_count_scan_log l
@@ -641,14 +735,14 @@ export class InventoryRackQueueService {
         LIMIT 500`,
       [countId, aisleId, `count_${pass}`],
     );
-    return (rows as any[]).map((r) => ({
+    return (rows as { product_id: string | null; product_sku: string | null; name: string | null }[]).map((r) => ({
       product_id: r.product_id ?? null,
       product_sku: r.product_sku ?? null,
       name: r.name ?? null,
     }));
   }
 
-  private async contarCapturas(trx: any, countId: string, aisleId: string | null, pass: number): Promise<number> {
+  private async contarCapturas(trx: Knex.Transaction, countId: string, aisleId: string | null, pass: number): Promise<number> {
     const { rows } = await trx.raw(
       `SELECT count(*)::int AS n
          FROM commercial.inventory_count_scan_log l
@@ -658,6 +752,6 @@ export class InventoryRackQueueService {
           AND l.quantity_native IS NOT NULL`,
       [countId, aisleId, `count_${pass}`],
     );
-    return Number((rows as any[])[0]?.n) || 0;
+    return Number((rows as { n: number | string }[])[0]?.n) || 0;
   }
 }
