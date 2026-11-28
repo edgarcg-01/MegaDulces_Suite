@@ -37,13 +37,5 @@ export const segunReorden = (existencia: string, reorden: string, cantidad: stri
 export const frenadoPorReorden = (existencia: string, reorden: string, cantidad: string): string =>
   `(${reorden} IS NOT NULL AND NOT ${bajoReorden(existencia, reorden)} AND ${cantidad} > 0)`;
 
-/**
- * D26 (PM, 2026-11-04): el inflado por cumplimiento del proveedor sólo en lo que se le COMPRA. Un
- * traspaso de la matriz no depende de lo que surta el proveedor; la mesa nunca lo infló.
- *
- * El canal sale de `commercial.replenishment_channel` (cómo llegó de verdad la mercancía de ese
- * proveedor a ese almacén). Contrastado contra Kepler el 2026-11-04: de 1,356 pares «traspaso», 40
- * (3 %) tienen entradas de compra `X-A-40` de ese proveedor en 90 días. Sin canal se infla como antes.
- */
-export const cumplimientoSoloCompra = (esTraspaso: string, factor: string): string =>
-  `(CASE WHEN ${esTraspaso} THEN 1.0 ELSE ${factor} END)`;
+// `cumplimientoSoloCompra` (D26: inflar por cumplimiento sólo lo que se COMPRA) se retiró con
+// `[PQ.169]`: desde D49 (Edgar, 2026-11-27) el cumplimiento del proveedor ya no infla nada.

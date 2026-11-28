@@ -1536,25 +1536,21 @@ describe('[PQ.38] valor venta y valor existencia, en grande', () => {
   });
 });
 
-describe('[PQ.44] D26: el inflado por cumplimiento no se afirma donde no se aplicó', () => {
-  // El motor ya no infla lo que llega por traspaso. Si el texto siguiera diciendo «va multiplicado»
-  // de todo el renglón, afirmaría algo que no pasó (ley 0 del estándar).
+describe('[PQ.169] D49: el surtido del proveedor es un dato, no un multiplicador', () => {
+  // Desde D49 el motor pide lo que dice la cobertura. Si el texto siguiera diciendo «va
+  // multiplicado ×1.25», afirmaría algo que el motor ya no hace (ley 0 del estándar).
   const fila = (cells: Record<string, { trf?: true }>) => ({ fill_rate: 0.8, cells }) as never;
 
-  it('sin traspasos: dice el multiplicador', () => {
-    const c = montar(VACIO).componentInstance;
-    expect(c.fillTitle(fila({ a: {}, b: {} }))).toContain('El Pedido va multiplicado ×1.25.');
-  });
-
-  it('todas por traspaso: dice que NO se infla, sin multiplicador', () => {
-    const t = montar(VACIO).componentInstance.fillTitle(fila({ a: { trf: true }, b: { trf: true } }));
+  it('compra directa: dice el surtido y que el Pedido NO se infla, sin multiplicador', () => {
+    const t = montar(VACIO).componentInstance.fillTitle(fila({ a: {}, b: {} }));
+    expect(t).toContain('de cada $100 pedidos a este proveedor entrega $80.0');
     expect(t).toContain('El Pedido NO se infla');
-    expect(t).not.toContain('va multiplicado');
+    expect(t).not.toMatch(/×\d|multiplicado/);
   });
 
-  it('mezcla: multiplica sólo en las que compran directo', () => {
+  it('con traspasos: el mismo texto, tampoco multiplica', () => {
     const t = montar(VACIO).componentInstance.fillTitle(fila({ a: {}, b: { trf: true } }));
-    expect(t).toContain('en las sucursales que le compran directo; en las que lo reciben por traspaso no se infla');
+    expect(t).not.toMatch(/×\d|multiplicado/);
   });
 });
 

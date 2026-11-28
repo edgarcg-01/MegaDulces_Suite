@@ -1,7 +1,7 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true` (ver requisicion-oc.spec.ts).
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { bajoReorden, cumplimientoSoloCompra, frenadoPorReorden, segunReorden } from './faltante';
+import { bajoReorden, frenadoPorReorden, segunReorden } from './faltante';
 
 /**
  * `[PQ.44]` D33: la mesa y `/compras/pedido` piden con la MISMA regla de reorden. Medido el
@@ -35,13 +35,16 @@ describe('[PQ.44] la regla de reorden (D33)', () => {
     expect(SVC).not.toMatch(/\$\{oh\} <= rp\.reorder_point`\)/);
   });
 
-  it('[D26] el cumplimiento se aplica sólo si NO es traspaso', () => {
-    expect(cumplimientoSoloCompra('t', 'f')).toBe('(CASE WHEN t THEN 1.0 ELSE f END)');
+  it('⛔ [PQ.169] D49: Pedido pide lo que dice la cobertura — el cumplimiento del proveedor no multiplica', () => {
+    // La cantidad cruda termina en la resta del tránsito, sin ningún factor detrás.
+    expect(SVC).toContain(`- (\${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')}))::numeric, 1)\`;`);
+    expect(SVC).not.toMatch(/FILLF|erpFillFactor|cumplimientoSoloCompra|:maxinf/);
+    // «Ver pedido» del proveedor (purchaseSuggestion) tampoco divide por el fill rate.
+    expect(SVC).toContain('const fillFactor = `(1 + ${safetyEff}/100.0)`;');
+    expect(SVC).not.toMatch(/GREATEST\(\$\{fillRate\}/);
   });
 
-  it('⛔ [D26] Pedido multiplica por el cumplimiento a través del primitivo, y la celda dice si fue traspaso', () => {
-    expect(SVC).toContain('* ${cumplimientoSoloCompra(TRASPASO, FILLF)})::numeric, 1)');
-    expect(SVC).not.toMatch(/\) \* \$\{FILLF\}\)::numeric, 1\)/);
+  it('[D26] la celda sigue diciendo si llega por traspaso', () => {
     expect(SVC).toContain(`const TRASPASO = \`bool_and(COALESCE(b.canal_via, '') = 'transfer')\`;`);
     expect(SVC).toContain('LEFT JOIN commercial.replenishment_channel rcw ON rcw.tenant_id = pr.tenant_id AND rcw.warehouse_id = rp.warehouse_id AND rcw.supplier_id = pr.supplier_id');
     expect(SVC).toContain(`'trf', CASE WHEN traspaso THEN true END`);

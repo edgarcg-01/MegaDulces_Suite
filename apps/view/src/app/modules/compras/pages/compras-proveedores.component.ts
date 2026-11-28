@@ -52,8 +52,7 @@ import { PARAMETROS_COMPRA_TABS } from '../parametros-compra-tabs';
             <input pInputText type="number" min="30" max="730" [(ngModel)]="s.fill_window_days" (change)="saveSettings()" class="cp-num" /> d</label>
           <label title="Recepciones mínimas de un proveedor para confiar en su fill rate; con menos, se asume 100%">Mín. recepciones
             <input pInputText type="number" min="1" max="50" [(ngModel)]="s.fill_min_lines" (change)="saveSettings()" class="cp-num" /></label>
-          <label title="Tope de inflado del pedido (piso del fill rate = 1 ÷ tope)">Tope inflado
-            <input pInputText type="number" min="1" max="3" step="0.05" [(ngModel)]="s.fill_max_inflate" (change)="saveSettings()" class="cp-num" />×</label>
+          <!-- [PQ.169] D49: «Tope inflado» se retiró — el fill rate ya no infla el pedido, y un control sin efecto mentiría. -->
           <label title="Días de cobertura cuando el pedido no trae uno explícito">Cobertura default
             <input pInputText type="number" min="1" max="120" [(ngModel)]="s.default_coverage_days" (change)="saveSettings()" class="cp-num" /> d</label>
         </div>
@@ -77,7 +76,7 @@ import { PARAMETROS_COMPRA_TABS } from '../parametros-compra-tabs';
             <th class="cp-r" title="Días de entrega (pedido→recepción). Alimenta la cobertura automática (cadencia de compra + lead).">Lead (d)</th>
             <th class="cp-r" title="Mínimo de compra en cajas">Mín cajas</th>
             <th class="cp-r" title="Mínimo de compra en $">Mín $</th>
-            <th class="cp-r cp-sep" title="RA-PRO.27 — fill rate manual (%): gana sobre el histórico. Vacío = automático por recepciones.">Fill %</th>
+            <th class="cp-r cp-sep" title="Fill rate manual (%): gana sobre el histórico. Vacío = automático por recepciones. Es un dato para negociar: ya no infla el pedido.">Fill %</th>
             <th class="cp-r" title="RA-PRO.27 — colchón adicional % sobre el sugerido de este proveedor">Colchón %</th>
             <th class="cp-r" title="RA-PRO.27 — días de cobertura propios (reemplazan el global del filtro)">Cobertura (d)</th>
             <th class="cp-r cp-sep" title="WMS-REC.8 — faltantes reclamados en la ventana (los que no se descartaron bajan el fill rate)">Reclamos</th>
@@ -120,7 +119,7 @@ import { PARAMETROS_COMPRA_TABS } from '../parametros-compra-tabs';
           <tr><td colspan="10" class="cp-empty">Sin proveedores.</td></tr>
         </ng-template>
       </p-table>
-      <p class="cp-foot">Estos parámetros son EXACTAMENTE los que usa <strong>/compras/pedido</strong> (mismo motor). Los placeholders <em>"… auto"</em> son lo que el <strong>análisis</strong> calculó y ya aplica: <strong>Fill %</strong> del histórico de recepciones · <strong>Colchón %</strong> de la variabilidad (estable 0 / medio 10 / volátil 20) · <strong>Cobertura</strong> de la cadencia real de compra + lead time. Escribe un valor solo para <strong>forzar</strong> un override (gana sobre el auto). <strong>Lead</strong> y <strong>Mín</strong> afinan la cobertura automática y el mínimo de compra. Los globales de arriba controlan la ventana y el tope del análisis.</p>
+      <p class="cp-foot">Estos parámetros son EXACTAMENTE los que usa <strong>/compras/pedido</strong> (mismo motor). Los placeholders <em>"… auto"</em> son lo que el <strong>análisis</strong> calculó: <strong>Fill %</strong> del histórico de recepciones (sólo se muestra: el pedido ya no se infla por él) · <strong>Colchón %</strong> de la variabilidad (estable 0 / medio 10 / volátil 20) · <strong>Cobertura</strong> de la cadencia real de compra + lead time. Escribe un valor solo para <strong>forzar</strong> un override (gana sobre el auto). <strong>Lead</strong> y <strong>Mín</strong> afinan la cobertura automática y el mínimo de compra. Los globales de arriba controlan la ventana y la muestra mínima del fill rate.</p>
 
       <p-dialog [(visible)]="orderVisible" [modal]="true" [style]="{ width: '54rem' }" [dismissableMask]="true" [header]="order()?.supplier?.name || 'Pedido consolidado'">
         @if (orderLoading()) { <div class="cp-dlg-msg">Calculando…</div> }

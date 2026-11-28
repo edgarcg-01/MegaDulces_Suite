@@ -1,6 +1,11 @@
 /**
  * `[RA-DYN.U7]` — **El cumplimiento del proveedor, ya cableado al pedido.**
  *
+ * ⛔ `[PQ.169]` D49 (Edgar, 2026-11-27): **el multiplicador se retiró** — «si la cobertura pide 30,
+ * lo hace en base a 30». El fill rate sigue midiéndose y publicándose (chip «Surt.»). El bloque [3]
+ * ahora vigila que el multiplicador NO vuelva; [4] y [6] miden el inflado que HABRÍA aplicado
+ * (su SQL es propio, no lee el motor) y se quedan como registro de lo que se dejó de pedir.
+ *
  * `[RA-DYN.U5/U6]` dejó la medición en prod y servía para negociar. Esto la mete al motor: el
  * pedido de `/compras/pedido` se divide por el fill rate del proveedor, topado en
  * `fill_max_inflate`. Es un cambio de número publicado, así que el candado no mira el número —
@@ -158,12 +163,14 @@ const FILL = `
       'o sea el inflado MÁXIMO para un proveedor sin medición');
     ok(Number(t.con_guarda) === 1,
       `con el COALESCE adentro devuelve ${t.con_guarda}: sin medición, el pedido no se mueve`);
-    // Y que la expresión del motor tenga la guarda puesta.
+    // `[PQ.169]` D49 (Edgar, 2026-11-27): el fill rate YA NO multiplica el pedido («si la cobertura
+    // pide 30, lo hace en base a 30»); sólo se publica. La guarda de arriba deja de ser del motor, y
+    // lo que se vigila ahora es que el multiplicador NO vuelva.
     const fuente = require('fs').readFileSync(
       path.resolve(__dirname, '..', '..', 'libs/commercial/src/lib/commercial-replenishment/commercial-replenishment.service.ts'),
       'utf8');
-    ok(/GREATEST\(COALESCE\(\$\{col\},\s*1\.0\),\s*1\.0\s*\/\s*:maxinf\)/.test(fuente),
-      'el motor construye el factor con el COALESCE por dentro del GREATEST');
+    ok(!/:maxinf|erpFillFactor|GREATEST\(\$\{fillRate\}/.test(fuente),
+      'el motor ya no divide el pedido por el fill rate (D49)');
 
     console.log('\n[4] PREMISA — el fill vive en [0,1] y el factor nunca pasa del tope');
     const { rows: [c4] } = await knex.raw(`

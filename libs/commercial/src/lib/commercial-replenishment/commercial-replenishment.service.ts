@@ -30,7 +30,7 @@ import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lo
 import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { cerrarTraspasosNoEjecutados } from './traspaso-no-ejecutado';
 import { limpiarComprasSinDocumento, INICIO_ENVIO_AUTOMATICO } from './compra-sin-documento';
-import { bajoReorden, cumplimientoSoloCompra, frenadoPorReorden, segunReorden } from './faltante';
+import { bajoReorden, frenadoPorReorden, segunReorden } from './faltante';
 import { FICHA_KEPLER_SQL } from './ficha-kepler';
 import { proveedorPedibleSql } from './proveedor-no-pedible';
 import { leerRequisicionEnReplica, type RequisicionEnReplica } from './kepler-requisicion-replica';
@@ -966,28 +966,24 @@ export class CommercialReplenishmentService {
              AND NOT bool_or(supplier_ambiguo)`;
   }
 
-  /**
-   * El multiplicador del pedido: 1 ÷ fill, topado.
-   *
-   * ⚠️ EL `COALESCE` VA ADENTRO DEL `GREATEST`, Y NO ES ESTILO. En Postgres `GREATEST` **ignora
-   * los NULL**, así que `GREATEST(NULL, 1/1.30)` devuelve 0.769 — o sea que un proveedor SIN
-   * medición se llevaría el inflado máximo, +30%, justo el que menos lo merece. Con el `COALESCE`
-   * primero, ausencia de medición significa factor 1.0 y el pedido no se mueve.
-   * (Me mordió midiendo, antes de escribir esto.)
-   */
-  private erpFillFactor(ready: boolean, col: string): string {
-    return ready ? `(1.0 / GREATEST(COALESCE(${col}, 1.0), 1.0 / :maxinf))` : '1.0';
-  }
+  // `[PQ.169]` D49 (Edgar, 2026-11-27): «si la cobertura pide 30, lo hace en base a 30». El fill
+  // rate YA NO MULTIPLICA el pedido (antes 1 ÷ fill, topado en `fill_max_inflate` ×1.30): sólo se
+  // publica como dato. Por qué es seguro, medido en prod el 2026-11-27: de los 125 canales de compra
+  // de los 40 proveedores que se inflaban, 117 reciben entrega cada 30 días o menos (mediana 13 d),
+  // así que lo que no surten vuelve a salir en el siguiente pedido — el motor resta la existencia
+  // real, no la pedida. Y el inflado no se podía arbitrar: Kepler no distingue un renglón que
+  // NOSOTROS cancelamos de uno que el proveedor no surtió. Caso que lo destapó: Salsa Valentina en
+  // Morelia Abastos, 30 d de cobertura → 49 d (×1.265 temporada × 1.30 surtido) → recorte a 45 d.
+  // `fill_max_inflate` se queda en la tabla (no se borran columnas) pero nada lo lee.
 
-  /** Los tres parámetros del fill rate, con degradación a defaults si falta la migración. */
-  private fillBinds(st: SettingsLike): { fwin: number; fminerp: number; maxinf: number } {
+  /** Los parámetros del fill rate que se PUBLICA, con degradación a defaults si falta la migración. */
+  private fillBinds(st: SettingsLike): { fwin: number; fminerp: number } {
     return {
       fwin: Math.max(30, Number(st?.fill_window_days) || this.DEFAULT_SETTINGS.fill_window_days),
       // ⛔ NO es `fill_min_lines` (3). Ese umbral es para la evidencia app-nativa; medido contra
       // prod, debajo de 25 renglones el fill rate del ERP tiene correlación CERO con su propio
       // futuro. Ver la migración 20261003120000.
       fminerp: Math.max(25, Number(st?.fill_min_lines_erp) || this.DEFAULT_SETTINGS.fill_min_lines_erp),
-      maxinf: Math.min(3, Math.max(1, Number(st?.fill_max_inflate) || this.DEFAULT_SETTINGS.fill_max_inflate)),
     };
   }
 
@@ -1031,8 +1027,8 @@ export class CommercialReplenishmentService {
    * cosas distintas del mismo producto, que es justo lo que esta base existe para evitar.
    *
    * Lo que `workbook()` aplica y esto NO:
-   *  · el factor de cumplimiento del proveedor (FILLF, RA-DYN.U7): infla la COMPRA porque el
-   *    proveedor surte de menos; es una corrección del comprador, no una necesidad del almacén;
+   *  · (hasta `[PQ.169]` también el factor de cumplimiento del proveedor; desde D49 ya no infla
+   *    en ningún lado, así que en eso las dos pantallas coinciden);
    *  · retener el renglón cuando el peldaño está contradicho (RUNG_OK): acá la cantidad se sigue
    *    mostrando y sólo el $ se retiene (`rungMedible()`), como en el resto de la mesa.
    *
@@ -1875,7 +1871,6 @@ export class CommercialReplenishmentService {
       const cov = covReq ?? Math.min(120, Math.max(1, Number(st?.default_coverage_days) || 30));
       const fwin = Math.max(30, Number(st?.fill_window_days) || 180);   // ventana de historia del fill rate
       const fmin = Math.max(1, Number(st?.fill_min_lines) || 3);        // mínimo de recepciones para confiar
-      const maxinf = Math.min(3, Math.max(1, Number(st?.fill_max_inflate) || 1.30)); // tope de inflado
       // `[RA-DYN.U7]` — umbral PROPIO de la cadena de Kepler (25, medido). No reusa `fmin`.
       const fminerp = this.fillBinds(st).fminerp;
       // RA-PRO.31 — LEE del fact precomputado (analytics.replenishment_plan) agregado a grano RED
@@ -1899,7 +1894,7 @@ export class CommercialReplenishmentService {
       // RA-PRO.27 — FILL RATE PERSONALIZADO. Infla el sugerido para compensar surtido incompleto.
       // Precedencia: override manual del proveedor → historia SKU×proveedor → historia proveedor →
       // 100% (sin historia). El fill rate se toma de OCs recibidas/parciales en la ventana (fwin);
-      // requiere ≥ fmin líneas para confiar; el inflado se topa en maxinf (piso del fill = 1/maxinf).
+      // requiere ≥ fmin líneas para confiar. `[PQ.169]` D49: el fill rate se PUBLICA, ya no multiplica.
       // AUTOMÁTICO BAJO ANÁLISIS: cobertura y colchón se derivan de datos, sin captura manual.
       //   auto cobertura = cadencia real de compra (OCs recibidas en la ventana) + lead time.
       //   auto colchón%  = variabilidad de demanda (CV de reorder_policy): estable 0 / medio 10 / volátil 20.
@@ -1951,13 +1946,14 @@ export class CommercialReplenishmentService {
                               ELSE 'none' END`;
       const covSource = `CASE WHEN ${colCov} IS NOT NULL THEN 'manual' WHEN ${autoCovKepler} IS NOT NULL THEN 'kepler' WHEN ${autoCov} IS NOT NULL THEN 'auto' ELSE 'global' END`;
       const safetySource = `CASE WHEN ${colSafety} IS NOT NULL THEN 'manual' WHEN plan.safety_pct_q IS NOT NULL THEN 'quantil' WHEN ${autoSafety} > 0 THEN 'auto' ELSE 'none' END`;
-      // sugerido = (necesidad ÷ fill, tope inflado) × (1 + colchón% efectivo)
-      const fillFactor = `(1.0 / GREATEST(${fillRate}, 1.0 / :maxinf)) * (1 + ${safetyEff}/100.0)`;
+      // sugerido = necesidad × (1 + colchón% efectivo). `[PQ.169]` D49: ya NO se divide por el fill
+      // rate — «si la cobertura pide 30, lo hace en base a 30»; el fill rate viaja sólo como dato.
+      const fillFactor = `(1 + ${safetyEff}/100.0)`;
       // En CAJAS: demanda (sub-unidades, × estación) ÷ SUF ÷ BF; existencia ÷ BF; tránsito ya en cajas.
       const needBase = `GREATEST(0, ${sellDayPz} * ${seasonR} * ${covEff} / (${SUF} * ${BF}) - ${stockCjs} - ${transitEff})`; // necesidad neta (sin fill)
       const sug = `(${needBase} * ${fillFactor})`;                                                          // sugerido personalizado
       const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL'];
-      const binds: Record<string, unknown> = { t: tenantId, cov, fwin, fmin, maxinf, fminerp };
+      const binds: Record<string, unknown> = { t: tenantId, cov, fwin, fmin, fminerp };
       // Almacén: seleccionar almacén en Comprar = PEDIDO PER-SUCURSAL (demanda + existencia de
       // ESE almacén), NO "productos comprados ahí". Los proveedores DIRECTOS a sucursal (Ferrero)
       // no tienen fila en el ledger de compras del almacén → con el filtro viejo (pl.product_id IS
@@ -2219,8 +2215,8 @@ export class CommercialReplenishmentService {
         ? await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first()
         : this.DEFAULT_SETTINGS;
       const fb = this.fillBinds(stWb);
-      const FILLF = this.erpFillFactor(erpReady, 'max(b.fill_erp)');
-      // `[PQ.44]` D26: toda la columna llega por traspaso (con canal medido) → no se infla.
+      // `[PQ.169]` D49: el fill rate (fre) sigue viajando para el chip «Surt.», pero ya no multiplica.
+      // `[PQ.44]` D26: toda la columna llega por traspaso (con canal medido); la pantalla lo marca.
       const TRASPASO = `bool_and(COALESCE(b.canal_via, '') = 'transfer')`;
       // `[PQ.44]` D25: la cobertura por almacén es la de la mesa (misma expresión de libs/contracts).
       // Va por renglón de almacén y la demanda se multiplica ANTES de sumar, así la columna de red
@@ -2339,10 +2335,11 @@ export class CommercialReplenishmentService {
       // ~10× más chica y el motor pedía de más — $866,756 de sobre-pedido y $2.68M de inventario
       // que no se veía. Resuelto en `analytics.v_warehouse_box_factor` y materializado en el fact.
       const DBF = 'COALESCE(max(b.display_bf), max(b.bf), 1)';
-      // `[PQ.44]` Lo que faltaría para el objetivo (D25 cobertura por almacén, D26 cumplimiento sólo
-      // en compra), ANTES de la regla del reorden (D33). Una sola expresión para el pedido y para
-      // la marca de «frenado por el reorden»: si fueran dos, podrían decir cosas distintas.
-      const PED_CRUDO = `round((GREATEST(0, COALESCE(sum(b.daily_pieces * b.cov_dias),0) * COALESCE(max(b.season_ratio),1) / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${cumplimientoSoloCompra(TRASPASO, FILLF)})::numeric, 1)`;
+      // `[PQ.44]` Lo que faltaría para el objetivo (D25 cobertura por almacén), ANTES de la regla del
+      // reorden (D33). Una sola expresión para el pedido y para la marca de «frenado por el reorden»:
+      // si fueran dos, podrían decir cosas distintas. `[PQ.169]` D49: sin multiplicar por el
+      // cumplimiento del proveedor — la cantidad es la de la cobertura, nada más.
+      const PED_CRUDO = `round(GREATEST(0, COALESCE(sum(b.daily_pieces * b.cov_dias),0) * COALESCE(max(b.season_ratio),1) / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')}))::numeric, 1)`;
       // U.2 — ¿el peldaño de este almacén está verificado? `sin_dato` cuenta como OK a propósito:
       // el detector sólo opina donde hay existencia y costo de compra; ausencia de veredicto no es
       // veredicto negativo (misma regla que `freshness.ts`: no poder MEDIR no se reporta como malo,

@@ -2855,10 +2855,81 @@ tiene a propósito** (KR). Ahí D40 tendría que decidir si se le da o si la Sui
 
 ---
 
+## 21. «Pongo 30 días y sugiere para 45» (2026-11-27)
+
+**El pedido literal.** Un comprador, con dos capturas: *«la fórmula la está sacando mal… le pongo
+que para 30 días pero si ves arroja sugerido para 40 días»* y *«mi sugerido de 30 días son 237 − 90
+que tengo, debe sugerir 147, pero sugiere 260, para 45 días no para 30; entonces debo estarle
+bajando, pero si no nos fijamos así mandamos el sugerido que nos arroja»*. Edgar: *«surtido: que
+diga la cobertura, si la cobertura pide 30 lo hace en base a 30 (verifica que la solución sea
+adecuada)»* y *«temporada: opción a»* (calcularla por sucursal en vez de por red).
+
+**Medido** (`pg-prod`, `system_identifier 7688376744939610156`, sólo lectura, 2026-11-27).
+El comprador tiene razón: los dos ejemplos salen **exactamente** en el tope de 45 días
+(`venta30 × 45 / 30.4 − existencia`: 133.7 × 45 / 30.4 − 0.3 = 197; 237 × 45 / 30.4 − 90 = 260).
+El motor pedía más de 45 días y la pantalla lo recortaba. Salsa Valentina en Morelia Abastos:
+
+| Paso | Cajas |
+|---|---:|
+| venta de 30 días (53.5 pz/día ÷ 12) | 133.7 |
+| × temporada 1.265 (`season_src = sku`, **de la red**: dic/nov-2025 = 2,926/2,346) | 169 |
+| × surtido del proveedor (66.9 % → ×1.49, topado a ×1.30) | 219 ≈ 49 días |
+| tope de 45 días | **197** |
+
+En Morelia Abastos ese producto **bajó** de noviembre a diciembre de 2025 (1,667 → 1,552 pz); el
+factor es del producto en la red y se aplica igual a las 20 columnas.
+
+### 21.1 Surtido → `[PQ.169]`, D49 — hecho, verificado
+
+El fill rate deja de multiplicar el pedido; se sigue publicando (chip «Surt.»). **¿Es adecuado?**
+Sí, con dos pruebas: (1) de los 125 canales de compra de los 40 proveedores que se inflaban, **117
+reciben entrega cada 30 días o menos** (mediana 13 d): lo que no surten vuelve a salir en el
+siguiente pedido, porque el motor resta la existencia real; (2) el inflado no tenía árbitro — Kepler
+no distingue un renglón que cancelamos nosotros de uno que el proveedor no surtió.
+
+**Antes → después** (misma consulta; red, 30 d, tope 45 d; aproximación sin regla de reorden ni
+redondeo; costo sin impuestos): **$25.23 M → $24.96 M** (−1.1 %), 787 renglones cambian, **$0** de
+cambio en los renglones que no se inflaban (control). ⚠️ **Topados en 45 d: 1,823 → 1,781** — el
+surtido no era lo que empujaba: es la temporada.
+
+### 21.2 Temporada → `[PQ.170]`, D50 — la opción (a) NO pasó la verificación
+
+Backtest con el sell-out canónico (`analytics.mv_sellout_monthly`, venta a precio), grano SKU ×
+sucursal (01–08): el índice de 2025 (razón mes T ÷ mes T−1, banda muerta 0.85–1.15, tope
+[0.5, 2.0]) predice 2026 de febrero a octubre. Control: el ingenuo (razón 1). 184,557 pares, $410 M
+de venta real:
+
+| Factor | Error absoluto | Sesgo (+ = de más) | Contra el ingenuo |
+|---|---:|---:|---:|
+| ingenuo (sin temporada) | $206.7 M | +$16.1 M | — |
+| global (toda la empresa) | $208.7 M | +$25.8 M | 1 % peor |
+| **red por producto (hoy)** | $230.1 M | +$34.8 M | 11 % peor |
+| mezcla 50/50 | $235.7 M | +$43.2 M | 14 % peor |
+| **por sucursal (opción a)** | **$243.6 M** | **+$44.3 M** | **18 % peor** |
+
+Por sucursal pierde contra la red **los nueve meses**, y empuja más hacia pedir de más — lo que D30
+dice que cuesta más. Con un solo año de historia, a ese grano el índice es ruido. **Lo que esto no
+es:** diciembre no se puede probar (no hay historia de 2024 en el sell-out: el primer mes con datos
+es 2025-01), y en la red diciembre sí vende 40 % más que noviembre (dic-2025 / nov-2025 = 76.9 /
+55.1). **No se construyó la (a); vuelve a Edgar** (D50).
+
+**Restricción para cualquier opción:** el factor lo calcula hoy el importer
+`database/importers/kepler/import-replenishment-plan.js` (`seasonCte`, sobre `analytics.sales_daily`).
+No se parcha (regla 1): un factor nuevo nace como **vista** derivada del sell-out canónico, y
+`replenishment_plan.season_ratio` se deja de leer.
+
+| # | Decisión | Opciones | Estado |
+|---|---|---|---|
+| D49 | ¿El cumplimiento del proveedor infla el pedido? | (a) sí, ×1/fill topado · (b) no: la cobertura manda | ✅ **(b), Edgar 2026-11-27** — `[PQ.169]` |
+| D50 | ¿Qué temporada multiplica la venta? | (a) por sucursal · (b) ninguna (la cobertura en días de venta actual) · (c) la de hoy (red) · (d) sólo los productos de temporada confirmada en `catalog` (PQ.94) | ⚠️ Edgar firmó **(a)** y la verificación la refutó (18 % peor que no usar factor, peor que la de hoy). **Recomendación: (b) por default + (d)** para lo que Compras confirma de Navidad. Falta firma |
+
+---
+
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-27 | **§21 «pongo 30 días y sugiere para 45»**: el comprador tenía razón, el motor pedía ~49 días (temporada de la red × surtido) y el tope lo dejaba en 45. **`[PQ.169]` 🧪** (D49): el surtido ya no multiplica, ni en Pedido ni en «Ver pedido» del proveedor; $25.23 M → $24.96 M, control $0. **`[PQ.170]` ✅ C0**: la temporada por sucursal (opción a) pierde contra la de hoy y contra no tener factor; D50 vuelve a Edgar | sesión Claude + PM |
 | 2026-11-25 | **§19.15 `[PQ.95]` tramo 1**: la etiqueta del freno en Pedido (fin de pico por sucursal y temporada confirmada) y el filtro «Con freno» con su conteo por etiqueta; consulta real contra prod sin mover ningún número. Nacen `[PQ.95.2]` (el freno de temporada en el número, antes del 24-dic), `[PQ.95.3]` (motivo obligatorio) y `[PQ.95.4]` (la mesa de Autoabasto, dentro del rediseño del PM) | sesión Claude + Francisco |
 | 2026-11-20 | **§19.14 Navidad 2026 en caliente**: análisis de sobra, falta, parados y traspasos fuera del repo; página compartida y junta de los lunes (D45); dueños por puesto (D46); confirman fechas y productos la jefatura de compras con la dirección comercial (D47); orden en la Suite: `[PQ.132]` bandeja → `[PQ.95]` → «En curso» (D48, falta ratificar). Medido: la mercadotecnia de plaza no puede abrir Temporadas | sesión Claude + Francisco |
 | 2026-11-12 | **Anexo K**: el menú Compras de Kepler completo, 10 módulos y 25 opciones, cada una con su destino (cero pantallas nuevas). Medido: una de cada 8 OC se cancela; la autorización no frena nada; «Saldar» es un documento de cuentas por pagar (corrige §20). Nacen **PQ.122–PQ.123** y **DK1–DK3**, sin firma | Claude |

@@ -4816,34 +4816,21 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       ? 'Todas sus sucursales con venta están frenadas por fin de pico: lo dice la etiqueta del renglón.'
       : 'Mes plano — la estacionalidad no mueve el pedido';
   }
-  // `[RA-DYN.U7]` — cumplimiento del proveedor. El Pedido ya viene dividido por él; el chip lo
-  // hace visible, que es la mitad del trabajo: un número que crece sin decir por qué no se discute
-  // con nadie, ni con el proveedor ni con quien firma la compra.
+  // `[RA-DYN.U7]` — cumplimiento del proveedor. `[PQ.169]` D49 (Edgar, 2026-11-27): ya NO multiplica
+  // el Pedido — «si la cobertura pide 30, lo hace en base a 30». El chip queda como dato para
+  // negociar con el proveedor, y el texto lo dice para que nadie busque el ×1.30 que ya no está.
   fillOn(r: WorkbookRow): boolean { const v = Number(r.fill_rate); return r.fill_rate != null && v > 0 && v < 0.9995; }
   fillLabel(r: WorkbookRow): string { return Math.round(Number(r.fill_rate) * 100) + '%'; }
   fillSev(r: WorkbookRow): Sev { return Number(r.fill_rate) < 0.85 ? 'danger' : 'warn'; }
   fillTitle(r: WorkbookRow): string {
     if (r.fill_rate == null) {
       return 'Surtido sin medir — este proveedor no llega a 25 renglones de orden-vs-vale en la ventana, '
-        + 'o su nombre está repetido en el catálogo. El Pedido NO se corrigió por cumplimiento.';
+        + 'o su nombre está repetido en el catálogo.';
     }
     const pct = Number(r.fill_rate) * 100;
-    if (pct >= 99.95) return 'Surte completo: la orden y el vale coinciden en el histórico. El Pedido no se infla.';
-    // El tope lo fija `fill_max_inflate` (1.30) en commercial.replenishment_settings.
-    const factor = Math.min(1.30, 1 / Number(r.fill_rate));
-    const topado = 1 / Number(r.fill_rate) > 1.3005;
-    // `[PQ.44]` D26: lo que llega por traspaso no se infla. Decir «va multiplicado» de esas
-    // columnas sería afirmar algo que el motor ya no hizo.
-    const celdas = Object.values(r.cells ?? {});
-    const traspasos = celdas.filter((c) => c.trf).length;
-    const multiplica = `×${factor.toFixed(2)}${topado ? ' (topado; sin tope sería ×' + (1 / Number(r.fill_rate)).toFixed(2) + ')' : ''}`;
-    const efecto = traspasos === 0
-      ? `El Pedido va multiplicado ${multiplica}. `
-      : traspasos === celdas.length
-        ? 'El Pedido NO se infla: todas sus sucursales lo reciben por traspaso, que no depende del proveedor. '
-        : `El Pedido va multiplicado ${multiplica} en las sucursales que le compran directo; en las que lo reciben por traspaso no se infla. `;
+    if (pct >= 99.95) return 'Surte completo: la orden y el vale coinciden en el histórico.';
     return `Histórico: de cada $100 pedidos a este proveedor entrega $${pct.toFixed(1)}. `
-      + efecto
+      + 'El Pedido NO se infla por esto: pide lo que dice la cobertura, y lo que no llegue vuelve a salir en el siguiente pedido. '
       + 'Ojo: Kepler no distingue un renglón que NOSOTROS cancelamos de uno que el proveedor no surtió.';
   }
   iadTitle(r: WorkbookRow): string {
