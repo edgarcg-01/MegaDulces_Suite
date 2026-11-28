@@ -977,6 +977,44 @@ export class QuotePricingService {
     };
   }
 
+  /**
+   * ⛔⛔ `[COT.57]` **Sin `product_id` no hay precio nuestro.** El renglón informa demanda, no cobra.
+   *
+   * No es una preferencia de estilo: es la restricción `commercial_quote_lines_unmatched_has_no_price`
+   * (`CHECK (product_id IS NOT NULL OR unit_price IS NULL)`), que vive en la tabla desde que la tabla
+   * existe —`20260921190000_commercial_quotes.js`— y cuyo comentario dice exactamente eso.
+   *
+   * ── Lo que pasaba hasta hoy, medido en prod el 2026-11-28 ───────────────────────────────────
+   *
+   * El motor SÍ sabe ponerle precio a un SKU que Kepler tiene y `public.products` no: la escalera y
+   * las listas salen del ERP, y `productId` queda `null` sólo porque falta la fila en el catálogo de
+   * la Suite. Ese precio llegaba al INSERT y Postgres rechazaba el renglón — y con él **la cotización
+   * entera, con un 500**. El operador perdía todo lo capturado y volvía a empezar.
+   *
+   * ⭐ Y la cifra que lo vuelve inequívoco: de **15,008 renglones** vivos, **CERO** tienen
+   * `product_id` nulo. O sea que el camino que el código creía tener —«guardo la demanda que estoy
+   * rechazando»— **nunca funcionó, ni una vez, desde el 21-sep**. No es un producto raro de hoy: es
+   * que un renglón no casado jamás pudo entrar. Cero filas por defecto se lee igual que cero por
+   * desuso, y por eso nadie lo vio.
+   *
+   * Acá se corta del lado que la regla manda: el renglón entra **sin precio**, con lo que el cliente
+   * pidió y con su razón escrita. Se pierde el precio del ERP y se gana que la cotización se guarde.
+   *
+   * ⚠️ Lo que esto NO arregla, y hay que cerrar aparte: **por qué un producto con precio en Kepler no
+   * está en `public.products`**. Eso es un hueco del catálogo, no de las cotizaciones.
+   */
+  private static precioQueSePuedeGuardar(priced: { product_id?: string | null; unit_price?: number | null } | null | undefined): number | null {
+    if (!priced?.product_id) return null;
+    return priced.unit_price ?? null;
+  }
+
+  /** La razón que acompaña al renglón sin precio, para que el operador sepa por qué no se cotizó. */
+  private static razonDelRenglon(priced: { product_id?: string | null; sku?: string; unpriced_reason?: string | null } | null | undefined): string | null {
+    if (priced && !priced.product_id)
+      return `Sin precio: ${priced.sku ?? 'el código pedido'} no está en el catálogo de la Suite, así que el renglón informa la demanda pero no cobra.`;
+    return priced?.unpriced_reason ?? null;
+  }
+
   private unpriced(a: {
     sku: string; productId: string | null; name: string | null; branch: string; quantity: number;
     rung: Rung; reason: string; availability: string;
@@ -1120,12 +1158,15 @@ export class QuotePricingService {
             availability, stock_at_quote, notes, qty_unit, created_by, updated_by)
          VALUES
            (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
-            0, 0, 0, 0, 'free_goods', :parent,
+            :precio_regalo, :precio_regalo, 0, 0, 'free_goods', :parent,
             :availability, :stock_at_quote, :notes, :qty_unit, :user_id, :user_id)`,
         {
           quote_id: quoteId,
           line_number: lineNumber,
           product_id: priced.free_goods.product_id,
+          // ⛔ El regalo vale 0 SOLO si sabemos qué es: sin `product_id` el precio va NULL, no cero
+          //    (`commercial_quote_lines_unmatched_has_no_price`; un 0 es una afirmación, NULL no).
+          precio_regalo: priced.free_goods.product_id ? 0 : null,
           requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
           quantity: priced.free_goods.quantity,
           parent,
@@ -1155,7 +1196,7 @@ export class QuotePricingService {
     parent: number | null,
   ): Promise<void> {
     const qty = Number(input.quantity);
-    const unit = priced?.unit_price ?? null;
+    const unit = QuotePricingService.precioQueSePuedeGuardar(priced);
     const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
     const subtotal = unit === null ? 0 : this.round(lineTotal / this.divisorImpuesto(priced), 2);
     // `[COT.51]` La existencia de la sucursal en este momento, y si alcanzaba.
@@ -1183,7 +1224,8 @@ export class QuotePricingService {
         requested_quantity: qty,
         quantity: qty,
         unit_price: unit,
-        list_price: priced?.list_price ?? null,
+        // El precio de lista acompaña al nuestro: publicar una lista sobre algo que no cobramos es la misma afirmación.
+        list_price: priced?.product_id ? (priced?.list_price ?? null) : null,
         tax_rate: priced?.tax_rate ?? DEFAULT_TAX_RATE,
         iva_rate: priced?.iva_rate ?? null,
         ieps_rate: priced?.ieps_rate ?? null,
@@ -1193,7 +1235,7 @@ export class QuotePricingService {
         parent,
         availability: al.availability,
         stock_at_quote: al.stock_at_quote,
-        notes: priced?.unpriced_reason ?? null,
+        notes: QuotePricingService.razonDelRenglon(priced),
         // `[COT.1b]` El peldaño cotizado, tal como el ERP lo rotula. Los tres van juntos o no van:
         // un rótulo sin factor, o un factor sin de-dónde-salió, es media afirmación.
         qty_unit: priced?.unit_label ?? null,
@@ -1353,7 +1395,7 @@ export class QuotePricingService {
       n,
     });
 
-    const unit = priced?.unit_price ?? null;
+    const unit = QuotePricingService.precioQueSePuedeGuardar(priced);
     const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
     const subtotal = unit === null ? 0 : this.round(lineTotal / this.divisorImpuesto(priced), 2);
     // `[COT.51]` Re-cotizar es volver a cotizar: la existencia se vuelve a tomar.
@@ -1384,7 +1426,8 @@ export class QuotePricingService {
         qid: quoteId,
         quantity: qty,
         unit_price: unit,
-        list_price: priced?.list_price ?? null,
+        // El precio de lista acompaña al nuestro: publicar una lista sobre algo que no cobramos es la misma afirmación.
+        list_price: priced?.product_id ? (priced?.list_price ?? null) : null,
         tax_rate: priced?.tax_rate ?? DEFAULT_TAX_RATE,
         iva_rate: priced?.iva_rate ?? null,
         ieps_rate: priced?.ieps_rate ?? null,
@@ -1393,7 +1436,7 @@ export class QuotePricingService {
         price_source: priced?.price_source ?? 'unknown',
         availability: al.availability,
         stock_at_quote: al.stock_at_quote,
-        notes: priced?.unpriced_reason ?? null,
+        notes: QuotePricingService.razonDelRenglon(priced),
         qty_unit: priced?.unit_label ?? null,
         qty_factor: priced?.unit_factor ?? null,
         qty_factor_source: priced?.unit_factor != null ? 'kepler_ladder' : null,
@@ -1416,12 +1459,15 @@ export class QuotePricingService {
             availability, stock_at_quote, notes, qty_unit, created_by, updated_by)
          VALUES
            (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
-            0, 0, 0, 0, 'free_goods', :parent,
+            :precio_regalo, :precio_regalo, 0, 0, 'free_goods', :parent,
             :availability, :stock_at_quote, :notes, :qty_unit, :user_id, :user_id)`,
         {
           quote_id: quoteId,
           line_number: Number(nextN.rows[0].n),
           product_id: priced.free_goods.product_id,
+          // ⛔ El regalo vale 0 SOLO si sabemos qué es: sin `product_id` el precio va NULL, no cero
+          //    (`commercial_quote_lines_unmatched_has_no_price`; un 0 es una afirmación, NULL no).
+          precio_regalo: priced.free_goods.product_id ? 0 : null,
           requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
           quantity: priced.free_goods.quantity,
           parent: n,
