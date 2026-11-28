@@ -1697,7 +1697,7 @@ export class ComercialService {
    * backend** desde `[IC.13]`: sin `product_ids` el snapshot es el almacén entero, o sea
    * un folio total con la etiqueta equivocada. Para cíclico → `openCycleInventoryCount`.
    */
-  openInventoryCount(body: { warehouse_id: string; type?: 'full' | 'cycle'; freeze_movements?: boolean; blind_double_count?: boolean; recount_threshold_pct?: number; notes?: string }) {
+  openInventoryCount(body: { warehouse_id: string; type?: 'full' | 'cycle'; freeze_movements?: boolean; blind_double_count?: boolean; recount_threshold_pct?: number; /** `[ICR.M7]` Obligatorio cuando el umbral es 0: declara que se eligió apagar las dos protecciones. */ recount_threshold_ack?: boolean; notes?: string }) {
     return this.http.post<InventoryCount & { expected_items: number }>(`${this.base}/inventory/counts/open`, body);
   }
 
@@ -1705,7 +1705,7 @@ export class ComercialService {
    * `[IC.13]` Folio CÍCLICO acotado por clase ABC (ABC.2). Es el camino real del conteo
    * parcial: el backend resuelve el subconjunto y **no congela el almacén por default**.
    */
-  openCycleInventoryCount(body: { warehouse_id: string; abc_class?: 'A' | 'B' | 'C'; product_ids?: string[]; max_items?: number; freeze_movements?: boolean; blind_double_count?: boolean; recount_threshold_pct?: number; notes?: string }) {
+  openCycleInventoryCount(body: { warehouse_id: string; abc_class?: 'A' | 'B' | 'C'; product_ids?: string[]; max_items?: number; freeze_movements?: boolean; blind_double_count?: boolean; recount_threshold_pct?: number; /** `[ICR.M7]` Obligatorio cuando el umbral es 0: declara que se eligió apagar las dos protecciones. */ recount_threshold_ack?: boolean; notes?: string }) {
     return this.http.post<InventoryCount & { expected_items: number }>(`${this.base}/inventory/counts/open-cycle`, body);
   }
 

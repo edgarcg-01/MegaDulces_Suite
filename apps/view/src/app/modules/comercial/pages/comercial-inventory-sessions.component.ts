@@ -258,9 +258,39 @@ const DIAS_ABANDONADO = 7;
             </div>
           </div>
 
+          <!--
+            [ICR.M7] El umbral **nace vacío**, no en cero.
+
+            Medido el 2026-11-27: los 8 folios de toda la historia tienen 0.00, y este campo
+            arrancaba en signal(0). O sea que el cero nunca fue una decisión de nadie: era el
+            default de un formulario. Y con cero quedan apagadas DOS protecciones, no una.
+            Por eso elegir cero exige una declaración aparte, que es lo que el backend pide.
+
+            ⛔ Sin acentos graves acá dentro: la plantilla es un template literal de JS y un
+            acento grave en un comentario HTML lo CIERRA. Ya pasó al escribir esto.
+          -->
           <label>Umbral de recuento (%)</label>
-          <p-inputnumber [(ngModel)]="formThreshold" [min]="0" [max]="100" [maxFractionDigits]="2" styleClass="in-w-full"></p-inputnumber>
-          <small>0 = sin umbral. Si dos conteos coinciden pero difieren del teórico más que este %, el SKU queda como discrepancia (recuento/revisión) en vez de auto-resolverse.</small>
+          <p-inputnumber [(ngModel)]="formThreshold" [min]="0" [max]="100" [maxFractionDigits]="2"
+                         placeholder="Sin definir" styleClass="in-w-full"
+                         ariaLabel="Umbral de recuento en por ciento"></p-inputnumber>
+          <small>Si dos conteos coinciden pero difieren del teórico más que este %, el SKU queda como discrepancia (recuento/revisión) en vez de auto-resolverse.</small>
+
+          @if (formThreshold() === null) {
+            <small class="in-umbral-falta"><i class="pi pi-exclamation-circle" aria-hidden="true"></i> Hay que definirlo para abrir el folio.</small>
+          }
+          @if (formThreshold() === 0) {
+            <div class="in-toggle-row">
+              <p-toggleswitch [(ngModel)]="formThresholdAck"></p-toggleswitch>
+              <div>
+                <span class="in-toggle-label">Abrir sin umbral, a sabiendas</span>
+                <small>
+                  Con 0 se apagan dos cosas: una diferencia grande contra el teórico
+                  <b>se auto-resuelve</b> aunque dos personas hayan contado lo mismo, y el folio
+                  <b>se puede cerrar sin que nadie escriba el motivo</b> de esa diferencia.
+                </small>
+              </div>
+            </div>
+          }
 
           @if (canAssign()) {
             <label>Contadores (quiénes van a contar)</label>
@@ -315,6 +345,8 @@ const DIAS_ABANDONADO = 7;
     .in-toggle-row { display: flex; gap: .75rem; align-items: flex-start; margin-top: .9rem; }
     .in-toggle-label { font-weight: 600; display: block; }
     .in-toggle-row small { color: var(--text-muted, #78716c); }
+    /* [ICR.M7] Lleva icono y texto además del tono: el color no es el único portador. */
+    .in-umbral-falta { color: var(--warn-soft-fg); font-weight: 600; }
   `],
 })
 export class ComercialInventorySessionsComponent {
@@ -337,7 +369,10 @@ export class ComercialInventorySessionsComponent {
   formType = signal<'full' | 'cycle'>('full');
   formFreeze = signal(true);
   formBlind = signal(true);
-  formThreshold = signal(0);
+  /** `[ICR.M7]` `null` = nadie lo decidió todavía. **No** arranca en 0: ése era el defecto. */
+  formThreshold = signal<number | null>(null);
+  /** `[ICR.M7]` La declaración de que el 0 se eligió. Sale de la casilla, nunca del default. */
+  formThresholdAck = signal(false);
   /** `[IC.13]` Sólo aplican al folio cíclico. */
   formAbcClass = signal<'A' | 'B' | 'C'>('A');
   formMaxItems = signal(100);
@@ -370,6 +405,11 @@ export class ComercialInventorySessionsComponent {
    */
   puedeAbrir = computed(() => {
     if (!this.formWarehouse()) return false;
+    // `[ICR.M7]` Sin umbral decidido no se abre, y el 0 exige declararse. El backend lo
+    // rechaza igual con un 400: acá se frena antes para que la persona vea POR QUÉ.
+    const umbral = this.formThreshold();
+    if (umbral == null) return false;
+    if (umbral === 0 && !this.formThresholdAck()) return false;
     if (this.formType() === 'cycle') {
       if (this.abcCargando() || this.abcTotal() === 0) return false;
       if (!this.abcOptions().some((o) => o.value === this.formAbcClass())) return false;
@@ -587,6 +627,9 @@ export class ComercialInventorySessionsComponent {
     if (!warehouse_id || !this.puedeAbrir()) return;
     this.opening.set(true);
     const esCiclico = this.formType() === 'cycle';
+    // `[ICR.M7]` `puedeAbrir()` ya garantizó que no es null y que el 0 viene declarado.
+    const umbral = this.formThreshold() as number;
+    const ack = umbral === 0 ? { recount_threshold_ack: true } : {};
     const peticion = esCiclico
       ? this.svc.openCycleInventoryCount({
           warehouse_id,
@@ -594,14 +637,16 @@ export class ComercialInventorySessionsComponent {
           max_items: this.formMaxItems(),
           freeze_movements: this.formFreeze(),
           blind_double_count: this.formBlind(),
-          recount_threshold_pct: this.formThreshold(),
+          recount_threshold_pct: umbral,
+          ...ack,
         })
       : this.svc.openInventoryCount({
           warehouse_id,
           type: 'full',
           freeze_movements: this.formFreeze(),
           blind_double_count: this.formBlind(),
-          recount_threshold_pct: this.formThreshold(),
+          recount_threshold_pct: umbral,
+          ...ack,
         });
     peticion
       .pipe(takeUntilDestroyed(this.destroyRef))

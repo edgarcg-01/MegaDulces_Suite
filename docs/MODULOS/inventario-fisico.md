@@ -825,7 +825,7 @@ ellos esta lista parecería una lluvia de sospechas en vez de una revisión.
 
 ⚠️ **Y uno que no es defecto del módulo pero decide el día:** contar en cajas multiplica el error y
 **el factor no se puede verificar contra nada**. En Yurécuaro **1,905 de 2,024** artículos tienen
-factor de caja; de los 133 que además traen código de caja, **123 discrepan** del factor del ERP y
+factor de caja; de los **133 productos** que además traen código de caja —**134 pares**, porque uno tiene dos—, **123 pares discrepan** del factor del ERP y
 sólo **11 coinciden**. Ninguna base de datos sabe cuántas piezas trae la caja que está en el
 anaquel: la pantalla tiene que **mostrar la cuenta** («3 cajas × 24 = 72») y dejar corregirla.
 
