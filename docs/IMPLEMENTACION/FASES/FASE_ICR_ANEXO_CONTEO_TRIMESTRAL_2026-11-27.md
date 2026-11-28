@@ -509,6 +509,65 @@ ambiguos de **7 a 9** sobre 2,313, o sea dos más.
 
 ---
 
+## 6c. El equipo del conteo, y el reparto de llaves listo para aplicar
+
+Edgar mandó la lista el 2026-11-27: **siete personas, todas de oficina**, dos líderes y cinco
+capturistas. ⚠️ Su encabezado dice **«02 de diciembre del 2026»**, que es **miércoles**, y en la
+conversación la fecha fue «el martes» (1-dic). **Sin resolver**; todo lo de acá vale para el día que
+sea.
+
+### Lo medido contra prod el 2026-11-27
+
+| En la lista | Papel | Usuario | Rol | Qué puede hoy |
+|---|---|---|---|---|
+| Paula Lissett Alaniz Chávez | capturista | ⛔ **no existe** | — | **No tiene cuenta.** Lo más parecido es Carmen Alaniz, cajera de Morelia Madero: otra persona |
+| **Ivonne Cruz Oceguera** | **líder** | `ivonne_cruz` | finanzas_operativo | **nada** |
+| Camila Verdines Naranjo | capturista | `camila_verdines` | prevencion_auxiliar | **nada** |
+| Ernesto Zárate Pérez | capturista | `ernesto_zarate` | contabilidad | **nada** |
+| **María Guadalupe Sánchez** | **líder** | `guadalupe_sanchez` | prevencion_auxiliar | **nada** |
+| Gerardo Ramírez Castro | capturista | `gerardo_ramirez` | auxiliar_compras | **nada** |
+| Tania Solorio Sánchez | capturista | `tania_solorio` | administrativo | **nada** |
+
+Las cuatro llaves —contar, supervisar, reconciliar, asignar— están en **`false` para las seis que
+existen**, líderes incluidas.
+
+⚠️ **Cuidado con el nombre**: existe también **Ivette** Cruz Oceguera (`ivette_cruz`, superadmin).
+Dos nombres casi iguales, personas distintas. Es el tipo de confusión que deja la llave en quien no
+era.
+
+### ⛔ El problema que la lista crea, y que no se arregla configurando
+
+Si las siete cuentan o supervisan, **no queda nadie que pueda cerrar el folio**: la reconciliación
+rechaza a quien contó o resolvió, y eso está en el código. **Hace falta una octava persona que no
+toque el conteo.** Es decisión de Edgar, no configuración.
+
+### Por persona, no por rol
+
+| Vía | Alcance | Veredicto |
+|---|---|---|
+| Cambiar los **roles** (`finanzas_operativo`, `prevencion_auxiliar`, `contabilidad`, `auxiliar_compras`, `administrativo`) | **27 personas** ganarían la llave, para servir a 6 | ⛔ No |
+| **Permiso por persona** (`identity.user_permissions`, con `allow`, `granted_by` y `nota`) | exactamente las 7 | ✅ Sí. El mecanismo ya se usa: **1,121** permisos por persona vivos, 22 de inventario |
+
+### El reparto propuesto
+
+| Quién | Llaves |
+|---|---|
+| Los **5 capturistas** (Camila, Ernesto, Gerardo, Tania, y Paula cuando tenga cuenta) | `COMMERCIAL_INVENTORY_CONTAR` |
+| Las **2 líderes** (Ivonne, Guadalupe) | `COMMERCIAL_INVENTORY_SUPERVISAR` + `COMMERCIAL_INVENTORY_ASIGNAR` — reparten racks y ven el avance, **sin contar** |
+| La **octava persona**, por definir | `COMMERCIAL_INVENTORY_RECONCILIAR`, y nada más |
+
+⛔ **Y después de repartir, cada persona tiene que volver a entrar**: los permisos viajan en la
+sesión. Sin eso, el día del conteo recibe 403 (**E6**).
+
+⭐ **Lo que falta para poder aplicarlo**: que Edgar confirme la fecha, nombre a quién firma el
+cierre, diga si la gente de Yurécuaro también cuenta —hoy **ninguna de las 8 de la sucursal puede**,
+y son las que saben dónde está cada cosa— y autorice el alta de Paula.
+
+**La carga de trabajo, con este equipo:** 2,024 artículos entre 5 capturistas son **~405 cada uno**;
+con doble conteo ciego, **~810**.
+
+---
+
 ## 7. Lo que queda abierto
 
 | # | Pregunta | Recomendación | Quién firma |
@@ -516,6 +575,10 @@ ambiguos de **7 a 9** sobre 2,313, o sea dos más.
 | **A1** | ¿Se conserva la negación de que **una misma persona haga el 1.er y el 2.º conteo** del mismo producto? | **Sí.** Es lo único que hace real al doble conteo ciego | Edgar |
 | **A2** | ¿Cuántos racks tiene Yurécuaro y **cuánta gente** cuenta? | Define cuántos racks por persona y si el día alcanza | Edgar |
 | **A3** | **Quién autoriza** la reconciliación, y que no cuente | De oficinas, designado desde el lunes. ⭐ Medido: reconciliar lo pueden **12 personas**, todas de oficina o compras, así que la segregación se cumple sola | Edgar |
+| **A0** | ⛔ **¿La fecha es el martes 1 o el miércoles 2 de diciembre?** La hoja del equipo dice «02 de diciembre», la conversación dijo «el martes» | Resolver antes de cualquier otra cosa: corre todo el plan | Edgar |
+| **A7** | ⛔ **Quién es la octava persona** que firma el cierre sin haber contado. Las siete de la lista cuentan o supervisan, y la reconciliación rechaza a quien contó | Alguien de oficina, con **sólo** la llave de reconciliar. No se arregla configurando: hace falta la persona | Edgar |
+| **A8** | **¿La gente de Yurécuaro también cuenta**, o van sólo los siete de oficina? | Son los que saben dónde está cada cosa. Y hoy **ninguna de las 8 de la sucursal puede contar** | Edgar |
+| **A9** | **El alta de Paula Lissett Alaniz Chávez**, que no tiene cuenta | Crear usuario, no repartir llave | Edgar |
 | **A6** | ⛔⛔ **A quién se le reparte la llave de contar** (E8). Hoy **nadie en Yurécuaro la tiene**, y a tres les está puesta en «no» | Claude prepara el diff exacto de llaves por persona en cuanto Edgar diga quiénes cuentan. **Sin esto el martes no ocurre** | Edgar |
 | **A4** | **Quién mapea** los productos a los racks de Yurécuaro | Alguien de la sucursal, el lunes, por marca | Edgar |
 | **A5** | ¿El trimestral corre con **doble conteo ciego**? Duplica el trabajo (2,024 → 4,048 capturas) | **Sí** en el piloto: es lo que protege del escaneo equivocado, que es invisible | Edgar |
