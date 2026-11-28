@@ -38,20 +38,32 @@
 
 /** @param {import('knex').Knex} knex */
 exports.up = async function up(knex) {
-  const TABLA = 'commercial.inventory_count_items';
+  // ⛔⛔ **`hasColumn` NO parte el nombre por el punto.** Esta migración nació pasando
+  // `'commercial.inventory_count_items'` y knex lo busca como UN nombre de tabla: en
+  // `information_schema.columns` eso da **0 filas** (medido en prod el 2026-11-27; buscando
+  // bien da 37). O sea que la guarda devolvía siempre `false` y la migración **no era
+  // idempotente** (regla 17): la primera corrida funciona de casualidad —las columnas no
+  // existen— y la **segunda** muere con «column count_1_unit already exists».
+  //
+  // No rompió prod porque knex no re-corre lo aplicado; lo cobró quien armó una base de
+  // pruebas clonando un esquema que ya las tenía. El nombre del archivo no cambia, así que
+  // el ledger no se entera. La forma correcta es `withSchema`.
+  const ESQUEMA = 'commercial';
+  const TABLA = 'inventory_count_items';
+  const esquema = () => knex.schema.withSchema(ESQUEMA);
 
   for (const slot of [1, 2, 3]) {
     const colUnidad = `count_${slot}_unit`;
     const colFactor = `count_${slot}_factor`;
 
-    if (!(await knex.schema.hasColumn(TABLA, colUnidad))) {
-      await knex.schema.alterTable(TABLA, (t) => {
+    if (!(await esquema().hasColumn(TABLA, colUnidad))) {
+      await esquema().alterTable(TABLA, (t) => {
         t.string(colUnidad, 16).nullable()
           .comment('[IC.F24] Unidad DECLARADA por quien contó (de catalog.product_barcodes.unit). NULL = no declarada.');
       });
     }
-    if (!(await knex.schema.hasColumn(TABLA, colFactor))) {
-      await knex.schema.alterTable(TABLA, (t) => {
+    if (!(await esquema().hasColumn(TABLA, colFactor))) {
+      await esquema().alterTable(TABLA, (t) => {
         t.decimal(colFactor, 14, 4).nullable()
           .comment('[IC.F24] Unidades nativas por cada unidad declarada. 1 = se contó en la nativa.');
       });
@@ -84,11 +96,13 @@ exports.up = async function up(knex) {
 
 /** @param {import('knex').Knex} knex */
 exports.down = async function down(knex) {
-  const TABLA = 'commercial.inventory_count_items';
+  const ESQUEMA = 'commercial';
+  const TABLA = 'inventory_count_items';
+  const esquema = () => knex.schema.withSchema(ESQUEMA);
   for (const slot of [1, 2, 3]) {
     for (const col of [`count_${slot}_unit`, `count_${slot}_factor`]) {
-      if (await knex.schema.hasColumn(TABLA, col)) {
-        await knex.schema.alterTable(TABLA, (t) => t.dropColumn(col));
+      if (await esquema().hasColumn(TABLA, col)) {
+        await esquema().alterTable(TABLA, (t) => t.dropColumn(col));
       }
     }
   }
