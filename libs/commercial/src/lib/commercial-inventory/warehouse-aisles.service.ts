@@ -13,10 +13,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export interface CreateAisleDto {
   warehouse_id: string; code: string; name?: string;
   grid_row?: number; grid_col?: number; span_rows?: number; span_cols?: number;
+  /** `[ICR.M8]` Orden de RECORRIDO: cuál se camina primero. Ver nota en `walkSequence`. */
+  walk_sequence?: number | null;
 }
 export interface UpdateAisleDto {
   code?: string; name?: string;
   grid_row?: number; grid_col?: number; span_rows?: number; span_cols?: number; active?: boolean;
+  walk_sequence?: number | null;
 }
 export interface AssignSkusDto {
   warehouse_id: string;
@@ -36,6 +39,26 @@ export class WarehouseAislesService {
   ) {}
   private userId(): string | null { return this.tenantCtx.get()?.userId || null; }
 
+  /**
+   * `[ICR.M8]` **El orden de recorrido se CAPTURA, no se deriva.**
+   *
+   * `grid_row`/`grid_col` sirven para dibujar el mapa y no dicen por dónde se camina — medido el
+   * 2026-11-27: los 4 pasillos que existen tienen los dos en **0**, o sea que no ordenan nada. La
+   * cola de racks (`inventory-rack-queue.service.ts`) entrega por esta columna, y lo que no está
+   * capturado va al final desempatando por `code`: sin orden real la cola es **estable pero no es
+   * el recorrido**, y el tablero del supervisor lo DECLARA (`sin_orden_de_recorrido`).
+   *
+   * `null` borra el orden a propósito (vuelve al final); un valor no entero se rechaza en vez de
+   * redondearse, que convertiría un dedazo en un orden distinto sin avisar.
+   */
+  private walkSequence(v: number | null | undefined): number | null {
+    if (v === null) return null;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0)
+      throw new BadRequestException('walk_sequence debe ser un entero ≥ 0 (o null para quitarlo).');
+    return n;
+  }
+
   /** Pasillos del almacén con su carga (unidades + #SKUs) + el bucket "Sin pasillo". */
   async listAisles(warehouseId: string) {
     if (!UUID.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
@@ -44,11 +67,16 @@ export class WarehouseAislesService {
         .leftJoin('commercial.stock as s', 's.aisle_id', 'a.id')
         .where('a.warehouse_id', warehouseId)
         .groupBy('a.id')
-        .select('a.id', 'a.code', 'a.name', 'a.grid_row', 'a.grid_col', 'a.span_rows', 'a.span_cols', 'a.active')
+        .select('a.id', 'a.code', 'a.name', 'a.grid_row', 'a.grid_col', 'a.span_rows', 'a.span_cols', 'a.active', 'a.walk_sequence')
         .select(trx.raw('COUNT(DISTINCT s.product_id)::int as sku_count'))
         .select(trx.raw('COALESCE(SUM(s.quantity), 0)::numeric as units'))
+        // `[ICR.M8]` Se lista en el ORDEN DE RECORRIDO, que es el orden en que la cola los va a
+        // entregar: la pantalla donde se captura ese orden tiene que mostrarlo ya aplicado, o
+        // nadie puede ver si quedó bien. Lo que todavía no tiene orden va al final.
+        .orderByRaw('a.walk_sequence ASC NULLS LAST')
         .orderBy('a.grid_row', 'asc')
-        .orderBy('a.grid_col', 'asc');
+        .orderBy('a.grid_col', 'asc')
+        .orderBy('a.code', 'asc');
       const un = await trx('commercial.stock')
         .where({ warehouse_id: warehouseId })
         .whereNull('aisle_id')
@@ -94,6 +122,7 @@ export class WarehouseAislesService {
             grid_col: Number.isFinite(dto.grid_col) ? dto.grid_col : 0,
             span_rows: Math.max(1, Number(dto.span_rows) || 1),
             span_cols: Math.max(1, Number(dto.span_cols) || 1),
+            walk_sequence: dto.walk_sequence === undefined ? null : this.walkSequence(dto.walk_sequence),
             updated_by: this.userId(),
           })
           .returning('*');
@@ -116,6 +145,7 @@ export class WarehouseAislesService {
     if (dto.span_rows !== undefined) patch.span_rows = Math.max(1, Number(dto.span_rows) || 1);
     if (dto.span_cols !== undefined) patch.span_cols = Math.max(1, Number(dto.span_cols) || 1);
     if (dto.active !== undefined) patch.active = !!dto.active;
+    if (dto.walk_sequence !== undefined) patch.walk_sequence = this.walkSequence(dto.walk_sequence);
     return this.tk.run(async (trx) => {
       const [row] = await trx('commercial.warehouse_aisles').where({ id }).update(patch).returning('*');
       if (!row) throw new NotFoundException('Pasillo no encontrado');

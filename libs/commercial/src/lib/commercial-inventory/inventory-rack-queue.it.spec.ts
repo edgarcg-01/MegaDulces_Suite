@@ -37,6 +37,7 @@ import { createRequire } from 'node:module';
 import { resolve as resolvePath } from 'node:path';
 import knexFactory, { type Knex } from 'knex';
 import { InventoryRackQueueService, SIN_RACK } from './inventory-rack-queue.service';
+import { WarehouseAislesService } from './warehouse-aisles.service';
 
 const URL = process.env.TP_IT_DB ?? '';
 const PROD_SYSTEM_ID = '7688376744939610156';
@@ -339,6 +340,43 @@ suite('[ICR.M8] La cola de racks contra Postgres real: un rack, un dueño', () =
     const fila = (await estado(e.folio))[0];
     expect(fila.holder_id).toBe(p('ana'));
     expect((fila.held_by as string[]).sort()).toEqual([p('ana'), p('beto')].sort());
+  });
+
+  it('⭐ el orden se CAPTURA y la cola obedece: cambiarlo cambia lo que entrega', async () => {
+    // El lazo cerrado: sin esto la columna existiría y nadie podría llenarla desde la pantalla —
+    // un orden de recorrido que no se puede capturar es una columna muerta.
+    const e = await escenario([
+      ['W-01', null],
+      ['W-02', null],
+    ]);
+    const tk = {
+      run: <T>(fn: (t: Knex.Transaction) => Promise<T>) =>
+        knex.transaction(async (trx) => {
+          await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [M]);
+          return fn(trx);
+        }),
+    };
+    const ctx = { requireTenantId: () => M, get: () => ({ tenantId: M, userId: p('gael') }) };
+    const aisles = new WarehouseAislesService(tk as never, ctx as never);
+
+    // Sin orden capturado, el tablero lo DECLARA en vez de fingir que está bien.
+    expect((await svc(p('gael')).board(e.folio)).sin_orden_de_recorrido).toBe(true);
+
+    // Se camina el almacén y se captura: W-02 primero.
+    await aisles.updateAisle(e.rack['W-02'], { walk_sequence: 1 });
+    await aisles.updateAisle(e.rack['W-01'], { walk_sequence: 2 });
+    expect((await svc(p('gael')).board(e.folio)).sin_orden_de_recorrido).toBe(false);
+
+    const primero = await svc(p('ana')).takeNext(e.folio);
+    expect(primero.rack!.code).toBe('W-02'); // ⭐ la cola obedece al recorrido, no al código
+
+    // Y el listado de la pantalla de racks sale en ese mismo orden: si no, nadie ve si quedó bien.
+    const lista = await aisles.listAisles(e.wh);
+    expect(lista.aisles.map((a: { code: string }) => a.code)).toEqual(['W-02', 'W-01']);
+
+    // ⛔ NEGATIVA: un orden que no es entero se RECHAZA, no se redondea.
+    await expect(aisles.updateAisle(e.rack['W-01'], { walk_sequence: 2.5 })).rejects.toThrow(/entero/i);
+    expect((await knex('commercial.warehouse_aisles').where({ id: e.rack['W-01'] }).first('walk_sequence'))!.walk_sequence).toBe(2);
   });
 
   it('el tablero del supervisor dice quién tiene qué, desde hace cuánto y qué falta', async () => {

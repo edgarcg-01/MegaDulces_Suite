@@ -17,7 +17,7 @@ export class WarehouseAislesController {
 
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
-  @ApiOperation({ summary: 'Pasillos 2D del almacén + carga (unidades/#SKUs) + bucket "Sin pasillo" (?warehouse_id=) — PA.1' })
+  @ApiOperation({ summary: 'Pasillos del almacén en ORDEN DE RECORRIDO + carga (unidades/#SKUs) + bucket "Sin pasillo" (?warehouse_id=) — PA.1 / ICR.M8' })
   list(@Query('warehouse_id') warehouseId: string) {
     return this.service.listAisles(warehouseId);
   }
@@ -31,14 +31,14 @@ export class WarehouseAislesController {
 
   @Post()
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
-  @ApiOperation({ summary: 'Crear pasillo (posición 2D en grilla) — PA.1' })
+  @ApiOperation({ summary: 'Crear pasillo (posición 2D en grilla + walk_sequence = orden de recorrido) — PA.1 / ICR.M8' })
   create(@Body() body: CreateAisleDto) {
     return this.service.createAisle(body);
   }
 
   @Patch(':id')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_ASIGNAR)
-  @ApiOperation({ summary: 'Editar pasillo (nombre/posición/activo) — PA.1' })
+  @ApiOperation({ summary: 'Editar pasillo (nombre/posición/activo/walk_sequence; null quita el orden) — PA.1 / ICR.M8' })
   update(@Param('id') id: string, @Body() body: UpdateAisleDto) {
     return this.service.updateAisle(id, body);
   }
