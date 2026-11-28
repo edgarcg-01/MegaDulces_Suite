@@ -152,6 +152,28 @@ interface FeedEntry {
             <span><i class="pi pi-database"></i> Este dispositivo no tiene descargado el catálogo del folio y no hay conexión: ningún código se va a reconocer. Conéctate una vez antes de empezar.</span>
           </div>
         }
+        <!--
+          [ICR.M10] El código casa con más de un producto y la captura está DETENIDA, no
+          perdida: en el folio de Yurécuaro una cuchara y un tenedor de Reyher comparten
+          código. Hasta que alguien diga cuál contó, la captura no entra al folio — por eso
+          esto es rojo y pide una acción, no un aviso que se pueda ignorar.
+        -->
+        @if (ambiguos().length) {
+          <div class="ic-net ic-net-off ic-net-discarded" role="alert">
+            <span><i class="pi pi-question-circle"></i> {{ ambiguos().length }} escaneo(s) esperan que digas qué producto contaste.</span>
+            @for (a of ambiguos(); track a.scan_uuid) {
+              <div class="ic-ambiguo">
+                <span class="ic-ambiguo-cab">Contaste <b>{{ a.quantity }}</b> con el código {{ a.barcode }}. ¿Cuál era?</span>
+                @for (c of a.candidatos ?? []; track c.product_id) {
+                  <button pButton type="button" severity="secondary" size="small" class="ic-ambiguo-btn" (click)="elegirCandidato(a.scan_uuid, c.product_id)"><span class="p-button-label">{{ c.product_name || c.sku || 'Producto sin nombre' }}@if (c.sku) { · {{ c.sku }} }</span></button>
+                }
+                @if (!(a.candidatos ?? []).length) {
+                  <span class="ic-ambiguo-sin">El servidor no mandó entre cuáles elegir. Avisa al supervisor y vuelve a contarlo buscando el código del producto.</span>
+                }
+              </div>
+            }
+          </div>
+        }
         <!-- Escaneos rechazados por el servidor (folio cerrado / segregación): no se
              reintentan, pero NO desaparecen en silencio — el contador los ve y avisa. -->
         @if (discarded().length) {
@@ -188,7 +210,11 @@ interface FeedEntry {
           <div class="ic-done" [class.ic-done-sucia]="colaSucia()">
             <i class="pi" [class.pi-check-circle]="!colaSucia()" [class.pi-exclamation-triangle]="colaSucia()"></i>
             <h2>Fase {{ justFinishedPass() }} terminada</h2>
-            @if (offline.pending() > 0) {
+            @if (ambiguos().length) {
+              <!-- Va primero: estos SI cuentan como pendientes, pero reintentar no los mueve
+                   — lo que falta es que alguien diga qué producto contó, arriba. -->
+              <p><b>{{ ambiguos().length }}</b> escaneos esperan que digas qué producto contaste. Resuélvelos arriba antes de irte: así como están, no entran al folio.</p>
+            } @else if (offline.pending() > 0) {
               <p>Faltan <b>{{ offline.pending() }}</b> escaneos por subir. No cierres la app ni te vayas hasta que llegue a cero.</p>
             } @else if (discarded().length) {
               <p>Tu conteo subió, pero <b>{{ discarded().length }}</b> escaneos quedaron rechazados y no entraron al folio. Avisa al supervisor antes de irte.</p>
@@ -200,8 +226,30 @@ interface FeedEntry {
         }
 
         @if (sessionActive()) {
+          <!--
+            [ICR.M3] DÓNDE ESTÁ PARADA LA PERSONA, en la barra que ya existía.
+            Decía «Conteo en curso · Fase 1»: que el conteo está en curso ya lo dicen la
+            pantalla entera y el botón Terminar, así que ese texto paga el lugar del rack.
+            ⛔ El rack es el LUGAR FÍSICO desde donde se cuenta, no el que el catálogo le
+            asigna al producto. Se elige una vez y se queda.
+            ⚠️ Sin racks dados de alta —Yurécuaro al 2026-11-27 tiene cero— el selector no se
+            pinta y se cuenta igual: todo cae en el montón «sin rack».
+          -->
           <div class="ic-phase-banner">
-            <span><i class="pi pi-stopwatch"></i> Conteo en curso · Fase {{ currentPass() }}</span>
+            <span><i class="pi pi-stopwatch"></i> Fase {{ currentPass() }}</span>
+            @if (opcionesDeRack().length) {
+              <p-select
+                [options]="opcionesDeRack()"
+                [(ngModel)]="rackElegido"
+                optionLabel="etiqueta"
+                optionValue="id"
+                placeholder="¿En qué rack estás?"
+                class="ic-rack-select"
+                appendTo="body"
+                [showClear]="true"
+                ariaLabel="Rack en el que estás contando"
+              ></p-select>
+            }
             <button pButton severity="success" size="small" [loading]="finishing()" (click)="finishCount()"><span class="p-button-icon p-button-icon-left pi pi-flag-fill" aria-hidden="true"></span><span class="p-button-label">Terminar</span></button>
           </div>
           <!-- Progreso ciego -->
@@ -421,6 +469,21 @@ interface FeedEntry {
     .ic-net b { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; }
     .ic-net-discarded { flex-direction: column; align-items: flex-start; gap: .35rem; }
     :host ::ng-deep .ic-net-retry { margin-left: auto; }
+    /*
+      [ICR.M3] El rack vive en la barra de fase; en celular baja a su propio renglón.
+      ⚠️ La clase va en el ELEMENTO p-select, no en styleClass: así alcanza al host con el
+      encapsulado normal y no hace falta perforar la cascada (misma razon que .ic-unidad).
+      La compuerta de cascada pide que esa deuda BAJE, no que crezca.
+    */
+    .ic-phase-banner { flex-wrap: wrap; }
+    .ic-rack-select { display: block; flex: 1 1 10rem; min-width: 0; }
+    /* [ICR.M10] Elegir entre dos productos que comparten código: botones grandes, uno por
+       renglón, porque se tocan de pie y equivocarse acá escribe el conteo en el producto que
+       no es. Botón nativo con pButton, para estilarlo sin ng-deep. */
+    .ic-ambiguo { display: flex; flex-direction: column; gap: .3rem; width: 100%; padding: .4rem 0 .1rem; }
+    .ic-ambiguo-cab { font-size: .78rem; font-weight: 600; }
+    .ic-ambiguo-sin { font-size: .78rem; font-weight: 500; opacity: .85; }
+    .ic-ambiguo-btn { width: 100%; min-height: 44px; justify-content: flex-start; text-align: left; }
     .ic-discarded-list { margin: 0; padding-left: 1.1rem; font-size: .78rem; font-weight: 500; }
     .ic-discarded-list li { margin: .1rem 0; }
     .ic-discarded-list small { opacity: .8; }
@@ -533,7 +596,7 @@ export class ComercialInventoryCountComponent {
   private reader?: BrowserMultiFormatReader;
   private controls?: IScannerControls;
 
-  folios = signal<{ id: string; label: string }[]>([]);
+  folios = signal<{ id: string; label: string; warehouse_id: string }[]>([]);
   selectedFolioId = signal<string | null>(null);
   progress = signal<InventoryCounterProgress | null>(null);
   feed = signal<FeedEntry[]>([]);
@@ -605,7 +668,30 @@ export class ComercialInventoryCountComponent {
   });
 
   /** `[ICR.M5]` Queda algo que no llegó al folio: sin subir, o rechazado. */
-  readonly colaSucia = computed(() => this.offline.pending() > 0 || this.discarded().length > 0);
+  readonly colaSucia = computed(() =>
+    this.offline.pending() > 0 || this.discarded().length > 0 || this.ambiguos().length > 0);
+
+  /**
+   * `[ICR.M3]` **El rack donde está parada la persona.** `null` = el montón «sin rack», que
+   * es un rack más de la cola y alguien tiene que cerrarlo.
+   *
+   * ⛔ No es el rack que el catálogo le asigna al producto: es el lugar físico desde donde se
+   * cuenta. Por eso se elige UNA vez y se queda, en vez de salir del producto escaneado.
+   */
+  readonly rackElegido = signal<string | null>(null);
+
+  /**
+   * Los racks del almacén del folio. ⚠️ Yurécuaro tiene **0 dados de alta** al 2026-11-27 (los
+   * crean el lunes), así que la lista vacía es el caso normal y **no bloquea nada**: se cuenta
+   * igual y todo cae en «sin rack».
+   */
+  readonly racks = signal<{ id: string; code: string; name: string | null }[]>([]);
+  readonly opcionesDeRack = computed(() =>
+    this.racks().map((r) => ({ id: r.id, etiqueta: r.name ? `${r.code} · ${r.name}` : r.code })),
+  );
+
+  /** `[ICR.M10]` Escaneos detenidos porque el código casa con más de un producto. */
+  readonly ambiguos = signal<InventoryScanPending[]>([]);
 
   /**
    * `[ICR.M5]` Productos del folio que este dispositivo tiene descargados. `null` mientras no
@@ -759,6 +845,8 @@ export class ComercialInventoryCountComponent {
         next: (open: InventoryCount[]) => {
           this.folios.set(open.map((c) => ({
             id: c.id,
+            // `[ICR.M3]` Hace falta para traer los racks de ESE almacén.
+            warehouse_id: c.warehouse_id,
             label: `${c.folio} · ${c.warehouse_code ?? ''} ${c.warehouse_name ?? ''}`.trim(),
           })));
           if (open.length === 1) {
@@ -768,6 +856,8 @@ export class ComercialInventoryCountComponent {
             // jornada: si quedó algo de la vez pasada, la persona lo ve sin tocar nada.
             this.refreshDiscarded();
             this.refreshCatalogoLocal();
+            this.refreshAmbiguos();
+            this.loadRacks(open[0].warehouse_id);
           }
         },
         error: () => this.toast.add({ severity: 'error', summary: 'No se pudieron cargar los folios' }),
@@ -786,6 +876,11 @@ export class ComercialInventoryCountComponent {
     this.refreshProgress();
     this.refreshDiscarded();
     this.refreshCatalogoLocal();
+    this.refreshAmbiguos();
+    // `[ICR.M3]` El rack elegido es de ESTE folio: cambiar de folio lo suelta, para que no se
+    // cuente en un rack del almacén anterior.
+    this.rackElegido.set(null);
+    this.loadRacks(this.folios().find((f) => f.id === this.selectedFolioId())?.warehouse_id);
   }
 
   startCount() {
@@ -833,6 +928,7 @@ export class ComercialInventoryCountComponent {
       const res = await this.offline.flush();
       if (res.synced) this.refreshProgress();
       if (res.discarded) this.refreshDiscarded();
+      if (res.ambiguous) this.refreshAmbiguos();
     }
     this.svc.inventoryFinishSession(id)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -865,6 +961,44 @@ export class ComercialInventoryCountComponent {
     const id = this.selectedFolioId();
     if (!id) { this.discarded.set([]); return; }
     this.offline.discardedFor(id).then((d) => this.discarded.set(d)).catch(() => { /* best-effort */ });
+  }
+
+  /** `[ICR.M10]` Refresca los escaneos que esperan que alguien elija el producto. */
+  private refreshAmbiguos() {
+    const id = this.selectedFolioId();
+    if (!id) { this.ambiguos.set([]); return; }
+    this.offline.ambiguousFor(id).then((a) => this.ambiguos.set(a)).catch(() => { /* best-effort */ });
+  }
+
+  /**
+   * `[ICR.M10]` La persona dijo cuál de los candidatos contó: la captura vuelve a la cola con
+   * ese `product_id` y se reenvía. Conserva su `scan_uuid`, así que no puede duplicar.
+   */
+  elegirCandidato(scanUuid: string, productId: string) {
+    this.offline.resolveAmbiguous(scanUuid, productId)
+      .then(() => { this.refreshAmbiguos(); return this.offline.flush(); })
+      .then((res) => {
+        if (res.synced) this.refreshProgress();
+        this.refreshAmbiguos();
+        if (res.discarded) this.refreshDiscarded();
+      })
+      .catch(() => { /* best-effort: queda pendiente y el temporizador lo reintenta */ });
+  }
+
+  /**
+   * `[ICR.M3]` Los racks del almacén del folio, para que la persona diga dónde está parada.
+   * Si no hay ninguno —Yurécuaro hoy— la lista queda vacía y el selector no se pinta.
+   */
+  private loadRacks(warehouseId: string | null | undefined) {
+    if (!warehouseId) { this.racks.set([]); return; }
+    this.svc.listAisles(warehouseId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => this.racks.set((r?.aisles ?? [])
+          .filter((a) => a.active)
+          .map((a) => ({ id: a.id, code: a.code, name: a.name }))),
+        error: () => this.racks.set([]), // sin racks se cuenta igual: todo cae en «sin rack»
+      });
   }
 
   /** `[ICR.M5]` Mide si este dispositivo trae el catálogo del folio descargado. */
@@ -904,6 +1038,7 @@ export class ComercialInventoryCountComponent {
     this.offline.flush().then((res) => {
       if (res.synced) this.refreshProgress();
       if (res.discarded) this.refreshDiscarded();
+      if (res.ambiguous) this.refreshAmbiguos();
     });
   }
 
@@ -924,6 +1059,7 @@ export class ComercialInventoryCountComponent {
         this.offline.flush().then((res) => {
           if (res.synced) this.refreshProgress();
           if (res.discarded) this.refreshDiscarded();
+          if (res.ambiguous) this.refreshAmbiguos();
         });
       }
       // `[ICR.M5]` Si la jornada arrancó sin red, el catálogo quedó en cero y nadie lo iba a
@@ -1033,7 +1169,11 @@ export class ComercialInventoryCountComponent {
       scan_uuid: scanUuid, count_id: id,
       product_id: productId, barcode: productId ? null : barcode,
       // `[IC.F24]` Viaja con el escaneo: un conteo hecho sin red llega con su unidad.
-      quantity, unit: this.unidad(), capture_pass: capturePass,
+      quantity, unit: this.unidad(),
+      // `[ICR.M3]` Y con el rack donde está parada la persona, que no es donde el catálogo
+      // dice que va el producto. Sin rack elegido va `null`: el montón «sin rack».
+      aisle_id: this.rackElegido(),
+      capture_pass: capturePass,
     });
     // 2) Feed optimista (el server confirma el slot real al sincronizar).
     this.feed.update((f) => [
@@ -1052,6 +1192,7 @@ export class ComercialInventoryCountComponent {
     this.offline.flush().then((res) => {
       if (res.synced) this.refreshProgress();
       if (res.discarded) this.refreshDiscarded();
+      if (res.ambiguous) this.refreshAmbiguos();
     });
   }
 

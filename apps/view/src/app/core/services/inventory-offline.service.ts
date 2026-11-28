@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { OfflineDatabaseService, InventoryScanPending, InventoryCatalogEntry } from './offline-database.service';
+import { normalizarCodigoDeBarras } from './codigo-de-barras-normalizado';
 
 /**
  * Fase OFF — conteo de inventario offline-first (cliente).
@@ -47,11 +48,24 @@ export class InventoryOfflineService {
 
   // ───── Catálogo offline (resolve sin red) ─────
 
-  /** Cachea el catálogo del folio (bulk, al iniciar la jornada con red). */
+  /**
+   * Cachea el catálogo del folio (bulk, al iniciar la jornada con red).
+   *
+   * `[ICR.M10]` Siembra **además** la llave normalizada cuando difiere de la exacta: el lector
+   * en modo EAN-13 le pone un cero adelante al UPC-A y, sin esto, el mismo escaneo que online
+   * resuelve bien no reconoce nada sin red. La exacta se escribe siempre y **gana**, porque la
+   * normalizada es un segundo intento, nunca un reemplazo.
+   */
   async cacheFolioCatalog(countId: string, rows: Array<Omit<InventoryCatalogEntry, 'id' | 'count_id'>>): Promise<void> {
-    const entries: InventoryCatalogEntry[] = rows
-      .filter((r) => !!r.barcode)
-      .map((r) => ({ id: `${countId}:${r.barcode}`, count_id: countId, ...r }));
+    const entries: InventoryCatalogEntry[] = [];
+    for (const r of rows) {
+      if (!r.barcode) continue;
+      entries.push({ id: `${countId}:${r.barcode}`, count_id: countId, ...r });
+      const norm = normalizarCodigoDeBarras(r.barcode);
+      if (norm && norm !== r.barcode) {
+        entries.push({ id: `${countId}:${norm}`, count_id: countId, ...r });
+      }
+    }
     if (entries.length) await this.db.inventoryCatalog.bulkPut(entries);
   }
 
@@ -61,9 +75,19 @@ export class InventoryOfflineService {
     await this.db.inventoryCatalog.put({ id: `${countId}:${e.barcode}`, count_id: countId, ...e });
   }
 
-  /** Resuelve barcode→producto desde el cache local (offline). */
+  /**
+   * Resuelve barcode→producto desde el cache local (offline).
+   *
+   * `[ICR.M10]` Dos intentos, en el mismo orden que el servidor: **exacto primero** —si el
+   * código tal cual está, ése gana y la normalización nunca desvía un escaneo que hoy
+   * funciona— y después el normalizado, que es el que cubre el cero que agrega el lector.
+   */
   async resolveLocal(countId: string, barcode: string): Promise<InventoryCatalogEntry | null> {
-    return (await this.db.inventoryCatalog.get(`${countId}:${barcode}`)) ?? null;
+    const exacto = await this.db.inventoryCatalog.get(`${countId}:${barcode}`);
+    if (exacto) return exacto;
+    const norm = normalizarCodigoDeBarras(barcode);
+    if (!norm || norm === barcode) return null;
+    return (await this.db.inventoryCatalog.get(`${countId}:${norm}`)) ?? null;
   }
 
   /**
@@ -93,6 +117,8 @@ export class InventoryOfflineService {
     quantity: number;
     /** `[IC.F24]` En qué unidad dijo haber contado. `null` = la del código del SKU. */
     unit?: string | null;
+    /** `[ICR.M3]` El rack en el que está parada la persona. `null` = el montón «sin rack». */
+    aisle_id?: string | null;
     capture_pass: number;
   }): Promise<void> {
     await this.db.inventoryScans.put({
@@ -102,6 +128,7 @@ export class InventoryOfflineService {
       barcode: scan.barcode ?? null,
       quantity: scan.quantity,
       unit: scan.unit ?? null,
+      aisle_id: scan.aisle_id ?? null,
       capture_pass: scan.capture_pass,
       client_ts: new Date().toISOString(),
       sincronizado: false,
@@ -122,6 +149,34 @@ export class InventoryOfflineService {
       .filter((s) => s.estado === 'descartado');
   }
 
+  /** `[ICR.M10]` Los escaneos detenidos esperando que una persona diga qué producto contó. */
+  async ambiguousFor(countId: string): Promise<InventoryScanPending[]> {
+    return (await this.db.inventoryScans.where('count_id').equals(countId).toArray())
+      .filter((s) => s.estado === 'ambiguo' && !s.sincronizado);
+  }
+
+  /**
+   * `[ICR.M10]` La persona eligió cuál de los candidatos contó: la captura vuelve a la cola
+   * atada a ese `product_id`, y el código de barras se suelta para que no la vuelva a partir.
+   * Conserva su `scan_uuid`, así que si por lo que sea ya se había aplicado, no duplica.
+   */
+  async resolveAmbiguous(scanUuid: string, productId: string): Promise<void> {
+    await this.db.inventoryScans.update(scanUuid, {
+      product_id: productId,
+      barcode: null,
+      estado: 'pendiente',
+      motivo_descarte: undefined,
+      candidatos: undefined,
+      intentos_fallidos: 0,
+    });
+    await this.refreshPending();
+  }
+
+  /**
+   * ⛔ Un escaneo `ambiguo` **cuenta como pendiente**: no llegó al folio y alguien tiene que
+   * actuar. Dejarlo fuera del número lo volvería invisible, que es el defecto de E4 con otra
+   * causa.
+   */
   private async refreshPending(): Promise<void> {
     const all = await this.db.inventoryScans.toArray();
     this.pending.set(all.filter((s) => !s.sincronizado && s.estado !== 'descartado').length);
@@ -130,14 +185,16 @@ export class InventoryOfflineService {
   // ───── Sync ─────
 
   /** Drena la cola: POST de cada escaneo pendiente. Idempotente server-side. */
-  async flush(): Promise<{ synced: number; failed: number; discarded: number }> {
-    const out = { synced: 0, failed: 0, discarded: 0 };
+  async flush(): Promise<{ synced: number; failed: number; discarded: number; ambiguous: number }> {
+    const out = { synced: 0, failed: 0, discarded: 0, ambiguous: 0 };
     if (this.flushing || (typeof navigator !== 'undefined' && !navigator.onLine)) return out;
     this.flushing = true;
     this.syncing.set(true);
     try {
       const all = await this.db.inventoryScans.toArray();
-      const pend = all.filter((s) => !s.sincronizado && s.estado !== 'descartado');
+      // ⛔ `[ICR.M10]` Los `ambiguo` NO se reintentan solos: volverían a chocar con el mismo
+      // 409 para siempre. Salen de la cola cuando una persona elige el producto.
+      const pend = all.filter((s) => !s.sincronizado && s.estado !== 'descartado' && s.estado !== 'ambiguo');
       for (const s of pend) {
         try {
           await firstValueFrom(
@@ -146,6 +203,9 @@ export class InventoryOfflineService {
               capture_pass: s.capture_pass,
               quantity: s.quantity,
               unit: s.unit ?? undefined,
+              // `[ICR.M3]` El rack donde estaba parada la persona. Se omite cuando no hay —el
+              // servidor lo toma como «sin rack»—, y nunca se manda vacío.
+              ...(s.aisle_id ? { aisle_id: s.aisle_id } : {}),
               ...(s.product_id ? { product_id: s.product_id } : { barcode: s.barcode }),
             }),
           );
@@ -153,7 +213,24 @@ export class InventoryOfflineService {
           out.synced++;
         } catch (e: any) {
           const status = e?.status;
-          if (status === 409) {
+          if (status === 409 && e?.error?.code === 'CODIGO_AMBIGUO') {
+            /*
+              ⛔⛔ `[ICR.M10]` **Esto NO es un descarte.** El código casa con más de un
+              producto —en el folio de Yurécuaro una CUCHARA y un TENEDOR de Reyher comparten
+              código, y dos sabores de gomitas Canel's también— y la captura sigue siendo
+              buena: lo único que falta es que alguien diga cuál de los dos contó.
+
+              Antes de esta rama caía en el `if (status === 409)` de abajo y se marcaba
+              `descartado`: la mercancía contada moría en silencio por un defecto del
+              catálogo, no del folio.
+            */
+            await this.db.inventoryScans.update(s.scan_uuid, {
+              estado: 'ambiguo',
+              motivo_descarte: e?.error?.message || 'El código coincide con más de un producto',
+              candidatos: Array.isArray(e?.error?.candidates) ? e.error.candidates : [],
+            });
+            out.ambiguous++;
+          } else if (status === 409) {
             // Folio cerrado/no admite conteos → descartar (auditable), no reintentar.
             await this.db.inventoryScans.update(s.scan_uuid, {
               estado: 'descartado',

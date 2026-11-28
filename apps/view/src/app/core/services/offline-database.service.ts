@@ -151,13 +151,27 @@ export interface InventoryScanPending {
    * No va indexada, así que Dexie no necesita subir de versión.
    */
   unit?: string | null;
+  /**
+   * `[ICR.M3]` **Dónde está parada la persona** cuando capturó, no dónde el catálogo dice que
+   * va el producto. `null`/ausente = el montón «sin rack», que es un rack más de la cola.
+   * No va indexada, así que Dexie no necesita subir de versión.
+   */
+  aisle_id?: string | null;
   capture_pass: number;
   client_ts: string;
   sincronizado: boolean;
   intentos_fallidos: number;
   ultimo_intento: string;
-  estado?: 'pendiente' | 'descartado'; // descartado = folio cerrado al sincronizar
+  /**
+   * `descartado` = el folio ya no admite conteos (409 terminal).
+   * `ambiguo` = `[ICR.M10]` el código casa con más de un producto y **hace falta que una
+   * persona diga cuál contó**. ⛔ No es un descarte: la captura sigue viva y se reenvía con
+   * `product_id` en cuanto se elige. Mezclarlos la mataba en silencio.
+   */
+  estado?: 'pendiente' | 'descartado' | 'ambiguo';
   motivo_descarte?: string;
+  /** `[ICR.M10]` Los productos entre los que hay que elegir cuando `estado === 'ambiguo'`. */
+  candidatos?: { product_id: string; sku: string | null; product_name: string | null; barcode: string | null }[];
 }
 
 /**

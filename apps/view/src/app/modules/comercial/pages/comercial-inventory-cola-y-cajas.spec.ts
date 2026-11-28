@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { cuentaDeConversion, type UnidadParaContar } from './conteo-cuenta-de-conversion';
+import { normalizarCodigoDeBarras } from '../../../core/services/codigo-de-barras-normalizado';
 
 /**
  * `[ICR.M5][ICR.M6]` — los dos arreglos de la **pantalla del contador** para el trimestral de
@@ -225,5 +226,116 @@ describe('[ICR.M5] la cola se ve, y no se va con la persona', () => {
     const mutante = SOLO_CONTANDO + 'offline.pending()';
     expect(mutante).not.toBe(SOLO_CONTANDO);
     expect(mutante.includes('offline.pending()')).toBe(true);
+  });
+});
+
+// ───────── [ICR.M10] el cero que agrega el escáner, y el código ambiguo ─────────
+
+const SERVICIO = readFileSync(
+  join(__dirname, '..', '..', '..', 'core', 'services', 'inventory-offline.service.ts'),
+  'utf8',
+).split(RETORNO).join('');
+
+describe('[ICR.M10] el cero de más del escáner no pierde el producto sin red', () => {
+  it('CONTROL — el caso real: el lector en EAN-13 le pone un cero al UPC-A de 12', () => {
+    expect(normalizarCodigoDeBarras('075025002003')).toBe('75025002003');
+    // Y el mismo código sin el cero se normaliza a lo mismo: por eso machean.
+    expect(normalizarCodigoDeBarras('75025002003')).toBe('75025002003');
+  });
+
+  it('un código sin ceros adelante no se toca', () => {
+    expect(normalizarCodigoDeBarras('7501234567890')).toBe('7501234567890');
+  });
+
+  it('⛔ fuera de 8–14 dígitos NO se normaliza: hay 336 códigos internos de 5 donde el cero significa algo', () => {
+    expect(normalizarCodigoDeBarras('00203')).toBeNull();
+    expect(normalizarCodigoDeBarras('0012345')).toBeNull();      // 7 dígitos
+    expect(normalizarCodigoDeBarras('012345678901234')).toBeNull(); // 15 dígitos
+  });
+
+  it('lo que no es sólo dígitos tampoco: ahí no hay nada que normalizar', () => {
+    expect(normalizarCodigoDeBarras('BA053')).toBeNull();
+    expect(normalizarCodigoDeBarras('0750-1234-5678')).toBeNull();
+    expect(normalizarCodigoDeBarras('')).toBeNull();
+    expect(normalizarCodigoDeBarras(null)).toBeNull();
+  });
+
+  it('todo ceros queda en «0», no en la cadena vacía (el mismo COALESCE del servidor)', () => {
+    expect(normalizarCodigoDeBarras('00000000')).toBe('0');
+  });
+
+  it('el cache local intenta EXACTO primero y normalizado después, nunca al revés', () => {
+    const metodo = SERVICIO.slice(SERVICIO.indexOf('async resolveLocal('), SERVICIO.indexOf('async catalogCountFor('));
+    const posExacto = metodo.indexOf('const exacto = await this.db.inventoryCatalog.get(`${countId}:${barcode}`);');
+    const posNorm = metodo.indexOf('normalizarCodigoDeBarras(barcode)');
+    expect(posExacto, 'ya no busca el código tal cual').toBeGreaterThan(-1);
+    expect(posNorm, 'ya no hay segundo intento normalizado').toBeGreaterThan(-1);
+    expect(posExacto, 'la normalización quedó primero: puede desviar un escaneo que hoy funciona')
+      .toBeLessThan(posNorm);
+  });
+
+  it('y el catálogo se siembra con las DOS llaves, porque counterCatalog manda un solo código', () => {
+    expect(SERVICIO).toContain('if (norm && norm !== r.barcode) {');
+  });
+});
+
+describe('[ICR.M10] un código ambiguo detiene la captura, no la mata', () => {
+  it('⛔ CODIGO_AMBIGUO NO se marca «descartado»: se marca «ambiguo» y guarda los candidatos', () => {
+    expect(SERVICIO).toContain("if (status === 409 && e?.error?.code === 'CODIGO_AMBIGUO') {");
+    const rama = SERVICIO.slice(
+      SERVICIO.indexOf("if (status === 409 && e?.error?.code === 'CODIGO_AMBIGUO') {"),
+      SERVICIO.indexOf('} else if (status === 409) {'),
+    );
+    expect(rama).toContain("estado: 'ambiguo',");
+    expect(rama, 'un código ambiguo vuelve a morir como descarte').not.toContain("estado: 'descartado',");
+    expect(rama).toContain('candidatos:');
+  });
+
+  it('el ambiguo cuenta como PENDIENTE: no llegó al folio y alguien tiene que actuar', () => {
+    const metodo = SERVICIO.slice(SERVICIO.indexOf('private async refreshPending()'), SERVICIO.indexOf('// ───── Sync ─────'));
+    expect(metodo).toContain("s.estado !== 'descartado'");
+    expect(metodo, 'el ambiguo se volvió invisible en el contador').not.toContain("s.estado !== 'ambiguo'");
+  });
+
+  it('⛔ pero NO se reintenta solo: chocaría con el mismo 409 para siempre', () => {
+    expect(SERVICIO).toContain("s.estado !== 'descartado' && s.estado !== 'ambiguo'");
+  });
+
+  it('al elegir candidato se reenvía con el MISMO scan_uuid, así que no puede duplicar', () => {
+    const metodo = SERVICIO.slice(SERVICIO.indexOf('async resolveAmbiguous('), SERVICIO.indexOf('private async refreshPending()'));
+    expect(metodo).toContain('this.db.inventoryScans.update(scanUuid, {');
+    expect(metodo).toContain('product_id: productId,');
+    expect(metodo).toContain('barcode: null,');
+    expect(metodo).toContain("estado: 'pendiente',");
+  });
+
+  it('⛔ la pantalla NUNCA muestra la cantidad ajena: el conteo es ciego', () => {
+    // `other_captures` del backend no la trae a propósito, y la pantalla tampoco la pide.
+    expect(CONTEO).not.toContain('other_captures');
+    expect(CONTEO).not.toContain('previous_own_qty');
+  });
+});
+
+describe('[ICR.M3] la captura dice en qué rack se hizo', () => {
+  it('el rack viaja en la cola y en el POST, y se omite cuando no hay', () => {
+    expect(SERVICIO).toContain('aisle_id: scan.aisle_id ?? null,');
+    expect(SERVICIO).toContain('...(s.aisle_id ? { aisle_id: s.aisle_id } : {}),');
+  });
+
+  it('⛔ es DONDE ESTÁ LA PERSONA, no el rack que el catálogo le da al producto', () => {
+    expect(CONTEO).toContain('aisle_id: this.rackElegido(),');
+    expect(CONTEO, 'el rack salió del producto escaneado: eso es el catálogo, no el lugar')
+      .not.toContain('aisle_id: this.resolved()');
+  });
+
+  it('sin racks dados de alta no bloquea nada: el selector no se pinta y se cuenta igual', () => {
+    expect(PLANTILLA).toContain('@if (opcionesDeRack().length) {');
+    const carga = CONTEO.slice(CONTEO.indexOf('private loadRacks('), CONTEO.indexOf('/** `[ICR.M5]` Mide si'));
+    expect(carga).toContain('if (!warehouseId) { this.racks.set([]); return; }');
+    expect(carga).toContain('error: () => this.racks.set([]),');
+  });
+
+  it('cambiar de folio suelta el rack: es de ESE almacén', () => {
+    expect(CONTEO).toContain('this.rackElegido.set(null);');
   });
 });
