@@ -25,8 +25,8 @@
 import type { Knex } from 'knex';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import {
-  armarGuia, candidatosDeNombre, normalizarConcepto, parearEntrada, salidasSinPago, sumarDias,
-  type AbonoBancario, type CuentaCoberturaBanco, type EntradaGuia, type FacturaViva, type FuentesDeAtribucion,
+  armarGuia, candidatosDeNombre, coberturaDelPrograma, normalizarConcepto, parearEntrada, salidasSinPago, sumarDias,
+  type AbonoBancario, type CoberturaDelProgramaHttp, type CuentaCoberturaBanco, type EntradaGuia, type FacturaViva, type FuentesDeAtribucion,
   type GuiaFueraDePrograma, type PagoKeplerBanco, type PartidaDelPrograma, type SalidaBancaria,
 } from '@megadulces/contracts';
 import { frescuraCaja } from '../caja/caja-relevo';
@@ -60,6 +60,16 @@ export function ventanaFueraDePrograma(desde: string | undefined, hasta: string 
   const largo = Math.round((Date.parse(fin) - Date.parse(d)) / 86_400_000);
   if (largo > TOPE_VENTANA_DIAS) return { error: `La ventana es de ${largo} días; el tope es ${TOPE_VENTANA_DIAS}` };
   return { desde: d, hasta: fin };
+}
+
+/**
+ * `[PGP.232]` La ventana de la cobertura. Por omisión, **el mes en curso** (del día 1 a hoy): es el periodo en que
+ * Planeación de pagos mira lo que se pagó, y el que se cita en la franja. Mismo tope que la guía.
+ */
+export function ventanaDeCobertura(desde: string | undefined, hasta: string | undefined, hoy: string): { desde: string; hasta: string } | { error: string } {
+  const h = hasta?.trim() || hoy;
+  const d = desde?.trim() || `${(h > hoy ? hoy : h).slice(0, 7)}-01`;
+  return ventanaFueraDePrograma(d, h, hoy);
 }
 
 /** Los periodos (`YYYY-MM`) que toca una ventana. */
@@ -351,4 +361,31 @@ export async function leerGuiaFueraDePrograma(trx: Knex | Knex.Transaction, tena
     fuera_del_universo: { ...g.fuera_del_universo, fechas_invalidas: fechasInvalidas },
     no_medido: noMedido,
   };
+}
+
+/**
+ * `[PGP.232]` **La cobertura del programa de pagos de una ventana**, sin tocar el banco.
+ *
+ * Las dos lecturas baratas de la guía (los pagos de Kepler y las partidas del Calendario) y la
+ * regla pura `coberturaDelPrograma`. ⛔ No se paran salidas ni se atribuyen conceptos: eso es la
+ * guía completa (`leerGuiaFueraDePrograma`), tarda segundos y **depende de que la descarga del
+ * banco esté subida**; la franja del Calendario se tiene que poder publicar aunque no lo esté.
+ * Medido en prod el 2026-11-27 con noviembre entero: 79 ms.
+ *
+ * Las partidas se leen con 10 días de holgura a cada lado por la misma razón que la guía: una
+ * factura pudo programarse unos días antes o después del día en que Kepler la pagó.
+ */
+export async function leerCoberturaDelPrograma(
+  trx: Knex | Knex.Transaction, tenantId: string, desde: string, hasta: string, hoy: string,
+): Promise<CoberturaDelProgramaHttp> {
+  // Sólo los de COMPRA, que son los únicos que la regla cuenta: envuelve la misma consulta de la guía en vez de
+  // copiarla (si cambia, cambia para las dos). Medido en prod el 2026-11-27 con noviembre: 2,120 filas y 390 ms
+  // sin el filtro, 457 filas y 140 ms con él — la franja tiene que caber en el presupuesto de 500 ms.
+  const pagos = ((await trx.raw(`SELECT * FROM (${SQL_PAGOS_KEPLER_BANCO}) z WHERE z.acreedor LIKE 'C%' AND z.importe > 0`, [tenantId, desde, hasta])).rows as PagoKeplerBanco[])
+    .map((p) => ({ ...p, importe: n(p.importe), facturas: p.facturas ?? [] }));
+  const llaves = [...new Set(pagos.flatMap((p) => p.facturas))];
+  const partidas = ((await trx.raw(SQL_PARTIDAS_PROGRAMA, [tenantId, sumarDias(desde, -10), sumarDias(hasta, 10), llaves])).rows as PartidaDelPrograma[])
+    .map((p) => ({ ...p, monto: n(p.monto), facturas: p.facturas ?? [] }));
+  const datos_al = await frescuraCaja(trx, tenantId);
+  return { ...coberturaDelPrograma({ hoy, desde, hasta, pagos, partidas }), hoy, datos_al };
 }

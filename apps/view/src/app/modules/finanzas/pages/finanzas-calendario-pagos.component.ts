@@ -61,6 +61,7 @@ import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type { DebeMenosDelPago, FacturaQueDebeMenos, PaymentCalendarAjusteAlSaldo, PaymentCalendarBandeja, PaymentCalendarEscrituraKepler, PaymentCalendarPartido, PaymentCalendarPrepararEnTransferencias, PaymentCalendarReprogramado } from '@megadulces/contracts';
 import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, avisoDeSaldadas, diasDeAtraso, etapaDelPago, etapaInicial, salioDelBanco, type EtapaPago } from './calendario-pagos-etapa';
 import { avisoDeTope, excesoDeTope } from '@megadulces/contracts';
+import type { CoberturaDelProgramaHttp, CuentaQueFrena, VencidosConMotivo } from '@megadulces/contracts';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
 
@@ -316,9 +317,27 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           } @else if (atrasados().length) {
             <button type="button" class="pg-atr" (click)="irAlDia(atrasados()[0].date)">
               <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-              <span><b>{{ pagos(atrasadosPagos()) }}</b> por <b class="comm-num">{{ moneyShort(atrasadosMonto()) }}</b> siguen en {{ atrasados().length === 1 ? 'un día que ya pasó' : dias(atrasados().length) + ' que ya pasaron' }} ({{ atrasadosRango() }})@if (atrasadosSalidos()) { · {{ atrasadosSalidos() === 1 ? 'otro ya salió' : 'otros ' + atrasadosSalidos() + ' ya salieron' }} del banco }</span>
+              <span><b>{{ pagos(atrasadosPagos()) }}</b> por <b class="comm-num">{{ moneyShort(atrasadosMonto()) }}</b> siguen en {{ atrasados().length === 1 ? 'un día que ya pasó' : dias(atrasados().length) + ' que ya pasaron' }} ({{ atrasadosRango() }})@if (atrasadosSalidos()) { · {{ atrasadosSalidos() === 1 ? 'otro ya salió' : 'otros ' + atrasadosSalidos() + ' ya salieron' }} del banco }@if (porQueSiguen(); as p) { · {{ p }} }</span>
               <i class="pi pi-angle-right" aria-hidden="true"></i>
             </button>
+          }
+          <!-- [PGP.233] La acción que destraba la lista de vencidos no está en esta pantalla: es subir la descarga de una
+               cuenta. Se nombra sólo cuando de verdad frena pagos, y lleva a Bancos, que es donde se arregla. -->
+          @if (cuentaQueFrena(); as c) {
+            <a class="pg-atr" routerLink="/finanzas/bancos">
+              <i class="pi pi-clock" aria-hidden="true"></i>
+              <span>{{ textoCuentaQueFrena(c) }}</span>
+              <i class="pi pi-angle-right" aria-hidden="true"></i>
+            </a>
+          }
+          <!-- [PGP.232] El gancho a la cobertura del programa, que vive entera en /finanzas/salidas-banco. Sólo si hay un
+               pago grande fuera: lo chico se cuenta allá, no interrumpe acá. -->
+          @if (grandesFuera(); as c) {
+            <a class="pg-atr" routerLink="/finanzas/salidas-banco">
+              <i class="pi pi-arrow-right-arrow-left" aria-hidden="true"></i>
+              <span>{{ textoGrandesFuera(c) }}</span>
+              <i class="pi pi-angle-right" aria-hidden="true"></i>
+            </a>
           }
           <!-- [PGP.218] DCR9 (Francisco, 2026-11-25): «que el cargo se contemple antes de hacer el programa». UNA línea, con el
                patrón de la de arriba y sólo si alguna cuenta se queda corta para lo preparado y los cargos que el banco cobra
@@ -4055,6 +4074,74 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     });
   }
   /**
+   * `[PGP.233]` **Por qué siguen ahí los pagos vencidos.** La línea de `[PGP.48]` decía cuántos y cuánto, nunca la
+   * causa: un pago que la regla conserva con razón (Kepler ya le abonó, falta la descarga de una cuenta) se leía
+   * igual que un descuido. Lo contesta la MISMA decisión que toma la pasada que libera (`decidirVencido`).
+   *
+   * No bloquea ni se reintenta: si no llega, la línea queda como antes (cuántos y cuánto) — jamás se dibuja «ninguno
+   * retenido», que se leería como «ya está todo revisado».
+   */
+  readonly vencidos = signal<VencidosConMotivo | null>(null);
+  private loadVencidos(): void {
+    this.http.get<VencidosConMotivo>(`${this.base}/vencidos/motivos`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (v) => this.vencidos.set(v ?? null),
+      error: () => this.vencidos.set(null),
+    });
+  }
+  /**
+   * `[PGP.232]` **Lo que se pagó este mes sin pasar por el Calendario.** La tabla completa (por universo, con su %)
+   * ya vive en `/finanzas/salidas-banco` `[PGP.97]` y NO se repite acá: lo que faltaba era que alguien la mirara
+   * —5 visitas en 14 días contra 1,913 del Calendario, medido el 2026-11-27—. Así que acá va sólo el gancho, y
+   * sólo cuando hay un pago GRANDE fuera: un pago de ese tamaño que no pasó por el programa no tuvo tope de banco,
+   * ni orden, ni autorización, ni aviso al proveedor.
+   *
+   * ⛔ Se pide aparte de `reload()` (no bloquea el día) y sólo mira el universo BANCO: el efectivo de la sucursal
+   * no se programa aquí y mezclarlo diría que el Calendario cubre el 49 % cuando cubre el 94.9 %.
+   */
+  readonly cobertura = signal<CoberturaDelProgramaHttp | null>(null);
+  private loadCobertura(): void {
+    this.http.get<CoberturaDelProgramaHttp>(`${this.base}/cobertura`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c) => this.cobertura.set(c ?? null),
+      error: () => this.cobertura.set(null),
+    });
+  }
+  /** Los pagos grandes del mes que salieron sin programarse; `null` cuando no hay ninguno (no se dibuja nada). */
+  readonly grandesFuera = computed(() => {
+    const c = this.cobertura();
+    return c && c.grandes.length ? c : null;
+  });
+  textoGrandesFuera(c: CoberturaDelProgramaHttp): string {
+    const n = c.grandes.length;
+    const monto = this.moneyShort(c.grandes.reduce((s, g) => s + Number(g.importe), 0));
+    const quien = n === 1 ? c.grandes[0].acreedor_nombre ?? c.grandes[0].acreedor : null;
+    return `${n === 1 ? 'Un pago' : n + ' pagos'} por ${monto} ${n === 1 ? 'salió' : 'salieron'} este mes sin pasar por el Calendario${quien ? ` (${quien})` : ''}`;
+  }
+  /** `[PGP.233]` El motivo en llano, en el orden en que una persona lo arreglaría: primero lo que depende de nosotros. */
+  readonly porQueSiguen = computed<string | null>(() => {
+    const v = this.vencidos();
+    if (!v || !v.retenidos.length) return null;
+    const texto: Record<string, string> = {
+      banco_sin_medir: 'esperan la descarga del banco',
+      banco: 'ya salieron del banco',
+      kepler_pagado: 'Kepler ya los pagó',
+      kepler_en_parte: 'Kepler ya les abonó una parte',
+      kepler_sin_medir: 'no se pudieron medir contra Kepler',
+      cheque_emitido: 'son cheques entregados, sin cobrar',
+      ligado: 'alguien ya los ligó a mano',
+    };
+    const partes = v.retenidos.map((r) => `${r.pagos} ${texto[r.motivo] ?? r.motivo}`);
+    return partes.join(' · ');
+  });
+  /**
+   * `[PGP.233]` La cuenta cuya descarga frena la medición: es la ÚNICA acción que destraba la lista, y hasta hoy
+   * sólo existía en el log del worker. Se nombra la más atrasada (la que nunca se subió, o la que llega más atrás).
+   */
+  readonly cuentaQueFrena = computed(() => this.vencidos()?.cuentas_que_frenan[0] ?? null);
+  textoCuentaQueFrena(c: CuentaQueFrena): string {
+    const falta = c.hasta ? `llega al ${this.dayShortMes(c.hasta)}` : 'nunca se ha subido';
+    return `${c.pagos === 1 ? 'Un pago' : c.pagos + ' pagos'} por ${this.moneyShort(c.monto)} ${c.pagos === 1 ? 'espera' : 'esperan'} la descarga de ${c.cuenta}: ${falta}`;
+  }
+  /**
    * `[PGP.218]` ¿Le alcanza a cada cuenta de origen para lo preparado y para los cargos que el banco cobra solo en 7 días?
    * (anexo CR §3.0, DCR9). Se relee con la semana (`reload`): preparar o pagar cambia lo que sale de cada cuenta.
    */
@@ -4737,6 +4824,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       error: (e) => { this.quePagar.set([]); this.quePagarError.set(e?.error?.message || 'No se pudo calcular qué conviene pagar.'); },
     });
     this.cargarOrigenes();
+    this.loadCobertura();
   }
 
   /**
@@ -4863,6 +4951,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.loadBandeja();
     this.loadObligations();
     this.loadAtrasados();
+    this.loadVencidos();
     this.loadSuficiencia();
     this.cargarAnticiposPedidos();
   }

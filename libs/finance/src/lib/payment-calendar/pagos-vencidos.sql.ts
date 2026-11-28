@@ -180,3 +180,42 @@ export interface FilaLiberadoQueSalio {
 export function notaReabierto(hoy: string, f: Pick<FilaLiberadoQueSalio, 'fecha' | 'cuenta' | 'importe' | 'liberado'>): string {
   return `[regresado ${hoy}] Salió del banco el ${f.fecha} (${f.cuenta}, $${f.importe.toFixed(2)}): la liberación del ${f.liberado} no lo vio porque el estado de cuenta del Calendario no tenía esa salida. Sus facturas vuelven a quedar apartadas por este pago.`;
 }
+
+/**
+ * `[PGP.233]` **Hasta qué día llega la descarga de cada cuenta de banco, y si está dormida.** La MISMA cobertura que
+ * usa `SQL_SALIDA_DE_BANCO` para decidir si se puede afirmar «no salió» (`sqlCuentaDormida`), pero con el nombre de la
+ * cuenta: sin él, «el banco no cubre esos días» no se puede accionar — hay que saber a qué cuenta le falta la descarga.
+ *
+ * Medido en prod el 2026-11-27: 18 cuentas activas, 17 con descarga y una (`STDR 5565`) dormida; `STDR 1621` al
+ * 19-nov detenía 10 pagos vencidos ($1,921,748). Parámetros: `[tenant]`. ~20 ms.
+ */
+export const SQL_COBERTURA_DE_CUENTAS = `
+  SELECT ba.id::text AS id, coalesce(ba.alias, ba.bank || ' ' || ba.account_label) AS cuenta,
+         to_char(max(f.date_to), 'YYYY-MM-DD') AS hasta, ${sqlCuentaDormida('ba')} AS dormida
+    FROM finance.bank_accounts ba
+    LEFT JOIN finance.bank_statement_files f ON f.bank_account_id = ba.id AND f.tenant_id = ba.tenant_id
+   WHERE ba.tenant_id = ? AND ba.kind = 'bank' AND ba.active
+   GROUP BY ba.id, ba.alias, ba.bank, ba.account_label
+   ORDER BY max(f.date_to) NULLS FIRST`;
+
+/** Una fila de {@link SQL_COBERTURA_DE_CUENTAS}. */
+export interface FilaCoberturaDeCuenta { id: string; cuenta: string; hasta: string | null; dormida: boolean }
+
+/**
+ * `[PGP.233]` Las cuentas cuya descarga **no alcanza** para afirmar que un pago de ese día no salió, con la misma
+ * condición del `cubierto` de {@link SQL_SALIDA_DE_BANCO}: la cuenta preparada si la hay; si nadie preparó el pago,
+ * todas las de banco activas que no estén dormidas. Devuelve [] cuando sí se puede afirmar.
+ */
+export function cuentasQueNoCubren(
+  cuentas: readonly FilaCoberturaDeCuenta[], dia: string, hoy: string, cuentaPreparada: string | null,
+): FilaCoberturaDeCuenta[] {
+  const limite = (() => {
+    const tres = new Date(`${dia}T12:00:00Z`);
+    tres.setUTCDate(tres.getUTCDate() + DIAS_ANTES_BANCO);
+    const d = tres.toISOString().slice(0, 10);
+    return d < hoy ? d : hoy;
+  })();
+  return cuentas
+    .filter((c) => (cuentaPreparada ? c.id === cuentaPreparada : !c.dormida))
+    .filter((c) => c.hasta === null || c.hasta < limite);
+}

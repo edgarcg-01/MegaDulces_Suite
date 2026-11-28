@@ -792,3 +792,137 @@ const TEXTO_KEPLER: Record<EstadoKeplerSalida, string> = {
   falta: 'Falta en Kepler',
 };
 export function textoKepler(e: EstadoKeplerSalida): string { return TEXTO_KEPLER[e]; }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// `[PGP.232]` Cuánto del pago a proveedores pasó por el Calendario, y qué pago grande no
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `[PGP.232]` **Desde cuánto se nombra un pago que salió sin programarse** (D4, Edgar 2026-11-27).
+ * Medido en prod el 2026-11-27 sobre noviembre con el código real: de los 12 pagos POR BANCO que quedaron
+ * fuera del programa, 3 llegan a $100,000 ($772,138) — una lista que una persona sí revisa.
+ */
+export const PAGO_FUERA_GRANDE = 100_000;
+
+/** Un pago de Kepler que no pasó por el Calendario, como se nombra en la franja. */
+export interface PagoFueraDelPrograma {
+  /** `sucursal|doc_tipo|folio`. */
+  id: string;
+  sucursal: string;
+  doc_tipo: string;
+  folio: string;
+  fecha: string;
+  importe: number;
+  acreedor: string;
+  acreedor_nombre: string | null;
+  /** Por qué no cuenta como programado (`regularizada`, `quitada_del_programa`, `fuera_del_programa`…). */
+  estado: EstadoProgramaSalida;
+}
+
+/** Los tramos en que se parte lo que quedó fuera: sin ellos, 368 pagos chicos tapan 4 grandes. */
+export type TramoFuera = 'mayor_500k' | 'de_100k_a_500k' | 'de_10k_a_100k' | 'menor_10k';
+export const TRAMO_FUERA_TEXTO: Record<TramoFuera, string> = {
+  mayor_500k: '$500 mil o más',
+  de_100k_a_500k: 'de $100 mil a $500 mil',
+  de_10k_a_100k: 'de $10 mil a $100 mil',
+  menor_10k: 'menos de $10 mil',
+};
+function tramoDe(importe: number): TramoFuera {
+  if (importe >= 500_000) return 'mayor_500k';
+  if (importe >= PAGO_FUERA_GRANDE) return 'de_100k_a_500k';
+  if (importe >= 10_000) return 'de_10k_a_100k';
+  return 'menor_10k';
+}
+
+/**
+ * `[PGP.232]` **La cobertura del programa de pagos**: de todo lo que Kepler pagó a acreedores de
+ * COMPRA en la ventana, cuánto había pasado por el Calendario.
+ *
+ * ⛔ Es la MISMA cuenta que `metrica` de {@link armarGuia} (mismo universo, misma regla
+ * `estadoPrograma`/`cuentaComoPrograma`): se separa sólo porque la franja del Calendario no puede
+ * esperar a que se paree el banco —lo caro de la guía— ni depender de que la descarga esté subida.
+ * Si las dos dicen cifras distintas sobre la misma ventana, una de las dos está mal.
+ *
+ * `monto` va redondeado a dos decimales; `grandes` sale de mayor a menor y sólo trae los de
+ * {@link PAGO_FUERA_GRANDE} para arriba (o el umbral que se le pase).
+ */
+export interface EntradaCobertura {
+  hoy: string;
+  desde: string;
+  hasta: string;
+  pagos: readonly PagoKeplerBanco[];
+  partidas: readonly PartidaDelPrograma[];
+  /** Por omisión {@link PAGO_FUERA_GRANDE}. */
+  umbral?: number;
+}
+
+export interface CoberturaDelPrograma {
+  desde: string;
+  hasta: string;
+  /**
+   * El universo del Calendario: lo que salió por una cuenta de BANCO. Medido el 2026-11-27 en
+   * noviembre: 211 pagos por banco contra 216 por caja — mezclarlos le cobraba al Calendario el
+   * pago en efectivo de la sucursal, que no programa.
+   */
+  pagos: number;
+  monto: number;
+  pagos_en_programa: number;
+  monto_en_programa: number;
+  pagos_fuera: number;
+  monto_fuera: number;
+  /** Los de banco que quedaron fuera y llegan al umbral, de mayor a menor. */
+  grandes: PagoFueraDelPrograma[];
+  umbral: number;
+  /** Lo que quedó fuera (banco), por tamaño. Sólo los tramos con algo. */
+  por_tramo: { tramo: TramoFuera; pagos: number; monto: number }[];
+  /**
+   * Los otros dos universos, para que no desaparezcan en silencio: `caja` (efectivo de la
+   * sucursal) y `otra` (cuentas puente: factoraje, devoluciones, ajustes).
+   */
+  otros_universos: { universo: Exclude<UniversoPago, 'banco'>; pagos: number; monto: number; pagos_en_programa: number; monto_en_programa: number }[];
+}
+
+export function coberturaDelPrograma(e: EntradaCobertura): CoberturaDelPrograma {
+  const umbral = e.umbral ?? PAGO_FUERA_GRANDE;
+  const out: CoberturaDelPrograma = {
+    desde: e.desde, hasta: e.hasta, pagos: 0, monto: 0, pagos_en_programa: 0, monto_en_programa: 0,
+    pagos_fuera: 0, monto_fuera: 0, grandes: [], umbral, por_tramo: [], otros_universos: [],
+  };
+  const tramos = new Map<TramoFuera, { pagos: number; monto: number }>();
+  const otros = new Map<Exclude<UniversoPago, 'banco'>, { pagos: number; monto: number; pagos_en_programa: number; monto_en_programa: number }>();
+  for (const p of e.pagos) {
+    // El MISMO filtro que la métrica de `armarGuia`: la ventana, nada del futuro, sólo compra, con importe.
+    if (!(p.fecha >= e.desde && p.fecha <= e.hasta) || p.fecha > e.hoy || !esAcreedorDeCompra(p.acreedor) || !(p.importe > 0)) continue;
+    const g = estadoPrograma(p, e.partidas);
+    const universo = universoDe(p.tipo_cuenta);
+    if (universo !== 'banco') {
+      const u = otros.get(universo) ?? { pagos: 0, monto: 0, pagos_en_programa: 0, monto_en_programa: 0 };
+      u.pagos++; u.monto += p.importe;
+      if (cuentaComoPrograma(g.estado)) { u.pagos_en_programa++; u.monto_en_programa += p.importe; }
+      otros.set(universo, u);
+      continue;
+    }
+    out.pagos++; out.monto += p.importe;
+    if (cuentaComoPrograma(g.estado)) { out.pagos_en_programa++; out.monto_en_programa += p.importe; continue; }
+    out.pagos_fuera++; out.monto_fuera += p.importe;
+    const t = tramoDe(p.importe);
+    const acc = tramos.get(t) ?? { pagos: 0, monto: 0 };
+    acc.pagos++; acc.monto += p.importe; tramos.set(t, acc);
+    if (p.importe >= umbral) {
+      out.grandes.push({
+        id: p.id, sucursal: p.sucursal, doc_tipo: p.doc_tipo, folio: p.folio, fecha: p.fecha,
+        // `esAcreedorDeCompra` ya descartó el nulo (un acreedor vacío no empieza con «C»); el `??` es para el tipo.
+        importe: r2(p.importe), acreedor: p.acreedor ?? '', acreedor_nombre: p.acreedor_nombre ?? null, estado: g.estado,
+      });
+    }
+  }
+  out.monto = r2(out.monto); out.monto_en_programa = r2(out.monto_en_programa); out.monto_fuera = r2(out.monto_fuera);
+  out.grandes.sort((a, b) => b.importe - a.importe || a.id.localeCompare(b.id));
+  const orden: TramoFuera[] = ['mayor_500k', 'de_100k_a_500k', 'de_10k_a_100k', 'menor_10k'];
+  out.por_tramo = orden.filter((t) => tramos.has(t)).map((t) => ({ tramo: t, pagos: tramos.get(t)!.pagos, monto: r2(tramos.get(t)!.monto) }));
+  out.otros_universos = (['caja', 'otra'] as const).filter((u) => otros.has(u)).map((u) => {
+    const x = otros.get(u)!;
+    return { universo: u, pagos: x.pagos, monto: r2(x.monto), pagos_en_programa: x.pagos_en_programa, monto_en_programa: r2(x.monto_en_programa) };
+  });
+  return out;
+}

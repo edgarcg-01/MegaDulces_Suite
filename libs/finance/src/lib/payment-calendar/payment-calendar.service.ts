@@ -36,14 +36,14 @@ import {
   DIAS_ANTES, EVENTO_AUNQUE_SALIO, SQL_SALIDA_QUE_LO_PAGO, motivoAunqueSalioValido, motivoParaNoCambiar,
   type AccionSobreElPago, type SalidaQueLoPago,
 } from './salio-antes-de-cambiar';
-import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
-import type { CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts';
+import { leerCoberturaDelPrograma, leerGuiaFueraDePrograma, ventanaDeCobertura, ventanaFueraDePrograma } from './fuera-de-programa.sql';
+import type { CoberturaDelProgramaHttp, CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts';
 import type { PagoParaCheque } from '@megadulces/contracts';
 import { leerCorteSueltas } from './corte-suelta.sql';
-import { EVENTO_LIBERADO, decidirVencido, notaLiberado, type MotivoConservar, type ResultadoPagosVencidos } from '@megadulces/contracts';
+import { DIAS_PARA_LIBERAR, EVENTO_LIBERADO, decidirVencido, notaLiberado, type CuentaQueFrena, type MotivoConservar, type ResultadoPagosVencidos, type VencidosConMotivo } from '@megadulces/contracts';
 import {
-  EVENTO_REABIERTO, SQL_LIBERADOS_QUE_SALIERON, SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, notaReabierto, paramsSalidaDeBanco,
-  testigoDelBanco, type FilaLiberadoQueSalio, type FilaPendienteVencido,
+  EVENTO_REABIERTO, SQL_COBERTURA_DE_CUENTAS, SQL_LIBERADOS_QUE_SALIERON, SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, cuentasQueNoCubren, notaReabierto, paramsSalidaDeBanco,
+  testigoDelBanco, type FilaCoberturaDeCuenta, type FilaLiberadoQueSalio, type FilaPendienteVencido,
 } from './pagos-vencidos.sql';
 import {
   AUTOR_PAGO_POR_EL_BANCO, EVENTO_PAGADO_POR_EL_BANCO, decidirPagosPorElBanco, segunLaDescarga,
@@ -2120,6 +2120,88 @@ export class PaymentCalendarService {
   }
 
   /**
+   * `[PGP.117]`/`[PGP.233]` **Lo que la regla de los vencidos necesita leer**, en un solo lugar: los pendientes cuyo día
+   * pasó hace `DIAS_PARA_LIBERAR` días o más, sus renglones, lo que Kepler dice de sus facturas y el testigo del banco.
+   *
+   * ⛔ Lo usan LAS DOS: la pasada que libera (`liberarVencidos`, que escribe) y la lectura que publica el motivo
+   * (`motivosDeVencidos`, que sólo lee). Si cada una leyera lo suyo, la pantalla podría decir un motivo y la regla
+   * actuar por otro — que es justo lo que `[PGP.233]` viene a evitar.
+   */
+  private async leerVencidosParaDecidir(trx: Knex.Transaction, tenantId: string, hoy: string): Promise<{
+    pend: FilaPendienteVencido[];
+    items: (ItemParaCierre & { applied_amount: string | number; discount_amount: string | number | null })[];
+    cierres: Map<string, CierreKeplerPago>;
+    banco: Map<string, boolean | null>;
+  }> {
+    const pend = (await trx.raw(SQL_PENDIENTES_VENCIDOS, [tenantId, hoy])).rows as FilaPendienteVencido[];
+    if (!pend.length) return { pend, items: [], cierres: new Map(), banco: new Map() };
+    const ids = pend.map((p) => p.id);
+    const items = (await trx('finance.payment_allocation_items').whereIn('allocation_id', ids)
+      .select('allocation_id', 'obligation_source', 'obligation_id', 'applied_amount', 'discount_amount')) as
+      (ItemParaCierre & { applied_amount: string | number; discount_amount: string | number | null })[];
+    const cierres = await this.cierresKepler(trx, pend.map((p) => ({ id: p.id, lotDate: p.lot_date, alta: p.alta })), items);
+    // `[PGP.149]` El banco: el libro O la descarga; «no salió» sólo con la descarga cubriendo esos días.
+    const salidas = (await trx.raw(SQL_SALIDA_DE_BANCO, paramsSalidaDeBanco(tenantId, hoy, pend)))
+      .rows as { id: string; salio: boolean; cubierto: boolean }[];
+    return { pend, items, cierres, banco: new Map(salidas.map((s) => [s.id, testigoDelBanco(s)])) };
+  }
+
+
+  /**
+   * `[PGP.233]` **Por qué cada pago vencido sigue aquí**, con la MISMA regla y las MISMAS lecturas que la pasada que
+   * libera (`leerVencidosParaDecidir` + `decidirVencido`): sólo que aquí no se escribe nada. Sin esto, el motivo
+   * vivía únicamente en el log del worker y la pantalla no podía distinguir un pago retenido de un descuido.
+   *
+   * Y nombra **las cuentas cuya descarga frena la medición**, que es lo único accionable de la lista.
+   *
+   * Ensayo en seco con el código real contra prod (2026-11-27, sólo lectura; 27 ms los vencidos + 154 ms el cierre
+   * de Kepler + 285 ms el banco): de 42 pendientes con su día pasado, **15 ya cumplían la semana y ninguno era
+   * liberable** — 12 ($1,613,799) se conservan porque **Kepler ya les abonó algo** (`kepler_en_parte`), 1 ($850) no
+   * se pudo medir y **2 ($1,431,794) esperan la descarga de `STDR 1621`**, que llevaba 8 días sin subirse. ⚠️ Sin el
+   * cierre de Kepler la misma lectura decía «10 pagos detenidos por la cuenta»: el motivo NO se puede estimar sin
+   * los tres testigos.
+   */
+  async motivosDeVencidos(hoy: string = todayMx()): Promise<VencidosConMotivo> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const out: VencidosConMotivo = {
+        hoy, dias_para_liberar: DIAS_PARA_LIBERAR, revisados: 0, retenidos: [], cuentas_que_frenan: [], liberables: { pagos: 0, monto: 0 },
+      };
+      const { pend, cierres, banco } = await this.leerVencidosParaDecidir(trx, tenantId, hoy);
+      if (!pend.length) return out;
+      const cuentas = (await trx.raw(SQL_COBERTURA_DE_CUENTAS, [tenantId])).rows as FilaCoberturaDeCuenta[];
+      const porMotivo = new Map<string, { pagos: number; monto: number }>();
+      const porCuenta = new Map<string, CuentaQueFrena>();
+      for (const p of pend) {
+        const d = decidirVencido({
+          lotDate: p.lot_date, cierre: cierres.get(p.id) ?? null,
+          salidaDeBanco: banco.has(p.id) ? banco.get(p.id) ?? null : null,
+          ligado: !!p.ligado, chequeEmitido: !!p.cheque_emitido,
+        }, hoy);
+        if (d.accion === 'esperar') continue;
+        out.revisados++;
+        if (d.accion === 'liberar') {
+          out.liberables.pagos++;
+          out.liberables.monto = round2(out.liberables.monto + Number(p.monto));
+          continue;
+        }
+        const m = porMotivo.get(d.motivo) ?? { pagos: 0, monto: 0 };
+        m.pagos++; m.monto = round2(m.monto + Number(p.monto));
+        porMotivo.set(d.motivo, m);
+        // Sólo el que espera a la descarga nombra cuenta: en los demás motivos el banco no es lo que frena.
+        if (d.motivo !== 'banco_sin_medir') continue;
+        for (const c of cuentasQueNoCubren(cuentas, p.lot_date, hoy, p.cuenta)) {
+          const q = porCuenta.get(c.cuenta) ?? { cuenta: c.cuenta, hasta: c.hasta, pagos: 0, monto: 0 };
+          q.pagos++; q.monto = round2(q.monto + Number(p.monto));
+          porCuenta.set(c.cuenta, q);
+        }
+      }
+      out.retenidos = [...porMotivo.entries()].map(([motivo, x]) => ({ motivo, ...x })).sort((a, b) => b.monto - a.monto);
+      out.cuentas_que_frenan = [...porCuenta.values()].sort((a, b) => (a.hasta ?? '').localeCompare(b.hasta ?? '') || b.monto - a.monto);
+      return out;
+    });
+  }
+  /**
    * `[PGP.117]` **El pago que nadie pagó se libera, y queda en la bitácora.** Edgar, 2026-11-12: «después de una
    * semana hay que quitar lo que no se haya pagado, pero dejar logs de lo ocurrido» (`[PGP.204]`: se bajó a un día y
    * se regresó a la semana el 2026-11-23, medido). `[PGP.48]` sólo avisaba de los pagos atrasados;
@@ -2149,18 +2231,10 @@ export class PaymentCalendarService {
       out.regresados = regreso.ids.length;
       out.ids_regresados = regreso.ids;
       out.reprogramados_tras_liberar = regreso.reprogramados;
-      const pend = (await trx.raw(SQL_PENDIENTES_VENCIDOS, [tenantId, hoy])).rows as FilaPendienteVencido[];
+      const leido = await this.leerVencidosParaDecidir(trx, tenantId, hoy);
+      const { pend, items, cierres, banco } = leido;
       out.revisados = pend.length;
       if (!pend.length) return out;
-      const ids = pend.map((p) => p.id);
-      const items = (await trx('finance.payment_allocation_items').whereIn('allocation_id', ids)
-        .select('allocation_id', 'obligation_source', 'obligation_id', 'applied_amount', 'discount_amount')) as
-        (ItemParaCierre & { applied_amount: string | number; discount_amount: string | number | null })[];
-      const cierres = await this.cierresKepler(trx, pend.map((p) => ({ id: p.id, lotDate: p.lot_date, alta: p.alta })), items);
-      // `[PGP.149]` El banco: el libro O la descarga; «no salió» sólo con la descarga cubriendo esos días.
-      const salidas = (await trx.raw(SQL_SALIDA_DE_BANCO, paramsSalidaDeBanco(tenantId, hoy, pend)))
-        .rows as { id: string; salio: boolean; cubierto: boolean }[];
-      const banco = new Map(salidas.map((s) => [s.id, testigoDelBanco(s)]));
 
       for (const p of pend) {
         const cierre = cierres.get(p.id) ?? null;
@@ -2683,6 +2757,25 @@ export class PaymentCalendarService {
     const v = ventanaFueraDePrograma(desde, hasta, hoy);
     if ('error' in v) throw new BadRequestException(v.error);
     return this.tk.run((trx) => leerGuiaFueraDePrograma(trx, tenantId, v.desde, v.hasta, hoy));
+  }
+
+  /**
+   * `[PGP.232]` **Cuánto del pago a proveedores pasó por el Calendario** en la ventana (por omisión, el mes en
+   * curso), y qué pago grande no pasó. Sólo lee, y **no depende del banco**: la franja se publica aunque la
+   * descarga no esté subida, que es lo que impide usar la guía completa todos los días.
+   *
+   * ⛔ **Por universo, nunca mezclados.** Medido en prod el 2026-11-27 sobre noviembre (9 servidores), con el
+   * código real: por BANCO son 235 pagos de compra por $41,527,843 y el Calendario explica 223 ($40,503,317) —
+   * **94.9 % de los documentos y 97.5 % del dinero**, con 12 fuera ($1,024,526) y 3 de $100 mil o más. Por CAJA
+   * (efectivo de la sucursal) son 219 pagos por $5,483,643 y **ninguno** pasó por el Calendario; por cuentas
+   * puente, 3 ($657,271). Sumarlos daba «27 % de cobertura» y le cobraba al Calendario un dinero que no programa.
+   */
+  async coberturaDelProgramaDePagos(desde?: string, hasta?: string): Promise<CoberturaDelProgramaHttp> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hoy = todayMx();
+    const v = ventanaDeCobertura(desde, hasta, hoy);
+    if ('error' in v) throw new BadRequestException(v.error);
+    return this.tk.run((trx) => leerCoberturaDelPrograma(trx, tenantId, v.desde, v.hasta, hoy));
   }
 
   /**

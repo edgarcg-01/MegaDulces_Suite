@@ -716,3 +716,42 @@ export interface PaymentCalendarEnsayoKepler {
   /** Lo que el adaptador todavía NO escribe (se declara: el ensayo no lo cubre). */
   no_cubierto: string[];
 }
+
+/**
+ * `[PGP.233]` **Por qué un pago vencido sigue en el Calendario.** La pasada de `[PGP.117]` ya decide esto cada
+ * día con `decidirVencido`, pero su resultado sólo existía en el log del worker: en la pantalla, un pago
+ * conservado por un testigo (Kepler le abonó, el cheque sigue en tránsito, la descarga no cubre sus días) se veía
+ * igual que un descuido. Esto publica la MISMA decisión, sin escribir nada.
+ *
+ * Medido en prod el 2026-11-27: de 42 pendientes con su día pasado ($8,420,410), 15 ya cumplían la semana y
+ * **10 ($1,921,748) estaban retenidos por una sola cuenta** cuya descarga llevaba 8 días sin subirse.
+ */
+export interface MotivoDeVencidos {
+  /** `MotivoConservar` de `pago-vencido.contract` (`banco_sin_medir`, `kepler_pagado`, `cheque_emitido`…). */
+  motivo: string;
+  pagos: number;
+  monto: number;
+}
+
+/** Una cuenta de banco cuya descarga atrasada impide afirmar que un pago no salió, con lo que detiene. */
+export interface CuentaQueFrena {
+  cuenta: string;
+  /** Último día que cubre su descarga; `null` = nunca se ha subido. */
+  hasta: string | null;
+  pagos: number;
+  monto: number;
+}
+
+export interface VencidosConMotivo {
+  hoy: string;
+  /** Los días que espera la regla antes de liberar (`DIAS_PARA_LIBERAR`). */
+  dias_para_liberar: number;
+  /** Cuántos pagos vencidos revisó la regla (los que ya cumplieron la espera). */
+  revisados: number;
+  /** Por qué se conserva cada uno, agrupado. Vacío = no hay vencidos que decidir. */
+  retenidos: MotivoDeVencidos[];
+  /** Las cuentas cuya descarga detiene la medición, de la más atrasada a la menos. */
+  cuentas_que_frenan: CuentaQueFrena[];
+  /** Los que la regla SÍ liberaría en la próxima pasada (debería ser 0 casi siempre: corre con cada aviso). */
+  liberables: { pagos: number; monto: number };
+}

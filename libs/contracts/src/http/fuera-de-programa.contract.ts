@@ -4,7 +4,7 @@
  *
  * La regla vive en `finance/salida-proveedor.contract.ts`; aquí sólo la forma de la respuesta.
  */
-import type { GuiaCalculada, MontoContado } from '../finance/salida-proveedor.contract';
+import type { CoberturaDelPrograma, GuiaCalculada, MontoContado } from '../finance/salida-proveedor.contract';
 
 /** Hasta qué día llega el workbook de bancos en cada cuenta. */
 export interface CuentaCoberturaBanco {
@@ -39,4 +39,21 @@ export interface GuiaFueraDePrograma extends Omit<GuiaCalculada, 'fuera_del_univ
   };
   /** Lo que no se pudo medir en esta ventana, dicho en palabras (ADR-056). Vacío = todo medido. */
   no_medido: string[];
+}
+
+/**
+ * `[PGP.232]` `GET /finance/payment-calendar/cobertura` — cuánto del pago a proveedores de la
+ * ventana pasó por el Calendario, y qué pago grande no. Sólo lectura.
+ *
+ * La cuenta es la misma que `metrica` de la guía de arriba; lo que cambia es que esto **no
+ * depende del banco** (no parea salidas ni necesita la descarga subida), así que la franja del
+ * Calendario puede publicarla todos los días.
+ */
+export interface CoberturaDelProgramaHttp extends CoberturaDelPrograma {
+  hoy: string;
+  /**
+   * Última corrida buena del carril que trae `kdm1`/`kdxe` (`ods_live_caja`). `null` = no se pudo
+   * medir: entonces la franja dice «sin medir», nunca un número (ADR-056).
+   */
+  datos_al: string | null;
 }

@@ -9,7 +9,7 @@ import {
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarSuficiencia, PaymentCalendarWeek, PaymentOriginAccount, PayableEvidenceQuery, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, CoberturaDelProgramaHttp, VencidosConMotivo, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarSuficiencia, PaymentCalendarWeek, PaymentOriginAccount, PayableEvidenceQuery, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -344,6 +344,28 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: 'Salidas del banco a proveedores contra Kepler y el programa: qué falta capturar en Kepler y qué se pagó fuera del programa.' })
   fueraDePrograma(@Query('date_from') desde?: string, @Query('date_to') hasta?: string): Promise<GuiaFueraDePrograma> {
     return this.svc.fueraDePrograma(desde, hasta);
+  }
+
+  /**
+   * `[PGP.232]` **La cobertura del programa de pagos**: cuánto del pago a proveedores de la ventana pasó por el
+   * Calendario, y qué pago de $100 mil o más no pasó. Por omisión, el mes en curso. Sólo lee.
+   */
+  @Get('cobertura')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: '[PGP.232] Cuánto del pago a proveedores pasó por el Calendario y qué pago grande no (mes en curso por omisión).' })
+  cobertura(@Query('date_from') desde?: string, @Query('date_to') hasta?: string): Promise<CoberturaDelProgramaHttp> {
+    return this.svc.coberturaDelProgramaDePagos(desde, hasta);
+  }
+
+  /**
+   * `[PGP.233]` **Por qué sigue aquí cada pago vencido**: la misma decisión que toma la pasada que libera, y las
+   * cuentas cuya descarga atrasada impide medir. Sólo lee.
+   */
+  @Get('vencidos/motivos')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: '[PGP.233] Por qué se conserva cada pago vencido y qué cuenta de banco frena la medición.' })
+  motivosDeVencidos(): Promise<VencidosConMotivo> {
+    return this.svc.motivosDeVencidos();
   }
 
   /** `[PGP.76]` El orden completo de los pendientes del día, en una sola escritura (arrastrar o teclado). */
