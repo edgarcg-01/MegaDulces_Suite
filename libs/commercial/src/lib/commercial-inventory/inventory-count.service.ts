@@ -82,6 +82,26 @@ export interface FilaDeProducto {
   sku: string | null;
   nombre: string | null;
   barcode: string | null;
+  /** `[ICR.M11]` Sólo cuando la fila salió de `catalog.product_barcodes`. */
+  unit?: string | null;
+  factor?: string | number | null;
+  is_primary?: boolean | null;
+}
+
+/**
+ * `[ICR.M11]` Lo que se sabe del código que se escaneó, no sólo a qué producto apunta.
+ *
+ * ⭐ `unidad_del_codigo` es lo que vuelve contable una CAJA: el código de la caja **dice** que
+ * es una caja. Pero el factor casi nunca está (medido: **248 de 254** códigos `CJA` del folio de
+ * Yurécuaro tienen `factor` NULL), así que esto se **informa y no se aplica**.
+ */
+export interface CodigoResuelto {
+  product_id: string;
+  fuente: string;
+  unidad_del_codigo: string | null;
+  factor_del_codigo: number | null;
+  /** `true` = es el código que viene con el SKU, o sea la unidad NATIVA. `null` = no se sabe. */
+  es_codigo_nativo: boolean | null;
 }
 
 /** El sub-builder que arma el `WHERE` de un nivel de resolución. */
@@ -96,6 +116,8 @@ interface ConsultaDeProductos {
   join(tabla: string, a: string, b: string): ConsultaDeProductos;
   where(columnaOFiltro: string | FiltroDeCodigo, valor?: unknown): ConsultaDeProductos;
   andWhere(filtro: FiltroDeCodigo): ConsultaDeProductos;
+  whereNull(columna: string): ConsultaDeProductos;
+  orderBy(columna: string, direccion?: string): ConsultaDeProductos;
   distinct(...columnas: string[]): Promise<FilaDeProducto[]>;
 }
 export type TrxConsultable = (tabla: string) => ConsultaDeProductos;
@@ -433,14 +455,16 @@ export class InventoryCountService {
     countId: string | null,
     code: string,
     conSkuGlobal = false,
-  ): Promise<{ product_id: string; fuente: string } | null> {
+  ): Promise<CodigoResuelto | null> {
     const c = String(code ?? '').trim();
     if (!c) return null;
     const norm = InventoryCountService.normalizarCodigoDeBarras(c);
     // `NULLIF(...,'0')` cubre el borde: un código de puros ceros deja la cadena vacía al
     // quitarlos, y '' no es lo mismo que '0'.
-    const SQL_NORM = `p.barcode ~ '^[0-9]{8,14}$' AND COALESCE(NULLIF(ltrim(p.barcode, '0'), ''), '0') = ?`;
+    const NORM_PP = `p.barcode ~ '^[0-9]{8,14}$' AND COALESCE(NULLIF(ltrim(p.barcode, '0'), ''), '0') = ?`;
+    const NORM_PB = `b.barcode ~ '^[0-9]{8,14}$' AND COALESCE(NULLIF(ltrim(b.barcode, '0'), ''), '0') = ?`;
 
+    // ── Las dos fuentes ───────────────────────────────────────────────────────────────────
     const enElFolio = (donde: FiltroDeCodigo) =>
       trx('commercial.inventory_count_items as i')
         .join('public.products as p', 'p.id', 'i.product_id')
@@ -449,15 +473,62 @@ export class InventoryCountService {
         .distinct('p.id', 'p.sku', 'p.nombre', 'p.barcode');
     const enElCatalogo = (donde: FiltroDeCodigo) =>
       trx('public.products as p').where(donde).distinct('p.id', 'p.sku', 'p.nombre', 'p.barcode');
+    /**
+     * `[ICR.M11]` La tabla de CÓDIGOS, que es donde están los que la gente escanea de verdad:
+     * varios por producto, incluido el de la **caja**. El orden de desempate es el mismo que
+     * usa `unidadesDeConteo` —primario primero, después el factor más chico—, para que dos
+     * filas del mismo producto no devuelvan una unidad u otra según el humor del planner.
+     */
+    const enLosCodigosDelFolio = (donde: FiltroDeCodigo) =>
+      trx('catalog.product_barcodes as b')
+        .join('commercial.inventory_count_items as i', 'i.product_id', 'b.product_id')
+        .join('public.products as p', 'p.id', 'b.product_id')
+        .where('i.count_id', countId)
+        .whereNull('b.deleted_at')
+        .andWhere(donde)
+        .orderBy('b.is_primary', 'desc')
+        .orderBy('b.factor', 'asc')
+        .distinct('p.id', 'p.sku', 'p.nombre', 'b.barcode', 'b.unit', 'b.factor', 'b.is_primary');
+    const enLosCodigosDelCatalogo = (donde: FiltroDeCodigo) =>
+      trx('catalog.product_barcodes as b')
+        .join('public.products as p', 'p.id', 'b.product_id')
+        .whereNull('b.deleted_at')
+        .andWhere(donde)
+        .orderBy('b.is_primary', 'desc')
+        .orderBy('b.factor', 'asc')
+        .distinct('p.id', 'p.sku', 'p.nombre', 'b.barcode', 'b.unit', 'b.factor', 'b.is_primary');
 
+    // ── La escalera ───────────────────────────────────────────────────────────────────────
+    //
+    // ⭐ Dos ejes, y el orden de los dos importa:
+    //   · **folio antes que catálogo** — `[IC.F1]`: el catálogo tiene el mismo producto más de
+    //     una vez y resolver ahí primero devuelve la fila duplicada, que crea un renglón nuevo
+    //     con teórico 0 y deja el folio sin poder cerrarse nunca;
+    //   · **exacta antes que normalizada** — `[ICR.M10]`: un código que existe tal cual gana.
+    //
+    // Y dentro de cada casilla, **`public.products` antes que `catalog.product_barcodes`**: así
+    // ningún escaneo que hoy funciona puede cambiar de respuesta. Medido (prod, 2026-11-27,
+    // 2,313 códigos del folio de Yurécuaro): **0 cambian de identidad hacia un producto
+    // equivocado y 0 se vuelven sobrante fantasma**; 649 pasan de «no encontrado» a resolver
+    // dentro del folio y 17 dejan de resolver a un producto de FUERA del folio (que es el daño
+    // de `[IC.F1]` ocurriendo hoy).
     const niveles: [string, () => Promise<FilaDeProducto[]>][] = [];
     if (countId) {
       niveles.push([
         'folio-exacto',
         () => enElFolio((qb) => qb.where('p.barcode', c).orWhere('p.sku', c)),
       ]);
-      if (norm)
-        niveles.push(['folio-normalizado', () => enElFolio((qb) => qb.whereRaw(SQL_NORM, [norm]))]);
+      niveles.push([
+        'folio-exacto-codigos',
+        () => enLosCodigosDelFolio((qb) => qb.where('b.barcode', c)),
+      ]);
+      if (norm) {
+        niveles.push(['folio-normalizado', () => enElFolio((qb) => qb.whereRaw(NORM_PP, [norm]))]);
+        niveles.push([
+          'folio-normalizado-codigos',
+          () => enLosCodigosDelFolio((qb) => qb.whereRaw(NORM_PB, [norm])),
+        ]);
+      }
     }
     niveles.push([
       'catalogo-exacto',
@@ -466,17 +537,36 @@ export class InventoryCountService {
           conSkuGlobal ? qb.where('p.barcode', c).orWhere('p.sku', c) : qb.where('p.barcode', c),
         ),
     ]);
-    if (norm)
+    niveles.push([
+      'catalogo-exacto-codigos',
+      () => enLosCodigosDelCatalogo((qb) => qb.where('b.barcode', c)),
+    ]);
+    if (norm) {
       niveles.push([
         'catalogo-normalizado',
-        () => enElCatalogo((qb) => qb.whereRaw(SQL_NORM, [norm])),
+        () => enElCatalogo((qb) => qb.whereRaw(NORM_PP, [norm])),
       ]);
+      niveles.push([
+        'catalogo-normalizado-codigos',
+        () => enLosCodigosDelCatalogo((qb) => qb.whereRaw(NORM_PB, [norm])),
+      ]);
+    }
 
     for (const [fuente, consulta] of niveles) {
       const filas = await consulta();
       const unicos = Array.from(new Map(filas.map((p) => [String(p.id), p])).values());
-      if (unicos.length === 1) return { product_id: unicos[0].id, fuente };
       if (unicos.length > 1) this.codigoAmbiguo(c, unicos);
+      if (unicos.length === 1) {
+        const f = unicos[0];
+        const factor = f.factor == null ? null : Number(f.factor);
+        return {
+          product_id: f.id,
+          fuente,
+          unidad_del_codigo: f.unit ?? null,
+          factor_del_codigo: Number.isFinite(factor as number) ? (factor as number) : null,
+          es_codigo_nativo: f.is_primary === undefined ? null : f.is_primary === true,
+        };
+      }
     }
     return null;
   }
@@ -961,6 +1051,8 @@ export class InventoryCountService {
       // columna es la constante `Z000` en los 11,816 productos que la traen. La ubicación se
       // resuelve contra el catálogo de `/almacen/ubicaciones`, más abajo y por almacén.
       let prodName: string | null = null;
+      /** `[ICR.M11]` Lo que se supo del código escaneado; `null` si vino `product_id` directo. */
+      let codigoResuelto: CodigoResuelto | null = null;
 
       if (isInv) {
         // inventory.products por barcode o sku
@@ -1007,6 +1099,7 @@ export class InventoryCountService {
           const hallado = await this.resolverProductoPorCodigo(trx, countId, dto.barcode);
           if (!hallado) throw new NotFoundException(`Sin producto para el código '${dto.barcode}'`);
           productId = hallado.product_id;
+          codigoResuelto = hallado;
         }
         if (!UUID.test(productId!)) throw new BadRequestException('product_id inválido');
       }
@@ -1123,6 +1216,45 @@ export class InventoryCountService {
       // se comporta exactamente como antes y **se ve** que nadie declaró nada.
       const { nativa, opciones } = await this.unidadesDeConteo(trx, productId, productSku);
       const pedida = (dto.unit ?? '').trim().toUpperCase();
+
+      // ── ⛔⛔ `[ICR.M11]` Escanear la CAJA no puede contar piezas en silencio ───────────────
+      //
+      // Agregar `catalog.product_barcodes` a la resolución **rescata 649 códigos** que hoy dan
+      // «producto no encontrado»… y **335 de ellos son el código de la caja o del paquete**, no
+      // el de la unidad nativa. Si se aceptaran sin más, alguien escanea una caja, teclea `3` y
+      // el folio guarda **3 piezas en vez de 3 cajas**. Eso es peor que el 404 que reemplaza:
+      // el 404 se ve, el undercount no.
+      //
+      // Y no se puede resolver adivinando el factor: medido en prod el 2026-11-27, **248 de los
+      // 254 códigos `CJA` del folio de Yurécuaro tienen `factor` NULL**. No hay con qué
+      // convertir, así que lo honesto es **pedir la unidad**, no inventarla (ADR-057 / `[IC.F24]`:
+      // sin unidad conocida NO se inventa una).
+      //
+      // ⭐ Esto **no puede romper nada que hoy funcione**: sólo se dispara cuando la resolución
+      // vino de la tabla de códigos, y esos niveles únicamente corren cuando `public.products`
+      // no encontró nada — o sea, exactamente sobre los escaneos que hoy devuelven 404.
+      if (
+        !pedida
+        && codigoResuelto?.es_codigo_nativo === false
+        && codigoResuelto.unidad_del_codigo
+        && nativa?.unit
+        && codigoResuelto.unidad_del_codigo.toUpperCase() !== nativa.unit.toUpperCase()
+      ) {
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'Conflict',
+          code: 'UNIDAD_NO_DECLARADA',
+          message:
+            `El código que escaneaste es el de ${codigoResuelto.unidad_del_codigo}, y el conteo `
+            + `de este producto se lleva en ${nativa.unit}. Decí en qué unidad contaste.`,
+          barcode: dto.barcode ?? null,
+          scanned_unit: codigoResuelto.unidad_del_codigo,
+          /** ⚠️ Puede venir `null`: 248 de 254 códigos de caja no tienen factor declarado. */
+          scanned_factor: codigoResuelto.factor_del_codigo,
+          native_unit: nativa.unit,
+          units_available: opciones,
+        });
+      }
       let unidadUsada: string | null = nativa?.unit ?? null;
       let factorUsado = 1;
       if (pedida) {
@@ -1367,6 +1499,14 @@ export class InventoryCountService {
         unit_factor: factorUsado,
         quantity_native: cantidad,
         units_available: opciones,
+        /**
+         * ⭐ `[ICR.M11]` La unidad **del código que se escaneó** (`[ICR.M6]`: con esto la
+         * pantalla preselecciona «cajas» sola). ⛔ Se informa y **no se aplica**: el factor
+         * falta en 248 de 254 códigos de caja, así que aplicarlo sería inventar el número.
+         */
+        scanned_unit: codigoResuelto?.unidad_del_codigo ?? null,
+        scanned_unit_factor: codigoResuelto?.factor_del_codigo ?? null,
+        scanned_code_is_native: codigoResuelto?.es_codigo_nativo ?? null,
       };
     });
     // OFF.0 — no re-emitimos en replays idempotentes (ya se emitió la 1ra vez).
@@ -1740,16 +1880,25 @@ export class InventoryCountService {
         .where('i.count_id', countId)
         .select(trx.raw('COUNT(ub.codigos)::int AS located'));
 
-      // Productividad por contador (count_1).
-      const byCounter = await trx('commercial.inventory_count_items')
-        .where({ count_id: countId })
-        .whereNotNull('counted_by_1')
-        .groupBy('counted_by_1')
-        .select(
-          'counted_by_1 as user_id',
-          trx.raw('COUNT(*)::int AS counts'),
-          trx.raw(`COUNT(*) FILTER (WHERE status='discrepancy')::int AS discrepancies`),
-        );
+      // ── Productividad por contador (1.ª vuelta) ───────────────────────────────────────
+      //
+      // ⚠️ `[ICR.M3]` Ya no se agrupa por `counted_by_1`: con la captura como unidad, un
+      // renglón puede tener capturas de varias personas y esa columna guarda sólo a **quien
+      // capturó último**. Agrupando por ahí, quien contó y fue «desplazado» desaparecía del
+      // tablero — el crédito se lo llevaba el último en pasar. La bitácora los tiene a todos.
+      //
+      // `counts` cuenta **renglones tocados**, no capturas: dos capturas del mismo producto en
+      // dos racks son un artículo contado, no dos.
+      const { rows: byCounter } = await trx.raw(
+        `SELECT l.applied_by AS user_id,
+                COUNT(DISTINCT l.item_id)::int AS counts,
+                COUNT(DISTINCT l.item_id) FILTER (WHERE i.status = 'discrepancy')::int AS discrepancies
+           FROM commercial.inventory_count_scan_log l
+           JOIN commercial.inventory_count_items i ON i.id = l.item_id
+          WHERE l.count_id = ? AND l.slot = 'count_1' AND l.applied_by IS NOT NULL
+          GROUP BY l.applied_by`,
+        [countId],
+      );
 
       const total = Number(agg.total) || 0;
       const counted = Number(agg.counted_once) || 0;
@@ -1838,6 +1987,8 @@ export class InventoryCountService {
 
       // 2) Fallback: catalog.products (catálogo comercial; poblado en local).
       let prod: any = null;
+      /** `[ICR.M11]` Lo que se supo del codigo escaneado, para que la pantalla preseleccione. */
+      let codigoResuelto: CodigoResuelto | null = null;
       if (productId && UUID.test(productId)) {
         prod = await trx('public.products').where({ id: productId }).first();
       } else if (code) {
@@ -1845,6 +1996,7 @@ export class InventoryCountService {
         // cuál viene). Si identificar y contar usaran reglas distintas, la pantalla diría
         // «no encontrado» para algo que después sí se cuenta — o peor, al revés.
         const hallado = await this.resolverProductoPorCodigo(trx, null, code, true);
+        codigoResuelto = hallado;
         if (hallado) prod = await trx('public.products').where({ id: hallado.product_id }).first();
       }
       if (!prod) throw new NotFoundException('Sin producto para ese código');
@@ -1869,6 +2021,14 @@ export class InventoryCountService {
         location: null,
         unit_sale: prod.unit_sale ?? null,
         source: 'catalog',
+        /**
+         * ⭐ `[ICR.M11]` En qué unidad está el código que se escaneó. Es lo que le permite a la
+         * pantalla de `[ICR.M6]` preseleccionar «cajas» sin que nadie lo teclee. ⛔ Informativo:
+         * el factor falta en 248 de 254 códigos de caja, así que no se aplica solo.
+         */
+        scanned_unit: codigoResuelto?.unidad_del_codigo ?? null,
+        scanned_unit_factor: codigoResuelto?.factor_del_codigo ?? null,
+        scanned_code_is_native: codigoResuelto?.es_codigo_nativo ?? null,
       };
     });
   }
@@ -2891,14 +3051,18 @@ export class InventoryCountService {
       const count = await trx('commercial.inventory_counts as c')
         .leftJoin('commercial.warehouses as w', 'w.id', 'c.warehouse_id')
         .where('c.id', countId)
-        .select('c.*', 'w.code as warehouse_code')
+        .select('c.*', 'w.code as warehouse_code', 'w.kepler_code')
         .first();
       if (!count) throw new NotFoundException('Folio no encontrado');
       if (count.status !== 'reconciled')
         throw new ConflictException('Solo se exporta un folio reconciliado.');
 
-      const m = /^KEPLER-(\w+)$/i.exec(count.warehouse_code || '');
-      const branch = m ? m[1] : null;
+      // ⛔ `[ICR.M12]` La sucursal de Kepler sale de `warehouses.kepler_code`, **no de parsear
+      // el código del almacén**. Lo que había era `/^KEPLER-(\w+)$/` sobre `w.code`, y medido en
+      // prod el 2026-11-27 **ninguno de los 28 almacenes empieza con `KEPLER-`**: los códigos
+      // son `00`…`08`, `MD-32`, `RUTA-21`… O sea que `kepler_branch` venía **null siempre**, en
+      // todos los folios de todas las sucursales. Para Yurécuaro el valor correcto es `04`.
+      const branch = count.kepler_code || null;
 
       const items = await trx('commercial.inventory_count_items as i')
         .leftJoin('public.products as p', 'p.id', 'i.product_id')
@@ -2932,7 +3096,14 @@ export class InventoryCountService {
           counted_qty: Number(it.final_qty),
           expected_qty: Number(it.expected_qty),
           variance,
-          kepler_doc: variance < 0 ? 'InvOut' : 'InvIn',
+          // ⛔ `[ICR.M12]` Los documentos de Kepler se LEEN del catálogo, no se inventan en
+          // inglés. `InvIn`/`InvOut` no existen en el ERP: quien recibiera este archivo no
+          // tendría qué capturar. Medido en `kepler_ods.kdmm` el 2026-11-27, en las 9
+          // sucursales: un faltante es una **salida** (`N-D-30`) y un sobrante una **entrada**
+          // (`N-A-30`), que son los dos que mueven existencia (`c8='S'`).
+          kepler_doc: variance < 0 ? 'N-D-30' : 'N-A-30',
+          kepler_doc_name:
+            variance < 0 ? 'Salida inventario físico' : 'Entrada Inventario físico',
           adjust_qty: Math.abs(variance),
           unit_cost: cost,
           line_value: value,
@@ -2944,7 +3115,19 @@ export class InventoryCountService {
         kepler_branch: branch,
         warehouse_code: count.warehouse_code,
         date: count.reconciled_at,
-        doc_type_hint: 'PhysInv (Physical inventory) / InvIn+InvOut',
+        /**
+         * `[ICR.M12]` Los tres documentos reales del inventario físico en Kepler, tal como los
+         * nombra `kepler_ods.kdmm` (medido el 2026-11-27, iguales en las 9 sucursales).
+         *
+         * ⚠️ `N-A-45` tiene `c8 = 'N'`: **no mueve existencia**, es la captura. Los que la
+         * mueven son `N-A-30` y `N-D-30` (`c8 = 'S'`). Se listan los tres porque quien captura
+         * del otro lado necesita saber cuál es cuál; esta exportación **no escribe en el ERP**.
+         */
+        kepler_docs: [
+          { doc: 'N-A-45', nombre: 'Captura inventario físico', afecta_inventario: false },
+          { doc: 'N-A-30', nombre: 'Entrada Inventario físico', afecta_inventario: true },
+          { doc: 'N-D-30', nombre: 'Salida inventario físico', afecta_inventario: true },
+        ],
         lines,
         summary: {
           total_lines: lines.length,
@@ -3155,15 +3338,24 @@ export class InventoryCountService {
 
       const out = [] as any[];
       for (const s of sessions) {
-        const byCol = s.pass >= 2 ? 'counted_by_2' : 'counted_by_1';
-        const qtyCol = s.pass >= 2 ? 'count_2' : 'count_1';
-        const [agg] = await trx('commercial.inventory_count_items')
-          .where({ count_id: countId })
-          .where(byCol, s.user_id)
-          .select(
-            trx.raw('COUNT(*)::int AS items_counted'),
-            trx.raw(`COALESCE(SUM(${qtyCol}),0)::numeric AS units_counted`),
-          );
+        // `[ICR.M3]` Igual que en `getProgress`: la jornada de una persona se mide por **sus
+        // capturas**, no por `counted_by_N` —que guarda a quien capturó último—. `DISTINCT ON`
+        // se queda con la captura VIVA de cada `(renglón, rack)` de esa persona: si se corrigió
+        // a sí misma, cuenta la corrección, no las dos.
+        const slotDeLaJornada = s.pass >= 2 ? 'count_2' : 'count_1';
+        const { rows: aggRows } = await trx.raw(
+          `SELECT COUNT(DISTINCT item_id)::int AS items_counted,
+                  COALESCE(SUM(q), 0)::numeric AS units_counted
+             FROM (
+               SELECT DISTINCT ON (item_id, aisle_id) item_id, quantity_native AS q
+                 FROM commercial.inventory_count_scan_log
+                WHERE count_id = ? AND slot = ? AND applied_by = ?
+                  AND quantity_native IS NOT NULL
+                ORDER BY item_id, aisle_id, applied_at DESC, scan_uuid DESC
+             ) t`,
+          [countId, slotDeLaJornada, s.user_id],
+        );
+        const agg = aggRows[0];
         const [intr] = await trx('commercial.inventory_count_interruptions')
           .where({ count_id: countId, user_id: s.user_id })
           .select(

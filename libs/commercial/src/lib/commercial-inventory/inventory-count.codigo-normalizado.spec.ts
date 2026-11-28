@@ -51,6 +51,17 @@ import { InventoryCountService } from './inventory-count.service';
  */
 
 type Prod = { id: string; sku: string; nombre: string; barcode: string | null };
+/** Una fila de `catalog.product_barcodes`, ya unida a su producto como la devuelve el join. */
+type Cod = {
+  id: string;
+  sku: string;
+  nombre: string;
+  barcode: string;
+  unit: string | null;
+  factor: number | null;
+  is_primary: boolean | null;
+  deleted_at?: string | null;
+};
 
 const UPC = '724869100090'; // 12 dígitos, real: existe en Yurécuaro
 const UPC_EAN13 = '0724869100090'; // lo que emite un escáner en modo EAN-13
@@ -69,22 +80,27 @@ const ltrim0 = (s: string) => s.replace(/^0+/, '') || '0';
  * estrecho: una tabla o un `whereRaw` que no esté modelado **revienta** en vez de devolver
  * vacío — un doble que contesta `[]` a lo que no entiende haría pasar todo por vacuidad.
  */
-function doble(catalogo: Prod[], idsDelFolio: string[]) {
+function doble(catalogo: Prod[], idsDelFolio: string[], codigos: Cod[] = []) {
   const predicado = () => {
     const partes: { op: 'and' | 'or'; f: (p: Prod) => boolean }[] = [];
     const qb: any = {
+      // ⚠️ El prefijo se quita para `p.` **y para `b.`**: la tabla de códigos se consulta con
+      // alias `b`, y un doble que sólo entendiera `p.` dejaría el nivel exacto de códigos sin
+      // macher nunca — y la resolución caería al nivel normalizado dando el mismo producto.
+      // O sea: verde por el camino equivocado.
       where(col: string, val: any) {
-        const c = String(col).replace(/^p\./, '');
+        const c = String(col).replace(/^[pb]\./, '');
         partes.push({ op: 'and', f: (p: any) => p[c] === val });
         return qb;
       },
       orWhere(col: string, val: any) {
-        const c = String(col).replace(/^p\./, '');
+        const c = String(col).replace(/^[pb]\./, '');
         partes.push({ op: 'or', f: (p: any) => p[c] === val });
         return qb;
       },
       whereRaw(sql: string, binds: any[]) {
-        if (!/ltrim\(p\.barcode/.test(sql)) throw new Error(`doble: whereRaw no modelado: ${sql}`);
+        if (!/ltrim\([pb]\.barcode/.test(sql))
+          throw new Error(`doble: whereRaw no modelado: ${sql}`);
         const objetivo = binds[0];
         partes.push({
           op: 'and',
@@ -105,10 +121,20 @@ function doble(catalogo: Prod[], idsDelFolio: string[]) {
     return qb;
   };
 
-  const consulta = (filas: Prod[]) => {
-    const filtros: ((p: Prod) => boolean)[] = [];
+  const consulta = (filas: any[], yaAcotadoAlFolio = false) => {
+    const filtros: ((p: any) => boolean)[] = [];
+    const ordenes: { col: string; dir: string }[] = [];
     const api: any = {
-      join: () => api,
+      /**
+       * `[ICR.M11]` El `join` importa: la consulta a la tabla de códigos se acota al folio
+       * **uniéndose a los renglones**, no por el `FROM`. Si el doble lo ignorara, el nivel
+       * «códigos del folio» miraría el catálogo entero y la prueba de IC.F1 pasaría sola.
+       */
+      join(tabla: string) {
+        if (!yaAcotadoAlFolio && String(tabla).startsWith('commercial.inventory_count_items'))
+          filtros.push((p: any) => idsDelFolio.includes(p.id));
+        return api;
+      },
       where(a: any, b?: any) {
         if (typeof a === 'function') {
           const qb = predicado();
@@ -117,10 +143,19 @@ function doble(catalogo: Prod[], idsDelFolio: string[]) {
         } else if (typeof a === 'object') {
           filtros.push((p: any) => Object.entries(a).every(([k, v]) => p[k] === v));
         } else {
-          const c = String(a).replace(/^[ip]\./, '');
-          if (c === 'count_id') return api; // el folio ya viene acotado por `idsDelFolio`
+          const c = String(a).replace(/^[ipb]\./, '');
+          if (c === 'count_id') return api; // el folio se acota por el FROM o por el join
           filtros.push((p: any) => p[c] === b);
         }
+        return api;
+      },
+      whereNull(col: string) {
+        const c = String(col).replace(/^[ipb]\./, '');
+        filtros.push((p: any) => p[c] == null);
+        return api;
+      },
+      orderBy(col: string, dir = 'asc') {
+        ordenes.push({ col: String(col).replace(/^[ipb]\./, ''), dir });
         return api;
       },
       andWhere(a: any, b?: any) {
@@ -130,12 +165,25 @@ function doble(catalogo: Prod[], idsDelFolio: string[]) {
         return filas.filter((p) => filtros.every((f) => f(p)))[0];
       },
       distinct(...cols: string[]) {
-        const res = filas
-          .filter((p) => filtros.every((f) => f(p)))
-          .map((p: any) =>
-            Object.fromEntries(cols.map((c) => [String(c).replace(/^p\./, ''), p[String(c).replace(/^p\./, '')]])),
-          );
-        return Promise.resolve(res);
+        let res = filas.filter((p) => filtros.every((f) => f(p)));
+        for (const o of [...ordenes].reverse()) {
+          res = [...res].sort((x: any, y: any) => {
+            const a2 = x[o.col] ?? null;
+            const b2 = y[o.col] ?? null;
+            const n = a2 === b2 ? 0 : a2 === null ? 1 : b2 === null ? -1 : a2 < b2 ? -1 : 1;
+            return o.dir === 'desc' ? -n : n;
+          });
+        }
+        return Promise.resolve(
+          res.map((p: any) =>
+            Object.fromEntries(
+              cols.map((c) => {
+                const k = String(c).replace(/^[pb]\./, '');
+                return [k, p[k]];
+              }),
+            ),
+          ),
+        );
       },
       then: (r: any, j: any) =>
         Promise.resolve(filas.filter((p) => filtros.every((f) => f(p)))).then(r, j),
@@ -146,15 +194,26 @@ function doble(catalogo: Prod[], idsDelFolio: string[]) {
   const trx: any = (tabla: string) => {
     if (tabla === 'public.products as p' || tabla === 'public.products') return consulta(catalogo);
     if (tabla === 'commercial.inventory_count_items as i')
-      return consulta(catalogo.filter((p) => idsDelFolio.includes(p.id)));
+      return consulta(catalogo.filter((p) => idsDelFolio.includes(p.id)), true);
+    if (tabla === 'catalog.product_barcodes as b') return consulta(codigos);
     throw new Error(`doble: tabla no modelada: ${tabla}`);
   };
   return trx;
 }
 
-function resolver(catalogo: Prod[], idsDelFolio: string[], code: string, countId: string | null = 'folio-1') {
+function resolver(
+  catalogo: Prod[],
+  idsDelFolio: string[],
+  code: string,
+  opts: { codigos?: Cod[]; countId?: string | null } = {},
+) {
   const svc = new InventoryCountService({} as any, {} as any, {} as any);
-  return (svc as any).resolverProductoPorCodigo(doble(catalogo, idsDelFolio), countId, code);
+  const countId = opts.countId === undefined ? 'folio-1' : opts.countId;
+  return (svc as any).resolverProductoPorCodigo(
+    doble(catalogo, idsDelFolio, opts.codigos ?? []),
+    countId,
+    code,
+  );
 }
 
 const normalizar = (c: string) => (InventoryCountService as any).normalizarCodigoDeBarras(c);
@@ -179,7 +238,7 @@ describe('[ICR.M10] el cero que pone el escáner no puede perder un producto', (
   describe('la resolución, por niveles', () => {
     it('CONTROL — un código que existe TAL CUAL se resuelve, y por el nivel exacto', async () => {
       const r = await resolver([P_UPC], ['p-upc'], UPC);
-      expect(r).toEqual({ product_id: 'p-upc', fuente: 'folio-exacto' });
+      expect(r).toMatchObject({ product_id: 'p-upc', fuente: 'folio-exacto' });
     });
 
     it('CONTROL — un código que no existe en ningún lado devuelve null (no inventa)', async () => {
@@ -188,22 +247,22 @@ describe('[ICR.M10] el cero que pone el escáner no puede perder un producto', (
 
     it('⭐ 12 → 13: el escáner pone el cero y el producto SE ENCUENTRA (603 del folio)', async () => {
       const r = await resolver([P_UPC], ['p-upc'], UPC_EAN13);
-      expect(r).toEqual({ product_id: 'p-upc', fuente: 'folio-normalizado' });
+      expect(r).toMatchObject({ product_id: 'p-upc', fuente: 'folio-normalizado' });
     });
 
     it('⭐ 13 → 12: guardado con cero y leído sin él, también (19 del folio)', async () => {
       const r = await resolver([P_CON_CERO], ['p-cero'], '735257003909');
-      expect(r).toEqual({ product_id: 'p-cero', fuente: 'folio-normalizado' });
+      expect(r).toMatchObject({ product_id: 'p-cero', fuente: 'folio-normalizado' });
     });
 
     it('⛔ EXACTA antes que normalizada: la normalización nunca desvía un escaneo que ya funciona', async () => {
       // Los dos existen: el UPC-A de 12 y otro producto cuyo código es ese mismo con el cero.
       const catalogo = [P_UPC, P_GEMELO];
-      expect(await resolver(catalogo, ['p-upc', 'p-gemelo'], UPC)).toEqual({
+      expect(await resolver(catalogo, ['p-upc', 'p-gemelo'], UPC)).toMatchObject({
         product_id: 'p-upc',
         fuente: 'folio-exacto',
       });
-      expect(await resolver(catalogo, ['p-upc', 'p-gemelo'], UPC_EAN13)).toEqual({
+      expect(await resolver(catalogo, ['p-upc', 'p-gemelo'], UPC_EAN13)).toMatchObject({
         product_id: 'p-gemelo',
         fuente: 'folio-exacto',
       });
@@ -218,7 +277,7 @@ describe('[ICR.M10] el cero que pone el escáner no puede perder un producto', (
 
     it('fuera del folio se resuelve igual: un sobrante legítimo sigue dándose de alta', async () => {
       const r = await resolver([P_UPC], [], UPC_EAN13);
-      expect(r).toEqual({ product_id: 'p-upc', fuente: 'catalogo-normalizado' });
+      expect(r).toMatchObject({ product_id: 'p-upc', fuente: 'catalogo-normalizado' });
     });
 
     it('⛔ el SKU no se normaliza: «182» no resuelve al SKU «00182»', async () => {
@@ -227,7 +286,7 @@ describe('[ICR.M10] el cero que pone el escáner no puede perder un producto', (
 
     it('⛔ un código interno corto no arrastra a su vecino sin ceros (los 336 de 5 dígitos)', async () => {
       const r = await resolver([P_CORTO, P_CORTO_2], ['p-corto', 'p-corto2'], '00123');
-      expect(r, 'si se normalizara, 00123 y 123 serían el mismo producto').toEqual({
+      expect(r, 'si se normalizara, 00123 y 123 serían el mismo producto').toMatchObject({
         product_id: 'p-corto',
         fuente: 'folio-exacto',
       });
@@ -262,5 +321,158 @@ describe('[ICR.M10] el cero que pone el escáner no puede perder un producto', (
       const r = await resolver([mismo1, mismo2], ['p-upc'], UPC_EAN13);
       expect(r!.product_id).toBe('p-upc');
     });
+  });
+});
+
+/**
+ * ⭐⭐ `[ICR.M11]` — **Los códigos que la gente escanea no están todos en `public.products`.**
+ *
+ * ## El defecto (F39)
+ *
+ * El resolvedor miraba `public.products`, que guarda **un** código por producto. Los códigos que
+ * el escáner lee de verdad viven en `catalog.product_barcodes`, que guarda **varios**, incluido
+ * el de la **CAJA**. Resultado medido: de los 2,313 códigos que el escáner puede leer en el
+ * folio de Yurécuaro, **670 (29 %) no resolvían a nada** — «producto no encontrado» para
+ * mercancía que está en el folio. **359 de ellos son códigos no primarios**: cajas y paquetes.
+ *
+ * ## El control que corrió ANTES de cambiar nada (prod, sólo lectura, 2026-11-27)
+ *
+ * Esto cambia **a qué producto resuelve un escaneo**, así que lo primero fue simular las dos
+ * escaleras —la de hoy y la nueva— contra los 2,313 códigos y clasificar cada cambio:
+ *
+ * | | |
+ * |---|---:|
+ * | Igual: resolvía y resuelve al MISMO producto | 1,625 |
+ * | **ARREGLADO**: 404 → producto **del folio** | **649** |
+ * | **MEJORA**: resolvía a un producto de **FUERA** del folio → ahora dentro | **17** |
+ * | 404 → ahora pregunta (ambiguo) · preguntaba y sigue preguntando | 2 · 6 |
+ * | Preguntaba y ahora resuelve (una exacta le gana a una normalizada) | 14 |
+ * | ⛔ **Cambia de identidad hacia un producto equivocado** | **0** |
+ * | ⛔ **Sobrante fantasma** (404 → producto fuera del folio) | **0** |
+ *
+ * Los 17 de «MEJORA» son el daño de `[IC.F1]` ocurriendo hoy: `public.products` tiene el mismo
+ * producto dos veces y la fila que gana —cuatro de ellas **sin SKU**— no es la del folio.
+ *
+ * ## Lo que este archivo fija
+ *
+ * Que la tabla de códigos entra **sin alterar el orden**: folio antes que catálogo, exacta antes
+ * que normalizada, y `public.products` antes que la tabla de códigos dentro de cada casilla —que
+ * es la propiedad que vuelve imposible que un escaneo que hoy funciona cambie de respuesta.
+ */
+describe('[ICR.M11] los códigos de caja también resuelven, sin mover a los demás', () => {
+  const P_CAJA: Prod = { id: 'p-caja', sku: '00500', nombre: 'Mazapán', barcode: '7501000000011' };
+  /** El código de la CAJA del mismo producto: sólo vive en `catalog.product_barcodes`. */
+  const C_CAJA: Cod = {
+    id: 'p-caja', sku: '00500', nombre: 'Mazapán', barcode: '7501000000028',
+    unit: 'CJA', factor: null, is_primary: false, deleted_at: null,
+  };
+  const C_NATIVO: Cod = {
+    id: 'p-caja', sku: '00500', nombre: 'Mazapán', barcode: '7501000000011',
+    unit: 'PAQ', factor: 1, is_primary: true, deleted_at: null,
+  };
+
+  it('CONTROL — sin la tabla de códigos, el código de la caja NO resuelve (el defecto F39)', async () => {
+    expect(await resolver([P_CAJA], ['p-caja'], C_CAJA.barcode)).toBeNull();
+  });
+
+  it('⭐ con la tabla de códigos, la caja resuelve al producto del folio (649 rescatados)', async () => {
+    const r = await resolver([P_CAJA], ['p-caja'], C_CAJA.barcode, { codigos: [C_NATIVO, C_CAJA] });
+    expect(r).toMatchObject({ product_id: 'p-caja', fuente: 'folio-exacto-codigos' });
+  });
+
+  it('⭐ y dice EN QUÉ UNIDAD está el código escaneado (es lo que [ICR.M6] necesita)', async () => {
+    const r = await resolver([P_CAJA], ['p-caja'], C_CAJA.barcode, { codigos: [C_NATIVO, C_CAJA] });
+    expect(r.unidad_del_codigo).toBe('CJA');
+    expect(r.es_codigo_nativo).toBe(false);
+    // ⚠️ Y el factor viene NULL, que es la verdad: 248 de 254 códigos CJA del folio no lo tienen.
+    expect(r.factor_del_codigo).toBeNull();
+  });
+
+  it('el código NATIVO se reconoce como tal, no como una unidad rara', async () => {
+    // Se resuelve por `public.products` (nivel 1), así que no trae unidad: eso es correcto y
+    // se declara con `null`, no con una suposición.
+    const r = await resolver([P_CAJA], ['p-caja'], C_NATIVO.barcode, { codigos: [C_NATIVO, C_CAJA] });
+    expect(r).toMatchObject({ fuente: 'folio-exacto' });
+    expect(r.unidad_del_codigo).toBeNull();
+    expect(r.es_codigo_nativo).toBeNull();
+  });
+
+  it('⛔ `public.products` gana sobre la tabla de códigos: ningún escaneo de hoy cambia', async () => {
+    // El mismo código apunta a UN producto en `public.products` y a OTRO en la tabla de códigos
+    // (medido: pasa en 8 códigos del folio). Tiene que ganar el de hoy.
+    //
+    // ⚠️ Los DOS productos tienen que estar en el folio. Con el competidor afuera, el nivel de
+    // códigos del folio lo filtra y la prueba pasaría sin ejercer la precedencia — verde por el
+    // camino equivocado. (Se descubrió corriendo la mutación: invertir el orden no la ponía en
+    // rojo.)
+    const otroProd: Prod = { id: 'p-otro', sku: '00999', nombre: 'Otro', barcode: null };
+    const otro: Cod = {
+      id: 'p-otro', sku: '00999', nombre: 'Otro', barcode: P_CAJA.barcode as string,
+      unit: 'PAQ', factor: 1, is_primary: true, deleted_at: null,
+    };
+    const r = await resolver([P_CAJA, otroProd], ['p-caja', 'p-otro'], P_CAJA.barcode as string, {
+      codigos: [otro],
+    });
+    expect(r).toMatchObject({ product_id: 'p-caja', fuente: 'folio-exacto' });
+  });
+
+  it('⛔ el FOLIO sigue ganándole al catálogo, también con la tabla nueva ([IC.F1])', async () => {
+    // El código de caja apunta a un producto del folio y a otro que no lo está.
+    const fuera: Cod = {
+      id: 'p-fuera', sku: '00111', nombre: 'De otra sucursal', barcode: C_CAJA.barcode,
+      unit: 'CJA', factor: 12, is_primary: false, deleted_at: null,
+    };
+    const fueraProd: Prod = { id: 'p-fuera', sku: '00111', nombre: 'De otra sucursal', barcode: null };
+    const r = await resolver([P_CAJA, fueraProd], ['p-caja'], C_CAJA.barcode, {
+      codigos: [fuera, C_CAJA],
+    });
+    expect(r.product_id, 'resolvió al producto que no está en el folio').toBe('p-caja');
+    expect(r.fuente).toBe('folio-exacto-codigos');
+  });
+
+  it('un código borrado (`deleted_at`) no resuelve nada', async () => {
+    const borrado: Cod = { ...C_CAJA, deleted_at: '2026-01-01' };
+    expect(await resolver([P_CAJA], ['p-caja'], C_CAJA.barcode, { codigos: [borrado] })).toBeNull();
+  });
+
+  it('el cero del escáner también funciona sobre la tabla de códigos (12 → 13)', async () => {
+    const upc: Cod = {
+      id: 'p-caja', sku: '00500', nombre: 'Mazapán', barcode: '724869100099',
+      unit: 'CJA', factor: 24, is_primary: false, deleted_at: null,
+    };
+    const r = await resolver([P_CAJA], ['p-caja'], '0724869100099', { codigos: [upc] });
+    expect(r).toMatchObject({ product_id: 'p-caja', fuente: 'folio-normalizado-codigos' });
+    expect(r.factor_del_codigo).toBe(24);
+  });
+
+  it('⛔⛔ dos productos con el mismo código de caja PREGUNTAN, no adivinan', async () => {
+    const a: Cod = { id: 'p-a', sku: '1', nombre: 'Uno', barcode: '7500000000099', unit: 'CJA', factor: 12, is_primary: false, deleted_at: null };
+    const b: Cod = { id: 'p-b', sku: '2', nombre: 'Dos', barcode: '7500000000099', unit: 'CJA', factor: 24, is_primary: false, deleted_at: null };
+    const pa: Prod = { id: 'p-a', sku: '1', nombre: 'Uno', barcode: null };
+    const pb: Prod = { id: 'p-b', sku: '2', nombre: 'Dos', barcode: null };
+    const p = resolver([pa, pb], ['p-a', 'p-b'], '7500000000099', { codigos: [a, b] });
+    await expect(p).rejects.toBeInstanceOf(ConflictException);
+    const err: any = await p.catch((e: any) => e);
+    expect(err.getResponse().code).toBe('CODIGO_AMBIGUO');
+    expect(err.getResponse().candidates).toHaveLength(2);
+  });
+
+  /**
+   * PRUEBA NEGATIVA del propio arnés: sin esto, un doble que ignorara el `join` a los renglones
+   * haría que «el folio gana» pasara por vacuidad, porque la consulta de códigos del folio
+   * estaría mirando el catálogo entero.
+   */
+  it('PRUEBA NEGATIVA — el nivel «códigos del folio» SÍ está acotado al folio', async () => {
+    const soloFuera: Cod = {
+      id: 'p-fuera', sku: '00111', nombre: 'De otra sucursal', barcode: C_CAJA.barcode,
+      unit: 'CJA', factor: 12, is_primary: false, deleted_at: null,
+    };
+    const fuera: Prod = { id: 'p-fuera', sku: '00111', nombre: 'De otra sucursal', barcode: null };
+    // El único dueño del código NO está en el folio → no puede resolver por el nivel del folio.
+    const r = await resolver([P_CAJA, fuera], ['p-caja'], C_CAJA.barcode, { codigos: [soloFuera] });
+    expect(r.fuente, 'el nivel del folio resolvió algo que no es del folio').toBe(
+      'catalogo-exacto-codigos',
+    );
+    expect(r.product_id).toBe('p-fuera');
   });
 });

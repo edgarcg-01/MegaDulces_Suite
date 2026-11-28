@@ -391,3 +391,108 @@ describe('[ICR.M3] la captura es la unidad del conteo', () => {
     expect(t.bitacora()[0].quantity_native).toBe(0);
   });
 });
+
+/**
+ * ⛔⛔ `[ICR.M11]` — **Escanear la CAJA no puede contar piezas en silencio.**
+ *
+ * Agregar `catalog.product_barcodes` a la resolución rescata **649** códigos que hoy dan
+ * «producto no encontrado»… y **335 de ellos no son el código de la unidad nativa**: son el de
+ * la caja o el del paquete. Si se aceptaran sin más, alguien escanea una caja, teclea `3`, y el
+ * folio guarda **3 piezas en vez de 3 cajas**.
+ *
+ * ⭐ Eso es **peor que el 404 que reemplaza**: el 404 se ve, el undercount no. Y no se puede
+ * arreglar adivinando el factor — medido en prod el 2026-11-27, **248 de los 254 códigos `CJA`**
+ * del folio de Yurécuaro tienen `factor` NULL: no hay con qué convertir.
+ *
+ * ⚠️ **Alcance.** Acá se ejerce el GUARD, no el resolvedor: `resolverProductoPorCodigo` se
+ * sustituye por un doble porque tiene su propio archivo
+ * (`inventory-count.codigo-normalizado.spec.ts`) con la escalera completa y su control contra
+ * prod. Lo que se fija es qué hace `submitCount` con lo que el resolvedor le dice del código.
+ */
+describe('[ICR.M11] escanear la caja no cuenta piezas en silencio', () => {
+  const CODIGO_DE_CAJA = '7501000000028';
+
+  /** Monta el servicio y le dice al resolvedor qué clase de código se escaneó. */
+  function conCodigo(hallazgo: Record<string, unknown> | null) {
+    const t = montar();
+    (t.svc as any).resolverProductoPorCodigo = async () =>
+      hallazgo === null ? null : { product_id: PROD, fuente: 'folio-exacto-codigos', ...hallazgo };
+    return t;
+  }
+
+  const CAJA = {
+    unidad_del_codigo: 'CJA',
+    factor_del_codigo: null,
+    es_codigo_nativo: false,
+  };
+  const NATIVO = {
+    unidad_del_codigo: 'PAQ',
+    factor_del_codigo: 1,
+    es_codigo_nativo: true,
+  };
+
+  it('CONTROL — el arnés llega de verdad a submitCount: un código nativo cuenta normal', async () => {
+    const t = conCodigo(NATIVO);
+    const r: any = await t.svc.submitCount(FOLIO, { barcode: '7501000000011', quantity: 4 } as any);
+    expect(r.ok).toBe(true);
+    expect(Number(t.renglon().count_1)).toBe(4);
+  });
+
+  it('⛔⛔ el código de la CAJA sin unidad declarada se RECHAZA, no se cuenta como piezas', async () => {
+    const t = conCodigo(CAJA);
+    const p = t.svc.submitCount(FOLIO, { barcode: CODIGO_DE_CAJA, quantity: 3 } as any);
+    await expect(p).rejects.toBeInstanceOf(ConflictException);
+    const err: any = await p.catch((e: any) => e);
+    const cuerpo = err.getResponse();
+    expect(cuerpo.code).toBe('UNIDAD_NO_DECLARADA');
+    expect(cuerpo.scanned_unit).toBe('CJA');
+    expect(cuerpo.native_unit).toBe('PAQ');
+    // ⚠️ El factor se declara NULL en vez de inventarse: es lo que pasa en 248 de 254 casos.
+    expect(cuerpo.scanned_factor).toBeNull();
+    expect(cuerpo.units_available.length, 'la pantalla necesita con qué preguntar').toBeGreaterThan(0);
+    // Y lo que más importa: NO se escribió nada.
+    expect(t.renglon().count_1, 'se contó igual, en la unidad equivocada').toBeNull();
+    expect(t.bitacora()).toHaveLength(0);
+  });
+
+  it('PRUEBA NEGATIVA — con la unidad declarada SÍ cuenta, y convierte', async () => {
+    // Sin esto, el guard podría estar rechazando todo código de caja y el candado de arriba
+    // seguiría verde — dejando 335 códigos sin forma de contarse nunca.
+    const t = conCodigo(CAJA);
+    const r: any = await t.svc.submitCount(FOLIO, {
+      barcode: CODIGO_DE_CAJA,
+      quantity: 3,
+      unit: 'CJA',
+    } as any);
+    expect(r.ok).toBe(true);
+    expect(Number(t.renglon().count_1), '3 cajas de 24 son 72 paquetes').toBe(72);
+  });
+
+  it('un código no nativo de la MISMA unidad que la nativa no molesta a nadie', async () => {
+    // 26 de los rescatados son así: no primarios pero en la unidad nativa. Cuentan normal.
+    const t = conCodigo({ unidad_del_codigo: 'PAQ', factor_del_codigo: 1, es_codigo_nativo: false });
+    const r: any = await t.svc.submitCount(FOLIO, { barcode: '7501000000033', quantity: 5 } as any);
+    expect(r.ok).toBe(true);
+    expect(Number(t.renglon().count_1)).toBe(5);
+  });
+
+  it('⭐ la respuesta dice en qué unidad estaba el código, para que la pantalla preseleccione', async () => {
+    const t = conCodigo(CAJA);
+    const r: any = await t.svc.submitCount(FOLIO, {
+      barcode: CODIGO_DE_CAJA,
+      quantity: 2,
+      unit: 'CJA',
+    } as any);
+    expect(r.scanned_unit).toBe('CJA');
+    expect(r.scanned_code_is_native).toBe(false);
+    expect(r.scanned_unit_factor, 'el factor que falta se declara, no se rellena').toBeNull();
+  });
+
+  it('cuando el producto llega por product_id (la pantalla ya eligió) no hay guard que estorbe', async () => {
+    const t = conCodigo(CAJA); // el resolvedor ni se llama: no hay barcode
+    const r: any = await t.svc.submitCount(FOLIO, { product_id: PROD, quantity: 7 } as any);
+    expect(r.ok).toBe(true);
+    expect(r.scanned_unit).toBeNull();
+    expect(Number(t.renglon().count_1)).toBe(7);
+  });
+});
