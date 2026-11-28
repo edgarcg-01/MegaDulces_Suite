@@ -50,8 +50,9 @@ import {
   type CoberturaDeLaDescarga, type ReclamanteDeLaDescarga, type ResultadoPagoPorElBanco, type SalidaBanco,
 } from './pago-por-el-banco';
 import {
-  AUTOR_PAGO_POR_COMPROBANTE, EVENTO_COMPROBANTE_LIGADO, EVENTO_CONFIRMADO_POR_EL_BANCO, EVENTO_PAGADO_POR_COMPROBANTE,
-  SQL_COMPROBANTES_POR_APLICAR, SQL_POR_CONFIRMAR_EN_EL_BANCO, moverComprobanteAKepler,
+  AUTOR_PAGO_POR_COMPROBANTE, DIAS_PARA_CONFIRMAR, EVENTO_COMPROBANTE_LIGADO, EVENTO_CONFIRMADO_POR_EL_BANCO,
+  EVENTO_PAGADO_POR_COMPROBANTE, EVENTO_SIN_SALIDA_EN_EL_BANCO, SQL_COMPROBANTES_POR_APLICAR, SQL_POR_CONFIRMAR_EN_EL_BANCO,
+  SQL_SIN_SALIDA_EN_EL_BANCO, decidirSinSalidaEnElBanco, moverComprobanteAKepler,
 } from './pago-por-comprobante';
 import {
   SQL_COBERTURA_DE_LA_DESCARGA, SQL_PENDIENTES_POR_EL_BANCO, SQL_RECLAMANTES_DE_LA_DESCARGA, SQL_SALIDAS_DE_LA_DESCARGA,
@@ -2673,6 +2674,42 @@ export class PaymentCalendarService {
         return true;
       });
       if (hecho) out.confirmados++;
+    }
+    return out;
+  }
+
+  /**
+   * `[PGP.232]` **La salida que el comprobante prometió y el banco no trae.** Corre DESPUÉS de `confirmarPorElBanco`: lo que
+   * sigue sin salida ligada y cuya cuenta ya tiene descarga hasta `DIAS_PARA_CONFIRMAR` días después del comprobante queda
+   * en la bitácora del pago (`sin_salida_en_el_banco`, una vez) con su documento de Kepler, que es el que habría que cancelar.
+   * ⛔ No cancela nada en Kepler: cómo cancela Kepler un `X-D-26` no está medido. Sin descarga de la cuenta: `no_medido`.
+   */
+  async avisarSinSalidaEnElBanco(hoy: string = todayMx(), autor = AUTOR_PAGO_POR_EL_BANCO): Promise<{ revisados: number; sin_salida: number; no_medido: number }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const out = { revisados: 0, sin_salida: 0, no_medido: 0 };
+    type Fila = { id: string; dia: string | null; importe: number; cuenta: string | null; cobertura: string | null;
+      sucursal: string | null; doc_prefix: string | null; folio: string | null };
+    const filas = await this.tk.run(async (trx) => (await trx.raw(SQL_SIN_SALIDA_EN_EL_BANCO, [tenantId, hoy, hoy])).rows as Fila[]);
+    out.revisados = filas.length;
+    for (const f of filas) {
+      const d = decidirSinSalidaEnElBanco({ dia: f.dia, cobertura: f.cobertura });
+      if (d === 'no_medido') { out.no_medido++; continue; }
+      if (d !== 'sin_salida') continue;
+      const hecho = await this.tk.run(async (trx) => {
+        const ya = await trx('finance.payment_allocation_history').where({ allocation_id: f.id, event: EVENTO_SIN_SALIDA_EN_EL_BANCO }).first('id');
+        if (ya) return false;
+        await trx('finance.payment_allocation_history').insert({
+          tenant_id: tenantId, allocation_id: f.id, event: EVENTO_SIN_SALIDA_EN_EL_BANCO, status_from: 'executed', status_to: 'executed',
+          created_by: autor,
+          detail: JSON.stringify({ regla: 'PGP.232', hoy, comprobante: { dia: f.dia, importe: Number(f.importe) },
+            banco: { cuenta: f.cuenta, descarga_hasta: f.cobertura, ventana_dias: DIAS_PARA_CONFIRMAR },
+            kepler: f.folio ? { sucursal: f.sucursal, doc: `${f.doc_prefix}-${f.folio}` } : null,
+            motivo: `El comprobante dice que salió el ${f.dia} y el estado de cuenta, que ya llega al ${f.cobertura}, no trae la salida: revisa si rebotó`
+              + (f.folio ? ` y, si rebotó, cancela en Kepler el ${f.doc_prefix}-${f.folio}.` : '.') }),
+        });
+        return true;
+      });
+      if (hecho) out.sin_salida++;
     }
     return out;
   }

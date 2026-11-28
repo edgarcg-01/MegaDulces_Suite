@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, Injector, OnInit, afterNextRender, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import type { Subscription } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
@@ -9,15 +10,16 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
-import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type {
-  CorteArqueo, CorteCobro, CorteConteoCajero, CorteConteoFuera, CorteCuadre, CorteDeclaracionCajero, CorteEstadoCobro, CorteRow, CorteSucursalResumen, CortesSucursalesResponse,
+  CorteArqueo, CorteCobro, CorteConteoCajero, CorteConteoFuera, CorteCuadre, CorteDeclaracionCajero, CorteEstadoCobro, CorteLlegadaEstado, CorteRow, CorteSucursalResumen,
+  CortesSucursalesResponse, FacturaContado, FacturasContadoResponse,
 } from '@megadulces/contracts';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
@@ -42,11 +44,21 @@ const CUADRE: Record<CorteCuadre, { label: string; sev: Sev }> = {
   sin_arqueo: { label: 'Sin arqueo', sev: 'info' },
 };
 
-/** La etiqueta del cuadre como se pinta (con la diferencia cuando la hay). La usan la tabla y el buscador. */
+/**
+ * La etiqueta del cuadre como se pinta (con la diferencia cuando la hay). La usan la tabla y el buscador.
+ * `[CSU.31]` D4 del anexo FB: cuando la venta del turno explica el «Corte distinto» (el corte pasa lo que la caja
+ * registró cobrado y es igual a tickets − devoluciones), se llama por su nombre: «Venta sin forma de pago».
+ */
 export function etiquetaCuadre(c: CorteRow): string {
+  if (c.venta_sin_forma_de_pago != null) return `Venta sin forma de pago ${money(c.venta_sin_forma_de_pago)}`;
   const base = CUADRE[c.cuadre].label;
   return c.cuadre === 'cuadra' || c.cuadre === 'sin_arqueo' || c.diferencia === null ? base : `${base} ${money(c.diferencia)}`;
 }
+
+/** `[CSU.31]` Cómo se busca el estado de llegada de un corte. */
+const LLEGADA_BUSCABLE: Record<CorteLlegadaEstado, string> = {
+  llego: 'llegó', por_saber: 'por saber', sin_conciliar: 'sin conciliar', parcial: 'falta depositar parcial', sin_deposito: 'sin depósito',
+};
 
 /**
  * `[CSU.13]` Todo lo que una persona puede traer en la mano para encontrar un corte: el folio (con y sin
@@ -61,8 +73,11 @@ export function camposBuscablesDeCorte(c: CorteRow): (string | number | null | u
     c.sucursal, c.sucursal_nombre, dmy(c.fecha), c.fecha,
     money(c.monto), money(c.cobrado), money(c.saldo),
     COBRO[c.estado_cobro].label, etiquetaCuadre(c), c.arqueo?.cajero,
+    // [CSU.31] El estado de llegada en palabras («por saber», «sin conciliar»…) y la fecha de cada cobro: así se
+    // encuentra el cobro que Kepler fechó en el futuro (CSU.UI.1).
+    c.llegada ? LLEGADA_BUSCABLE[c.llegada.estado] : null,
     ...c.cobros.flatMap((x) => [`${x.doc_prefix}-${x.folio}`, ...variantesDeFolio(x.doc_prefix, x.folio), x.folio, sinCeros(x.folio),
-      money(x.monto), x.forma_pago, x.concepto, x.cuenta_tesoreria]),
+      money(x.monto), x.forma_pago, x.concepto, x.cuenta_tesoreria, x.fecha ? dmy(x.fecha) : null]),
     ...c.devoluciones.flatMap((x) => [`${x.doc_prefix}-${x.folio}`, ...variantesDeFolio(x.doc_prefix, x.folio), sinCeros(x.folio),
       money(x.monto), x.cliente, x.motivo, x.cajero]),
     // [CSU.13] Los cancelados también se encuentran (por folio, monto o concepto), y «cancelado» lista
@@ -310,6 +325,242 @@ export function agruparCortesPorDia(
     a.fecha === b.fecha ? a.sucursal_nombre.localeCompare(b.sucursal_nombre, 'es') : b.fecha.localeCompare(a.fecha));
 }
 
+// ─── [CSU.31] Anexo FB: ¿dónde está hoy el dinero que vendió cada caja? ─────────────────────────────────────
+
+const plural = (n: number, uno: string, varios: string): string => `${n.toLocaleString('es-MX')} ${n === 1 ? uno : varios}`;
+
+/**
+ * `[CSU.31]` CSU.UI.1 — el último cobro aplicado **hasta hoy**. Kepler trae cobros con fecha futura (medido el
+ * 2026-11-27: `04 UA0501-0000134` fechado el 13-dic): tomar el máximo publicaba como frescura una fecha que no ha
+ * llegado. Los futuros se cuentan aparte para decirlos, con su fecha para buscarlos.
+ */
+export function ultimoCobroHasta(cortes: readonly CorteRow[], hoy: string): { fecha: string | null; futuros: number; primeraFutura: string | null } {
+  let fecha: string | null = null, primeraFutura: string | null = null, futuros = 0;
+  for (const c of cortes) {
+    for (const b of c.cobros) {
+      if (!b.fecha) continue;
+      if (b.fecha > hoy) { futuros++; if (!primeraFutura || b.fecha < primeraFutura) primeraFutura = b.fecha; continue; }
+      if (!fecha || b.fecha > fecha) fecha = b.fecha;
+    }
+  }
+  return { fecha, futuros, primeraFutura };
+}
+
+/**
+ * `[CSU.31]` Lo que muestra la lista. ⭐ CSU.UI.2: cada filtro es la MISMA regla que la cifra que lo abre (un
+ * indicador, una frase o una opción de «Mostrar»), así que contar y sumar los cortes filtrados da el número publicado.
+ * Los de llegada van por MONTO —un corte puede tener una parte llegada y otra por saber—, no por el estado del
+ * corte: la suma de los filtrados es, al centavo, la del resumen del periodo (`anexarLlegadaYVenta` suma corte por
+ * corte).
+ */
+export type FiltroCortes =
+  | 'todos' | 'con_saldo' | 'vencido' | 'sin_cuadrar' | 'venta_sin_forma_de_pago'
+  | 'con_llegada' | 'por_saber' | 'sin_conciliar' | 'fuera_de_corte';
+
+/** El orden del selector «Mostrar». */
+export const FILTROS_CORTES: readonly FiltroCortes[] = [
+  'todos', 'con_saldo', 'vencido', 'sin_cuadrar', 'venta_sin_forma_de_pago', 'con_llegada', 'por_saber', 'sin_conciliar', 'fuera_de_corte',
+];
+/** Los filtros que dependen de la llegada al banco (CSU.26–29): sin medición no se ofrecen como si dieran cero. */
+export const FILTROS_DE_LLEGADA: ReadonlySet<FiltroCortes> = new Set<FiltroCortes>(['con_llegada', 'por_saber', 'sin_conciliar']);
+
+export function etiquetaFiltro(f: FiltroCortes, plazo: number): string {
+  switch (f) {
+    case 'todos': return 'Todos los cortes';
+    case 'con_saldo': return 'Con saldo por cobrar';
+    case 'vencido': return `Con saldo de más de ${plazo} días`;
+    case 'sin_cuadrar': return 'Sin cuadrar';
+    case 'venta_sin_forma_de_pago': return 'Venta sin forma de pago';
+    case 'con_llegada': return 'Con dinero que ya llegó';
+    case 'por_saber': return 'Por saber: Bancos no tiene el banco de esa fecha';
+    case 'sin_conciliar': return 'Sin conciliar en Bancos ni en Caja General';
+    case 'fuera_de_corte': return 'Días con conteos fuera de corte';
+  }
+}
+
+export function cumpleFiltro(c: CorteRow, f: FiltroCortes, hoy: string, plazo: number, diasConFuera: ReadonlySet<string>): boolean {
+  const l = c.llegada ?? null;
+  switch (f) {
+    case 'todos': return true;
+    case 'con_saldo': return c.saldo > 0.005;
+    // La MISMA regla del indicador «Pendiente de cobro · con más de N días» y de la fila del día.
+    case 'vencido': return c.saldo > 0.005 && diasEntre(c.fecha, hoy) > plazo;
+    case 'sin_cuadrar': return !!c.sin_cuadrar;
+    case 'venta_sin_forma_de_pago': return c.venta_sin_forma_de_pago != null;
+    case 'con_llegada': return !!l && l.llego > 0.005;
+    case 'por_saber': return !!l && l.por_saber > 0.005;
+    case 'sin_conciliar': return !!l && l.sin_conciliar > 0.005;
+    case 'fuera_de_corte': return diasConFuera.has(`${c.fecha}|${c.sucursal}`);
+  }
+}
+
+/** `[CSU.31]` El monto que acompaña a un filtro —el mismo que publica su cifra—; `null` = ese filtro sólo cuenta. */
+export function montoDelFiltro(c: CorteRow, f: FiltroCortes): number | null {
+  const l = c.llegada ?? null;
+  switch (f) {
+    case 'con_saldo': case 'vencido': return Math.max(c.saldo, 0);
+    case 'venta_sin_forma_de_pago': return c.venta_sin_forma_de_pago ?? 0;
+    case 'con_llegada': return l?.llego ?? 0;
+    case 'por_saber': return l?.por_saber ?? 0;
+    case 'sin_conciliar': return l?.sin_conciliar ?? 0;
+    default: return null;
+  }
+}
+
+/** `[CSU.31]` Cuántos cortes pasan un filtro y cuánto suman (`null` = el filtro no lleva monto). */
+export function resumenDelFiltro(
+  cortes: readonly CorteRow[], f: FiltroCortes, hoy: string, plazo: number, diasConFuera: ReadonlySet<string>,
+): { cortes: number; monto: number | null } {
+  let n = 0, monto: number | null = null;
+  for (const c of cortes) {
+    if (!cumpleFiltro(c, f, hoy, plazo, diasConFuera)) continue;
+    n++;
+    const m = montoDelFiltro(c, f);
+    if (m !== null) monto = (monto ?? 0) + m;
+  }
+  return { cortes: n, monto: monto === null ? null : Math.round(monto * 100) / 100 };
+}
+
+/** `[CSU.31]` Las cuentas cuyo libro de Bancos todavía no llega a sus depósitos: cuánto espera cada una y hasta dónde llega. */
+export function cuentasPorSaber(cortes: readonly CorteRow[]): { cuenta: string; libro_hasta: string | null; monto: number }[] {
+  const m = new Map<string, { cuenta: string; libro_hasta: string | null; monto: number }>();
+  for (const c of cortes) {
+    for (const b of c.cobros) {
+      const l = b.llegada;
+      if (!l || l.estado !== 'banco_sin_libro') continue;
+      const k = l.cuenta_bancos ?? b.cuenta_tesoreria ?? l.cuenta ?? 'cuenta sin nombre';
+      const x = m.get(k) ?? { cuenta: k, libro_hasta: l.libro_hasta, monto: 0 };
+      x.monto += b.monto;
+      m.set(k, x);
+    }
+  }
+  return [...m.values()].map((x) => ({ ...x, monto: Math.round(x.monto * 100) / 100 })).sort((a, b) => b.monto - a.monto);
+}
+
+/** `[CSU.31]` Un trozo de la frase del periodo: texto, o un número que abre sus cortes (`filtro`). */
+export interface TrozoFrase { texto: string; filtro?: FiltroCortes }
+
+/**
+ * `[CSU.31]` La respuesta del periodo, en una frase (Q.1, CSU.UI.10): dónde está el dinero que Kepler aplicó a los
+ * cortes y qué falta. Se calcula sobre los cortes que se ven (la sucursal elegida, o todas) y cada número que la
+ * frase cuenta abre exactamente esos cortes (CSU.UI.2). `llegadaMedida = false` → se dice, nunca «no llegó».
+ */
+export function fraseDelPeriodo(
+  cortes: readonly CorteRow[],
+  ctx: { hoy: string; plazo: number; llegadaMedida: boolean; ventaMedida: boolean; donde: string | null; diasConFuera: ReadonlySet<string> },
+): TrozoFrase[] {
+  if (!cortes.length) return [];
+  const r = (f: FiltroCortes) => resumenDelFiltro(cortes, f, ctx.hoy, ctx.plazo, ctx.diasConFuera);
+  const t: TrozoFrase[] = [];
+  const add = (texto: string, filtro?: FiltroCortes) => t.push(filtro ? { texto, filtro } : { texto });
+  const aplicado = Math.round(cortes.reduce((s, c) => s + c.cobros.reduce((x, b) => x + b.monto, 0), 0) * 100) / 100;
+  const inicio = ctx.donde ? `En ${ctx.donde}, de` : 'De';
+  if (!ctx.llegadaMedida) {
+    add(`${inicio} los cortes, Kepler aplicó ${money(aplicado)} en depósitos. No se pudo medir si ese dinero llegó al banco o a Caja General.`);
+  } else {
+    const llego = r('con_llegada').monto ?? 0;
+    const puente = Math.round(cortes.reduce((s, c) => s + (c.llegada?.puente ?? 0), 0) * 100) / 100;
+    const pct = aplicado > 0 ? ` (${((llego / aplicado) * 100).toFixed(1)} %)` : '';
+    add(`${inicio} ${money(aplicado)} que Kepler aplicó a los cortes, ${money(llego)}${pct} ya están en el banco o en Caja General`);
+    add(puente > 0.005 ? `; ${money(puente)} son devoluciones o ajustes que no viajan al banco.` : '.');
+    const ps = r('por_saber');
+    if (ps.cortes) {
+      const cuentas = cuentasPorSaber(cortes);
+      const lista = cuentas.slice(0, 2).map((x) => `${x.cuenta}${x.libro_hasta ? ` llega al ${dmy(x.libro_hasta)}` : ''}`).join('; ');
+      add(` ${money(ps.monto ?? 0)} no se pueden saber todavía: Bancos no tiene el estado de cuenta de esa fecha (${lista}${cuentas.length > 2 ? '; y otras' : ''}), en `);
+      add(plural(ps.cortes, 'corte', 'cortes'), 'por_saber');
+      add('.');
+    }
+    const sc = r('sin_conciliar');
+    if (sc.cortes) {
+      add(' ');
+      add(plural(sc.cortes, 'corte tiene', 'cortes tienen'), 'sin_conciliar');
+      add(` ${money(sc.monto ?? 0)} sin conciliar: sin renglón del banco ni entrada de Caja General que los respalde.`);
+    }
+  }
+  const cs = r('con_saldo');
+  if (cs.cortes) {
+    add(' ');
+    add(plural(cs.cortes, 'corte tiene', 'cortes tienen'), 'con_saldo');
+    add(` saldo sin depósito en Kepler por ${money(cs.monto ?? 0)}`);
+    const v = r('vencido');
+    if (v.cortes) { add(', '); add(`${v.cortes.toLocaleString('es-MX')} con más de ${ctx.plazo} días`, 'vencido'); }
+    add('.');
+  }
+  if (!ctx.ventaMedida) {
+    add(' La venta del turno no se pudo medir.');
+  } else {
+    const vs = r('venta_sin_forma_de_pago');
+    if (vs.cortes) {
+      add(' ');
+      add(plural(vs.cortes, 'corte tiene', 'cortes tienen'), 'venta_sin_forma_de_pago');
+      add(` venta sin forma de pago por ${money(vs.monto ?? 0)}.`);
+    }
+  }
+  return t;
+}
+
+/**
+ * `[CSU.31]` ¿Llegó el dinero del corte?, como se pinta en la lista y en el detalle. `null` = no se midió: la celda
+ * cae al estado de cobro de siempre (nunca «no llegó»). Color (CSU.UI.7): «llegó» y «por saber» neutros; ámbar lo
+ * que lleva más del plazo sin depósito y lo aplicado sin testigo.
+ */
+export function celdaLlegada(c: CorteRow, hoy: string, plazo: number): { label: string; sev: Sev } | null {
+  const l = c.llegada ?? null;
+  if (!l) return null;
+  const edad = l.edad_dias ?? diasEntre(c.fecha, hoy);
+  switch (l.estado) {
+    // Revisión: un corte saldado SÓLO con devoluciones o ajustes (cuenta puente) queda «llegó» con $0 llegado: nada
+    // falta, pero tampoco llegó dinero. Se dice lo que es (y así no choca con «Con dinero que ya llegó»).
+    case 'llego': return l.llego < 0.005 && l.puente > 0.005 ? { label: 'Saldado con devoluciones o ajustes', sev: 'secondary' } : { label: 'Llegó', sev: 'secondary' };
+    case 'por_saber': return { label: `Por saber ${money(l.por_saber)}`, sev: 'secondary' };
+    case 'sin_conciliar': return { label: `Sin conciliar ${money(l.sin_conciliar)}`, sev: 'warn' };
+    case 'parcial': return { label: `Falta depositar ${money(l.sin_deposito)}`, sev: edad > plazo ? 'warn' : 'secondary' };
+    case 'sin_deposito': return { label: `Sin depósito · ${plural(edad, 'día', 'días')}`, sev: edad > plazo ? 'warn' : 'secondary' };
+  }
+}
+
+/** `[CSU.31]` La respuesta del corte, arriba del detalle (Q.1): dónde está su dinero, en una o dos frases. */
+export function fraseDelCorte(c: CorteRow): string | null {
+  const l = c.llegada ?? null;
+  if (!l) return null;
+  const fechas = c.cobros.map((b) => b.fecha).filter((f): f is string => !!f).sort();
+  const cuando = !fechas.length ? '' : fechas[0] === fechas[fechas.length - 1] ? ` el ${dmy(fechas[0])}` : ` del ${dmy(fechas[0])} al ${dmy(fechas[fechas.length - 1])}`;
+  const cuentas = [...new Set(c.cobros.map((b) => b.llegada?.cuenta_bancos ?? b.cuenta_tesoreria).filter((x): x is string => !!x))];
+  const a = cuentas.length ? ` a ${cuentas.length > 2 ? `${cuentas.length} cuentas` : cuentas.join(' y ')}` : '';
+  const tambien = l.llego > 0.005 ? ` ${money(l.llego)} sí llegaron.` : '';
+  switch (l.estado) {
+    case 'llego':
+      if (l.llego < 0.005 && l.puente > 0.005) return `Kepler saldó el corte con devoluciones o ajustes por ${money(l.puente)}: ese dinero no viaja al banco.`;
+      return `El dinero del corte llegó: ${money(l.llego)} en ${plural(c.cobros.length, 'depósito', 'depósitos')}${cuando}${a}.`;
+    case 'por_saber': return `${money(l.por_saber)} están en una cuenta cuyo estado de cuenta Bancos todavía no tiene completo para esa fecha: no se puede saber si llegaron.${tambien}`;
+    // Revisión: «sin conciliar» es que falta el TESTIGO, no que falte el dinero: se dice eso.
+    case 'sin_conciliar': return `${money(l.sin_conciliar)} que Kepler aplicó a este corte no tienen renglón del banco ni entrada de Caja General que los respalde: Bancos no los ha conciliado.${tambien}`;
+    case 'parcial': return `Falta depositar ${money(l.sin_deposito)} de ${money(c.monto)}.${tambien}`;
+    case 'sin_deposito': return `Kepler no le ha aplicado ningún depósito${l.edad_dias != null ? `; el corte tiene ${plural(l.edad_dias, 'día', 'días')}` : ''}.`;
+  }
+}
+
+/** `[CSU.31]` Dónde llegó UN depósito, en palabras. `alerta` = lo aplicado no tiene testigo. */
+export function llegadaDelCobro(b: CorteCobro): { titulo: string; alerta: boolean } {
+  const l = b.llegada ?? null;
+  if (!l) return { titulo: 'No se pudo medir si llegó.', alerta: false };
+  const cuenta = l.cuenta_bancos ?? b.cuenta_tesoreria ?? l.cuenta;
+  switch (l.estado) {
+    case 'en_banco': return { titulo: l.renglones.some((r) => r.debil) ? 'En el banco (probable: lo ligó un pase débil de la conciliación)' : 'En el banco', alerta: false };
+    case 'en_caja_general': return { titulo: 'En Caja General', alerta: false };
+    case 'caja_sin_asiento': return { titulo: 'Falta su entrada en Caja General', alerta: true };
+    case 'banco_sin_libro': {
+      // El último día del estado de cuenta suele venir cortado (CSU.26): si llega justo al día del depósito, se dice.
+      const mismoDia = !!l.libro_hasta && !!b.fecha && l.libro_hasta >= b.fecha ? ', el mismo día del depósito, y ese último día suele venir incompleto' : '';
+      return { titulo: `Todavía no se puede saber: el estado de cuenta de ${cuenta ?? 'esa cuenta'} en Bancos llega al ${l.libro_hasta ? dmy(l.libro_hasta) : '—'}${mismoDia}`, alerta: false };
+    }
+    case 'sin_conciliar': return { titulo: `Sin conciliar en Bancos${cuenta ? ` (${cuenta}${l.libro_hasta ? `, su estado de cuenta llega al ${dmy(l.libro_hasta)}` : ''})` : ''}`, alerta: true };
+    case 'puente': return { titulo: 'No viaja a un banco: devolución, ajuste o traspaso', alerta: false };
+    case 'sin_cuenta': return { titulo: 'Sin cuenta de tesorería en Kepler', alerta: true };
+  }
+}
+
 /** El corte de caja POS (U-D-23) arrancó en Kepler con el cambio del 1-oct-2026. */
 const INICIO_CORTES = '2026-10-01';
 
@@ -329,18 +580,19 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
   selector: 'app-finanzas-cortes-sucursales',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, ToggleSwitchModule, TagModule,
-    InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, SucursalPipe, PageTabsComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, TagModule,
+    InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, SucursalPipe, PageTabsComponent, ContextHelpComponent, SidePeekComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Cortes / Sucursales</h1>
-          <p class="surf-page-sub">Lo que vendió cada caja (corte de caja POS, cliente <b>CONTADO</b>), cuánto ya se cobró en Kepler y cuánto sigue pendiente. Se cuadra contra el arqueo del mismo turno.</p>
+          <!-- [CSU.31] CSU.UI.10: en un renglón. El «CONTADO» en negritas se partía en su propio renglón en el celular. -->
+          <p class="surf-page-sub">Del corte de caja al banco: lo que vendió cada caja, lo que Kepler cobró y si el dinero llegó.</p>
         </div>
         <div class="cs-actions">
           <app-context-help topic="cortes-sucursales" />
-          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined cs-tap" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
 
@@ -365,8 +617,11 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
           <p-select inputId="cs-mes" [options]="mesOpts" optionLabel="label" optionValue="value" [ngModel]="mes()" (onChange)="pickMes($event.value)" placeholder="Rango" appendTo="body" class="cs-sel" /></div>
         <div class="cs-field"><label for="cs-rango">Rango específico</label>
           <p-datepicker inputId="cs-rango" [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" placeholder="Elegir fechas" (onClose)="onRange()" /></div>
-        <div class="cs-field cs-toggle"><label for="cs-saldo">Sólo con saldo</label>
-          <p-toggleswitch inputId="cs-saldo" [ngModel]="soloSaldo()" (ngModelChange)="soloSaldo.set($event)" /></div>
+        <!-- [CSU.31] CSU.UI.2: «Mostrar» reemplaza el interruptor «Sólo con saldo». Cada opción lleva su número, el
+             mismo que el indicador o la frase que la abre; las de llegada se apagan si la llegada no se midió. -->
+        <div class="cs-field"><label for="cs-mostrar">Mostrar</label>
+          <p-select inputId="cs-mostrar" [options]="opcionesFiltro()" optionLabel="label" optionValue="value" optionDisabled="disabled"
+                    [ngModel]="filtro()" (onChange)="ponerFiltro($event.value, false)" appendTo="body" class="cs-sel" /></div>
       </div>
 
       @if (err(); as e) { <div class="cs-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="cs-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
@@ -385,7 +640,13 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
           <div class="cs-note" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i><span>El corte de caja POS en Kepler arrancó el <b>01/10/2026</b>. Antes de esa fecha casi no hay cortes; un periodo anterior se ve vacío por eso, no porque no haya habido venta.</span></div>
         }
 
-        <app-metric-strip [items]="kpiItems()" [instant]="true" ariaLabel="Resumen de cortes del periodo" />
+        <!-- [CSU.31] La respuesta del periodo (Q.1): dónde está el dinero. Cada número abre sus cortes (CSU.UI.2). -->
+        @if (frase().length) {
+          <p class="cs-respuesta">@for (t of frase(); track $index) {@if (t.filtro) {<button type="button" class="cs-link cs-link-frase" [class.cs-link-on]="filtro() === t.filtro"
+              [attr.aria-pressed]="filtro() === t.filtro" (click)="ponerFiltro(t.filtro, false)">{{ t.texto }}</button>} @else {<span>{{ t.texto }}</span>}}</p>
+        }
+
+        <app-metric-strip [items]="kpiItems()" [instant]="true" ariaLabel="Resumen de cortes del periodo" [selected]="drillActivo()" (drill)="ponerFiltro($any($event), true)" />
 
         <section class="cs-block dt-scope" aria-labelledby="cs-h-suc">
           <div class="cs-bh"><h2 id="cs-h-suc">Por sucursal</h2>
@@ -393,7 +654,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
           <!-- [CSU.14] Con una sucursal elegida sólo queda su fila: las demás se ocultan para dar el espacio a sus
                cortes. Vuelven con «ver todas» o con otro clic sobre la misma fila. -->
           <p-table [value]="sucursalesVisibles()" size="small" class="surf-table dt-stack" [rowHover]="true" selectionMode="single" [selection]="selSuc()" (selectionChange)="pickSuc($event)" dataKey="sucursal">
-            <ng-template #header><tr><th>Sucursal</th><th class="ta-r">Cortes</th><th class="ta-r">Vendido</th><th class="ta-r">Cobrado</th><th class="ta-r">Pendiente</th><th class="ta-r">% cobrado</th><th>Abierto desde</th><th>Revisar</th></tr></ng-template>
+            <ng-template #header><tr class="cs-thr"><th>Sucursal</th><th class="ta-r">Cortes</th><th class="ta-r">Vendido</th><th class="ta-r">Cobrado</th><th class="ta-r">Pendiente</th><th class="ta-r">% cobrado</th><th>Abierto desde</th><th>Revisar</th></tr></ng-template>
             <ng-template #body let-s>
               <tr [pSelectableRow]="s">
                 <td role="cell" data-label="Sucursal">{{ s.sucursal_nombre }}</td>
@@ -414,13 +675,18 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
           </p-table>
         </section>
 
-        <div class="cs-split" [class.cs-split-solo]="!selCorte()">
+        <div class="cs-split" [class.cs-split-solo]="!selCorte() || angosta()">
           <section class="cs-block dt-scope" aria-labelledby="cs-h-cortes">
             <div class="cs-bh"><h2 id="cs-h-cortes">Cortes @if (selSuc(); as s) { · {{ s.sucursal_nombre }} }</h2>
-              <span class="cs-hint" aria-live="polite">@if (q().trim()) { {{ cortes().length }} de {{ cortesBase().length }} corte(s) con «{{ q().trim() }}» · <button type="button" class="cs-link" (click)="limpiarBusqueda()">limpiar</button> · } @else { {{ diasDeCortes().length }} día(s) · {{ cortes().length }} corte(s) · } pendiente {{ money(pendienteVisible()) }}@if (fueraVisibles().length) { · {{ fueraVisibles().length }} conteo(s) fuera de corte por {{ money(sumaFuera(fueraVisibles())) }} }@if (ultimoCobro(); as u) { · último cobro aplicado en Kepler: {{ dmy(u) }} }
+              <span class="cs-hint" aria-live="polite">
+                <!-- [CSU.31] CSU.UI.2: con un filtro, cuántos de cuántos y cuánto suman —el número de la cifra que lo abrió—. -->
+                @if (filtro() !== 'todos') { <b>{{ resumenFiltroActivo().cortes }} de {{ cortesEnAlcance().length }} cortes · {{ etiquetaFiltro(filtro(), plazo()) }}@if (resumenFiltroActivo().monto !== null) { · {{ money(resumenFiltroActivo().monto!) }} }@if (filtro() === 'fuera_de_corte') { · {{ fueraEnLista().n }} conteo(s)@if (fueraEnLista().fuera) { ({{ fueraEnLista().fuera }} más en días sin cortes, que la lista no muestra) } }</b> · <button type="button" class="cs-link" (click)="ponerFiltro('todos', false)">Quitar filtro</button> · }
+                @if (q().trim()) { {{ cortes().length }} de {{ cortesBase().length }} corte(s) con «{{ q().trim() }}» · <button type="button" class="cs-link" (click)="limpiarBusqueda()">limpiar</button> · } @else { {{ diasDeCortes().length }} día(s) · {{ cortes().length }} corte(s) · } pendiente {{ money(pendienteVisible()) }}@if (fueraVisibles().length) { · <button type="button" class="cs-link" (click)="ponerFiltro('fuera_de_corte', false)">{{ fueraVisibles().length }} conteo(s) fuera de corte</button> por {{ money(sumaFuera(fueraVisibles())) }} }
+                <!-- [CSU.31] CSU.UI.1: el último cobro HASTA HOY; los que Kepler fechó en el futuro se dicen y se buscan. -->
+                @if (ultimoCobro().fecha; as u) { · último cobro aplicado en Kepler: {{ dmy(u) }} }@if (ultimoCobro().futuros) { · <button type="button" class="cs-link" (click)="buscar(dmy(ultimoCobro().primeraFutura!))">{{ ultimoCobro().futuros }} cobro(s) con fecha posterior a hoy</button> }
                 @if (!plegadoBloqueado() && diasDeCortes().length > 1) { · <button type="button" class="cs-link" (click)="todosLosDias(!algunDiaAbierto())">{{ algunDiaAbierto() ? 'plegar todos' : 'desplegar todos' }}</button> }</span></div>
             <p-table [value]="diasDeCortes()" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" dataKey="clave" [expandedRowKeys]="diasAbiertos()" [paginator]="diasDeCortes().length > 100" [rows]="100">
-              <ng-template #header><tr><th class="cs-togcol"><span class="sr-only">Desplegar</span></th><th>Día</th>@if (!selSuc()) { <th>Sucursal</th> }<th class="ta-r">Cortes</th><th class="ta-r">Monto<span class="cs-th-de">cortes en Kepler</span></th><th class="ta-r">Cobrado<span class="cs-th-de">aplicado en Kepler</span></th><th class="ta-r">Saldo<span class="cs-th-de">por cobrar</span></th><th>Estado</th></tr></ng-template>
+              <ng-template #header><tr class="cs-thr"><th class="cs-togcol"><span class="sr-only">Desplegar</span></th><th>Día</th>@if (!selSuc()) { <th>Sucursal</th> }<th class="ta-r">Cortes</th><th class="ta-r">Monto<span class="cs-th-de">cortes en Kepler</span></th><th class="ta-r">Cobrado<span class="cs-th-de">aplicado en Kepler</span></th><th class="ta-r">Saldo<span class="cs-th-de">por cobrar</span></th><th>Estado</th></tr></ng-template>
               <ng-template #body let-d let-expanded="expanded">
                 <tr class="cs-dia" [class.cs-dia-abierta]="expanded">
                   <td role="cell" data-label="Desplegar"><button type="button" class="cs-tog" (click)="toggleDia(d)" [disabled]="plegadoBloqueado()"
@@ -435,7 +701,14 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                   <td role="cell" data-label="Estado">
                     @if (d.vencidos) { <p-tag [value]="d.vencidos + ' por cobrar · más de ' + plazo() + ' días'" severity="warn" styleClass="cs-tag" /> }
                     @if (d.pendientes - d.vencidos) { <p-tag [value]="(d.pendientes - d.vencidos) + ' en plazo'" severity="secondary" styleClass="cs-tag" /> }
-                    @if (!d.pendientes) { <p-tag value="Todo cobrado" severity="success" styleClass="cs-tag" /> }
+                    <!-- [CSU.31] Con la llegada medida, «cobrado» ya no es el final: se dice si llegó (CSU.UI.7: neutro) y lo que
+                         no se puede saber o no tiene testigo. Sin medición, lo de siempre. -->
+                    @let ld = llegadaDelDia(d);
+                    @if (ld) {
+                      @if (ld.sin_conciliar) { <p-tag [value]="ld.sin_conciliar + ' sin conciliar'" severity="warn" styleClass="cs-tag" /> }
+                      @if (ld.por_saber) { <p-tag [value]="ld.por_saber + ' por saber'" severity="secondary" styleClass="cs-tag" /> }
+                      @if (!d.pendientes && !ld.sin_conciliar && !ld.por_saber && ld.llegaron) { <p-tag value="Llegó todo" severity="secondary" styleClass="cs-tag" /> }
+                    } @else if (!d.pendientes) { <p-tag value="Todo cobrado" severity="success" styleClass="cs-tag" /> }
                     @if (d.descuadrados) { <p-tag [value]="d.descuadrados + ' sin cuadrar'" severity="danger" styleClass="cs-tag" /> }
                     @if (d.fuera.length) { <p-tag [value]="d.fuera.length + ' fuera de corte'" severity="info" styleClass="cs-tag" /> }
                   </td>
@@ -447,36 +720,40 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                     <!-- [CSU.17] Cada número dice de quién es. Los tres arqueos son diferencias contra lo
                          que Kepler esperaba: el corte (Kepler contra si mismo), el cajero (su arqueo ciego)
                          y los billetes y monedas que capturo Kepler. -->
-                    <thead><tr><th>Corte</th><th>Caja</th><th class="ta-r">Monto</th><th class="ta-r">Cobrado<span class="cs-th-de">en Kepler</span></th><th class="ta-r">Saldo</th><th>Cobro</th>
+                    <!-- [CSU.31] CSU.UI.5: «¿Llegó?» REEMPLAZA a «Cobro» (sin depósito ≈ sin cobro, falta depositar ≈ parcial)
+                         y la caja-turno va bajo el folio: 8 columnas, no 10. CSU.UI.4: cada celda lleva su rótulo para
+                         cuando la fila se apila en el celular. -->
+                    <thead><tr><th>Corte<span class="cs-th-de">caja-turno</span></th><th class="ta-r">Monto</th><th class="ta-r">Cobrado<span class="cs-th-de">en Kepler</span></th><th class="ta-r">Saldo</th><th>¿Llegó?<span class="cs-th-de">banco o Caja General</span></th>
                       <th>Corte<span class="cs-th-de">vs esperado Kepler</span></th><th>Cajero<span class="cs-th-de">arqueo ciego</span></th><th>Billetes y monedas<span class="cs-th-de">Kepler · sin créditos</span></th></tr></thead>
                     <tbody>
                       @for (c of d.cortes; track c.clave) {
                         <tr class="cs-corte" [class.cs-corte-sel]="selCorte()?.clave === c.clave" (click)="selCorte.set(c)" tabindex="0"
                             (keydown.enter)="selCorte.set(c)" (keydown.space)="selCorte.set(c); $event.preventDefault()"
                             [attr.aria-label]="'Ver el corte ' + c.documento">
-                          <td class="cs-mono">{{ c.documento }}</td>
-                          <td class="cs-mono">{{ c.caja && c.turno ? c.caja + '-' + c.turno : c.referencia }}</td>
-                          <td class="ta-r num">{{ money(c.monto) }}</td>
-                          <td class="ta-r num" [class.muted]="!c.cobrado">{{ c.cobrado ? money(c.cobrado) : '—' }}</td>
-                          <td class="ta-r num cs-strong" [class.cs-bad]="c.saldo > 0.005 && vencido(c)">{{ money(c.saldo) }}</td>
-                          <td><p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" />
+                          <td role="cell" class="dt-id" data-label="Corte"><span class="cs-mono">{{ c.documento }}</span><span class="cs-sub-celda cs-mono">{{ c.caja && c.turno ? c.caja + '-' + c.turno : c.referencia }}</span></td>
+                          <td role="cell" class="ta-r num" data-label="Monto">{{ money(c.monto) }}</td>
+                          <td role="cell" class="ta-r num" data-label="Cobrado en Kepler" [class.muted]="!c.cobrado">{{ c.cobrado ? money(c.cobrado) : '—' }}</td>
+                          <td role="cell" class="ta-r num cs-strong" data-label="Saldo" [class.cs-bad]="c.saldo > 0.005 && vencido(c)">{{ money(c.saldo) }}</td>
+                          @let lc = celdaDeLlegada(c);
+                          <td role="cell" data-label="¿Llegó?">@if (lc) { <p-tag [value]="lc.label" [severity]="lc.sev" styleClass="cs-tag" /> } @else { <p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" /> }
+                            @if (lc && c.estado_cobro === 'sobrecobrado') { <p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" /> }
                             @if (c.cobros_cancelados.length) { <p-tag [value]="c.cobros_cancelados.length + ' cancelado' + (c.cobros_cancelados.length > 1 ? 's' : '')" severity="secondary" styleClass="cs-tag" [attr.title]="'Cobros cancelados en Kepler: no suman'" /> }</td>
                           @let cc = celdaDelCorte(c);
-                          <td><p-tag [value]="cc.label" [severity]="cc.sev" styleClass="cs-tag" /></td>
+                          <td role="cell" data-label="Corte vs esperado"><p-tag [value]="cc.label" [severity]="cc.sev" styleClass="cs-tag" /></td>
                           @if (c.arqueo; as a) {
                             @let cj = celdaCajero(a);
                             @let kp = celdaKepler(a);
                             <!-- [CSU.25] Si el cajero contó algo, su aviso lleva directo a sus conteos (antes: abrir
                                  el corte y bajar a buscarlos). Las teclas no suben a la fila: Espacio la seleccionaría
                                  y le quitaría el clic al botón. -->
-                            <td>@if (a.conteos_cajero.length) {
+                            <td role="cell" data-label="Cajero">@if (a.conteos_cajero.length) {
                                 <button type="button" class="cs-ir" (click)="verConteos(c)" (keydown.enter)="$event.stopPropagation()" (keydown.space)="$event.stopPropagation()"
                                   [attr.aria-label]="'Ver lo que contó el cajero en ' + c.documento + ': ' + cj.label"><p-tag [value]="cj.label" [severity]="cj.sev" styleClass="cs-tag" /><i class="pi pi-chevron-right" aria-hidden="true"></i></button>
                               } @else { <p-tag [value]="cj.label" [severity]="cj.sev" styleClass="cs-tag" /> }
                               @if (a.declaracion_cajero?.concuerda_con_kepler === false) { <p-tag value="no concuerda con Kepler" severity="secondary" styleClass="cs-tag" /> }</td>
-                            <td><p-tag [value]="kp.label" [severity]="kp.sev" styleClass="cs-tag" /></td>
+                            <td role="cell" data-label="Billetes y monedas"><p-tag [value]="kp.label" [severity]="kp.sev" styleClass="cs-tag" /></td>
                           } @else {
-                            <td class="muted">—</td><td class="muted">—</td>
+                            <td role="cell" class="muted" data-label="Cajero">—</td><td role="cell" class="muted" data-label="Billetes y monedas">—</td>
                           }
                         </tr>
                       }
@@ -492,11 +769,11 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                       <tbody>
                         @for (x of d.fuera; track $index) {
                           @let abierto = !!x.id && conteosAbiertos().has(x.id);
-                          <tr><td class="cs-togcol"><button type="button" class="cs-tog" [disabled]="!x.id" (click)="toggleConteo(x.id)"
+                          <tr><td role="cell" class="cs-togcol" data-label="Ver"><button type="button" class="cs-tog" [disabled]="!x.id" (click)="toggleConteo(x.id)"
                                 [attr.aria-expanded]="abierto" [attr.aria-controls]="'cs-ct-' + x.id"
                                 [attr.aria-label]="(abierto ? 'Ocultar' : 'Ver') + ' lo que contó a las ' + x.hora.slice(0, 5)"><i class="pi" [class.pi-chevron-right]="!abierto" [class.pi-chevron-down]="abierto" aria-hidden="true"></i></button></td>
-                            <td class="cs-mono">{{ x.hora.slice(0, 5) }}</td><td>{{ fueraTipo(x) }}</td><td class="cs-mono">{{ x.caja ?? '—' }}</td>
-                            <td class="ta-r num">{{ money(x.total) }}</td><td>{{ fueraPorQue(x) }}</td><td>{{ x.usuario ?? '—' }}</td></tr>
+                            <td role="cell" class="cs-mono" data-label="Hora">{{ x.hora.slice(0, 5) }}</td><td role="cell" data-label="Qué">{{ fueraTipo(x) }}</td><td role="cell" class="cs-mono" data-label="Caja">{{ x.caja ?? '—' }}</td>
+                            <td role="cell" class="ta-r num" data-label="Importe">{{ money(x.total) }}</td><td role="cell" data-label="Por qué no está en un corte">{{ fueraPorQue(x) }}</td><td role="cell" data-label="Quién contó">{{ x.usuario ?? '—' }}</td></tr>
                           @if (abierto) {
                             <tr class="cs-ct-fila"><td></td><td colspan="6" [id]="'cs-ct-' + x.id">
                               <ng-container *ngTemplateOutlet="detConteo; context: { $implicit: x, medios: [], ligado: null }" />
@@ -510,25 +787,92 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
               </ng-template>
               <ng-template #emptymessage><tr><td [attr.colspan]="selSuc() ? 7 : 8">
                 @if (q().trim()) {
-                  <div class="cs-empty"><i class="pi pi-search" aria-hidden="true"></i><span>Ningún corte coincide con «{{ q().trim() }}»{{ soloSaldo() ? ' entre los que tienen saldo' : '' }}.</span>
+                  <div class="cs-empty"><i class="pi pi-search" aria-hidden="true"></i><span>Ningún corte coincide con «{{ q().trim() }}»{{ filtro() !== 'todos' ? ' entre «' + etiquetaFiltro(filtro(), plazo()) + '»' : '' }}.</span>
                     @if (enOtrasSucursales()) { <span>Hay {{ enOtrasSucursales() }} en otras sucursales · <button type="button" class="cs-link" (click)="pickSuc(null)">ver todas</button></span> }
                     <button type="button" class="cs-link" (click)="limpiarBusqueda()">Limpiar búsqueda</button></div>
                 } @else {
-                  <div class="cs-empty"><i class="pi pi-check-circle" aria-hidden="true"></i><span>{{ soloSaldo() ? 'Ningún corte con saldo pendiente.' : 'Sin cortes en el periodo.' }}</span></div>
+                  <div class="cs-empty"><i class="pi pi-check-circle" aria-hidden="true"></i><span>{{ filtro() !== 'todos' ? 'Ningún corte en «' + etiquetaFiltro(filtro(), plazo()) + '».' : 'Sin cortes en el periodo.' }}</span>
+                    @if (filtro() !== 'todos') { <button type="button" class="cs-link" (click)="ponerFiltro('todos', false)">Quitar filtro</button> }</div>
                 }
               </td></tr></ng-template>
             </p-table>
           </section>
 
-          <!-- [CSU.21] El detalle aparece al elegir un corte; mientras, la lista toma todo el ancho. -->
-          @if (selCorte()) {
+          <!-- [CSU.21] El detalle aparece al elegir un corte; mientras, la lista toma todo el ancho.
+               [CSU.31] CSU.UI.3: en pantallas angostas el detalle se abría DEBAJO de toda la lista, fuera de la vista
+               (medido: en el celular su borde quedaba detrás de la barra inferior). Ahí se abre en un panel lateral. -->
+          @if (selCorte() && !angosta()) {
           <section class="cs-block cs-detail" aria-labelledby="cs-h-det" aria-live="polite">
             @if (selCorte(); as c) {
-              <div class="cs-bh"><h2 id="cs-h-det">{{ c.documento }} · {{ c.referencia }}</h2><p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" /></div>
+              @let et = etiquetaDelCorte(c);
+              <div class="cs-bh"><h2 id="cs-h-det">{{ c.documento }} · {{ c.referencia }}</h2><p-tag [value]="et.label" [severity]="et.sev" styleClass="cs-tag" /></div>
+              <ng-container *ngTemplateOutlet="detalleCorte; context: { $implicit: c }" />
+            }
+          </section>
+          }
+        </div>
+
+        <app-side-peek [open]="angosta() && !!selCorte()" (openChange)="$event ? null : selCorte.set(null)" [width]="680"
+                       [title]="selCorte() ? selCorte()!.documento + ' · ' + selCorte()!.referencia : 'Corte'"
+                       [subtitle]="selCorte() ? etiquetaDelCorte(selCorte()!).label : null">
+          @if (angosta() && selCorte(); as c) { <ng-container *ngTemplateOutlet="detalleCorte; context: { $implicit: c }" /> }
+        </app-side-peek>
+
+        <!-- [CSU.31] El detalle de un corte, en tres pasos: la venta del turno, el arqueo (CSU.16–25, como estaba) y los
+             cobros con a dónde llegó cada uno. Una sola plantilla para el panel de al lado y el lateral. -->
+        <ng-template #detalleCorte let-c>
               <p class="cs-hint cs-pad">{{ c.sucursal | sucursal }} · {{ dmy(c.fecha) }}@if (c.arqueo?.cajero) { · cerró {{ c.arqueo?.cajero_nombre || c.arqueo?.cajero }} }</p>
+              <!-- La respuesta del corte, primero (Q.1). -->
+              @if (fraseCorte(c); as fr) { <p class="cs-frase-corte">{{ fr }}</p> }
+              @if (c.venta_sin_forma_de_pago != null) { <p class="cs-frase-corte">El turno vendió <b>{{ money(c.venta_sin_forma_de_pago) }}</b> más de lo que la caja registró cobrado: venta sin forma de pago (paso 1).</p> }
 
               <div class="cs-step">
-                <h3><span class="cs-n">1</span> Corte contra el arqueo del turno</h3>
+                <h3><span class="cs-n">1</span> La venta del turno</h3>
+                @if (c.venta_turno; as vt) {
+                  <div class="cs-row"><span>Tickets del turno ({{ vt.tickets }})</span><span class="num">{{ money(vt.total) }}</span></div>
+                  @if (vt.devoluciones > 0.005) { <div class="cs-row"><span>Devoluciones pagadas en la caja</span><span class="num">−{{ money(vt.devoluciones) }}</span></div> }
+                  <div class="cs-row cs-tot"><span>@if (vt.igual_al_corte) { Igual al corte } @else { Neto del turno <span class="muted">(el corte dice {{ money(c.monto) }})</span> }</span><span class="num">{{ money(vt.neto) }}</span></div>
+                  @if (c.venta_sin_forma_de_pago != null && c.arqueo) {
+                    <div class="cs-row"><span>Lo que la caja registró cobrado <span class="muted">(lo que Kepler esperaba, neto de devoluciones)</span></span><span class="num">{{ money(c.arqueo.esperado_neto) }}</span></div>
+                    <div class="cs-row cs-tot"><span>Venta sin forma de pago</span><span class="num">{{ money(c.venta_sin_forma_de_pago) }}</span></div>
+                    <p class="cs-hint">Tickets que la caja cerró sin registrar cómo se pagaron. Si su dinero llegó, se ve en el paso 3.</p>
+                  }
+                } @else if (ventaMedida()) {
+                  <p class="cs-hint">No se pudo ligar la venta de este turno: el corte no trae caja-turno, Kepler no tiene sus tickets, o el mismo turno se repite en otro corte cercano.</p>
+                } @else {
+                  <p class="cs-hint">La venta del turno <b>no se pudo medir</b> en esta consulta.</p>
+                }
+                <!-- [CSU.31] Las facturas de contado del turno (CSU.30), aunque se hayan facturado otro día. Se piden al abrir el corte. -->
+                <p class="cs-sub">Facturas de contado del turno</p>
+                @if (facturasTurno(); as ft) {
+                  @if (ft.estado === 'sin_turno') {
+                    <p class="cs-hint">No se pueden buscar: sin la venta del turno ligada (arriba dice por qué), no hay tickets contra los cuales casar sus facturas.</p>
+                  } @else if (ft.estado === 'cargando') {
+                    <p class="cs-hint" aria-busy="true">Buscando las facturas del turno…</p>
+                  } @else if (ft.estado === 'error') {
+                    <p class="cs-hint">No se pudieron traer las facturas del turno. <button type="button" class="cs-link" (click)="pedirFacturas(c, true)">Reintentar</button></p>
+                  } @else if (!ft.facturas.length) {
+                    <p class="cs-hint">Ningún ticket de este turno se facturó.</p>
+                  } @else {
+                    <div class="dt-scope"><table class="cs-mini cs-facturas dt-stack">
+                      <thead><tr><th scope="col">Factura</th><th scope="col">Ticket</th><th scope="col">Cliente</th><th scope="col" class="ta-r">Monto</th><th scope="col">Nota de crédito</th></tr></thead>
+                      <tbody>
+                        @for (f of ft.facturas; track f.tipo + '-' + f.folio) {
+                          <tr><td role="cell" data-label="Factura"><span class="cs-mono">{{ f.folio }}</span><span class="cs-sub-celda">{{ f.tipo_nombre ?? ('Tipo ' + f.tipo) }}@if (f.fecha !== c.fecha) { · facturada el {{ dmy(f.fecha) }} }</span></td>
+                            <td role="cell" class="cs-mono" data-label="Ticket">{{ f.ticket ? f.ticket.caja + '-' + sinCerosFolio(f.ticket.folio) : '—' }}</td>
+                            <td role="cell" data-label="Cliente">{{ f.cliente ?? '—' }}</td>
+                            <td role="cell" class="ta-r num" data-label="Monto">{{ money(f.total) }}</td>
+                            <td role="cell" data-label="Nota de crédito">@for (n of f.notas; track n.doc_prefix + n.folio) { <span class="cs-nota-cr">{{ n.doc_prefix }}-{{ n.folio }} <span class="num">−{{ money(n.monto) }}</span>@if (n.motivo) {<span class="muted"> «{{ n.motivo }}»</span>}</span> } @empty { <span class="muted">—</span> }</td></tr>
+                        }
+                      </tbody>
+                    </table></div>
+                    <p class="cs-hint">Una factura de contado es un ticket que ya está en la venta del turno: no suma aparte.</p>
+                  }
+                }
+              </div>
+
+              <div class="cs-step">
+                <h3><span class="cs-n">2</span> Corte contra el arqueo del turno</h3>
                 @if (c.arqueo; as a) {
                   @let d = a.declaracion_cajero;
                   <table class="cs-mini">
@@ -645,12 +989,27 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
               </div>
 
               <div class="cs-step">
-                <h3><span class="cs-n">2</span> Cobros aplicados en Kepler</h3>
+                <h3><span class="cs-n">3</span> Cobros aplicados en Kepler y a dónde llegaron</h3>
                 @for (b of c.cobros; track b.doc_prefix + b.folio) {
-                  <div class="cs-row"><span>{{ b.doc_prefix }}-{{ b.folio }} · {{ b.forma_pago || 'sin forma' }}@if (b.fecha) { · {{ dmy(b.fecha) }} }@if (b.concepto) { <span class="muted"> · {{ b.concepto }}</span> }
+                  <div class="cs-row cs-row-cobro"><span>{{ b.doc_prefix }}-{{ b.folio }} · {{ b.forma_pago || 'sin forma' }}@if (b.fecha) { · {{ dmy(b.fecha) }} }@if (b.concepto) { <span class="muted"> · {{ b.concepto }}</span> }
                     <span class="cs-dep" [class.muted]="b.medio_cobro !== 'banco'"><i class="pi {{ depositoIcon(b) }}" aria-hidden="true"></i>{{ depositoLabel(b) }}</span></span><span class="num">{{ money(b.monto) }}</span></div>
+                  <!-- [CSU.31] Dónde llegó este depósito: el renglón del banco o la entrada de Caja General son el testigo
+                       (la conciliación de Bancos, CSU.26), no la cuenta que dice Kepler. -->
+                  @let ll = llegadaCobro(b);
+                  <div class="cs-llega" [class.cs-llega-alerta]="ll.alerta">
+                    <span class="cs-llega-t"><i class="pi" [class.pi-check]="!ll.alerta && (b.llegada?.estado === 'en_banco' || b.llegada?.estado === 'en_caja_general')" [class.pi-exclamation-circle]="ll.alerta" [class.pi-clock]="b.llegada?.estado === 'banco_sin_libro'" aria-hidden="true"></i>{{ ll.titulo }}</span>
+                    @for (r of b.llegada?.renglones ?? []; track $index) {
+                      <span class="cs-llega-r">{{ r.cuenta }} · {{ dmy(r.fecha) }} · {{ money(r.monto) }}@if (r.concepto) { · «{{ r.concepto }}» }@if (abs(r.monto - b.monto) >= 0.01 && (b.llegada?.renglones?.length ?? 0) === 1) { <span class="muted"> · un abono que cubre este y otros depósitos</span> }</span>
+                    }
+                    @for (x of b.llegada?.caja_general ?? []; track x.entrada) {
+                      <span class="cs-llega-r">{{ x.entrada }} · {{ dmy(x.fecha) }} · {{ money(x.monto) }} → @if (x.corte) { corte {{ x.corte }} } @else { <span class="muted">sin corte de Caja General todavía</span> }</span>
+                    }
+                  </div>
                 } @empty {
                   <p class="cs-hint">Ningún cobro aplicado a este corte.</p>
+                }
+                @if (c.llegada; as l) {
+                  <div class="cs-row cs-tot"><span>Llegó, de lo aplicado al corte</span><span class="num">{{ money(l.llego) }} de {{ money(aplicadoDe(c)) }}</span></div>
                 }
                 <div class="cs-row cs-tot"><span>Saldo del corte</span><span class="num" [class.cs-bad]="c.saldo > 0.005">{{ money(c.saldo) }}</span></div>
                 <!-- [CSU.13] Cancelados en Kepler: se VEN, marcados, y no entran a la cuenta de arriba. -->
@@ -664,14 +1023,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                 }
               </div>
 
-              <div class="cs-step">
-                <h3><span class="cs-n">3</span> Llegó a la empresa</h3>
-                <p class="cs-hint">Todavía <b>no se mide</b>: el abono en el banco y el paso del efectivo hasta su depósito.</p>
-              </div>
-            }
-          </section>
-          }
-        </div>
+        </ng-template>
       }
     </div>
 
@@ -724,7 +1076,6 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-tachado { text-decoration:line-through; }
     .cs-kbd { font:inherit; font-family:var(--font-mono); font-size:var(--fs-micro); border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 var(--sp-1); margin-left:var(--sp-1); color:var(--text-muted); }
     :host ::ng-deep .cs-sel { min-width:11rem; }
-    .cs-toggle { align-items:flex-start; }
     .cs-periodo { margin:.2rem 0 .4rem; font-size:var(--fs-xs); color:var(--text-muted); }
     .cs-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
     .cs-note .pi { color:var(--text-muted); margin-top:.15rem; }
@@ -773,7 +1124,8 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     /* [CSU.15] La fila de día: el renglón que antes se sumaba a mano. El grupo se forma con
        espaciado y con el peso del total, no con cajas ni con zebra. */
     .cs-togcol { width:2.25rem; }
-    .cs-tog { display:inline-grid; place-items:center; width:1.75rem; height:1.75rem; padding:0; border:0; border-radius:var(--r-sm); background:none; color:var(--text-muted); cursor:pointer; }
+    /* [CSU.31] CSU.UI.9: 28 px al dedo (20×28 en el celular) → 44 con puntero grueso, vía --tap-min. */
+    .cs-tog { display:inline-grid; place-items:center; width:max(1.75rem, var(--tap-min)); height:max(1.75rem, var(--tap-min)); flex:0 0 auto; padding:0; border:0; border-radius:var(--r-sm); background:none; color:var(--text-muted); cursor:pointer; }
     .cs-tog:hover:not(:disabled) { background:var(--overlay-hover); color:var(--text-main); }
     .cs-tog:disabled { cursor:default; opacity:.45; }
     .cs-tog .pi { font-size:var(--fs-xs); }
@@ -814,6 +1166,40 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-ct-det { padding:.35rem 0 .5rem 1.4rem; }
     .cs-ct-fila > td { border-top:0 !important; padding-top:0 !important; }
     .cs-piezas { max-width:22rem; }
+
+    /* ── [CSU.31] ¿Llegó el dinero? ─────────────────────────────────────────────────────────────────────── */
+    /* CSU.UI.6: los encabezados de las tablas iban a 16 px (más que las celdas, igual que el título de la sección)
+       y con su sub-rótulo bajaban a tres renglones. Al tamaño de la celda o menos, un solo estilo. */
+    /* Sin selector profundo (check:cascada): los <tr> de encabezado son de ESTA plantilla y llevan la clase. */
+    .cs-thr > th { font-size:var(--fs-xs); line-height:1.25; }
+    .cs-th-de { font-size:var(--fs-micro); }
+    /* Primario: la respuesta del periodo. Más grande que las celdas, en el color del texto; los números que abren
+       sus cortes son enlaces (subrayado), no color. */
+    .cs-respuesta { margin:.1rem 0 .5rem; max-width:72rem; font-size:var(--fs-body); line-height:1.5; color:var(--text-main); }
+    .cs-link-frase { font-weight:600; }
+    .cs-link-on { text-decoration-thickness:2px; background:var(--overlay-selected); border-radius:var(--r-sm); }
+    .cs-tap { min-height:var(--tap-min); }
+    @media (pointer: coarse) {
+      .cs-link { display:inline-flex; align-items:center; justify-content:center; min-height:var(--tap-min); min-width:var(--tap-min); }
+    }
+    .cs-sub-celda { display:block; font-size:var(--fs-xs); color:var(--text-muted); }
+    .cs-frase-corte { margin:0; padding:.45rem .85rem 0; font-size:var(--fs-sm); line-height:1.45; color:var(--text-main); }
+    .cs-row-cobro { border-bottom:0; padding-bottom:0; }
+    /* Dónde llegó un depósito: un nivel abajo de su renglón. Lo que no tiene testigo va en peso y con su ícono,
+       no en rojo (CSU.UI.7). */
+    .cs-llega { display:flex; flex-direction:column; gap:.1rem; padding:.1rem 0 .4rem 1rem; font-size:var(--fs-xs); color:var(--text-muted); border-bottom:1px dashed var(--border-color); }
+    .cs-llega-t { display:flex; align-items:center; gap:.35rem; color:var(--text-main); }
+    .cs-llega-t .pi { font-size:var(--fs-nano); }
+    .cs-llega-alerta .cs-llega-t { font-weight:600; }
+    .cs-llega-r { overflow-wrap:anywhere; }
+    /* Prueba visual (Fold): con el padding 0 de .cs-mini las columnas se pegaban («3-5168RICARDO», «MONTONOTA»). */
+    .cs-facturas th, .cs-facturas td { vertical-align:top; padding-right:var(--sp-3); }
+    .cs-facturas th:last-child, .cs-facturas td:last-child { padding-right:0; }
+    /* CSU.UI.5, medido en el Fold (750 px): 8 columnas con --sp-2 por lado aún se desplazaban 15 px dentro de la tabla. */
+    @media (max-width: 52rem) {
+      .cs-cortes th, .cs-cortes td { padding-left:var(--sp-1); padding-right:var(--sp-1); }
+    }
+    .cs-nota-cr { display:block; }
   `],
 })
 export class FinanzasCortesSucursalesComponent implements OnInit {
@@ -840,7 +1226,9 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
 
   readonly mes = signal<string | null>(this.mesOpts[0].value);
   rangeDates: Date[] | null = null;
-  readonly soloSaldo = signal(false);
+  /** `[CSU.31]` Lo que muestra la lista (reemplaza «Sólo con saldo»): una cifra, una frase o «Mostrar» lo ponen. */
+  readonly filtro = signal<FiltroCortes>('todos');
+  readonly etiquetaFiltro = etiquetaFiltro;
   readonly loading = signal(false);
   readonly err = signal<string | null>(null);
   readonly data = signal<CortesSucursalesResponse | null>(null);
@@ -860,14 +1248,70 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
   readonly q = signal('');
   private readonly buscador = viewChild<ElementRef<HTMLInputElement>>('buscador');
 
-  /** Los cortes antes de buscar: sucursal elegida + «sólo con saldo». */
-  readonly cortesBase = computed<CorteRow[]>(() => {
+  /** `[CSU.31]` Los cortes de la sucursal elegida (o de todas): el universo del que salen la frase y «N de M». */
+  readonly cortesEnAlcance = computed<CorteRow[]>(() => {
     const d = this.data();
     const s = this.selSuc();
-    const soloSaldo = this.soloSaldo();
     if (!d) return [];
-    return d.cortes.filter((c) => (!s || c.sucursal === s.sucursal) && (!soloSaldo || c.saldo > 0.005));
+    return s ? d.cortes.filter((c) => c.sucursal === s.sucursal) : d.cortes;
   });
+
+  /** `[CSU.31]` Los días-sucursal con conteos fuera de corte (para «Mostrar: días con conteos fuera de corte»). */
+  private readonly diasConFuera = computed<ReadonlySet<string>>(() => new Set((this.data()?.conteos_fuera_de_corte ?? []).map((x) => `${x.fecha}|${x.sucursal}`)));
+
+  /** Los cortes antes de buscar: sucursal elegida + `[CSU.31]` el filtro (antes, «sólo con saldo»). */
+  readonly cortesBase = computed<CorteRow[]>(() => {
+    const f = this.filtro();
+    const base = this.cortesEnAlcance();
+    if (f === 'todos') return base;
+    const hoy = hoyMx(), plazo = this.plazo(), fuera = this.diasConFuera();
+    return base.filter((c) => cumpleFiltro(c, f, hoy, plazo, fuera));
+  });
+
+  /** `[CSU.31]` ¿Se midió la llegada y la venta del turno? `null` o ausente = no (una API anterior a CSU.29, o la consulta falló). */
+  readonly llegadaMedida = computed(() => (this.data()?.llegada ?? null) !== null);
+  readonly ventaMedida = computed(() => (this.data()?.venta_sin_forma_de_pago ?? null) !== null);
+
+  /** `[CSU.31]` Cuántos cortes y cuánto suma el filtro puesto, sobre la sucursal elegida o todas. */
+  readonly resumenFiltroActivo = computed(() => resumenDelFiltro(this.cortesEnAlcance(), this.filtro(), hoyMx(), this.plazo(), this.diasConFuera()));
+
+  /** `[CSU.31]` Las opciones de «Mostrar», cada una con su número (el mismo que su cifra). */
+  readonly opcionesFiltro = computed(() => {
+    const cortes = this.cortesEnAlcance(), hoy = hoyMx(), plazo = this.plazo(), fuera = this.diasConFuera(), medida = this.llegadaMedida();
+    return FILTROS_CORTES.map((f) => {
+      const sinMedir = (FILTROS_DE_LLEGADA.has(f) && !medida) || (f === 'venta_sin_forma_de_pago' && !this.ventaMedida());
+      const n = f === 'todos' ? cortes.length : resumenDelFiltro(cortes, f, hoy, plazo, fuera).cortes;
+      return { value: f, label: `${etiquetaFiltro(f, plazo)} · ${sinMedir ? 'no se pudo medir' : n.toLocaleString('es-MX')}`, disabled: sinMedir };
+    });
+  });
+
+  /** `[CSU.31]` La respuesta del periodo (ver `fraseDelPeriodo`). */
+  readonly frase = computed<TrozoFrase[]>(() => {
+    if (!this.data()) return [];
+    return fraseDelPeriodo(this.cortesEnAlcance(), {
+      hoy: hoyMx(), plazo: this.plazo(), llegadaMedida: this.llegadaMedida(), ventaMedida: this.ventaMedida(),
+      donde: this.selSuc()?.sucursal_nombre ?? null, diasConFuera: this.diasConFuera(),
+    });
+  });
+
+  /** `[CSU.31]` La tarjeta del indicador que está filtrando, si la hay. */
+  readonly drillActivo = computed<string | null>(() => (['con_llegada', 'con_saldo', 'sin_cuadrar'] as string[]).includes(this.filtro()) ? this.filtro() : null);
+
+  /**
+   * `[CSU.31]` Poner un filtro. Desde un indicador (`deIndicador`) se ven TODAS las sucursales: los indicadores son del
+   * periodo entero, y la lista tiene que llegar a su número (CSU.UI.2). Tocar el filtro puesto lo quita.
+   */
+  ponerFiltro(f: FiltroCortes | null | undefined, deIndicador: boolean): void {
+    const nuevo: FiltroCortes = !f || (deIndicador && this.filtro() === f) ? 'todos' : f;
+    if (deIndicador && nuevo !== 'todos') this.pickSuc(null);
+    this.filtro.set(nuevo);
+  }
+
+  /** `[CSU.31]` Llevar algo al buscador (la fecha de un cobro fechado en el futuro). */
+  buscar(texto: string): void {
+    this.q.set(texto);
+    this.buscador()?.nativeElement.focus();
+  }
 
   /**
    * `[CSU.13]` La lista que se ve. Se filtra en el cliente porque llega COMPLETA (el periodo entero, sin
@@ -930,9 +1374,9 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
     const d = this.data();
     const s = this.selSuc();
     const q = this.q();
-    const soloSaldo = this.soloSaldo();
+    const f = this.filtro(), hoy = hoyMx(), plazo = this.plazo(), fuera = this.diasConFuera();
     if (!d || !s || !q.trim()) return 0;
-    const otras = d.cortes.filter((c) => c.sucursal !== s.sucursal && (!soloSaldo || c.saldo > 0.005));
+    const otras = d.cortes.filter((c) => c.sucursal !== s.sucursal && cumpleFiltro(c, f, hoy, plazo, fuera));
     return filtrarPorBusqueda(otras, consultaDeCortes(q), (c) => this.camposBuscables(c)).length;
   });
 
@@ -962,7 +1406,20 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
   private readonly route = inject(ActivatedRoute, { optional: true });
   private sucursalPedida: string | null = null;
 
+  /**
+   * `[CSU.31]` CSU.UI.3: debajo de 68.75rem la rejilla pone el detalle DEBAJO de la lista (fuera de la vista); ahí
+   * se abre en `app-side-peek`. El mismo corte de la regla `@media` de `.cs-split`.
+   */
+  readonly angosta = signal(false);
+
   ngOnInit(): void {
+    const mq = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 68.75rem)') : null;
+    if (mq) {
+      this.angosta.set(mq.matches);
+      const cambio = (e: MediaQueryListEvent) => this.angosta.set(e.matches);
+      mq.addEventListener?.('change', cambio);
+      this.destroyRef.onDestroy(() => mq.removeEventListener?.('change', cambio));
+    }
     const qp = this.route?.snapshot.queryParamMap;
     const m = qp?.get('month');
     if (m && /^\d{4}-(0[1-9]|1[0-2])$/.test(m)) this.mes.set(m);
@@ -1000,6 +1457,10 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
     this.http.get<CortesSucursalesResponse>(`${this.base}?${p.toString()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
         this.data.set(d);
+        // Revisión: si esta respuesta ya no trae la llegada (o la venta del turno) medida, un filtro que depende de
+        // ella daría una lista vacía que se lee como «ninguno»: se quita.
+        const f = this.filtro();
+        if ((FILTROS_DE_LLEGADA.has(f) && (d.llegada ?? null) === null) || (f === 'venta_sin_forma_de_pago' && (d.venta_sin_forma_de_pago ?? null) === null)) this.filtro.set('todos');
         const s = this.selSuc();
         this.selSuc.set(s ? d.sucursales.find((x) => x.sucursal === s.sucursal) ?? null : null);
         // [BFU.4.5.12] La sucursal que pidió la liga de Bancos, una sola vez (si no está en el alcance, no se inventa).
@@ -1018,12 +1479,24 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
     const t = d.totales;
     const hoy = hoyMx();
     const venc = d.cortes.filter((c) => c.saldo > 0.005 && diasEntre(c.fecha, hoy) > d.plazo_cobro_dias).reduce((x, c) => x + c.saldo, 0);
+    // [CSU.31] «Llegó a la empresa» (CSU.26–29): neutro (CSU.UI.7). Sin medición se DECLARA, nunca un cero.
+    const ll = d.llegada ?? null;
+    const llego: MetricStripItem = ll
+      ? {
+        label: 'Llegó a la empresa', value: ll.llego, format: 'currency2', tone: 'default', drill: 'con_llegada', drillLabel: 'Ver los cortes cuyo dinero ya llegó',
+        sub: `${this.pct(ll.llego, ll.aplicado)} de lo cobrado${ll.por_saber > 0.005 ? ` · ${money(ll.por_saber)} por saber` : ''}`,
+      }
+      : { label: 'Llegó a la empresa', value: 'No medido', format: 'text', tone: 'default', state: 'no_medido', stateNote: 'La consulta de la llegada al banco no respondió', sub: 'no se pudo medir' };
+    const vsfp = d.venta_sin_forma_de_pago ?? null;
     return [
       { label: 'Vendido en cortes', value: t.vendido, format: 'currency2', tone: 'default', sub: `${t.cortes} cortes · ${d.sucursales.length} sucursales` },
       { label: 'Cobrado en Kepler', value: t.cobrado, format: 'currency2', tone: 'ok', sub: `${this.pct(t.cobrado, t.vendido)} de lo vendido` },
-      { label: 'Pendiente de cobro', value: t.pendiente, format: 'currency2', tone: venc > 0.005 ? 'bad' : 'default', sub: venc > 0.005 ? `${money(venc)} con más de ${d.plazo_cobro_dias} días` : `todo dentro de ${d.plazo_cobro_dias} días` },
-      // [CSU.21] La MISMA regla que «N sin cuadrar» de la lista (`sin_cuadrar` del backend).
-      { label: 'Sin cuadrar', value: t.con_diferencia, format: 'number', tone: t.con_diferencia ? 'bad' : 'ok', sub: t.sin_arqueo ? `corte, cajero o desglose · ${t.sin_arqueo} sin arqueo` : 'corte, cajero o desglose' },
+      llego,
+      { label: 'Pendiente de cobro', value: t.pendiente, format: 'currency2', tone: venc > 0.005 ? 'bad' : 'default', sub: venc > 0.005 ? `${money(venc)} con más de ${d.plazo_cobro_dias} días` : `todo dentro de ${d.plazo_cobro_dias} días`,
+        drill: 'con_saldo', drillLabel: 'Ver los cortes con saldo por cobrar' },
+      // [CSU.21] La MISMA regla que «N sin cuadrar» de la lista (`sin_cuadrar` del backend). [CSU.31] D4: dice cuántos son venta sin forma de pago.
+      { label: 'Sin cuadrar', value: t.con_diferencia, format: 'number', tone: t.con_diferencia ? 'bad' : 'ok', drill: 'sin_cuadrar', drillLabel: 'Ver los cortes sin cuadrar',
+        sub: [vsfp?.cortes ? `${vsfp.cortes} son venta sin forma de pago` : 'corte, cajero o desglose', t.sin_arqueo ? `${t.sin_arqueo} sin arqueo` : ''].filter(Boolean).join(' · ') },
     ];
   }
 
@@ -1159,11 +1632,74 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
    * `[CSU.17]` La fecha del último cobro aplicado en Kepler entre los cortes del periodo: un «Sin cobro»
    * de ayer con el último cobro de hace dos días es plazo de captura, no un defecto de la pantalla.
    */
-  readonly ultimoCobro = computed(() => {
-    let max: string | null = null;
-    for (const c of this.data()?.cortes ?? []) for (const b of c.cobros) if (b.fecha && (!max || b.fecha > max)) max = b.fecha;
-    return max;
+  readonly ultimoCobro = computed(() => ultimoCobroHasta(this.data()?.cortes ?? [], hoyMx()));
+
+  // ─── [CSU.31] El detalle: la venta del turno, sus facturas y a dónde llegó cada depósito ──────────────────
+
+  /** Lo que se pinta en la pastilla del corte: su llegada, o (sin medición) su estado de cobro de siempre. */
+  etiquetaDelCorte(c: CorteRow): { label: string; sev: Sev } {
+    return celdaLlegada(c, hoyMx(), this.plazo()) ?? { label: COBRO[c.estado_cobro].label, sev: COBRO[c.estado_cobro].sev };
+  }
+  celdaDeLlegada(c: CorteRow): { label: string; sev: Sev } | null { return celdaLlegada(c, hoyMx(), this.plazo()); }
+  fraseCorte(c: CorteRow): string | null { return fraseDelCorte(c); }
+  llegadaCobro(b: CorteCobro): { titulo: string; alerta: boolean } { return llegadaDelCobro(b); }
+  aplicadoDe(c: CorteRow): number { return Math.round(c.cobros.reduce((t, b) => t + b.monto, 0) * 100) / 100; }
+  /** El folio del ticket como lo dice la caja: «5168», no «0005168» (la maqueta: «ticket 3-5114»). */
+  sinCerosFolio(f: string): string { return /^\d+$/.test(f) ? String(Number(f)) : f; }
+
+  /**
+   * Del día: cuántos cortes tienen algo por saber o sin conciliar (la MISMA regla, por monto, que «Mostrar»).
+   * `null` = la llegada no se midió en ninguno de sus cortes.
+   */
+  llegadaDelDia(d: DiaDeCortes): { por_saber: number; sin_conciliar: number; llegaron: number } | null {
+    if (!d.cortes.some((c) => c.llegada)) return null;
+    let por_saber = 0, sin_conciliar = 0, llegaron = 0;
+    for (const c of d.cortes) {
+      if ((c.llegada?.por_saber ?? 0) > 0.005) por_saber++;
+      if ((c.llegada?.sin_conciliar ?? 0) > 0.005) sin_conciliar++;
+      // Revisión: «Llegó todo» exige dinero que llegó (un día saldado sólo con devoluciones no «llegó»).
+      if ((c.llegada?.llego ?? 0) > 0.005) llegaron++;
+    }
+    return { por_saber, sin_conciliar, llegaron };
+  }
+
+  /**
+   * Revisión: «Mostrar: días con conteos fuera de corte» lista CORTES, y el enlace que lo abre cuenta CONTEOS. La pista
+   * dice cuántos conteos quedan en la lista y cuántos caen en días sin cortes (que la lista no puede mostrar).
+   */
+  readonly fueraEnLista = computed(() => {
+    const dias = new Set(this.cortesEnAlcance().map((c) => `${c.fecha}|${c.sucursal}`));
+    const todos = this.fueraVisibles();
+    const n = todos.filter((x) => dias.has(`${x.fecha}|${x.sucursal}`)).length;
+    return { n, fuera: todos.length - n };
   });
+
+  /**
+   * Las facturas de contado del turno del corte abierto (`GET …/facturas?corte=<clave>`, CSU.30). El periodo es el
+   * día del corte: la consulta trae las de los tickets de ese día aunque se hayan facturado después.
+   */
+  readonly facturasTurno = signal<{ clave: string; estado: 'cargando' | 'listo' | 'error' | 'sin_turno'; facturas: FacturaContado[] } | null>(null);
+  private facturasSub: Subscription | null = null;
+  private readonly alAbrirCorte = effect(() => {
+    const c = this.selCorte();
+    untracked(() => this.pedirFacturas(c, false));
+  });
+
+  pedirFacturas(c: CorteRow | null, otraVez: boolean): void {
+    const actual = this.facturasTurno();
+    if (c && !otraVez && actual?.clave === c.clave && actual.estado !== 'error') return; // el mismo corte tras «Actualizar»
+    this.facturasSub?.unsubscribe();
+    if (!c) { this.facturasTurno.set(null); return; }
+    // Revisión: sin caja-turno (o con la venta del turno sin ligar) la regla ticket → corte no puede casar nada, y
+    // «ningún ticket se facturó» sería afirmar lo que no se buscó. No se pide; se dice por qué.
+    if (!c.caja || !c.turno || (this.ventaMedida() && !c.venta_turno)) { this.facturasTurno.set({ clave: c.clave, estado: 'sin_turno', facturas: [] }); return; }
+    this.facturasTurno.set({ clave: c.clave, estado: 'cargando', facturas: [] });
+    const p = new URLSearchParams({ from: c.fecha, to: c.fecha, sucursal: c.sucursal, corte: c.clave });
+    this.facturasSub = this.http.get<FacturasContadoResponse>(`${this.base}/facturas?${p.toString()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.facturasTurno.set({ clave: c.clave, estado: 'listo', facturas: r.facturas }),
+      error: () => this.facturasTurno.set({ clave: c.clave, estado: 'error', facturas: [] }),
+    });
+  }
 
   /** `[CSU.16]` Cortes del periodo cuyo contado en Kepler es idéntico al esperado, sobre los que tienen arqueo. */
   readonly pctContadoIgual = computed(() => {

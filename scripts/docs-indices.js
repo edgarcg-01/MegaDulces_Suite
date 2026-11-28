@@ -50,6 +50,8 @@ const DOCS = [
   { archivo: 'docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_COMPROBACION_DE_GASTO.md', niveles: 2, omitir: [] },
   // `[PGP.165]` El anexo CH pasó de 40 KB con las medidas del cheque y la póliza (§0 fila 11, DCH10).
   { archivo: 'docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_CHEQUES.md', niveles: 2, omitir: [] },
+  // `[CSU.31]` El anexo FB pasó de 40 KB con la prueba visual (§10), el diseño de CSU.31 (§11) y lo verificado.
+  { archivo: 'docs/IMPLEMENTACION/FASES/FASE_CSU_ANEXO_FACTURA_AL_BANCO_2026-11-26.md', niveles: 2, omitir: [] },
 ];
 
 const INICIO = '<!-- INDICE-AUTO:INICIO -->';

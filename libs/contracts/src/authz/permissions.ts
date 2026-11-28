@@ -579,6 +579,11 @@ export enum Permission {
   // migración a roles de gerencia/dirección. Mismo permiso autoriza el cambio de cuenta
   // bancaria de un proveedor (TP.7) — un solo "autorizador" de Finanzas para todo el módulo.
   FINANCE_PAYMENT_CALENDAR_AUTORIZAR = 'FINANCE_PAYMENT_CALENDAR_AUTORIZAR',
+  // `[PGP.229]` Decidir si una factura recibida fuera de norma fiscal (uso S01, régimen distinto de 612) se usa o no
+  // (anexo NF). Sin esa decisión el Calendario no la autoriza. Clave PROPIA y fuera de todo MODULE_GROUP, como
+  // FINANCE_PAYMENT_CALENDAR_AUTORIZAR: basta una firma, de Administración o de Contabilidad (D-NF2), y se reparte
+  // por migración sólo a `contabilidad` y `direccion` (Francisco, 2026-11-26).
+  FINANCE_CFDI_NORMA_DECIDIR = 'FINANCE_CFDI_NORMA_DECIDIR',
   // `[PGP.213]` Los contratos que sustentan los cargos que el banco cobra solo (anexo CR, DCR1: «el sistema propone,
   // Tesorería confirma»): proponer, dar de alta, corregir una propuesta, confirmar, terminar, rechazar y subir su PDF.
   // Clave PROPIA: `FINANCE_PAYMENTS_GESTIONAR` la tienen también Marketing, Compras, Crédito y Contabilidad (medido en

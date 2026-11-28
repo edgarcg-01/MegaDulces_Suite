@@ -13,8 +13,10 @@ import {
   expandFixture,
   formatLocationCode,
   nombrePieza,
+  piezaAlDia,
   piezasDerivadas,
   type AcomodoBody,
+  type DerivarPiezasResult,
   type AcomodoCarasBody,
   type CaraBody,
   type PiezaBody,
@@ -29,11 +31,13 @@ import {
   type WarehouseFixture,
 } from '@megadulces/contracts';
 import { almacenDeUbicaciones, contextoDeAlcance } from './warehouse-locations-scope';
+import { ARBITRO_CARA_POR_SLOT } from './warehouse-fixtures.arbitros';
 
 // Los tipos del contrato HTTP viven en `contracts`, no acá: la pantalla los necesita y una app de
 // Angular no puede importar del backend.
 
 const COLUMNAS = ['id', 'warehouse_id', 'zona', 'tipo', 'pasillo', 'racks', 'niveles', 'fila', 'columna', 'orden', 'label'] as const;
+
 
 /**
  * `[UB.PL]` El croquis de una sucursal: las **piezas** (muebles) de un almacén y su lugar.
@@ -72,17 +76,23 @@ export class WarehouseFixturesService {
         .whereNull('deleted_at')
         .orderBy(['orden', 'fila', 'columna', 'pasillo'])
         .select(...COLUMNAS);
-      const [{ n }] = await trx('commercial.warehouse_bins')
+      // [UB.PL.13] El hueco se agrupa por LETRA, no solo se cuenta: «I, J y K» se puede verificar
+      // mirando la tienda y «110» no.
+      const huerfanas = (await trx('commercial.warehouse_bins')
         .where({ warehouse_id: wh.id, zona, familia: 'ubicacion' })
         .whereNull('fixture_id')
         .whereNot('estado', 'baja')
-        .count({ n: '*' });
+        .select('pasillo')
+        .count({ n: '*' })
+        .groupBy('pasillo')
+        .orderBy('pasillo')) as Array<{ pasillo: string | null; n: string | number }>;
       return {
         warehouse: { id: wh.id, code: wh.code, name: wh.name },
         zona,
         piezas: piezas.map(aPieza),
         caras: (await this.leerCaras(trx, wh.id, zona)).map(aCara),
-        sin_pieza: Number(n) || 0,
+        sin_pieza: huerfanas.reduce((t, h) => t + (Number(h.n) || 0), 0),
+        sin_pieza_letras: huerfanas.map((h) => h.pasillo).filter((p): p is string => !!p),
       };
     });
   }
@@ -94,7 +104,7 @@ export class WarehouseFixturesService {
    *
    * Es idempotente: correrla dos veces deja lo mismo.
    */
-  async derivar(warehouseIdRaw: string): Promise<{ piezas: number; ubicaciones: number; ya_tenian: number }> {
+  async derivar(warehouseIdRaw: string): Promise<DerivarPiezasResult> {
     this.tenantCtx.requireTenantId();
     const ctx = await contextoDeAlcance(this.scope, 'warehouse/locations');
     return this.tk.run(async (trx) => {
@@ -108,12 +118,29 @@ export class WarehouseFixturesService {
 
       let creadas = 0;
       let colgadas = 0;
+      let actualizadas = 0;
       for (const s of specs) {
         const existente = await trx('commercial.warehouse_fixtures')
           .where({ warehouse_id: wh.id, zona: s.zona, pasillo: s.pasillo })
           .whereNull('deleted_at')
-          .first('id');
+          .first('id', 'racks', 'niveles');
         let fixtureId = existente?.id as string | undefined;
+        // [UB.PL.13] La pieza que YA existia se pone al dia con lo que la captura agrego despues.
+        // Sin esto, derivar era idempotente de mas: creaba las que faltaban y dejaba a las viejas
+        // describiendo una tienda vieja. Medido en Padre Hidalgo: el pasillo B decia 17 racks y sus
+        // ubicaciones llegaban al 22, asi que los racks 18 a 22 no caian en ninguna cara.
+        if (fixtureId) {
+          const alDia = piezaAlDia({ racks: Number(existente.racks) || 0, niveles: Number(existente.niveles) || 0 }, s);
+          if (alDia) {
+            await trx('commercial.warehouse_fixtures')
+              .where({ id: fixtureId })
+              .update({ ...alDia, updated_by: userId, updated_at: trx.fn.now() });
+            actualizadas++;
+            this.logger.log(
+              `[UB.PL.13] ${s.zona}${s.pasillo}: ${existente.racks}→${alDia.racks} rack(s), ${existente.niveles}→${alDia.niveles} nivel(es)`,
+            );
+          }
+        }
         if (!fixtureId) {
           const [row] = await trx('commercial.warehouse_fixtures')
             .insert({
@@ -140,8 +167,10 @@ export class WarehouseFixturesService {
           .update({ fixture_id: fixtureId, updated_by: userId });
         colgadas += Number(n) || 0;
       }
-      this.logger.log(`[UB.PL.2] ${wh.name}: ${creadas} pieza(s) derivada(s), ${colgadas} ubicación(es) colgada(s), ${yaTenian} ya tenían`);
-      return { piezas: creadas, ubicaciones: colgadas, ya_tenian: yaTenian };
+      this.logger.log(
+        `[UB.PL.2] ${wh.name}: ${creadas} pieza(s) derivada(s), ${colgadas} ubicación(es) colgada(s), ${yaTenian} ya tenían, ${actualizadas} puesta(s) al día`,
+      );
+      return { piezas: creadas, ubicaciones: colgadas, ya_tenian: yaTenian, actualizadas };
     });
   }
 
@@ -287,7 +316,13 @@ export class WarehouseFixturesService {
       racks_modo: modo,
     }));
     if (!filas.length) return;
-    await trx('commercial.warehouse_fixture_faces').insert(filas).onConflict(['tenant_id', 'fixture_id', 'slot']).ignore();
+    // ⛔ [UB.PL.14] El predicado va DENTRO del ON CONFLICT, y no es un adorno: `commercial_faces_
+    // slot_unico` es un indice PARCIAL (`WHERE deleted_at IS NULL`), y Postgres solo lo acepta como
+    // arbitro si la clausula repite el MISMO predicado. Sin el, cada alta de pieza moria con
+    // «there is no unique or exclusion constraint matching the ON CONFLICT specification» -- un 500
+    // que estuvo vivo en prod desde [UB.PL.12] y que nadie vio porque el boton que lo dispara
+    // estaba escondido. Lo destapo [UB.PL.13], que volvio a hacerlo apretable.
+    await trx('commercial.warehouse_fixture_faces').insert(filas).onConflict(trx.raw(ARBITRO_CARA_POR_SLOT)).ignore();
   }
 
   /**

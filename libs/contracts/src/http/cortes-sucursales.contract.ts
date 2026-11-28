@@ -66,6 +66,200 @@ export interface CorteCobro {
    * dibuja un banco que no se sabe**.
    */
   cuenta_tesoreria: string | null;
+  /**
+   * `[CSU.26]` Dónde está este depósito: el renglón del banco, su entrada de Caja General, o por qué todavía no se
+   * puede decir. `null` = **no se midió** (la consulta falló; la respuesta lo dice en `llegada`), nunca «no llegó».
+   */
+  llegada: CobroLlegada | null;
+}
+
+/**
+ * `[CSU.26]` Dónde está un depósito aplicado al corte (anexo FB). El testigo es la conciliación de Bancos
+ * (`bank_recon_matches`), no un pareo de esta pantalla:
+ *  · `en_banco`          la conciliación lo casó con uno o más renglones del banco.
+ *  · `en_caja_general`   el depósito a caja tiene su entrada en el libro de Caja General.
+ *  · `caja_sin_asiento`  cuenta de caja sin entrada en el libro de Caja General.
+ *  · `banco_sin_libro`   el libro de Bancos de esa cuenta termina ANTES del depósito: todavía no se puede saber.
+ *  · `sin_conciliar`     el libro cubre la fecha y la conciliación no lo casó.
+ *  · `puente`            devoluciones, ajuste a saldo, traspasos: no viaja a un banco.
+ *  · `sin_cuenta`        sin cuenta de tesorería, o el depósito no está en Kepler.
+ */
+export type CobroLlegadaEstado =
+  | 'en_banco' | 'en_caja_general' | 'caja_sin_asiento' | 'banco_sin_libro' | 'sin_conciliar' | 'puente' | 'sin_cuenta';
+
+export interface CobroRenglonBanco {
+  /** Alias de la cuenta en Bancos (`STDR 1604`). */
+  cuenta: string;
+  fecha: string;
+  /** Lo que entró al banco en ese renglón (un abono puede cubrir varios depósitos de Kepler). */
+  monto: number;
+  concepto: string | null;
+  /** `matched_by` de la conciliación (`motor-tes`, `motor-tes-group`…). */
+  pareo: string;
+  /** Pase que el motor de categoría no usa para decidir (`PASES_DEBILES`): la pantalla dice «probable». */
+  debil: boolean;
+}
+
+export interface CobroAsientoCajaGeneral {
+  /** Folio de la entrada (`CI-2026-00343`). */
+  entrada: string;
+  fecha: string;
+  monto: number;
+  estado: string;
+  /** Corte de Caja General que la cerró (`CC-2026-00023`); `null` si sigue abierta. */
+  corte: string | null;
+  corte_estado: string | null;
+}
+
+export interface CobroLlegada {
+  estado: CobroLlegadaEstado;
+  /** Cuenta de tesorería que registró Kepler (`1604`); `null` si no trae. */
+  cuenta: string | null;
+  renglones: CobroRenglonBanco[];
+  caja_general: CobroAsientoCajaGeneral[];
+  /** La cuenta de Bancos que concilia esa cuenta de Kepler (la de más pareos), y hasta qué día llega su libro. */
+  cuenta_bancos: string | null;
+  libro_hasta: string | null;
+}
+
+/**
+ * `[CSU.27]` ¿Llegó el dinero del corte? La primera que se cumple: `sin_deposito` (Kepler no le aplicó nada; lleva
+ * su edad) → `sin_conciliar` (algo aplicado sin testigo) → `parcial` (falta depositar parte) → `por_saber` (en una
+ * cuenta cuyo libro de Bancos no llega a esa fecha) → `llego`.
+ */
+export type CorteLlegadaEstado = 'sin_deposito' | 'sin_conciliar' | 'parcial' | 'por_saber' | 'llego';
+
+export interface CorteLlegada {
+  estado: CorteLlegadaEstado;
+  /** En el banco o en Caja General, con testigo. */
+  llego: number;
+  /** En una cuenta cuyo libro de Bancos no llega a la fecha del depósito. */
+  por_saber: number;
+  /** Aplicado sin testigo: sin pareo, caja sin asiento o sin cuenta. */
+  sin_conciliar: number;
+  /** Devoluciones, ajuste a saldo, traspasos: no viaja a un banco. */
+  puente: number;
+  /** Lo que Kepler no ha aplicado: monto − aplicado. */
+  sin_deposito: number;
+  /** Días desde el corte (hora de México); sólo cuando falta depositar algo. */
+  edad_dias: number | null;
+}
+
+/** `[CSU.27]` La venta del turno, el testigo del corte: el corte = tickets − devoluciones en 698 de 707 (nov-2026). */
+export interface CorteVentaTurno {
+  tickets: number;
+  /** Suma de los tickets del turno. */
+  total: number;
+  /** Devoluciones pagadas en la caja de ese turno (CSU.7). */
+  devoluciones: number;
+  /** total − devoluciones. */
+  neto: number;
+  /** ¿El corte es la venta del turno? */
+  igual_al_corte: boolean;
+}
+
+/** `[CSU.28]` Nota de crédito aplicada a una factura de contado (`UA2101` fiscal, `UA2501` no fiscal). */
+export interface FacturaNotaCredito {
+  doc_prefix: string;
+  folio: string;
+  fecha: string;
+  monto: number;
+  motivo: string | null;
+}
+
+/** `[CSU.28]` El ticket del que salió una factura de contado. */
+export interface FacturaTicket {
+  caja: string;
+  folio: string;
+  fecha: string;
+  turno: string | null;
+  total: number;
+  /** `kdm1.c97` tal cual: lo que el ticket dice que se pagó y el cambio. ⛔ NO es la forma de pago. */
+  pago: { pago: number; cambio: number } | null;
+}
+
+/**
+ * `[CSU.30]` Por qué una factura no tiene corte:
+ *  · `sin_ticket`           su ticket no está en Kepler.
+ *  · `antes_del_corte_pos`  su ticket es de antes del 1-oct-2026, cuando no existía el corte POS.
+ *  · `otro_periodo`         su ticket es de fuera del periodo consultado (±1 día): su corte se ve en ese periodo.
+ *  · `sin_corte`            no hay corte de ese turno.
+ *  · `ambiguo`              dos cortes casan con su turno (el folio de turno se repitió).
+ */
+export type FacturaSinCorte = 'sin_ticket' | 'antes_del_corte_pos' | 'otro_periodo' | 'sin_corte' | 'ambiguo';
+
+/** `[CSU.30]` Una factura de contado (`U-D-5` «TK Contado», `U-D-12` «Cont No Fiscal») con su ticket, notas y corte. */
+export interface FacturaContado {
+  sucursal: string;
+  tipo: number;
+  /** Nombre del tipo en Kepler (`kdmm`). */
+  tipo_nombre: string | null;
+  folio: string;
+  fecha: string;
+  cliente: string | null;
+  total: number;
+  notas: FacturaNotaCredito[];
+  notas_total: number;
+  /** total − notas de crédito. */
+  neto: number;
+  ticket: FacturaTicket | null;
+  /** Clave del corte de su turno en `FacturasContadoResponse.cortes`; `null` → ver `sin_corte`. */
+  corte: string | null;
+  sin_corte: FacturaSinCorte | null;
+}
+
+/** `[CSU.30]` El estado del corte de una factura: su llegada, por qué no tiene corte, o `no_medido`. */
+export type FacturaEstadoCorte = CorteLlegadaEstado | FacturaSinCorte | 'no_medido';
+
+/** `[CSU.30]` Un tipo de factura de contado en el periodo. */
+export interface FacturasContadoTipo {
+  tipo: number;
+  tipo_nombre: string | null;
+  facturas: number;
+  monto: number;
+  /** Notas de crédito aplicadas a facturas de este tipo. */
+  notas: number;
+  notas_monto: number;
+  neto: number;
+  /** Cuántas facturas y cuánto, según el estado del corte de su turno. */
+  por_corte: Record<FacturaEstadoCorte, { facturas: number; monto: number }>;
+}
+
+/** `[CSU.30]` Lo del corte que necesita la factura para decir a dónde llegó (el mismo `CorteRow` de la lista). */
+export type FacturaCorte = Pick<CorteRow,
+  'clave' | 'sucursal' | 'documento' | 'folio' | 'fecha' | 'referencia' | 'caja' | 'turno' | 'monto' | 'cuadre' | 'diferencia'
+  | 'cobros' | 'llegada' | 'venta_turno' | 'venta_sin_forma_de_pago'>;
+
+/** `[CSU.30]` `GET /finance/cortes-sucursales/facturas`. */
+export interface FacturasContadoResponse {
+  periodo: { from: string; to: string };
+  alcance: CortesAlcance;
+  /** La sucursal pedida, o `null` = todas las visibles. */
+  sucursal: string | null;
+  /** El corte pedido (sus facturas del turno), o `null` = las facturas del periodo por su fecha. */
+  corte: string | null;
+  tipos: FacturasContadoTipo[];
+  facturas: FacturaContado[];
+  /** Los cortes de las facturas, una vez cada uno. */
+  cortes: Record<string, FacturaCorte>;
+  /** Los cortes se buscaron del periodo ±1 día: un ticket de fuera sale `otro_periodo`. */
+  cortes_desde: string;
+  cortes_hasta: string;
+  /** `false` = la llegada de los cortes no se midió: el estado de cada factura sale `no_medido`. */
+  llegada_medida: boolean;
+}
+
+/** `[CSU.29]` La llegada de todo el periodo (lo aplicado, sumado por clase) y cuántos cortes hay en cada estado. */
+export interface CortesLlegadaResumen {
+  /** Lo que Kepler aplicó a los cortes del periodo. */
+  aplicado: number;
+  llego: number;
+  por_saber: number;
+  sin_conciliar: number;
+  puente: number;
+  /** Lo que falta aplicar a los cortes del periodo. */
+  sin_deposito: number;
+  cortes: Record<CorteLlegadaEstado, number>;
 }
 
 /**
@@ -344,6 +538,15 @@ export interface CorteRow {
    * contaba sólo lo primero (55 en octubre) y la lista las dos (272): dos cifras del mismo hecho.
    */
   sin_cuadrar: boolean;
+  /** `[CSU.27]` ¿Llegó el dinero del corte? `null` = no se midió (ver `CortesSucursalesResponse.llegada`). */
+  llegada: CorteLlegada | null;
+  /** `[CSU.27]` La venta del turno; `null` si no se midió, no hay tickets o el folio de turno es ambiguo. */
+  venta_turno: CorteVentaTurno | null;
+  /**
+   * `[CSU.27]` Venta que el turno cerró sin forma de pago: sólo cuando el corte salió `corte_distinto`, ARRIBA de lo
+   * esperado, y es igual a la venta del turno menos devoluciones. `null` en cualquier otro caso (sin testigo no hay causa).
+   */
+  venta_sin_forma_de_pago: number | null;
 }
 
 /**
@@ -425,6 +628,13 @@ export interface CortesSucursalesResponse {
   };
   sucursales: CorteSucursalResumen[];
   cortes: CorteRow[];
+  /**
+   * `[CSU.29]` ¿Llegó el dinero del periodo? `null` = **no se midió** (la consulta de llegada falló): la pantalla lo
+   * dice, no pinta ceros (ADR-056).
+   */
+  llegada: CortesLlegadaResumen | null;
+  /** `[CSU.29]` Venta sin forma de pago del periodo, con testigo. `null` = la venta del turno no se midió. */
+  venta_sin_forma_de_pago: { cortes: number; monto: number } | null;
   /**
    * `[CSU.20]` Efectivo que el cajero contó en el periodo y NO quedó en ningún corte: conteos «sin
    * caja» (constancias sin esperado: fondo, depósito al banco, la venta del día anterior…) y retiros o

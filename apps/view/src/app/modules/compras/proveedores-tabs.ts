@@ -11,7 +11,8 @@ import { Permission } from '../../core/constants/permissions';
  *  - **Citas** — `/compras/citas`: la agenda de reuniones con el proveedor (PQ.3.8): EXISTE. Las visitas por WhatsApp
  *    (PQ.3.13) y la invitación (PQ.3.12) entran sobre ella.
  *  - **Revisión** — la revisión de negocio y su ficha (PQ.3.9): por construir.
- *  - **Acuerdos** — lo pactado, con dueño y fecha, y el plan de trabajo anual (PQ.3.10, PQ.3.11): por construir.
+ *  - **Acuerdos** — `/compras/acuerdos`: lo pactado en cada reunión, con dueño y fecha (PQ.3.10): EXISTE, con las llaves
+ *    de Citas (DC44). El plan de trabajo anual (PQ.3.11): por construir.
  *  - **Listas de precios** — la del proveedor, con su vigencia y cada cambio autorizado (PQ.155, anexo P):
  *    por construir; hoy sólo hay una ruta de marcador en Catálogo (`/compras/catalogo/listas-precios`).
  *
@@ -40,6 +41,14 @@ export const PROVEEDORES_TABS: PageTab[] = [
     icon: 'pi pi-users',
     // `[PQ.3.8]` Quien consulta (Dirección) y quien agenda (Compras, Mercadotecnia y Tesorería; DC41). Quien sólo tiene
     // estas llaves entra al apartado por aquí: la entrada del menú abre su primera pestaña visible.
+    anyOf: [Permission.COMPRAS_CITAS_VER, Permission.COMPRAS_CITAS_AGENDAR],
+  },
+  {
+    label: 'Acuerdos',
+    route: '/compras/acuerdos',
+    icon: 'pi pi-list-check',
+    // `[PQ.3.10]` Las MISMAS llaves que Citas (DC44): un acuerdo sale de una reunión y lo trabajan quienes agendan;
+    // Dirección consulta. Va DESPUÉS de Citas: quien sólo tiene estas llaves entra al apartado por Citas.
     anyOf: [Permission.COMPRAS_CITAS_VER, Permission.COMPRAS_CITAS_AGENDAR],
   },
 ];

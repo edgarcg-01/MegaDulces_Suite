@@ -17,6 +17,8 @@ import { PaymentCalendarDocumentService } from './payment-calendar-document.serv
 import { PaymentCalendarController } from './payment-calendar.controller';
 import { AvisoDePagoService } from './aviso-de-pago.service';
 import { AvisoDePagoController, AvisoDePagoPublicoController } from './aviso-de-pago.controller';
+import { FacturasFueraDeNormaService } from './facturas-fuera-de-norma.service';
+import { FacturasFueraDeNormaController } from './facturas-fuera-de-norma.controller';
 import { FinanceBudgetModule } from '../budget/finance-budget.module';
 import { FinanceSupplierPaymentAccountsModule } from '../supplier-payment-accounts/finance-supplier-payment-accounts.module';
 import { BudgetLinesService } from '../budget/budget-lines.service';
@@ -64,6 +66,8 @@ import { CargosDelBancoService } from '../charge-contracts/cargos-del-banco.serv
     // `[PGP.194]` El aviso de pago al proveedor: el del Calendario y el de la liga pública.
     AvisoDePagoController,
     AvisoDePagoPublicoController,
+    // `[PGP.229]` La bandeja «Facturas fuera de norma»: decidir la S01 y el régimen que el freno del Calendario detiene.
+    FacturasFueraDeNormaController,
     // `[PGP.213]` Los contratos que sustentan los cargos del banco (anexo CR): su cargo de cada mes vive en el Calendario.
     ChargeContractsController,
   ],
@@ -78,6 +82,7 @@ import { CargosDelBancoService } from '../charge-contracts/cargos-del-banco.serv
     PaymentCalendarService,
     PaymentCalendarDocumentService,
     AvisoDePagoService,
+    FacturasFueraDeNormaService,
     // `[PGP.117]` Escucha `caja_fuente` y, una vez al día, libera los pagos que nadie pagó en una
     // semana (con bitácora). Su `PgListenService` llega de `CajaRealtimeModule` (ver `imports`).
     PagosVencidosService,

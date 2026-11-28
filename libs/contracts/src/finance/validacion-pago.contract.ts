@@ -222,6 +222,11 @@ export interface CasaComprobante {
   pago_id: string | null;
   /** En palabras; null si casa. */
   motivo: string | null;
+  /**
+   * `[PGP.232]` Casó con un pago que la Suite no había autorizado (D6: el dinero ya salió). Sólo viene cuando casa.
+   * Ya no se produce el estado `sin_autorizar`: se queda en el tipo para las pantallas que lo pintan.
+   */
+  sin_autorizar?: boolean;
 }
 
 /** Métodos que nunca salen como transferencia: su comprobante no es un SPEI. */
@@ -236,8 +241,13 @@ const NO_TRANSFERENCIA = new Set(['efectivo', 'cheque']);
  * y ninguno con otro**; con las fechas corridas −35, −60 y +35 días (placebo) casan **0 de 99**.
  *
  * ⛔ Uno a uno: si dos comprobantes reclaman el mismo pago, ninguno casa (`disputado`); si un comprobante
- * tiene dos pagos posibles, no se adivina (`varios`). ⛔ Un pago sin autorizar no lo paga un comprobante:
- * un PDF lo sube una persona, a diferencia del banco; ese pago espera al estado de cuenta (D6).
+ * tiene dos pagos posibles, no se adivina (`varios`).
+ *
+ * `[PGP.232]` Edgar, 2026-11-27: *«cuando se agregue el comprobante se escriba en Kepler y se re-afirme con el
+ * movimiento de banco»*. Antes, un pago sin autorizar no lo pagaba un comprobante y esperaba al estado de cuenta; como
+ * ningún pago se autoriza en la Suite (207 de 207 desde octubre), el comprobante nunca disparaba nada. Ahora casa igual,
+ * con `sin_autorizar: true` (D6: se registra y se marca); el banco lo confirma después (`[PGP.130b]`) o avisa que la
+ * salida no apareció.
  */
 export function casarComprobantesConPagos(
   comprobantes: readonly ComprobanteBanco[], pagos: readonly PagoPorComprobante[],
@@ -272,11 +282,7 @@ export function casarComprobantesConPagos(
     const p = cand[0];
     if ((reclamos.get(p.id) ?? 0) > 1) { out.set(c.id, r('disputado', 'Otro comprobante casa con el mismo pago: deja uno.', p.id)); continue; }
     if (p.con_comprobante) { out.set(c.id, r('ya_tiene', 'Ese pago ya tiene su comprobante.', p.id)); continue; }
-    if (!p.autorizado) {
-      out.set(c.id, r('sin_autorizar', 'Ese pago no está autorizado: el comprobante no lo da por pagado. Lo marcará el estado de cuenta cuando aparezca la salida.', p.id));
-      continue;
-    }
-    out.set(c.id, r('casa', null, p.id));
+    out.set(c.id, { ...r('casa', null, p.id), sin_autorizar: !p.autorizado });
   }
   return out;
 }
@@ -365,7 +371,8 @@ const diasAntes = (iso: string, dias: number): string => {
  * ninguno de ellos. ⛔ Un pago con comprobante no recibe otro.
  *
  * Un pago pendiente SIN autorizar sí se liga (DA1 de Francisco, 2026-11-21: el dinero ya salió) y sale marcado
- * `sin_autorizar`: el escritor de Kepler lo retiene hasta que el estado de cuenta confirme la salida (`[PGP.192]`).
+ * `sin_autorizar`. Desde `[PGP.232]` el escritor de Kepler ya no lo retiene (lo hacía `[PGP.192]`): se escribe al ligarse
+ * y el estado de cuenta lo re-afirma después, o avisa que la salida no apareció.
  */
 export function decidirComprobanteDelRenglon(p: PagoDelRenglon, l: LecturaDelRenglon, hoy: string): DecisionDelRenglon {
   const no = (motivo: string): DecisionDelRenglon => ({ liga: false, motivo });

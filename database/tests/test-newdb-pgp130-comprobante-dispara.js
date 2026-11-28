@@ -10,7 +10,7 @@
  *   1. el comprobante de un pago autorizado, misma cuenta/importe/fecha, CASA: se guarda `validado`, apuntando al
  *      pago (`doc_prefix = 'CAL'`, `folio` = id del pago), sin tocar todavía el pago;
  *   2. ⛔ el mismo comprobante otra vez: `ya_tiene`, sin fila nueva;
- *   3. ⛔ un pago sin autorizar no lo paga un comprobante (`sin_autorizar`), sin fila;
+ *   3. `[PGP.232]` un pago sin autorizar SÍ lo paga su comprobante (Edgar, 2026-11-27): casa y se guarda, marcado «sin autorizar»;
  *   4. ⛔ una cuenta de origen que no es nuestra no casa (`sin_lectura`), sin fila;
  *   5. ⛔ la misma clave de rastreo en otro comprobante vivo: `repetido`, sin fila;
  *   6. ⛔ un PDF ilegible: `sin_lectura`, sin subir nada al bucket;
@@ -20,6 +20,8 @@
  *   9. al escribirse el `X-D-26`, el comprobante pasa a apuntar a ese documento (`moverComprobanteAKepler`);
  *  10. `[PGP.130b]` el banco CONFIRMA lo que pagó el comprobante: liga su salida sin cambiar el estado; otra vez, nada;
  *  11. ⛔ una salida de OTRA cuenta (la del comprobante es otra) no lo confirma.
+ *  12. `[PGP.232]` el banco que no trae la salida: sin descarga de la cuenta, NO MEDIDO (no avisa); con descarga que no cubre
+ *      la ventana, espera; con descarga que la cubre, UNA fila «sin_salida_en_el_banco» con su documento de Kepler; otra vez, nada.
  */
 const path = require('path');
 try { require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true }); } catch { /* opcional */ }
@@ -115,8 +117,9 @@ const comunes = (trx) => ({
       // 3. sin autorizar
       leer({ monto: 222222.22, fecha: '2099-03-20', clave_rastreo: 'PGP130RASTREO3' });
       const r3 = await comp.comprobanteDelCalendario('data:application/pdf;base64,AAAA', 'prueba_pgp130');
-      ok(r3.estado === 'sin_autorizar' && r3.pago_id === pagoSinAutorizar.id && (await filasCal(pagoSinAutorizar.id)).length === 0,
-        `3. ⛔ un pago sin autorizar no lo paga un comprobante (${r3.estado}), sin fila`);
+      const f3 = await filasCal(pagoSinAutorizar.id);
+      ok(r3.estado === 'casa' && r3.pago_id === pagoSinAutorizar.id && f3.length === 1 && /no estaba autorizado/.test(f3[0].comentarios || ''),
+        `3. [PGP.232] un pago sin autorizar SÍ lo paga su comprobante y queda dicho en el comprobante (${r3.estado})`);
 
       // 4. cuenta ajena
       leer({ monto: 333333.33, cuenta_origen: '0000 1111 2222 3333', clave_rastreo: 'PGP130RASTREO4' });
@@ -143,8 +146,9 @@ const comunes = (trx) => ({
       Object.assign(cal, comunes(trx), { ledger: null });
       const a = await cal.pagarPorComprobante('prueba_pgp130');
       const p7 = await trx('finance.payment_allocations').where({ id: pago.id }).first();
-      ok(a.pagados === 1 && p7.status === 'executed' && p7.paid_proof_id === r1.comprobante_id && p7.paid_validated_at != null,
-        `7. queda pagado con su comprobante (${JSON.stringify({ pagados: a.pagados, status: p7.status })})`);
+      ok(a.pagados === 2 && p7.status === 'executed' && p7.paid_proof_id === r1.comprobante_id && p7.paid_validated_at != null,
+        `7. queda pagado con su comprobante; [PGP.232] también el sin autorizar (${JSON.stringify({ pagados: a.pagados, status: p7.status })})`);
+      ok((await trx('finance.payment_allocations').where({ id: pagoSinAutorizar.id }).first()).status === 'executed', '7. [PGP.232] el pago sin autorizar quedó pagado por su comprobante');
       const h7 = await trx('finance.payment_allocation_history').where({ allocation_id: pago.id });
       ok(h7.length === 1 && h7[0].event === 'pagado_por_comprobante' && h7[0].status_to === 'executed', '7. UNA fila «pagado_por_comprobante» en la bitácora');
       const a2 = await cal.pagarPorComprobante('prueba_pgp130');
@@ -184,6 +188,29 @@ const comunes = (trx) => ({
         '10. ⛔ correrlo otra vez no confirma nada nuevo');
       const a11 = await trx('finance.payment_allocations').where({ id: ajeno.id }).first();
       ok(a11.paid_bank_movement_id == null && cb.otra_cuenta >= 1, `11. ⛔ la salida de OTRA cuenta no confirma el pago (otra_cuenta=${cb.otra_cuenta})`);
+
+      // 12. [PGP.232] El banco que no trae la salida. El pago «ajeno» lo pagó su comprobante (día 2099-03-10, cuenta `cuenta`)
+      // y su salida no está en esa cuenta. Sin descarga: NO MEDIDO; la descarga se agrega por renglones sin cargo (no casan con nada).
+      const sinSalida = async () => trx('finance.payment_allocation_history').where({ allocation_id: ajeno.id, event: 'sin_salida_en_el_banco' });
+      const s0 = await cal.avisarSinSalidaEnElBanco('2099-03-15', 'prueba_pgp130');
+      ok(s0.no_medido >= 1 && !(await sinSalida()).length, `12. ⛔ sin descarga de la cuenta NO se afirma que no salió: no medido (${JSON.stringify(s0)})`);
+      const arch = (await trx('finance.bank_statement_files').insert({ tenant_id: T, bank_account_id: cuenta.id, bank: 'bbva', file_sha1: 'pgp232-1',
+        date_from: '2099-03-01', date_to: '2099-03-13', lines_in_file: 2, lines_new: 2, opening_balance: 0, closing_balance: 0, total_in: 2, total_out: 0,
+        balance_ok: true, account_check: 'en_archivo' }).returning('*'))[0];
+      const renglon = (n, fecha) => trx('finance.bank_statement_lines').insert({ tenant_id: T, file_id: arch.id, bank_account_id: cuenta.id, line_no: n, seq: n,
+        movement_date: fecha, concept: 'INTERES PRUEBA 232', amount_in: 1, amount_out: 0, running_balance: 0, line_key: `pgp232-l${n}` });
+      await renglon(1, '2099-03-12');
+      const s1 = await cal.avisarSinSalidaEnElBanco('2099-03-15', 'prueba_pgp130');
+      ok(s1.sin_salida === 0 && !(await sinSalida()).length, `12. CONTROL: la descarga llega al 12 y la ventana al 13: espera, no avisa (${JSON.stringify(s1)})`);
+      await renglon(2, '2099-03-13');
+      const s2 = await cal.avisarSinSalidaEnElBanco('2099-03-15', 'prueba_pgp130');
+      const h12 = await sinSalida();
+      ok(s2.sin_salida === 1 && h12.length === 1 && h12[0].detail.banco.descarga_hasta === '2099-03-13' && h12[0].status_to === 'executed',
+        `12. la descarga ya cubre la ventana y la salida no está: UNA fila «sin_salida_en_el_banco» (${JSON.stringify(s2)})`);
+      ok(!(await trx('finance.payment_allocation_history').where({ allocation_id: pago.id, event: 'sin_salida_en_el_banco' })).length,
+        '12. ⛔ el pago que el banco sí confirmó no se avisa');
+      const s3 = await cal.avisarSinSalidaEnElBanco('2099-03-15', 'prueba_pgp130');
+      ok(s3.sin_salida === 0 && (await sinSalida()).length === 1, '12. ⛔ correrlo otra vez no avisa dos veces');
 
       throw ROLLBACK;
     });

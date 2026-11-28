@@ -138,6 +138,31 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
 }
 
 /**
+ * `[UB.PL.15]` Los nombres de las caras que todavía **no tienen lugar** en el croquis.
+ *
+ * ⛔ **Se miran las CARAS, no las piezas**, y la diferencia no es de estilo: desde `[UB.PL.11]` el
+ * lugar vive en la cara (`fila` · `columna` · `mira`) y `fixture.fila` quedó como campo viejo.
+ * Mirar la pieza hacía que la pantalla afirmara algo **falso** — medido en prod el 2026-11-27, con
+ * el croquis de Padre Hidalgo ya dibujado: las dos caras del pasillo B estaban en el dibujo, a la
+ * vista, y el aviso de abajo seguía diciendo «Anaquel de pasillo B, sin lugar todavía».
+ *
+ * ⭐ Una cara sin pieza conocida se **omite** en vez de nombrarse «sin nombre»: es un hueco del
+ * dato, y un renglón fantasma en la lista mandaría a buscar un mueble que nadie puede encontrar.
+ */
+export function nombresDeCarasSinLugar(
+  caras: readonly FixtureFace[],
+  piezas: readonly WarehouseFixture[],
+): string[] {
+  return caras
+    .filter((c) => !caraColocada(c))
+    .map((c) => {
+      const p = piezas.find((x) => x.id === c.fixture_id);
+      return p ? nombreDeCara(p, c) : null;
+    })
+    .filter((n): n is string => !!n);
+}
+
+/**
  * `[UB.1]` Mapa de ubicaciones (Fase UB, ADR-090).
  *
  * Los pasillos en renglones y los racks en columnas, por zona (bodega / tienda). Cada cuadro es
@@ -466,6 +491,18 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
                       <button pButton type="button" class="p-button-sm p-button-text" [disabled]="croquisArmando()" (click)="configurarCroquis()"><span class="p-button-label">{{ croquisArmando() ? 'Armando…' : 'Configurar el croquis' }}</span></button>
                     </p>
                   } @else {
+                    <!-- [UB.PL.13] El hueco, dicho. El backend ya lo medía y NADIE lo pintaba: en
+                         Padre Hidalgo había 110 de 471 ubicaciones fuera del croquis (los pasillos
+                         I, J y K, capturados después de armarlo) y la pantalla se veía completa.
+                         Y el botón de recoger sólo existía mientras no hubiera ninguna pieza, así
+                         que no había forma de apretarlo: no es que nadie quisiera, es que no se podía. -->
+                    @if (sinPieza() > 0) {
+                      <p class="ub-note ub-falta" role="status">
+                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        <span><b class="num">{{ sinPieza() }}</b> ubicaciones de {{ letrasSinPieza() }} no están en ninguna pieza: el croquis no las dibuja.</span>
+                        <button pButton type="button" class="p-button-sm" [disabled]="croquisArmando()" (click)="configurarCroquis()"><span class="p-button-label">{{ croquisArmando() ? 'Armando…' : 'Recoger las que faltan' }}</span></button>
+                      </p>
+                    }
                     <p class="ub-note">
                       <i class="pi pi-th-large" aria-hidden="true"></i>
                       <span>{{ acomodando() ? 'Acomodando la planta: dónde está cada mueble.' : 'El croquis dibuja la tienda como es, cuando cada pieza tiene su lugar.' }}</span>
@@ -476,8 +513,8 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
                 <!-- [UB.PL.10] El botón hace trabajo real y tiene que DECIRLO. Este aviso vive FUERA
                      del bloque del croquis a propósito: las piezas nacen sin lugar, así que adentro era
                      una rama muerta — se armaban 8 piezas y la pantalla quedaba idéntica. -->
-                @if (!acomodando() && piezasSinLugar().length) {
-                  <p class="ub-hint" role="status"><b>{{ piezasSinLugar().length }}</b> piezas armadas, sin lugar todavía: {{ nombresSinLugar() }}. Falta acomodarlas en el croquis.</p>
+                @if (!acomodando() && carasSinLugar().length) {
+                  <p class="ub-hint" role="status"><b>{{ carasSinLugar().length }}</b> caras sin lugar todavía: {{ nombresSinLugar() }}. Falta acomodarlas en el croquis.</p>
                 }
                 @if (croquisErr(); as e) { <p class="ub-hint ub-bad" role="alert">{{ e }}</p> }
                 <p class="ub-hint">Cada pasillo tiene dos frentes, uno a cada lado del corredor: los racks <b>nones</b> de un lado y los <b>pares</b> del otro, así que el <b class="num">{{ dos(1) }}</b> queda enfrente del <b class="num">{{ dos(2) }}</b>. El número del cuadro es cuántos productos ya tienen su lugar ahí; tócalo para ver sus niveles.</p>
@@ -705,6 +742,10 @@ export function estaAcomodada(p: Pick<WarehouseFixture, 'fila' | 'columna'>): bo
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
     .ub-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
     .ub-note-bad { border-left:3px solid var(--bad-fg); }
+    /* [UB.PL.13] El borde lleva --warn-fg porque es un BORDE; el icono lleva --warn-soft-fg porque
+       es texto: sobre blanco, --warn-fg da 2.15:1 y no pasa AA. */
+    .ub-falta { border-left:3px solid var(--warn-fg); }
+    .ub-note.ub-falta .pi { color:var(--warn-soft-fg); }
     .ub-note-bad .pi { color:var(--bad-fg); }
     .ub-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .ub-errbox .pi { color:var(--bad-fg); } .ub-errbox-txt { flex:1; font-size:var(--fs-sm); }
@@ -947,14 +988,31 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
 
   /** Las piezas de la zona que se está mirando, ya acomodadas en el croquis. */
   readonly piezasDeZona = computed(() => (this.croquis()?.piezas ?? []).filter((p) => p.zona === this.zona()));
-  readonly piezasSinLugar = computed(() => this.piezasDeZona().filter((p) => !estaAcomodada(p)));
 
   /**
    * El croquis en renglones: cada uno con sus piezas en orden de columna, y cada pieza con los
    * frentes que ya arma `armarPasillos` (por su letra). Así el dibujo sale de **dónde está cada
    * mueble**, no de suponer que todo es un pasillo.
    */
-  readonly nombresSinLugar = computed(() => this.piezasSinLugar().map((p) => nombrePieza(p)).join(', '));
+  /**
+   * `[UB.PL.15]` Lo que falta acomodar son **caras**, no piezas, y por eso este aviso las nombra a
+   * ellas.
+   *
+   * ⛔ Antes miraba `fixture.fila`, y eso afirmaba algo FALSO: desde `[UB.PL.11]` el lugar vive en
+   * la CARA (`fila`/`columna`/`mira`) y el campo de la pieza quedó viejo. Con las dos caras del
+   * pasillo B ya dibujadas en el croquis, la pantalla seguía diciendo «Anaquel de pasillo B, sin
+   * lugar todavía» — medido en prod el 2026-11-27, con el croquis de Padre Hidalgo armado.
+   */
+  readonly nombresSinLugar = computed(() => nombresDeCarasSinLugar(this.caras(), this.piezasDeZona()).join(', '));
+
+  /** `[UB.PL.13]` Ubicaciones que no cuelgan de ninguna pieza, y de qué letras son. */
+  readonly sinPieza = computed(() => this.croquis()?.sin_pieza ?? 0);
+  readonly letrasSinPieza = computed(() => {
+    const l = this.croquis()?.sin_pieza_letras ?? [];
+    if (!l.length) return 'la tienda';
+    if (l.length === 1) return `${l[0]}`;
+    return `${l.slice(0, -1).join(', ')} y ${l[l.length - 1]}`;
+  });
 
   // ── `[UB.PL.11]` Acomodar: lo que se mueve es una CARA ──────────────────────────────────────
   /** La cara que está «en la mano». Es lo mismo para el mouse (arrastre) y para el teclado. */

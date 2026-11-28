@@ -1,5 +1,5 @@
 import { FIXTURE_KINDS, nombrePieza, type WarehouseLocationRow } from '@megadulces/contracts';
-import { ariaDeRack, armarPasillos, cartelesDe, elAlmacenQueSiTieneTrabajo, estaAcomodada, estadoDeRack, formatoPorZona, productosDeRack, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
+import { ariaDeRack, armarPasillos, cartelesDe, elAlmacenQueSiTieneTrabajo, estaAcomodada, estadoDeRack, formatoPorZona, nombresDeCarasSinLugar, productosDeRack, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
 
 const nivel = (p: Partial<WarehouseLocationRow>): WarehouseLocationRow => ({
   id: 'x', warehouse_id: 'w', warehouse_code: '01', code: 'BA051', label: null, familia: 'ubicacion',
@@ -237,3 +237,54 @@ describe('[UB.RF.12] mapa · qué se imprime por omisión', () => {
   });
 });
 
+
+/**
+ * `[UB.PL.15]` El aviso de «sin lugar todavía» mira las CARAS, no las piezas.
+ *
+ * ── El defecto, medido en prod el 2026-11-27 ────────────────────────────────────────────────
+ * Con el croquis de Padre Hidalgo ya dibujado —las dos caras del pasillo B y las dos del C en el
+ * dibujo, a la vista— el aviso de abajo seguía diciendo **«7 piezas armadas, sin lugar todavía:
+ * Anaquel de pasillo B, Anaquel de pasillo C, …»**. La pantalla afirmaba algo falso sobre algo
+ * que el usuario tenía delante de los ojos.
+ *
+ * La causa: desde `[UB.PL.11]` el lugar vive en la CARA (`fila` · `columna` · `mira`) y
+ * `fixture.fila` quedó como campo viejo que ya nadie escribe. El aviso seguía mirando ése.
+ */
+describe('[UB.PL.15] el aviso de «sin lugar» nombra CARAS, no piezas', () => {
+  const pieza = (id: string, pasillo: string, tipo: 'anaquel' | 'cabecera') =>
+    ({ id, zona: 'T', tipo, pasillo, racks: 10, niveles: 5, fila: null, columna: null, orden: 0, label: null,
+       warehouse_id: 'w' }) as unknown as Parameters<typeof nombresDeCarasSinLugar>[1][number];
+  const cara = (id: string, fixture_id: string, modo: string, puesta: boolean) =>
+    ({ id, fixture_id, slot: 1, racks_modo: modo, rack_desde: null, rack_hasta: null, label: null,
+       fila: puesta ? 1 : null, columna: puesta ? 1 : null, mira: puesta ? 'abajo' : null,
+     }) as unknown as Parameters<typeof nombresDeCarasSinLugar>[0][number];
+
+  const piezas = [pieza('b', 'B', 'anaquel'), pieza('d', 'D', 'cabecera')];
+
+  it('⭐ una pieza con TODAS sus caras puestas no aparece — el caso que se vio en Padre Hidalgo', () => {
+    const caras = [cara('b1', 'b', 'nones', true), cara('b2', 'b', 'pares', true)];
+    expect(nombresDeCarasSinLugar(caras, piezas)).toEqual([]);
+  });
+
+  it('nombra sólo las caras que faltan, con su nombre de tienda', () => {
+    const caras = [cara('b1', 'b', 'nones', true), cara('b2', 'b', 'pares', false), cara('d1', 'd', 'todos', false)];
+    expect(nombresDeCarasSinLugar(caras, piezas)).toEqual(['Anaquel de pasillo B · pares', 'Cabecera D']);
+  });
+
+  it('⛔ NEGATIVA: la pieza puede estar «sin acomodar» y sus caras puestas — y manda la CARA', () => {
+    // Las piezas de arriba tienen fila y columna en null, o sea `estaAcomodada()` da false para
+    // las dos. Si el aviso mirara la pieza, diría que B no tiene lugar; mirando las caras, no.
+    const caras = [cara('b1', 'b', 'nones', true), cara('b2', 'b', 'pares', true), cara('d1', 'd', 'todos', true)];
+    expect(piezas.every((p) => !estaAcomodada(p))).toBe(true);
+    expect(nombresDeCarasSinLugar(caras, piezas)).toEqual([]);
+  });
+
+  it('una cara cuya pieza no está en la zona se omite, no se nombra «sin nombre»', () => {
+    const caras = [cara('x1', 'fantasma', 'nones', false), cara('d1', 'd', 'todos', false)];
+    expect(nombresDeCarasSinLugar(caras, piezas)).toEqual(['Cabecera D']);
+  });
+
+  it('sin caras, no hay nada que avisar', () => {
+    expect(nombresDeCarasSinLugar([], piezas)).toEqual([]);
+  });
+});

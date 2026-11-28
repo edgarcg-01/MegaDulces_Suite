@@ -136,11 +136,15 @@ describe('[PGP.71] E3.3 motivosParaNoEscribir', () => {
     expect(motivosParaNoEscribir(pago({ probado_por_comprobante: true, kepler_payment_folio: '0024276' })).join(' ')).toMatch(/duplicaría/);
     expect(motivosParaNoEscribir(pago({ probado_por_comprobante: true, payment_method: 'efectivo' })).length).toBeGreaterThan(0);
   });
-  // `[PGP.192]` DA1: el PDF soltado sobre su renglón paga también lo no autorizado; Kepler espera al banco.
-  it('⛔ [PGP.192] sin autorizar y probado SÓLO por su comprobante: no se escribe hasta que lo confirme el banco', () => {
+  // `[PGP.232]` Edgar, 2026-11-27: el comprobante escribe en Kepler; el banco re-afirma después. Ya no se retiene.
+  it('[PGP.232] sin autorizar y probado SÓLO por su comprobante: se escribe ya (antes esperaba al banco, [PGP.192])', () => {
     const solo = pago({ lot_status: 'in_prep', validacion_estado: null, probado_por_comprobante: true, autorizado: false });
-    expect(motivosParaNoEscribir(solo)).toEqual([MOTIVO_SIN_AUTORIZAR_SOLO_COMPROBANTE]);
+    expect(motivosParaNoEscribir(solo)).toEqual([]);
+    expect(motivosParaNoEscribir(solo)).not.toContain(MOTIVO_SIN_AUTORIZAR_SOLO_COMPROBANTE);
     expect(motivosParaNoEscribir({ ...solo, probado_por_el_banco: true })).toEqual([]);
+  });
+  it('⛔ [PGP.232] sin autorizar, sin comprobante y sin banco: sigue sin escribirse (nada probó la salida)', () => {
+    expect(motivosParaNoEscribir(pago({ lot_status: 'in_prep', validacion_estado: null, autorizado: false })).length).toBeGreaterThan(0);
   });
   it('[PGP.192] autorizado, o sin saberlo (llamadores de antes): el comprobante solo basta, como en [PGP.130]', () => {
     const base = { lot_status: 'in_prep', validacion_estado: null, probado_por_comprobante: true };

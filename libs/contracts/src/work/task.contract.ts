@@ -127,6 +127,8 @@ export const FUENTES_TAREA = [
   'platform.checklist_runs',
   // `[MDT.1.5]` Fase MDT: el vale de servicio ES la tarea de quien lo atiende (D8: no es la Mesa de Servicio).
   'platform.work_orders',
+  // `[PQ.3.10]` ADR-128: el acuerdo con el proveedor ES la tarea de su responsable (el del proveedor, de quien organizó la cita).
+  'commercial.supplier_agreements',
 ] as const;
 export type FuenteTarea = (typeof FUENTES_TAREA)[number];
 
@@ -319,6 +321,25 @@ export const ADAPTADORES: readonly AdaptadorTarea[] = [
       'el vale abierto sin responsable es la cola de quien atiende, no la tarea de una persona',
       'el responsable que sólo existe por nombre (cargado de MDTask o externo) no se une al padrón',
       'la firma pendiente del supervisor no es tarea suya: la firma no es obligatoria para cerrar (D8b)',
+    ],
+  },
+  {
+    fuente: 'commercial.supplier_agreements',
+    col_asignado_a: 'assigned_to',
+    col_asignado_por: 'assigned_by',
+    asignado_por_es_uuid: true,
+    col_asignado_at: 'assigned_at',
+    // `due_date` es DATE (la fecha compromiso), como `supervisor_tasks.due_date`: vence al terminar ese día.
+    col_vence: 'due_date',
+    col_estado: 'status',
+    // ADR-128: la tabla guarda el canónico, sin dialecto. `not_applicable` no entra: un acuerdo que no procede se cancela.
+    estados: { pending: 'pending', in_progress: 'in_progress', done: 'done', cancelled: 'cancelled' },
+    estado_fijo: null,
+    origen: 'manual',
+    no_responde: [
+      'a quién se le asignó ANTES de un cambio de responsable: la fila guarda sólo el actual y quién lo cambió por última vez (`updated_by`)',
+      'el acuerdo que le toca al PROVEEDOR aparece como tarea de quien organizó la reunión (DC43): la persona del proveedor sólo está por nombre (`supplier_contact`), no en el padrón',
+      'no admite `not_applicable`: un acuerdo que ya no procede se CANCELA, con nota',
     ],
   },
 ];

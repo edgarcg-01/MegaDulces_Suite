@@ -381,7 +381,8 @@ export interface PagoSuite {
   probado_por_el_banco?: boolean;
   /**
    * `[PGP.130]` Edgar, 2026-11-17 (D1): **el comprobante dispara**. Un pago que su comprobante probó (`paid_proof_id`)
-   * cuenta como probado igual que por el banco. La autorización se exige antes, al casarlo (`casarComprobantesConPagos`).
+   * cuenta como probado igual que por el banco. Desde `[PGP.232]` también el de un pago sin autorizar (D6): se escribe y
+   * el banco lo re-afirma después.
    */
   probado_por_comprobante?: boolean;
   /**
@@ -395,9 +396,11 @@ export interface PagoSuite {
 }
 
 /**
- * `[PGP.192]` Un PDF lo sube una persona: un pago sin autorizar que SÓLO su comprobante probó no va a Kepler hasta que
- * el estado de cuenta confirme la salida (`[PGP.130b]` liga la salida y entonces sí). Si Tesorería ya lo capturó a mano,
- * `[PGP.132]` lo liga y tampoco se escribe. Es el resguardo con el que DA1 amplía la D1 de Edgar (anexo AV §3).
+ * `[PGP.192]` Fue el resguardo de DA1: un pago sin autorizar que SÓLO su comprobante probó no iba a Kepler hasta que el
+ * estado de cuenta confirmara la salida. ⛔ **Retirado por `[PGP.232]`** (Edgar, 2026-11-27: *«cuando se agregue el
+ * comprobante se escriba en Kepler y se re-afirme con el movimiento de banco»*): como ningún pago se autoriza en la Suite,
+ * retenía a todos y el comprobante nunca escribía el mismo día. Ahora el banco re-afirma DESPUÉS (`[PGP.130b]`) y, si la
+ * salida no aparece, lo avisa (`decidirSinSalidaEnElBanco`). La constante se queda: la bitácora de prod la cita.
  */
 export const MOTIVO_SIN_AUTORIZAR_SOLO_COMPROBANTE =
   'Lo pagó su comprobante sin autorización en la Suite: se escribe en Kepler cuando el estado de cuenta confirme la salida';
@@ -416,7 +419,6 @@ export function motivosParaNoEscribir(p: PagoSuite): string[] {
   const m: string[] = [];
   const probado = !!p.probado_por_el_banco || !!p.probado_por_comprobante;
   if (!probado && !LOTES_FIRMADOS.has(p.lot_status)) m.push('El día no está autorizado');
-  if (p.probado_por_comprobante && !p.probado_por_el_banco && p.autorizado === false) m.push(MOTIVO_SIN_AUTORIZAR_SOLO_COMPROBANTE);
   if (p.status !== 'executed') m.push('El pago no está marcado como pagado');
   if (!probado && p.validacion_estado !== 'validado') m.push('El pago no está validado con el estado de cuenta y su comprobante');
   // [PGP.171] El cheque se escribe al COBRO (DCH5 b): cuando el estado de cuenta muestra su cobro (`[PGP.166]`), con su número.

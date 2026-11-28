@@ -373,6 +373,17 @@ export interface WorkbookQuery {
   freno?: boolean;          // [PQ.95] sólo productos con freno: fin de pico en alguna sucursal o temporada confirmada
 }
 
+/**
+ * `[AB.40]` La venta de 30 días en unidad BASE (la misma de `on_hand_nat` y del objetivo, `demandTarget()`:
+ * daily ÷ (SUF×BF) × DBF), sin temporada ni cobertura: es el ritmo contra el que se miden los días del
+ * tope de 45. NULL = el producto no está en el plan. `a` es el alias de `analytics.replenishment_plan`.
+ * `[AB.PM.3]` Exportada porque el pedido a mano mide el alcance con este mismo ritmo, no con otro.
+ */
+export const venta30dBaseSql = (a: string): string => `CASE WHEN ${a}.product_id IS NOT NULL
+                        THEN ROUND((COALESCE(${a}.daily_pieces, 0) * 30 / (COALESCE(${a}.suf, 1) * COALESCE(${a}.bf, 1))
+                                    * COALESCE(${a}.display_bf, ${a}.bf, 1))::numeric, 2)
+                   END`;
+
 interface RequisitionLineDto {
   product_id: string;
   supplier_id?: string | null;
@@ -1580,13 +1591,8 @@ export class CommercialReplenishmentService {
           trx.raw(`(${cf}) AS caja_factor`), // divisor usado (piezas o paquetes por caja)
           // [EC.U] Lo mismo en unidad nativa. El rótulo ya viaja en `rung_base_label`.
           trx.raw(`ROUND((${oh})::numeric, 2)            AS on_hand_nat`),
-          // `[AB.40]` La venta de 30 días en la MISMA unidad base que `on_hand_nat` y que el objetivo
-          // (`demandTarget()`: daily ÷ (SUF×BF) × DBF), sin temporada ni cobertura: es el ritmo contra el
-          // que se miden los días del tope de 45. NULL = el producto no está en el plan.
-          trx.raw(`CASE WHEN rpl.product_id IS NOT NULL
-                        THEN ROUND((COALESCE(rpl.daily_pieces, 0) * 30 / (COALESCE(rpl.suf, 1) * COALESCE(rpl.bf, 1))
-                                    * COALESCE(rpl.display_bf, rpl.bf, 1))::numeric, 2)
-                   END AS venta_30d_nat`),
+          // `[AB.40]` La venta de 30 días en la MISMA unidad base que `on_hand_nat` (ver `venta30dBaseSql`).
+          trx.raw(`${venta30dBaseSql('rpl')} AS venta_30d_nat`),
           trx.raw(`ROUND((${itShow})::numeric, 2)        AS in_transit_nat`),
           trx.raw(`ROUND(rp.min_stock::numeric, 2)       AS min_stock_nat`),
           trx.raw(`ROUND(rp.reorder_point::numeric, 2)   AS reorder_point_nat`),

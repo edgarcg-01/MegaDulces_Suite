@@ -104,6 +104,10 @@ export class PagosPorElBancoService implements OnModuleInit, OnModuleDestroy {
           // [PGP.130b] Antes que pagar por el banco: lo que ya pagó el comprobante se confirma con su salida.
           const cb = await this.calendario.confirmarPorElBanco();
           if (cb.revisados) this.logger.log(`confirmados por el banco: ${cb.confirmados} de ${cb.revisados} pagados por comprobante · ${cb.otra_cuenta} con la salida en otra cuenta (no se ligan)`);
+          // [PGP.232] Lo que el banco ya debería traer y no trae: queda en la bitácora del pago (posible rebote).
+          const ss = await this.calendario.avisarSinSalidaEnElBanco();
+          if (ss.sin_salida) this.logger.warn(`sin salida en el banco: ${ss.sin_salida} pagos por comprobante cuya cuenta ya cubre su fecha y la salida no aparece (posible rebote)`);
+          if (ss.no_medido) this.logger.log(`sin salida en el banco: ${ss.no_medido} pagos por comprobante sin descarga de su cuenta (NO MEDIDO)`);
           const r = await this.calendario.pagarPorElBanco();
           const n = r.sin_decidir;
           this.logger.log(`pagos por el banco ${r.hoy}: ${r.revisados} pendientes de días pasados · ${r.pagados} pagados ($${r.monto.toFixed(2)})`
